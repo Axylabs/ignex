@@ -14,7 +14,9 @@ await buildAsync({
   enableAccessLog: false,
   enableStrictMethods: false,
 
-  router: "auto",
+  // Bun 1.4 native router
+  router: "bun-native",
+
   generateTypes: true,
   generateOpenAPI: true,
   generateClient: true,

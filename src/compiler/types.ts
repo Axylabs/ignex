@@ -114,7 +114,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
 
-  router: "auto",
+  router: "bun-native",
   generateTypes: true,
   generateOpenAPI: true,
   generateClient: true,

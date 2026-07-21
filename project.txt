@@ -1,7 +1,7 @@
 P|flux-core
 D|This a WIP framework for high perfromance apps so we can achive native like perfromance using typescript.
-N|prod|@sinclair/typebox:^0.34.52|ajv:^8.20.0|ajv-formats:^3.0.1|defu:^6.1.7|esbuild:^0.28.1|fast-json-stringify:^7.0.1|fast-querystring:^1.1.2|lru-cache:^11.5.2|oxc-parser:^0.140.0|pino:^9.0.0|set-cookie-parser:^2.7.0
-N|dev|@biomejs/biome:^2.5.4|@types/bun:^1.3.14|@types/set-cookie-parser:^2.4.10|typescript:^5.9.0|vitest:^4.1.10
+N|prod|@clack/prompts:^1.7.0|@hey-api/client-fetch:^0.13.1|@opentelemetry/api:^1.9.1|@opentelemetry/exporter-metrics-otlp-http:^0.220.0|@opentelemetry/exporter-trace-otlp-http:^0.220.0|@opentelemetry/resources:^2.9.0|@opentelemetry/sdk-metrics:^2.9.0|@opentelemetry/sdk-trace-base:^2.9.0|@opentelemetry/semantic-conventions:^1.43.0|@react-email/render:^2.1.0|@scalar/api-reference:^1.63.0|@sentry/bun:^10.67.0|@sinclair/typebox:^0.34.52|@standard-schema/spec:^1.1.0|@upstash/ratelimit:^2.0.8
+N|dev|@biomejs/biome:^2.5.5|@hey-api/openapi-ts:^0.99.0|@types/bun:^1.3.14|@types/set-cookie-parser:^2.4.10|@vitest/ui:^4.1.10|expect-type:^1.4.0|oxlint:^1.74.0|tinybench:^6.0.2|typescript:^7.0.2|vitest:^4.1.10
 S|f=55 n=261 c=16 t=121 e=0
 
 G|
@@ -2132,6 +2132,272 @@ t:CachedHttpResponse
  349| |}
 ---
 
+>src/compiler/types.ts
+l:../shared/context-usage|../shared/context-usage
+e:EMPTY_CONTEXT_USAGE|FULL_CONTEXT_USAGE|HTTP_METHODS|HttpMethod|RouterMode|CompilerOptions|RouteCacheConfig|createDefaultOptions|DEFAULT_OPTS|Position|SymbolKind|SymbolInfo|ImportInfo|ExportInfo|ModuleInfo|ResponseType|RouteValidators|RouteSerializers|RouteDef|HookDef|DiscoveryResult|AnalysisResult|OptimizationMeta|OptimizationResult|CompilationMeta|CompiledRoute
+f:createDefaultOptions():CompilerOptions
+t:HttpMethod
+t:RouterMode
+t:CompilerOptions
+t:RouteCacheConfig
+t:Position
+t:SymbolKind
+t:SymbolInfo
+t:ImportInfo
+t:ExportInfo
+t:ModuleInfo
+t:ResponseType
+t:RouteValidators
+t:RouteSerializers
+t:RouteDef
+t:HookDef
+t:DiscoveryResult
+t:AnalysisResult
+t:OptimizationMeta
+t:OptimizationResult
+t:CompilationMeta
+t:CompiledRoute
+---
+   1| |/**
+   2| | * Flux Compiler Type System
+   3| | *
+   4| | * AOT upgrade:
+   5| | * - unified ContextUsage from shared
+   6| | * - added advanced compiler options
+   7| | * - added route metadata for future validators/serializers/OpenAPI
+   8| | */
+  10| |import type { ContextUsage } from "../shared/context-usage";
+  11| |import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
+  13| |export type { ContextUsage };
+  14| |export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
+  15| |export const FULL_CONTEXT_USAGE = FULL_USAGE;
+  17| |export const HTTP_METHODS = [
+  18| |  "GET",
+  19| |  "POST",
+  20| |  "PUT",
+  21| |  "PATCH",
+  22| |  "DELETE",
+  23| |  "HEAD",
+  24| |  "OPTIONS",
+  25| |  "ALL",
+  26| |] as const;
+  28|▼|export type HttpMethod = (typeof HTTP_METHODS)[number];
+  30|▼|export type RouterMode =
+  31| |  | "auto"
+  32| |  | "static-map"
+  33| |  | "radix"
+  34| |  | "bun-native";
+  36|▼|export interface CompilerOptions {
+  37| |  readonly routesDir: string;
+  38| |  readonly outDir: string;
+  39| |  readonly outFile: string;
+  40| |  readonly target: "bun" | "node" | "deno";
+  42| |  readonly optimizationLevel: 0 | 1 | 2 | 3;
+  43| |  readonly inlineThreshold: number;
+  44| |  readonly enableHandlerDeduplication: boolean;
+  45| |  readonly sourceMap: boolean;
+  46| |  readonly minify: boolean;
+  48| |  readonly hooksDir?: string;
+  50| |  readonly enableTracing?: boolean;
+  51| |  readonly enableAccessLog?: boolean;
+  52| |  readonly enableTraceHeaders?: boolean;
+  53| |  readonly enableLifecycle?: boolean;
+  54| |  readonly enableStrictMethods?: boolean;
+  55| |  readonly enableFastBodyParsing?: boolean;
+  57| |  readonly serviceName?: string;
+  58| |  readonly requestIdHeader?: string;
+  59| |  readonly exposeErrorDetails?: boolean;
+  61| |  readonly maxJsonBytes?: number;
+  62| |  readonly maxTextBytes?: number;
+  63| |  readonly maxFormBytes?: number;
+  64| |  readonly maxFileBytes?: number;
+  66| |  readonly cluster?: number | "auto";
+  67| |  readonly reusePort?: boolean;
+  69| |  // Advanced AOT options
+  70| |  readonly router?: RouterMode;
+  71| |  readonly generateTypes?: boolean;
+  72| |  readonly generateOpenAPI?: boolean;
+  73| |  readonly generateClient?: boolean;
+  75| |  readonly precompileValidators?: boolean;
+  76| |  readonly precompileSerializers?: boolean;
+  78| |  readonly hoistConstants?: boolean;
+  79| |  readonly specializeContext?: boolean;
+  80| |  readonly inlineHooks?: boolean;
+  81| |  readonly treeshakeRuntime?: boolean;
+  82| |  readonly routeCache?: boolean;
+  84| |  readonly maxInlineBytes?: number;
+  85| |}
+  87|▼|export interface RouteCacheConfig {
+  88| |  readonly maxAge?: number;
+  89| |  readonly swr?: number;
+  90| |  readonly immutable?: boolean;
+  91| |  readonly vary?: readonly string[];
+  92| |}
+  94|▼|export const createDefaultOptions = (): CompilerOptions => ({
+  95| |  routesDir: process.env.ROUTES_DIR || "./src/routes",
+  96| |  outDir: process.env.OUT_DIR || "./dist",
+  97| |  outFile: "__server.js",
+  98| |  target: "bun",
+ 100| |  optimizationLevel: 3,
+ 101| |  inlineThreshold: 50,
+ 102| |  enableHandlerDeduplication: true,
+ 103| |  sourceMap: false,
+ 104| |  minify: false,
+ 106| |  enableTracing: true,
+ 107| |  enableAccessLog: true,
+ 108| |  enableTraceHeaders: true,
+ 109| |  enableLifecycle: true,
+ 110| |  enableStrictMethods: true,
+ 111| |  enableFastBodyParsing: false,
+ 113| |  serviceName: "flux",
+ 114| |  requestIdHeader: "x-request-id",
+ 115| |  exposeErrorDetails: process.env.NODE_ENV !== "production",
+ 117| |  router: "bun-native",
+ 118| |  generateTypes: true,
+ 119| |  generateOpenAPI: true,
+ 120| |  generateClient: true,
+ 122| |  precompileValidators: false,
+ 123| |  precompileSerializers: false,
+ 125| |  hoistConstants: true,
+ 126| |  specializeContext: true,
+ 127| |  inlineHooks: true,
+ 128| |  treeshakeRuntime: true,
+ 129| |  routeCache: true,
+ 131| |  maxInlineBytes: 2048,
+ 132| |});
+ 134| |export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
+ 136|▼|export interface Position {
+ 137| |  readonly line: number;
+ 138| |  readonly column: number;
+ 139| |}
+ 141|▼|export type SymbolKind =
+ 142| |  | "function"
+ 143| |  | "class"
+ 144| |  | "const"
+ 145| |  | "let"
+ 146| |  | "var"
+ 147| |  | "type"
+ 148| |  | "interface";
+ 150|▼|export interface SymbolInfo {
+ 151| |  readonly name: string;
+ 152| |  readonly kind: SymbolKind;
+ 153| |  readonly pos: Position;
+ 154| |  readonly isAsync: boolean;
+ 155| |  readonly isDefaultExport: boolean;
+ 156| |  readonly params: readonly string[];
+ 157| |  readonly returnType?: string;
+ 158| |  readonly decorators: readonly string[];
+ 159| |  readonly calls: readonly string[];
+ 160| |  readonly calledBy: readonly string[];
+ 161| |  readonly size: number;
+ 162| |  readonly hotness: number;
+ 163| |}
+ 165|▼|export interface ImportInfo {
+ 166| |  readonly source: string;
+ 167| |  readonly names: readonly string[];
+ 168| |  readonly defaultName?: string;
+ 169| |  readonly namespaceName?: string;
+ 170| |}
+ 172|▼|export interface ExportInfo {
+ 173| |  readonly name: string;
+ 174| |  readonly kind: "default" | "named" | "namespace";
+ 175| |  readonly symbolRef?: string;
+ 176| |}
+ 178|▼|export interface ModuleInfo {
+ 179| |  readonly path: string;
+ 180| |  readonly relPath: string;
+ 181| |  readonly content: string;
+ 182| |  readonly imports: readonly ImportInfo[];
+ 183| |  readonly exports: readonly ExportInfo[];
+ 184| |  readonly symbols: readonly SymbolInfo[];
+ 185| |  readonly hasDefaultExport: boolean;
+ 186| |  readonly schemaExport?: string;
+ 187| |  readonly configExport?: string;
+ 188| |  readonly callGraph: ReadonlyMap<string, ReadonlySet<string>>;
+ 189| |  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
+ 190| |}
+ 192|▼|export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
+ 194|▼|export interface RouteValidators {
+ 195| |  readonly body?: string;
+ 196| |  readonly query?: string;
+ 197| |  readonly params?: string;
+ 198| |  readonly headers?: string;
+ 199| |  readonly cookie?: string;
+ 200| |}
+ 202|▼|export interface RouteSerializers {
+ 203| |  readonly json?: string;
+ 204| |}
+ 206|▼|export interface RouteDef {
+ 207| |  readonly method: HttpMethod;
+ 208| |  readonly cache?: RouteCacheConfig;
+ 209| |  readonly path: string;
+ 210| |  readonly file: string;
+ 211| |  readonly moduleIdx: number;
+ 212| |  readonly handlerRef: string;
+ 213| |  readonly schemaRef: string | null;
+ 214| |  readonly paramNames: readonly string[];
+ 215| |  readonly isDynamic: boolean;
+ 216| |  readonly isStatic: boolean;
+ 217| |  readonly segmentCount: number;
+ 218| |  readonly signatureHash: number;
+ 219| |  readonly handlerSize: number;
+ 220| |  readonly isAsync: boolean;
+ 221| |  readonly shouldInline: boolean;
+ 222| |  readonly responseType: ResponseType;
+ 223| |  readonly hasValidation: boolean;
+ 224| |  readonly hotnessScore: number;
+ 225| |  readonly dedupGroup?: string;
+ 226| |  readonly hooks: readonly string[];
+ 227| |  readonly isConstantResponse: boolean;
+ 228| |  readonly constantResponse?: string;
+ 229| |  readonly usage: ContextUsage;
+ 231| |  // New optional AOT metadata
+ 232| |  readonly config?: Record<string, unknown>;
+ 233| |  readonly validators?: RouteValidators;
+ 234| |  readonly serializers?: RouteSerializers;
+ 235| |  readonly statusCodes?: readonly number[];
+ 236| |  readonly contentType?: string;
+ 237| |  readonly openapi?: Record<string, unknown>;
+ 238| |}
+ 240|▼|export interface HookDef {
+ 241| |  readonly name: string;
+ 242| |  readonly source: string;
+ 243| |  readonly moduleIdx: number;
+ 244| |  readonly isAsync: boolean;
+ 245| |}
+ 247| |export type { Logger } from "./logger";
+ 249|▼|export interface DiscoveryResult {
+ 250| |  readonly files: readonly string[];
+ 251| |  readonly modules: readonly ModuleInfo[];
+ 252| |}
+ 254|▼|export interface AnalysisResult {
+ 255| |  readonly routes: readonly RouteDef[];
+ 256| |  readonly modules: readonly ModuleInfo[];
+ 257| |  readonly hooks: ReadonlyMap<string, HookDef>;
+ 258| |}
+ 260|▼|export interface OptimizationMeta {
+ 261| |  readonly inlined: number;
+ 262| |  readonly deduplicated: number;
+ 263| |  readonly eliminated: number;
+ 264| |}
+ 266|▼|export interface OptimizationResult {
+ 267| |  readonly routes: readonly RouteDef[];
+ 268| |  readonly meta: OptimizationMeta;
+ 269| |}
+ 271|▼|export interface CompilationMeta {
+ 272| |  readonly inlinedHandlers: number;
+ 273| |  readonly deduplicatedHandlers: number;
+ 274| |  readonly eliminatedRoutes: number;
+ 275| |  readonly totalCompileTime: number;
+ 276| |}
+ 278|▼|export interface CompiledRoute {
+ 279| |  readonly staticRoutes: readonly RouteDef[];
+ 280| |  readonly dynamicRoutes: readonly RouteDef[];
+ 281| |  readonly modules: readonly ModuleInfo[];
+ 282| |  readonly meta: CompilationMeta;
+ 283| |}
+---
+
 >src/core/types.ts
 l:../shared/context-usage|../shared/context-usage
 e:HTTP_METHODS|HttpMethod|MaybePromise|MaybeArray|MaybeReadonlyArray|Prettify|IsAny|IsNever|StandardSchemaV1|SchemaIssue|TSchema|AnySchema|Static|RouteSchema|InputSchema|LifeCycleType|HookContainer|LifeCycleStore|EMPTY_LIFECYCLE|SingletonBase|DefinitionBase|RouteConfig|DocumentDecoration|CookieOptions|ElysiaCookie|ServerOptions|WebSocketHandler|ServerWebSocket|EMPTY_USAGE|FULL_USAGE|DEFAULT_OPTS
@@ -2381,272 +2647,6 @@ t:ServerWebSocket
  245| |export { DEFAULT_OPTS } from "../compiler/types";
 ---
 
->src/compiler/types.ts
-l:../shared/context-usage|../shared/context-usage
-e:EMPTY_CONTEXT_USAGE|FULL_CONTEXT_USAGE|HTTP_METHODS|HttpMethod|RouterMode|CompilerOptions|RouteCacheConfig|createDefaultOptions|DEFAULT_OPTS|Position|SymbolKind|SymbolInfo|ImportInfo|ExportInfo|ModuleInfo|ResponseType|RouteValidators|RouteSerializers|RouteDef|HookDef|DiscoveryResult|AnalysisResult|OptimizationMeta|OptimizationResult|CompilationMeta|CompiledRoute
-f:createDefaultOptions():CompilerOptions
-t:HttpMethod
-t:RouterMode
-t:CompilerOptions
-t:RouteCacheConfig
-t:Position
-t:SymbolKind
-t:SymbolInfo
-t:ImportInfo
-t:ExportInfo
-t:ModuleInfo
-t:ResponseType
-t:RouteValidators
-t:RouteSerializers
-t:RouteDef
-t:HookDef
-t:DiscoveryResult
-t:AnalysisResult
-t:OptimizationMeta
-t:OptimizationResult
-t:CompilationMeta
-t:CompiledRoute
----
-   1| |/**
-   2| | * Flux Compiler Type System
-   3| | *
-   4| | * AOT upgrade:
-   5| | * - unified ContextUsage from shared
-   6| | * - added advanced compiler options
-   7| | * - added route metadata for future validators/serializers/OpenAPI
-   8| | */
-  10| |import type { ContextUsage } from "../shared/context-usage";
-  11| |import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
-  13| |export type { ContextUsage };
-  14| |export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
-  15| |export const FULL_CONTEXT_USAGE = FULL_USAGE;
-  17| |export const HTTP_METHODS = [
-  18| |  "GET",
-  19| |  "POST",
-  20| |  "PUT",
-  21| |  "PATCH",
-  22| |  "DELETE",
-  23| |  "HEAD",
-  24| |  "OPTIONS",
-  25| |  "ALL",
-  26| |] as const;
-  28|▼|export type HttpMethod = (typeof HTTP_METHODS)[number];
-  30|▼|export type RouterMode =
-  31| |  | "auto"
-  32| |  | "static-map"
-  33| |  | "radix"
-  34| |  | "bun-native";
-  36|▼|export interface CompilerOptions {
-  37| |  readonly routesDir: string;
-  38| |  readonly outDir: string;
-  39| |  readonly outFile: string;
-  40| |  readonly target: "bun" | "node" | "deno";
-  42| |  readonly optimizationLevel: 0 | 1 | 2 | 3;
-  43| |  readonly inlineThreshold: number;
-  44| |  readonly enableHandlerDeduplication: boolean;
-  45| |  readonly sourceMap: boolean;
-  46| |  readonly minify: boolean;
-  48| |  readonly hooksDir?: string;
-  50| |  readonly enableTracing?: boolean;
-  51| |  readonly enableAccessLog?: boolean;
-  52| |  readonly enableTraceHeaders?: boolean;
-  53| |  readonly enableLifecycle?: boolean;
-  54| |  readonly enableStrictMethods?: boolean;
-  55| |  readonly enableFastBodyParsing?: boolean;
-  57| |  readonly serviceName?: string;
-  58| |  readonly requestIdHeader?: string;
-  59| |  readonly exposeErrorDetails?: boolean;
-  61| |  readonly maxJsonBytes?: number;
-  62| |  readonly maxTextBytes?: number;
-  63| |  readonly maxFormBytes?: number;
-  64| |  readonly maxFileBytes?: number;
-  66| |  readonly cluster?: number | "auto";
-  67| |  readonly reusePort?: boolean;
-  69| |  // Advanced AOT options
-  70| |  readonly router?: RouterMode;
-  71| |  readonly generateTypes?: boolean;
-  72| |  readonly generateOpenAPI?: boolean;
-  73| |  readonly generateClient?: boolean;
-  75| |  readonly precompileValidators?: boolean;
-  76| |  readonly precompileSerializers?: boolean;
-  78| |  readonly hoistConstants?: boolean;
-  79| |  readonly specializeContext?: boolean;
-  80| |  readonly inlineHooks?: boolean;
-  81| |  readonly treeshakeRuntime?: boolean;
-  82| |  readonly routeCache?: boolean;
-  84| |  readonly maxInlineBytes?: number;
-  85| |}
-  87|▼|export interface RouteCacheConfig {
-  88| |  readonly maxAge?: number;
-  89| |  readonly swr?: number;
-  90| |  readonly immutable?: boolean;
-  91| |  readonly vary?: readonly string[];
-  92| |}
-  94|▼|export const createDefaultOptions = (): CompilerOptions => ({
-  95| |  routesDir: process.env.ROUTES_DIR || "./src/routes",
-  96| |  outDir: process.env.OUT_DIR || "./dist",
-  97| |  outFile: "__server.js",
-  98| |  target: "bun",
- 100| |  optimizationLevel: 3,
- 101| |  inlineThreshold: 50,
- 102| |  enableHandlerDeduplication: true,
- 103| |  sourceMap: false,
- 104| |  minify: false,
- 106| |  enableTracing: true,
- 107| |  enableAccessLog: true,
- 108| |  enableTraceHeaders: true,
- 109| |  enableLifecycle: true,
- 110| |  enableStrictMethods: true,
- 111| |  enableFastBodyParsing: false,
- 113| |  serviceName: "flux",
- 114| |  requestIdHeader: "x-request-id",
- 115| |  exposeErrorDetails: process.env.NODE_ENV !== "production",
- 117| |  router: "auto",
- 118| |  generateTypes: true,
- 119| |  generateOpenAPI: true,
- 120| |  generateClient: true,
- 122| |  precompileValidators: false,
- 123| |  precompileSerializers: false,
- 125| |  hoistConstants: true,
- 126| |  specializeContext: true,
- 127| |  inlineHooks: true,
- 128| |  treeshakeRuntime: true,
- 129| |  routeCache: true,
- 131| |  maxInlineBytes: 2048,
- 132| |});
- 134| |export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
- 136|▼|export interface Position {
- 137| |  readonly line: number;
- 138| |  readonly column: number;
- 139| |}
- 141|▼|export type SymbolKind =
- 142| |  | "function"
- 143| |  | "class"
- 144| |  | "const"
- 145| |  | "let"
- 146| |  | "var"
- 147| |  | "type"
- 148| |  | "interface";
- 150|▼|export interface SymbolInfo {
- 151| |  readonly name: string;
- 152| |  readonly kind: SymbolKind;
- 153| |  readonly pos: Position;
- 154| |  readonly isAsync: boolean;
- 155| |  readonly isDefaultExport: boolean;
- 156| |  readonly params: readonly string[];
- 157| |  readonly returnType?: string;
- 158| |  readonly decorators: readonly string[];
- 159| |  readonly calls: readonly string[];
- 160| |  readonly calledBy: readonly string[];
- 161| |  readonly size: number;
- 162| |  readonly hotness: number;
- 163| |}
- 165|▼|export interface ImportInfo {
- 166| |  readonly source: string;
- 167| |  readonly names: readonly string[];
- 168| |  readonly defaultName?: string;
- 169| |  readonly namespaceName?: string;
- 170| |}
- 172|▼|export interface ExportInfo {
- 173| |  readonly name: string;
- 174| |  readonly kind: "default" | "named" | "namespace";
- 175| |  readonly symbolRef?: string;
- 176| |}
- 178|▼|export interface ModuleInfo {
- 179| |  readonly path: string;
- 180| |  readonly relPath: string;
- 181| |  readonly content: string;
- 182| |  readonly imports: readonly ImportInfo[];
- 183| |  readonly exports: readonly ExportInfo[];
- 184| |  readonly symbols: readonly SymbolInfo[];
- 185| |  readonly hasDefaultExport: boolean;
- 186| |  readonly schemaExport?: string;
- 187| |  readonly configExport?: string;
- 188| |  readonly callGraph: ReadonlyMap<string, ReadonlySet<string>>;
- 189| |  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
- 190| |}
- 192|▼|export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
- 194|▼|export interface RouteValidators {
- 195| |  readonly body?: string;
- 196| |  readonly query?: string;
- 197| |  readonly params?: string;
- 198| |  readonly headers?: string;
- 199| |  readonly cookie?: string;
- 200| |}
- 202|▼|export interface RouteSerializers {
- 203| |  readonly json?: string;
- 204| |}
- 206|▼|export interface RouteDef {
- 207| |  readonly method: HttpMethod;
- 208| |  readonly cache?: RouteCacheConfig;
- 209| |  readonly path: string;
- 210| |  readonly file: string;
- 211| |  readonly moduleIdx: number;
- 212| |  readonly handlerRef: string;
- 213| |  readonly schemaRef: string | null;
- 214| |  readonly paramNames: readonly string[];
- 215| |  readonly isDynamic: boolean;
- 216| |  readonly isStatic: boolean;
- 217| |  readonly segmentCount: number;
- 218| |  readonly signatureHash: number;
- 219| |  readonly handlerSize: number;
- 220| |  readonly isAsync: boolean;
- 221| |  readonly shouldInline: boolean;
- 222| |  readonly responseType: ResponseType;
- 223| |  readonly hasValidation: boolean;
- 224| |  readonly hotnessScore: number;
- 225| |  readonly dedupGroup?: string;
- 226| |  readonly hooks: readonly string[];
- 227| |  readonly isConstantResponse: boolean;
- 228| |  readonly constantResponse?: string;
- 229| |  readonly usage: ContextUsage;
- 231| |  // New optional AOT metadata
- 232| |  readonly config?: Record<string, unknown>;
- 233| |  readonly validators?: RouteValidators;
- 234| |  readonly serializers?: RouteSerializers;
- 235| |  readonly statusCodes?: readonly number[];
- 236| |  readonly contentType?: string;
- 237| |  readonly openapi?: Record<string, unknown>;
- 238| |}
- 240|▼|export interface HookDef {
- 241| |  readonly name: string;
- 242| |  readonly source: string;
- 243| |  readonly moduleIdx: number;
- 244| |  readonly isAsync: boolean;
- 245| |}
- 247| |export type { Logger } from "./logger";
- 249|▼|export interface DiscoveryResult {
- 250| |  readonly files: readonly string[];
- 251| |  readonly modules: readonly ModuleInfo[];
- 252| |}
- 254|▼|export interface AnalysisResult {
- 255| |  readonly routes: readonly RouteDef[];
- 256| |  readonly modules: readonly ModuleInfo[];
- 257| |  readonly hooks: ReadonlyMap<string, HookDef>;
- 258| |}
- 260|▼|export interface OptimizationMeta {
- 261| |  readonly inlined: number;
- 262| |  readonly deduplicated: number;
- 263| |  readonly eliminated: number;
- 264| |}
- 266|▼|export interface OptimizationResult {
- 267| |  readonly routes: readonly RouteDef[];
- 268| |  readonly meta: OptimizationMeta;
- 269| |}
- 271|▼|export interface CompilationMeta {
- 272| |  readonly inlinedHandlers: number;
- 273| |  readonly deduplicatedHandlers: number;
- 274| |  readonly eliminatedRoutes: number;
- 275| |  readonly totalCompileTime: number;
- 276| |}
- 278|▼|export interface CompiledRoute {
- 279| |  readonly staticRoutes: readonly RouteDef[];
- 280| |  readonly dynamicRoutes: readonly RouteDef[];
- 281| |  readonly modules: readonly ModuleInfo[];
- 282| |  readonly meta: CompilationMeta;
- 283| |}
----
-
 >src/core/files.ts
 i:fs/promises|path
 l:./errors|./cache
@@ -2850,215 +2850,6 @@ t:StreamDownloadOptions
  218| |}
 ---
 
->src/core/openapi.ts
-l:./types
-e:OpenAPIInfo|RouteDefinition|generateOpenAPI
-f:generateOpenAPI(
-    info: OpenAPIInfo,
-    routes: RouteDefinition[]
-):Record<string, unknown>
-t:OpenAPIInfo
-t:RouteDefinition
----
-   1| |/**
-   2| | * @fileoverview OpenAPI 3.1 Specification Generator.
-   3| | * Auto-generates docs from route definitions.
-   4| | */
-   6| |import type { RouteSchema, DocumentDecoration, HttpMethod } from "./types";
-   8|▼|export interface OpenAPIInfo {
-   9| |    title: string;
-  10| |    version: string;
-  11| |    description?: string;
-  12| |}
-  14|▼|export interface RouteDefinition {
-  15| |    method: HttpMethod;
-  16| |    path: string;
-  17| |    schema?: RouteSchema;
-  18| |    detail?: DocumentDecoration;
-  19| |}
-  21|▼|export const generateOpenAPI = (
-  22| |    info: OpenAPIInfo,
-  23| |    routes: RouteDefinition[]
-  24| |): Record<string, unknown> => {
-  25| |    const paths: Record<string, Record<string, unknown>> = {};
-  27| |    for (const route of routes) {
-  28| |        if (route.method === "ALL" || route.method === "WS") continue;
-  30| |        const openApiPath = route.path
-  31| |            .replace(/:(\w+)/g, "{$1}")
-  32| |            .replace(/\*(\w+)/g, "{$1}");
-  34| |        if (!paths[openApiPath]) paths[openApiPath] = {};
-  36| |        const operation: Record<string, unknown> = {
-  37| |            operationId: `${route.method.toLowerCase()}_${openApiPath.replace(/[{}\/]/g, "_")}`,
-  38| |            ...route.detail,
-  39| |            responses: { "200": { description: "Successful response" } },
-  40| |        };
-  42| |        if (route.schema?.params) {
-  43| |            const schema = route.schema.params as any;
-  44| |            const required = new Set(schema.required ?? []);
-  46| |            operation.parameters = Object.entries(schema.properties ?? {}).map(
-  47| |                ([name, propSchema]: [string, any]) => ({
-  48| |                    name,
-  49| |                    in: "path",
-  50| |                    required: required.has(name),
-  51| |                    schema: {
-  52| |                        type: propSchema.type ?? "string",
-  53| |                        ...(propSchema.format ? { format: propSchema.format } : {}),
-  54| |                        ...(propSchema.enum ? { enum: propSchema.enum } : {}),
-  55| |                    },
-  56| |                })
-  57| |            );
-  58| |        }
-  60| |        if (route.schema?.query) {
-  61| |            const schema = route.schema.query as any;
-  62| |            const required = new Set(schema.required ?? []);
-  64| |            const queryParams = Object.entries(schema.properties ?? {}).map(
-  65| |                ([name, propSchema]: [string, any]) => ({
-  66| |                    name,
-  67| |                    in: "query",
-  68| |                    required: required.has(name),
-  69| |                    schema: {
-  70| |                        type: propSchema.type ?? "string",
-  71| |                        ...(propSchema.format ? { format: propSchema.format } : {}),
-  72| |                        ...(propSchema.enum ? { enum: propSchema.enum } : {}),
-  73| |                        ...(propSchema.default !== undefined
-  74| |                            ? { default: propSchema.default }
-  75| |                            : {}),
-  76| |                    },
-  77| |                })
-  78| |            );
-  80| |            operation.parameters = [
-  81| |                ...((operation.parameters as any[]) ?? []),
-  82| |                ...queryParams,
-  83| |            ];
-  85| |        }
-  87| |        if (route.schema?.body) {
-  88| |            operation.requestBody = {
-  89| |                content: { "application/json": { schema: route.schema.body } },
-  90| |            };
-  91| |        }
-  93| |        paths[openApiPath][route.method.toLowerCase()] = operation;
-  94| |    }
-  96| |    return {
-  97| |        openapi: "3.1.0",
-  98| |        info,
-  99| |        paths,
- 100| |    };
- 101| |};
----
-
->src/core/schema.ts
-i:ajv|ajv-formats
-l:./types|./errors
-e:compileValidator|validateOrThrow
-f:isStandardSchema(schema: AnySchema)
-f:toErrorRecord(
-  errors: ErrorObject[] | null | undefined,
-  on: string
-)
-f:compileValidator(
-  schema: AnySchema,
-  on: string = "input"
-)
-f:validateOrThrow(
-  schema: AnySchema,
-  input: unknown,
-  on: string = "input"
-)
-f:validateAsync(
-  schema: AnySchema,
-  input: unknown,
-  on: string = "input"
-)|a
----
-   1| |/**
-   2| | * Runtime schema validation.
-   3| | *
-   4| | * Supports:
-   5| | * - TypeBox / JSON Schema via Ajv
-   6| | * - Standard Schema v1 via async validation
-   7| | */
-   9| |import Ajv, { type ErrorObject } from "ajv";
-  10| |import addFormats from "ajv-formats";
-  11| |import type { AnySchema, StandardSchemaV1 } from "./types";
-  12| |import { ValidationError } from "./errors";
-  14| |const ajv = new Ajv({
-  15| |  allErrors: true,
-  16| |  strict: false,
-  17| |  coerceTypes: true,
-  18| |  removeAdditional: true,
-  19| |  useDefaults: true,
-  20| |});
-  22| |addFormats(ajv);
-  24|▼|function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
-  25| |  return typeof schema === "object" && schema !== null && "~standard" in schema;
-  26| |}
-  28|▼|function toErrorRecord(
-  29| |  errors: ErrorObject[] | null | undefined,
-  30| |  on: string
-  31| |): Record<string, string[]> {
-  32| |  const out: Record<string, string[]> = {};
-  34| |  for (const e of errors ?? []) {
-  35| |    const path =
-  36| |      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
-  37| |      (e.params as any)?.missingProperty ||
-  38| |      on;
-  40| |    out[path] ??= [];
-  41| |    out[path].push(e.message ?? "Invalid value");
-  42| |  }
-  44| |  return out;
-  45| |}
-  47|▼|export function compileValidator<T = unknown>(
-  48| |  schema: AnySchema,
-  49| |  on: string = "input"
-  50| |) {
-  51| |  if (isStandardSchema(schema)) {
-  52| |    return (_input: unknown): T => {
-  53|!|      throw new Error(
-  54| |        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
-  55| |      );
-  56| |    };
-  57| |  }
-  59| |  const validate = ajv.compile(schema as object);
-  61| |  return (input: unknown): T => {
-  62| |    if (!validate(input)) {
-  63|!|      throw new ValidationError(
-  64| |        "Validation failed",
-  65| |        toErrorRecord(validate.errors, on),
-  66| |        on
-  67| |      );
-  68| |    }
-  70| |    return input as T;
-  71| |  };
-  72| |}
-  74|▼|export function validateOrThrow<T = unknown>(
-  75| |  schema: AnySchema,
-  76| |  input: unknown,
-  77| |  on: string = "input"
-  78| |): T {
-  79| |  return compileValidator<T>(schema, on)(input);
-  80| |}
-  82|▼|export async function validateAsync<T = unknown>(
-  83| |  schema: AnySchema,
-  84| |  input: unknown,
-  85| |  on: string = "input"
-  86| |): Promise<T> {
-  87| |  if (isStandardSchema(schema)) {
-  88| |    const result = await schema["~standard"].validate(input);
-  90| |    if ("issues" in result) {
-  91| |      const errors: Record<string, string[]> = {};
-  93| |      for (const issue of result.issues) {
-  94| |        const path = issue.path?.join(".") || on;
-  95| |        errors[path] ??= [];
-  96| |        errors[path].push(issue.message);
-  97| |      }
-  99|!|      throw new ValidationError("Validation failed", errors, on);
- 100| |    }
- 102| |    return result.value as T;
- 103| |  }
- 105| |  return compileValidator<T>(schema, on)(input);
- 106| |}
----
-
 >src/compiler/validate.ts
 i:@sinclair/typebox|ajv
 l:./types|./types|./fp|./fp
@@ -3163,546 +2954,6 @@ t:ValidatedCompilerOptions
  116| |  });
  118| |  return err(errors);
  119| |};
----
-
->src/compiler/utils/ast.ts
-i:oxc-parser|node:module
-l:../types|../../shared/context-usage
-e:ExtractedHandler|extractHandler|extractImportsAST|extractExportsAST|extractSymbolsAST|hasDefaultExportAST|hasSchemaExportAST|hasConfigExportAST|isPureBodyAST|inferResponseTypeAST|ParseResult|estimateNodeCount|parseModule|extractRouteConfigAST
-f:walk(node: any, cb: (node: any)
-f:walkUntil(node: any, predicate: (node: any)
-f:buildContextMapping(params: any[])
-f:detectUsage(bodyNode: any, mapping: Map<string, string>)
-f:extractHandlerFunction(node: any)
-f:extractHandler(source: string, ast: any)
-f:extractImportsAST(ast: any)
-f:extractExportsAST(ast: any)
-f:posFromNode(source: string, node: any)
-f:extractSymbolsAST(source: string, ast: any)
-f:hasDefaultExportAST(ast: any)
-f:hasSchemaExportAST(ast: any)
-f:hasConfigExportAST(ast: any)
-f:isPureBodyAST(ast: any)
-f:flattenMember(node: any)
-f:inferResponseTypeAST(ast: any)
-f:normalizeAst(result: any)
-f:tryOxcParser(source: string)
-f:parseToAst(source: string)
-f:estimateNodeCount(source: string)
-f:parseModule(source: string)
-f:extractRouteConfigAST(source: string, ast: any)
-f:createImportInfo(
-  source: string,
-  names: string[],
-  defaultName?: string,
-  namespaceName?: string,
-):ImportInfo
-f:nodeStart(node: any):number | undefined
-f:nodeEnd(node: any):number | undefined
-t:ExtractedHandler
-t:ParseResult
----
-   1| |/**
-   2| | * @fileoverview Bun.Transpiler-based AST Parser
-   3| | * Replaces regex hacks with a proper ESTree walker.
-   4| | * Handles edge cases: nested functions, template literals, comments, re-exports, etc.
-   5| | */
-   7| |import type {
-   8| |  ContextUsage,
-   9| |  ImportInfo,
-  10| |  ExportInfo,
-  11| |  SymbolInfo,
-  12| |  Position,
-  13| |} from "../types";
-  14| |import { EMPTY_USAGE } from "../../shared/context-usage";
-  15| |import * as oxcParser from "oxc-parser";
-  17| |import { createRequire } from "node:module";
-  18| |/**
-  19| | * Build ImportInfo without assigning explicit undefined properties.
-  20| | *
-  21| | * This satisfies exactOptionalPropertyTypes cleanly.
-  22| | */
-  24|▼|const createImportInfo = (
-  25| |  source: string,
-  26| |  names: string[],
-  27| |  defaultName?: string,
-  28| |  namespaceName?: string,
-  29| |): ImportInfo => {
-  30| |  const info: {
-  31| |    source: string;
-  32| |    names: string[];
-  33| |    defaultName?: string;
-  34| |    namespaceName?: string;
-  35| |  } = {
-  36| |    source,
-  37| |    names,
-  38| |  };
-  40| |  if (defaultName !== undefined) info.defaultName = defaultName;
-  41| |  if (namespaceName !== undefined) info.namespaceName = namespaceName;
-  43| |  return info;
-  44| |};
-  47| |// ---------------------------------------------------------------------------
-  48| |// ESTree Walker — tiny, zero-dependency
-  49| |// ---------------------------------------------------------------------------
-  51|▼|function walk(node: any, cb: (node: any) => void): void {
-  52| |  if (!node || typeof node !== "object") return;
-  53| |  cb(node);
-  54| |  for (const key of Object.keys(node)) {
-  55| |    if (key === "parent" || key === "loc" || key === "range") continue;
-  56| |    const child = node[key];
-  57| |    if (Array.isArray(child)) {
-  58| |      for (const c of child) walk(c, cb);
-  59| |    } else if (child && typeof child === "object" && child.type) {
-  60| |      walk(child, cb);
-  61| |    }
-  62| |  }
-  63| |}
-  65|▼|function walkUntil<T>(node: any, predicate: (node: any) => T | undefined): T | undefined {
-  66| |  let result: T | undefined;
-  67| |  walk(node, (n) => {
-  68| |    if (result !== undefined) return;
-  69| |    const r = predicate(n);
-  70| |    if (r !== undefined) result = r;
-  71| |  });
-  72| |  return result;
-  73| |}
-  75| |// ---------------------------------------------------------------------------
-  76| |// Context-Usage Detection
-  77| |// ---------------------------------------------------------------------------
-  79| |const CONTEXT_METHODS = new Set([
-  80| |  "json", "text", "html", "redirect", "stream", "empty", "get", "set",
-  81| |]);
-  83| |const CONTEXT_PROPS = new Set([
-  84| |  "body", "params", "query", "file", "files", "headers", "state", "req", "url",
-  85| |  "cookie", "server", "set", "sendFile", "proxy", "forward", "cache",
-  86| |]);
-  88| |/** Build a map: localVariableName → contextProperty (or "__root__") */
-  89|▼|function buildContextMapping(params: any[]): Map<string, string> {
-  90| |  const map = new Map<string, string>();
-  91| |  for (const param of params) {
-  92| |    if (!param) continue;
-  93| |    if (param.type === "Identifier") {
-  94| |      map.set(param.name, "__root__");
-  95| |    } else if (param.type === "ObjectPattern") {
-  96| |      for (const prop of param.properties || []) {
-  97| |        if (prop.type !== "Property") continue;
-  98| |        const key = prop.key?.name ?? prop.key?.value;
-  99| |        const local = prop.value?.name ?? prop.value?.value;
- 100| |        if (key && local) map.set(local, key);
- 101| |        // Nested destructuring not supported for DX simplicity
- 102| |      }
- 103| |    }
- 104| |  }
- 105| |  return map;
- 106| |}
- 108|▼|function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage {
- 109| |  const usage: ContextUsage = { ...EMPTY_USAGE };
- 111| |  walk(bodyNode, (n) => {
- 112| |    if (n.type === "MemberExpression" && !n.computed && n.object?.type === "Identifier") {
- 113| |      const root = mapping.get(n.object.name);
- 115| |      if (root === "__root__") {
- 116| |        const prop = n.property.name;
- 118| |        if (prop === "body" || prop === "files") usage.body = true;
- 119| |        if (prop === "file") usage.file = true;
- 120| |        if (prop === "params") usage.params = true;
- 121| |        if (prop === "query") usage.query = true;
- 122| |        if (prop === "headers") usage.headers = true;
- 123| |        if (prop === "state" || prop === "getState" || prop === "setState") usage.state = true;
- 124| |        if (prop === "req") usage.req = true;
- 125| |        if (prop === "url" || prop === "path" || prop === "method") usage.url = true;
- 127| |        if (prop === "cookie") usage.cookie = true;
- 128| |        if (prop === "server") usage.server = true;
- 129| |        if (prop === "set") usage.set = true;
- 131| |        if (prop === "json") usage.json = true;
- 132| |        if (prop === "text") usage.text = true;
- 133| |        if (prop === "html") usage.html = true;
- 134| |        if (prop === "redirect") usage.redirect = true;
- 135| |        if (prop === "stream") usage.stream = true;
- 136| |        if (prop === "empty") usage.empty = true;
- 137| |        if (prop === "status") usage.status = true;
- 139| |        if (prop === "sendFile") usage.sendFile = true;
- 140| |        if (prop === "proxy") usage.proxy = true;
- 141| |        if (prop === "forward") usage.forward = true;
- 142| |        if (prop === "cache") usage.cache = true;
- 143| |      }
- 144| |    }
- 146| |    if (n.type === "Identifier" && mapping.has(n.name)) {
- 147| |      const prop = mapping.get(n.name)!;
- 149| |      if (prop === "body" || prop === "files") usage.body = true;
- 150| |      if (prop === "file") usage.file = true;
- 151| |      if (prop === "params") usage.params = true;
- 152| |      if (prop === "query") usage.query = true;
- 153| |      if (prop === "headers") usage.headers = true;
- 154| |      if (prop === "state") usage.state = true;
- 155| |      if (prop === "req") usage.req = true;
- 156| |      if (prop === "url") usage.url = true;
- 158| |      if (prop === "cookie") usage.cookie = true;
- 159| |      if (prop === "server") usage.server = true;
- 160| |      if (prop === "set") usage.set = true;
- 162| |      if (prop === "sendFile") usage.sendFile = true;
- 163| |      if (prop === "proxy") usage.proxy = true;
- 164| |      if (prop === "forward") usage.forward = true;
- 165| |      if (prop === "cache") usage.cache = true;
- 166| |    }
- 167| |  });
- 169| |  return usage;
- 170| |}
- 172| |// ---------------------------------------------------------------------------
- 173| |// Handler Extraction
- 174| |// ---------------------------------------------------------------------------
- 176| |const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
- 177|▼|const nodeStart = (node: any): number | undefined =>
- 178| |  node?.range?.[0] ?? node?.start ?? node?.span?.[0];
- 180|▼|const nodeEnd = (node: any): number | undefined =>
- 181| |  node?.range?.[1] ?? node?.end ?? node?.span?.[1];
- 183|▼|function extractHandlerFunction(node: any): { fn: any; isAsync: boolean } | null {
- 184| |  // export default get(async (ctx) => ...)
- 185| |  if (node.type === "CallExpression" && node.callee?.type === "Identifier" && HTTP_WRAPPERS.has(node.callee.name)) {
- 186| |    const arg = node.arguments?.[0];
- 187| |    if (!arg) return null;
- 188| |    if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") {
- 189| |      return { fn: arg, isAsync: arg.async ?? false };
- 190| |    }
- 191| |    // export default get(myHandler)
- 192| |    if (arg.type === "Identifier") {
- 193| |      // We can't inline a referenced handler — return null to signal "imported"
- 194| |      return null;
- 195| |    }
- 196| |  }
- 197| |  // export default (ctx) => ...
- 198| |  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") {
- 199| |    return { fn: node, isAsync: node.async ?? false };
- 200| |  }
- 201| |  // export default async function(ctx) { ... }
- 202| |  if (node.type === "FunctionDeclaration") {
- 203| |    return { fn: node, isAsync: node.async ?? false };
- 204| |  }
- 205| |  return null;
- 206| |}
- 208|▼|export interface ExtractedHandler {
- 209| |  readonly body: string;        // source slice of function body
- 210| |  readonly isAsync: boolean;
- 211| |  readonly paramName: string;  // first param identifier name (or "ctx" fallback)
- 212| |  readonly usage: ContextUsage;
- 213| |}
- 215|▼|export function extractHandler(source: string, ast: any): ExtractedHandler | null {
- 216| |  const defaultExport = walkUntil<any>(ast, (n) =>
- 217| |    n.type === "ExportDefaultDeclaration" ? n : undefined
- 218| |  );
- 220| |  if (!defaultExport) return null;
- 222| |  const extracted = extractHandlerFunction(defaultExport.declaration);
- 223| |  if (!extracted) return null;
- 225| |  const { fn, isAsync } = extracted;
- 226| |  const params = fn.params || [];
- 227| |  const mapping = buildContextMapping(params);
- 228| |  const rootParam = params[0]?.type === "Identifier" ? params[0].name : "ctx";
- 230| |  let bodyText = "";
- 231| |  const body = fn.body;
- 233| |  if (body) {
- 234| |    const start = nodeStart(body);
- 235| |    const end = nodeEnd(body);
- 237| |    if (start != null && end != null) {
- 238| |      if (body.type === "BlockStatement") {
- 239| |        bodyText = source.slice(start + 1, end - 1).trim();
- 240| |      } else {
- 241| |        bodyText = `return ${source.slice(start, end).trim()};`;
- 242| |      }
- 243| |    }
- 244| |  }
- 246| |  const usage = detectUsage(body || fn, mapping);
- 248| |  return {
- 249| |    body: bodyText,
- 250| |    isAsync,
- 251| |    paramName: rootParam,
- 252| |    usage,
- 253| |  };
- 254| |}
- 255| |// ---------------------------------------------------------------------------
- 256| |// Import / Export / Symbol Extraction (AST-based, zero regex)
- 257| |// ---------------------------------------------------------------------------
- 259|▼|export function extractImportsAST(ast: any): ImportInfo[] {
- 260| |  const imports: ImportInfo[] = [];
- 262| |  walk(ast, (n) => {
- 263| |    if (n.type !== "ImportDeclaration") return;
- 265| |    const source = n.source?.value as string;
- 266| |    if (!source) return;
- 268| |    const names: string[] = [];
- 269| |    let defaultName: string | undefined;
- 270| |    let namespaceName: string | undefined;
- 272| |    for (const spec of n.specifiers || []) {
- 273| |      if (spec.type === "ImportDefaultSpecifier") defaultName = spec.local.name;
- 274| |      if (spec.type === "ImportNamespaceSpecifier") namespaceName = spec.local.name;
- 275| |      if (spec.type === "ImportSpecifier") names.push(spec.local.name);
- 276| |    }
- 278| |    imports.push(createImportInfo(source, names, defaultName, namespaceName));
- 279| |  });
- 281| |  return imports;
- 282| |}
- 284|▼|export function extractExportsAST(ast: any): ExportInfo[] {
- 285| |  const exports: ExportInfo[] = [];
- 286| |  walk(ast, (n) => {
- 287| |    if (n.type === "ExportDefaultDeclaration") {
- 288| |      const name = n.declaration?.name || "default";
- 289| |      exports.push({ name, kind: "default" });
- 290| |    }
- 291| |    if (n.type === "ExportNamedDeclaration") {
- 292| |      for (const spec of n.specifiers || []) {
- 293| |        if (spec.type === "ExportSpecifier") {
- 294| |          exports.push({ name: spec.local.name, kind: "named" });
- 295| |        }
- 296| |      }
- 297| |      for (const decl of n.declaration ? [n.declaration] : []) {
- 298| |        if (decl.type === "FunctionDeclaration" || decl.type === "VariableDeclaration") {
- 299| |          const id = decl.id || decl.declarations?.[0]?.id;
- 300| |          if (id?.name) exports.push({ name: id.name, kind: "named" });
- 301| |        }
- 302| |      }
- 303| |    }
- 304| |  });
- 305| |  return exports;
- 306| |}
- 308|▼|function posFromNode(source: string, node: any): Position {
- 309| |  if (node.loc) return { line: node.loc.start.line, column: node.loc.start.column };
- 310| |  return { line: 0, column: 0 };
- 311| |}
- 313|▼|export function extractSymbolsAST(source: string, ast: any): SymbolInfo[] {
- 314| |  const symbols: SymbolInfo[] = [];
- 315| |  walk(ast, (n) => {
- 316| |    if (n.type === "FunctionDeclaration" && n.id?.name) {
- 317| |      symbols.push({
- 318| |        name: n.id.name,
- 319| |        kind: "function",
- 320| |        pos: posFromNode(source, n),
- 321| |        isAsync: n.async ?? false,
- 322| |        isDefaultExport: false,
- 323| |        params: (n.params || []).map((p: any) => p.name || "..."),
- 324| |        decorators: [],
- 325| |        calls: [],
- 326| |        calledBy: [],
- 327| |        size: n.range ? n.range[1] - n.range[0] : 9999,
- 328| |        hotness: 0,
- 329| |      });
- 330| |    }
- 331| |    if (n.type === "VariableDeclaration") {
- 332| |      for (const decl of n.declarations || []) {
- 333| |        if (decl.id?.name && decl.init?.type === "ArrowFunctionExpression") {
- 334| |          symbols.push({
- 335| |            name: decl.id.name,
- 336| |            kind: "const",
- 337| |            pos: posFromNode(source, n),
- 338| |            isAsync: decl.init.async ?? false,
- 339| |            isDefaultExport: false,
- 340| |            params: (decl.init.params || []).map((p: any) => p.name || "..."),
- 341| |            decorators: [],
- 342| |            calls: [],
- 343| |            calledBy: [],
- 344| |            size: n.range ? n.range[1] - n.range[0] : 9999,
- 345| |            hotness: 0,
- 346| |          });
- 347| |        }
- 348| |      }
- 349| |    }
- 350| |  });
- 351| |  return symbols;
- 352| |}
- 354|▼|export function hasDefaultExportAST(ast: any): boolean {
- 355| |  return walkUntil(ast, (n) => (n.type === "ExportDefaultDeclaration" ? true : undefined)) ?? false;
- 356| |}
- 358|▼|export function hasSchemaExportAST(ast: any): boolean {
- 359| |  let found = false;
- 360| |  walk(ast, (n) => {
- 361| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
- 362| |      for (const d of n.declaration.declarations || []) {
- 363| |        if (d.id?.name === "schema") found = true;
- 364| |      }
- 365| |    }
- 366| |    if (n.type === "ExportSpecifier" && n.local?.name === "schema") found = true;
- 368| |    // Schema-first HTTP: export default get(handler, { ... })
- 369| |    if (
- 370| |      n.type === "ExportDefaultDeclaration" &&
- 371| |      n.declaration?.type === "CallExpression" &&
- 372| |      n.declaration.callee?.type === "Identifier" &&
- 373| |      HTTP_WRAPPERS.has(n.declaration.callee.name)
- 374| |    ) {
- 375| |      const args = n.declaration.arguments || [];
- 376| |      const schemaArg = args[1];
- 378| |      if (
- 379| |        schemaArg &&
- 380| |        schemaArg.type !== "Literal" &&
- 381| |        schemaArg.type !== "StringLiteral" &&
- 382| |        schemaArg.type !== "TemplateLiteral"
- 383| |      ) {
- 384| |        found = true;
- 385| |      }
- 386| |    }
- 387| |  });
- 388| |  return found;
- 389| |}
- 391|▼|export function hasConfigExportAST(ast: any): boolean {
- 392| |  let found = false;
- 393| |  walk(ast, (n) => {
- 394| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
- 395| |      for (const d of n.declaration.declarations || []) {
- 396| |        if (d.id?.name === "config") found = true;
- 397| |      }
- 398| |    }
- 399| |    if (n.type === "ExportSpecifier" && n.local?.name === "config") found = true;
- 400| |  });
- 401| |  return found;
- 402| |}
- 404| |// ---------------------------------------------------------------------------
- 405| |// Purity Analysis (AST-based)
- 406| |// ---------------------------------------------------------------------------
- 408| |const IMPURE_GLOBALS = new Set([
- 409| |  "fetch", "Date", "Math", "console", "process", "crypto",
- 410| |  "setTimeout", "setInterval", "clearTimeout", "clearInterval",
- 411| |  "Promise", "Map", "Set", "WeakMap", "WeakSet",
- 412| |]);
- 414| |const IMPURE_CALLS = new Set([
- 415| |  "Math.random", "Date.now", "crypto.randomUUID", "crypto.getRandomValues",
- 416| |  "console.log", "console.warn", "console.error", "fetch",
- 417| |]);
- 419|▼|export function isPureBodyAST(ast: any): boolean {
- 420| |  let impure = false;
- 421| |  walk(ast, (n) => {
- 422| |    if (impure) return;
- 423| |    // new Date(), new Map(), etc.
- 424| |    if (n.type === "NewExpression" && n.callee?.type === "Identifier" && IMPURE_GLOBALS.has(n.callee.name)) {
- 425| |      impure = true;
- 426| |    }
- 427| |    // fetch(), Math.random(), etc.
- 428| |    if (n.type === "CallExpression") {
- 429| |      const callee = n.callee;
- 430| |      if (callee.type === "Identifier" && IMPURE_GLOBALS.has(callee.name)) {
- 431| |        impure = true;
- 432| |      }
- 433| |      if (callee.type === "MemberExpression") {
- 434| |        const chain = flattenMember(callee);
- 435| |        if (chain && IMPURE_CALLS.has(chain)) impure = true;
- 436| |      }
- 437| |    }
- 438| |    // await
- 439| |    if (n.type === "AwaitExpression") {
- 440| |      // Conservative: any await is impure (could be DB, fetch, etc.)
- 441| |      impure = true;
- 442| |    }
- 443| |  });
- 444| |  return !impure;
- 445| |}
- 447|▼|function flattenMember(node: any): string | null {
- 448| |  if (node.type === "Identifier") return node.name;
- 449| |  if (node.type === "MemberExpression" && !node.computed) {
- 450| |    const obj = flattenMember(node.object);
- 451| |    const prop = node.property?.name;
- 452| |    if (obj && prop) return `${obj}.${prop}`;
- 453| |  }
- 454| |  return null;
- 455| |}
- 457| |// ---------------------------------------------------------------------------
- 458| |// Response-Type Inference (AST-based)
- 459| |// ---------------------------------------------------------------------------
- 461|▼|export function inferResponseTypeAST(ast: any): "json" | "text" | "html" | "stream" | "unknown" {
- 462| |  let type: "json" | "text" | "html" | "stream" | "unknown" = "unknown";
- 463| |  walk(ast, (n) => {
- 464| |    if (n.type === "CallExpression" && n.callee?.type === "MemberExpression") {
- 465| |      const chain = flattenMember(n.callee);
- 466| |      if (chain === "ctx.json") type = "json";
- 467| |      if (chain === "ctx.text") type = "text";
- 468| |      if (chain === "ctx.html") type = "html";
- 469| |      if (chain === "ctx.stream") type = "stream";
- 470| |    }
- 471| |    // Heuristic: return "string" or template literal → text
- 472| |    if (n.type === "ReturnStatement" && n.argument?.type === "Literal" && typeof n.argument.value === "string") {
- 473| |      if (type === "unknown") type = "text";
- 474| |    }
- 475| |  });
- 476| |  return type;
- 477| |}
- 479| |// ---------------------------------------------------------------------------
- 480| |// Main Parse Entry
- 481| |// ---------------------------------------------------------------------------
- 483|▼|export interface ParseResult {
- 484| |  readonly ast: any;
- 485| |  readonly imports: ImportInfo[];
- 486| |  readonly exports: ExportInfo[];
- 487| |  readonly symbols: SymbolInfo[];
- 488| |  readonly hasDefaultExport: boolean;
- 489| |  readonly schemaExport: boolean;
- 490| |  readonly configExport: boolean;
- 491| |  readonly handler: ExtractedHandler | null;
- 492| |  readonly config?: any;
- 493| |}
- 495| |// ---------------------------------------------------------------------------
- 496| |// AST Parser Bridge
- 497| |// ---------------------------------------------------------------------------
- 499|▼|function normalizeAst(result: any): any {
- 500| |  if (!result) {
- 501| |    return { type: "Program", body: [] };
- 502| |  }
- 504| |  if (result.errors && result.errors.length > 0) {
- 505|!|    throw new Error(result.errors[0]?.message ?? "AST parse error");
- 506| |  }
- 508| |  const ast = result.program ?? result.ast ?? result.root ?? result;
- 510| |  if (!ast.type) ast.type = "Program";
- 511| |  if (!Array.isArray(ast.body)) ast.body = [];
- 513| |  return ast;
- 514| |}
- 516|▼|function tryOxcParser(source: string): any | undefined {
- 517| |  const mod = oxcParser as any;
- 518| |  const parseSync = mod.parseSync ?? mod.default?.parseSync;
- 520| |  if (typeof parseSync !== "function") return undefined;
- 522| |  const attempts = [
- 523| |    () =>
- 524| |      parseSync("flux.ts", source, {
- 525| |        sourceType: "module",
- 526| |        target: "esnext",
- 527| |      }),
- 528| |    () =>
- 529| |      parseSync(source, {
- 530| |        sourceType: "module",
- 531| |        target: "esnext",
- 532| |      }),
- 533| |  ];
- 535| |  for (const attempt of attempts) {
- 536| |    try {
- 537| |      const result = attempt();
- 539| |      if (result && typeof result.then === "function") continue;
- 540| |      if (result?.errors?.length) continue;
- 542| |      const program = result?.program ?? result?.ast ?? result;
- 544| |      if (program?.type || Array.isArray(program?.body)) {
- 545| |        return program;
- 546| |      }
- 547| |    } catch {
- 548| |      // try next shape
- 549| |    }
- 550| |  }
- 552| |  return undefined;
- 553| |}
- 555|▼|function parseToAst(source: string): any {
- 556| |  const oxc = tryOxcParser(source);
- 557| |  if (oxc) return normalizeAst(oxc);
- 559| |  const B: any = Bun;
- 561| |  const parsers: Array<() => any> = [
- 562| |    () =>
- 563| |      typeof B.parse === "function"
- 564| |        ? B.parse(source, {
- 565| |            loader: "ts",
- 566| |            target: "bun",
- 567| |            ranges: true,
- 568| |            loc: true,
- 569| |          })
- 570| |        : undefined,
- 572| |    () =>
- 573| |      typeof B.parseSync === "function"
- 574| |        ? B.parseSync(source, {
- 575| |            loader: "ts",
- 576| |            target: "bun",
- 577| |            ranges: true,
- 578| |            loc: true,
- 579| |          })
- 580| |        : undefined,
- 582| |    () => {
-   ... (110 more lines)
 ---
 
 >src/compiler/phases/artifacts.ts
@@ -4583,6 +3834,130 @@ f:runLinker(
  125| |  });
 ---
 
+>src/compiler/phases/serializers.ts
+i:fs|path|fast-json-stringify
+l:../types|../logger|./schema-loader
+e:precompileSerializers
+f:serializerImportName(route: RouteDef):string
+f:serializerFileName(route: RouteDef):string
+f:pickResponseSchema(responseSchema: any):any
+f:precompileSerializers(
+  routes: readonly RouteDef[],
+  modules: readonly ModuleInfo[],
+  opts: CompilerOptions,
+  logger: Logger
+):Promise<readonly RouteDef[]>|a
+---
+   1| |/**
+   2| | * Phase 2: Serializer Precompilation
+   3| | *
+   4| | * Emits specialized JSON serializers for route response schemas.
+   5| | */
+   7| |import { mkdirSync, writeFileSync } from "fs";
+   8| |import { join } from "path";
+  10| |import type {
+  11| |  RouteDef,
+  12| |  ModuleInfo,
+  13| |  CompilerOptions,
+  14| |} from "../types";
+  16| |import type { Logger } from "../logger";
+  17| |import {
+  18| |  loadRouteModule,
+  19| |  isStandardSchema,
+  20| |  cloneSchema,
+  21| |} from "./schema-loader";
+  23|▼|const serializerImportName = (route: RouteDef): string =>
+  24| |  `serialize_${route.handlerRef}`;
+  26|▼|const serializerFileName = (route: RouteDef): string =>
+  27| |  `${route.handlerRef}.200.mjs`;
+  29|▼|const pickResponseSchema = (responseSchema: any): any => {
+  30| |  if (!responseSchema || typeof responseSchema !== "object") {
+  31| |    return undefined;
+  32| |  }
+  34| |  if (isStandardSchema(responseSchema)) {
+  35| |    return undefined;
+  36| |  }
+  38| |  if ("type" in responseSchema) {
+  39| |    return responseSchema;
+  40| |  }
+  42| |  return responseSchema[200] ?? responseSchema["200"] ?? responseSchema;
+  43| |};
+  45|▼|export const precompileSerializers = async (
+  46| |  routes: readonly RouteDef[],
+  47| |  modules: readonly ModuleInfo[],
+  48| |  opts: CompilerOptions,
+  49| |  logger: Logger
+  50| |): Promise<readonly RouteDef[]> => {
+  51| |  if (!opts.precompileSerializers) {
+  52| |    return routes;
+  53| |  }
+  55| |  let fastJson: any;
+  57| |  try {
+  58| |    const mod: any = await import("fast-json-stringify");
+  59| |    fastJson = mod.default ?? mod;
+  60| |  } catch {
+  61| |    logger.warn(
+  62| |      "fast-json-stringify unavailable. Serializer precompilation will be skipped."
+  63| |    );
+  64| |    return routes;
+  65| |  }
+  67| |  const serializersDir = join(opts.outDir, "serializers");
+  68| |  mkdirSync(serializersDir, { recursive: true });
+  70| |  const nextRoutes: RouteDef[] = [];
+  72| |  for (const route of routes) {
+  73| |    const isJsonRoute =
+  74| |      route.responseType === "json" || route.usage.json === true;
+  76| |    if (!isJsonRoute) {
+  77| |      nextRoutes.push(route);
+  78| |      continue;
+  79| |    }
+  81| |    const mod = modules[route.moduleIdx];
+  83| |    if (!mod || !mod.schemaExport) {
+  84| |      nextRoutes.push(route);
+  85| |      continue;
+  86| |    }
+  88| |    const routeModule = await loadRouteModule(mod.path);
+  89| |    const schema = routeModule?.schema;
+  91| |    if (!schema || typeof schema !== "object") {
+  92| |      nextRoutes.push(route);
+  93| |      continue;
+  94| |    }
+  96| |    const responseSchema = pickResponseSchema(schema.response);
+  98| |    if (!responseSchema || isStandardSchema(responseSchema)) {
+  99| |      nextRoutes.push(route);
+ 100| |      continue;
+ 101| |    }
+ 103| |    let cloned: any;
+ 105| |    try {
+ 106| |      cloned = cloneSchema(responseSchema);
+ 107| |    } catch {
+ 108| |      nextRoutes.push(route);
+ 109| |      continue;
+ 110| |    }
+ 112| |    try {
+ 113| |      // Test compile first.
+ 114| |      fastJson(cloned);
+ 116| |      const code = `import fastJson from "fast-json-stringify";
+ 118| |const schema = ${JSON.stringify(cloned)};
+ 120| |const serialize = fastJson(schema);
+ 122| |export default serialize;
+ 123| |`;
+ 125| |      writeFileSync(join(serializersDir, serializerFileName(route)), code);
+ 127| |      nextRoutes.push({
+ 128| |        ...route,
+ 129| |        serializers: {
+ 130| |          json: serializerImportName(route),
+ 131| |        },
+ 132| |      });
+ 134| |      logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
+ 135| |    } catch {
+ 136| |      nextRoutes.push(route);
+ 137| |    }
+ 138| |  }
+ 140| |  return nextRoutes;
+ 141| |};
+---
+
 >src/compiler/phases/validators.ts
 i:fs|path|ajv|ajv-formats
 l:../types|../logger|./schema-loader
@@ -4746,128 +4121,753 @@ t:ValidatorKind
  179| |};
 ---
 
->src/compiler/phases/serializers.ts
-i:fs|path|fast-json-stringify
-l:../types|../logger|./schema-loader
-e:precompileSerializers
-f:serializerImportName(route: RouteDef):string
-f:serializerFileName(route: RouteDef):string
-f:pickResponseSchema(responseSchema: any):any
-f:precompileSerializers(
-  routes: readonly RouteDef[],
-  modules: readonly ModuleInfo[],
-  opts: CompilerOptions,
-  logger: Logger
-):Promise<readonly RouteDef[]>|a
+>src/compiler/utils/ast.ts
+i:oxc-parser|node:module
+l:../types|../../shared/context-usage
+e:ExtractedHandler|extractHandler|extractImportsAST|extractExportsAST|extractSymbolsAST|hasDefaultExportAST|hasSchemaExportAST|hasConfigExportAST|isPureBodyAST|inferResponseTypeAST|ParseResult|estimateNodeCount|parseModule|extractRouteConfigAST
+f:walk(node: any, cb: (node: any)
+f:walkUntil(node: any, predicate: (node: any)
+f:buildContextMapping(params: any[])
+f:detectUsage(bodyNode: any, mapping: Map<string, string>)
+f:extractHandlerFunction(node: any)
+f:extractHandler(source: string, ast: any)
+f:extractImportsAST(ast: any)
+f:extractExportsAST(ast: any)
+f:posFromNode(source: string, node: any)
+f:extractSymbolsAST(source: string, ast: any)
+f:hasDefaultExportAST(ast: any)
+f:hasSchemaExportAST(ast: any)
+f:hasConfigExportAST(ast: any)
+f:isPureBodyAST(ast: any)
+f:flattenMember(node: any)
+f:inferResponseTypeAST(ast: any)
+f:normalizeAst(result: any)
+f:tryOxcParser(source: string)
+f:parseToAst(source: string)
+f:estimateNodeCount(source: string)
+f:parseModule(source: string)
+f:extractRouteConfigAST(source: string, ast: any)
+f:createImportInfo(
+  source: string,
+  names: string[],
+  defaultName?: string,
+  namespaceName?: string,
+):ImportInfo
+f:nodeStart(node: any):number | undefined
+f:nodeEnd(node: any):number | undefined
+t:ExtractedHandler
+t:ParseResult
 ---
    1| |/**
-   2| | * Phase 2: Serializer Precompilation
-   3| | *
-   4| | * Emits specialized JSON serializers for route response schemas.
+   2| | * @fileoverview Bun.Transpiler-based AST Parser
+   3| | * Replaces regex hacks with a proper ESTree walker.
+   4| | * Handles edge cases: nested functions, template literals, comments, re-exports, etc.
    5| | */
-   7| |import { mkdirSync, writeFileSync } from "fs";
-   8| |import { join } from "path";
-  10| |import type {
-  11| |  RouteDef,
-  12| |  ModuleInfo,
-  13| |  CompilerOptions,
-  14| |} from "../types";
-  16| |import type { Logger } from "../logger";
-  17| |import {
-  18| |  loadRouteModule,
-  19| |  isStandardSchema,
-  20| |  cloneSchema,
-  21| |} from "./schema-loader";
-  23|▼|const serializerImportName = (route: RouteDef): string =>
-  24| |  `serialize_${route.handlerRef}`;
-  26|▼|const serializerFileName = (route: RouteDef): string =>
-  27| |  `${route.handlerRef}.200.mjs`;
-  29|▼|const pickResponseSchema = (responseSchema: any): any => {
-  30| |  if (!responseSchema || typeof responseSchema !== "object") {
-  31| |    return undefined;
-  32| |  }
-  34| |  if (isStandardSchema(responseSchema)) {
-  35| |    return undefined;
-  36| |  }
-  38| |  if ("type" in responseSchema) {
-  39| |    return responseSchema;
-  40| |  }
-  42| |  return responseSchema[200] ?? responseSchema["200"] ?? responseSchema;
-  43| |};
-  45|▼|export const precompileSerializers = async (
-  46| |  routes: readonly RouteDef[],
-  47| |  modules: readonly ModuleInfo[],
-  48| |  opts: CompilerOptions,
-  49| |  logger: Logger
-  50| |): Promise<readonly RouteDef[]> => {
-  51| |  if (!opts.precompileSerializers) {
-  52| |    return routes;
-  53| |  }
-  55| |  let fastJson: any;
-  57| |  try {
-  58| |    const mod: any = await import("fast-json-stringify");
-  59| |    fastJson = mod.default ?? mod;
-  60| |  } catch {
-  61| |    logger.warn(
-  62| |      "fast-json-stringify unavailable. Serializer precompilation will be skipped."
-  63| |    );
-  64| |    return routes;
-  65| |  }
-  67| |  const serializersDir = join(opts.outDir, "serializers");
-  68| |  mkdirSync(serializersDir, { recursive: true });
-  70| |  const nextRoutes: RouteDef[] = [];
-  72| |  for (const route of routes) {
-  73| |    const isJsonRoute =
-  74| |      route.responseType === "json" || route.usage.json === true;
-  76| |    if (!isJsonRoute) {
-  77| |      nextRoutes.push(route);
-  78| |      continue;
-  79| |    }
-  81| |    const mod = modules[route.moduleIdx];
-  83| |    if (!mod || !mod.schemaExport) {
-  84| |      nextRoutes.push(route);
-  85| |      continue;
-  86| |    }
-  88| |    const routeModule = await loadRouteModule(mod.path);
-  89| |    const schema = routeModule?.schema;
-  91| |    if (!schema || typeof schema !== "object") {
-  92| |      nextRoutes.push(route);
-  93| |      continue;
+   7| |import type {
+   8| |  ContextUsage,
+   9| |  ImportInfo,
+  10| |  ExportInfo,
+  11| |  SymbolInfo,
+  12| |  Position,
+  13| |} from "../types";
+  14| |import { EMPTY_USAGE } from "../../shared/context-usage";
+  15| |import * as oxcParser from "oxc-parser";
+  17| |import { createRequire } from "node:module";
+  18| |/**
+  19| | * Build ImportInfo without assigning explicit undefined properties.
+  20| | *
+  21| | * This satisfies exactOptionalPropertyTypes cleanly.
+  22| | */
+  24|▼|const createImportInfo = (
+  25| |  source: string,
+  26| |  names: string[],
+  27| |  defaultName?: string,
+  28| |  namespaceName?: string,
+  29| |): ImportInfo => {
+  30| |  const info: {
+  31| |    source: string;
+  32| |    names: string[];
+  33| |    defaultName?: string;
+  34| |    namespaceName?: string;
+  35| |  } = {
+  36| |    source,
+  37| |    names,
+  38| |  };
+  40| |  if (defaultName !== undefined) info.defaultName = defaultName;
+  41| |  if (namespaceName !== undefined) info.namespaceName = namespaceName;
+  43| |  return info;
+  44| |};
+  47| |// ---------------------------------------------------------------------------
+  48| |// ESTree Walker — tiny, zero-dependency
+  49| |// ---------------------------------------------------------------------------
+  51|▼|function walk(node: any, cb: (node: any) => void): void {
+  52| |  if (!node || typeof node !== "object") return;
+  53| |  cb(node);
+  54| |  for (const key of Object.keys(node)) {
+  55| |    if (key === "parent" || key === "loc" || key === "range") continue;
+  56| |    const child = node[key];
+  57| |    if (Array.isArray(child)) {
+  58| |      for (const c of child) walk(c, cb);
+  59| |    } else if (child && typeof child === "object" && child.type) {
+  60| |      walk(child, cb);
+  61| |    }
+  62| |  }
+  63| |}
+  65|▼|function walkUntil<T>(node: any, predicate: (node: any) => T | undefined): T | undefined {
+  66| |  let result: T | undefined;
+  67| |  walk(node, (n) => {
+  68| |    if (result !== undefined) return;
+  69| |    const r = predicate(n);
+  70| |    if (r !== undefined) result = r;
+  71| |  });
+  72| |  return result;
+  73| |}
+  75| |// ---------------------------------------------------------------------------
+  76| |// Context-Usage Detection
+  77| |// ---------------------------------------------------------------------------
+  79| |const CONTEXT_METHODS = new Set([
+  80| |  "json", "text", "html", "redirect", "stream", "empty", "get", "set",
+  81| |]);
+  83| |const CONTEXT_PROPS = new Set([
+  84| |  "body", "params", "query", "file", "files", "headers", "state", "req", "url",
+  85| |  "cookie", "server", "set", "sendFile", "proxy", "forward", "cache",
+  86| |]);
+  88| |/** Build a map: localVariableName → contextProperty (or "__root__") */
+  89|▼|function buildContextMapping(params: any[]): Map<string, string> {
+  90| |  const map = new Map<string, string>();
+  91| |  for (const param of params) {
+  92| |    if (!param) continue;
+  93| |    if (param.type === "Identifier") {
+  94| |      map.set(param.name, "__root__");
+  95| |    } else if (param.type === "ObjectPattern") {
+  96| |      for (const prop of param.properties || []) {
+  97| |        if (prop.type !== "Property") continue;
+  98| |        const key = prop.key?.name ?? prop.key?.value;
+  99| |        const local = prop.value?.name ?? prop.value?.value;
+ 100| |        if (key && local) map.set(local, key);
+ 101| |        // Nested destructuring not supported for DX simplicity
+ 102| |      }
+ 103| |    }
+ 104| |  }
+ 105| |  return map;
+ 106| |}
+ 108|▼|function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage {
+ 109| |  const usage: ContextUsage = { ...EMPTY_USAGE };
+ 111| |  walk(bodyNode, (n) => {
+ 112| |    if (n.type === "MemberExpression" && !n.computed && n.object?.type === "Identifier") {
+ 113| |      const root = mapping.get(n.object.name);
+ 115| |      if (root === "__root__") {
+ 116| |        const prop = n.property.name;
+ 118| |        if (prop === "body" || prop === "files") usage.body = true;
+ 119| |        if (prop === "file") usage.file = true;
+ 120| |        if (prop === "params") usage.params = true;
+ 121| |        if (prop === "query") usage.query = true;
+ 122| |        if (prop === "headers") usage.headers = true;
+ 123| |        if (prop === "state" || prop === "getState" || prop === "setState") usage.state = true;
+ 124| |        if (prop === "req") usage.req = true;
+ 125| |        if (prop === "url" || prop === "path" || prop === "method") usage.url = true;
+ 127| |        if (prop === "cookie") usage.cookie = true;
+ 128| |        if (prop === "server") usage.server = true;
+ 129| |        if (prop === "set") usage.set = true;
+ 131| |        if (prop === "json") usage.json = true;
+ 132| |        if (prop === "text") usage.text = true;
+ 133| |        if (prop === "html") usage.html = true;
+ 134| |        if (prop === "redirect") usage.redirect = true;
+ 135| |        if (prop === "stream") usage.stream = true;
+ 136| |        if (prop === "empty") usage.empty = true;
+ 137| |        if (prop === "status") usage.status = true;
+ 139| |        if (prop === "sendFile") usage.sendFile = true;
+ 140| |        if (prop === "proxy") usage.proxy = true;
+ 141| |        if (prop === "forward") usage.forward = true;
+ 142| |        if (prop === "cache") usage.cache = true;
+ 143| |      }
+ 144| |    }
+ 146| |    if (n.type === "Identifier" && mapping.has(n.name)) {
+ 147| |      const prop = mapping.get(n.name)!;
+ 149| |      if (prop === "body" || prop === "files") usage.body = true;
+ 150| |      if (prop === "file") usage.file = true;
+ 151| |      if (prop === "params") usage.params = true;
+ 152| |      if (prop === "query") usage.query = true;
+ 153| |      if (prop === "headers") usage.headers = true;
+ 154| |      if (prop === "state") usage.state = true;
+ 155| |      if (prop === "req") usage.req = true;
+ 156| |      if (prop === "url") usage.url = true;
+ 158| |      if (prop === "cookie") usage.cookie = true;
+ 159| |      if (prop === "server") usage.server = true;
+ 160| |      if (prop === "set") usage.set = true;
+ 162| |      if (prop === "sendFile") usage.sendFile = true;
+ 163| |      if (prop === "proxy") usage.proxy = true;
+ 164| |      if (prop === "forward") usage.forward = true;
+ 165| |      if (prop === "cache") usage.cache = true;
+ 166| |    }
+ 167| |  });
+ 169| |  return usage;
+ 170| |}
+ 172| |// ---------------------------------------------------------------------------
+ 173| |// Handler Extraction
+ 174| |// ---------------------------------------------------------------------------
+ 176| |const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
+ 177|▼|const nodeStart = (node: any): number | undefined =>
+ 178| |  node?.range?.[0] ?? node?.start ?? node?.span?.[0];
+ 180|▼|const nodeEnd = (node: any): number | undefined =>
+ 181| |  node?.range?.[1] ?? node?.end ?? node?.span?.[1];
+ 183|▼|function extractHandlerFunction(node: any): { fn: any; isAsync: boolean } | null {
+ 184| |  // export default get(async (ctx) => ...)
+ 185| |  if (node.type === "CallExpression" && node.callee?.type === "Identifier" && HTTP_WRAPPERS.has(node.callee.name)) {
+ 186| |    const arg = node.arguments?.[0];
+ 187| |    if (!arg) return null;
+ 188| |    if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") {
+ 189| |      return { fn: arg, isAsync: arg.async ?? false };
+ 190| |    }
+ 191| |    // export default get(myHandler)
+ 192| |    if (arg.type === "Identifier") {
+ 193| |      // We can't inline a referenced handler — return null to signal "imported"
+ 194| |      return null;
+ 195| |    }
+ 196| |  }
+ 197| |  // export default (ctx) => ...
+ 198| |  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") {
+ 199| |    return { fn: node, isAsync: node.async ?? false };
+ 200| |  }
+ 201| |  // export default async function(ctx) { ... }
+ 202| |  if (node.type === "FunctionDeclaration") {
+ 203| |    return { fn: node, isAsync: node.async ?? false };
+ 204| |  }
+ 205| |  return null;
+ 206| |}
+ 208|▼|export interface ExtractedHandler {
+ 209| |  readonly body: string;        // source slice of function body
+ 210| |  readonly isAsync: boolean;
+ 211| |  readonly paramName: string;  // first param identifier name (or "ctx" fallback)
+ 212| |  readonly usage: ContextUsage;
+ 213| |}
+ 215|▼|export function extractHandler(source: string, ast: any): ExtractedHandler | null {
+ 216| |  const defaultExport = walkUntil<any>(ast, (n) =>
+ 217| |    n.type === "ExportDefaultDeclaration" ? n : undefined
+ 218| |  );
+ 220| |  if (!defaultExport) return null;
+ 222| |  const extracted = extractHandlerFunction(defaultExport.declaration);
+ 223| |  if (!extracted) return null;
+ 225| |  const { fn, isAsync } = extracted;
+ 226| |  const params = fn.params || [];
+ 227| |  const mapping = buildContextMapping(params);
+ 228| |  const rootParam = params[0]?.type === "Identifier" ? params[0].name : "ctx";
+ 230| |  let bodyText = "";
+ 231| |  const body = fn.body;
+ 233| |  if (body) {
+ 234| |    const start = nodeStart(body);
+ 235| |    const end = nodeEnd(body);
+ 237| |    if (start != null && end != null) {
+ 238| |      if (body.type === "BlockStatement") {
+ 239| |        bodyText = source.slice(start + 1, end - 1).trim();
+ 240| |      } else {
+ 241| |        bodyText = `return ${source.slice(start, end).trim()};`;
+ 242| |      }
+ 243| |    }
+ 244| |  }
+ 246| |  const usage = detectUsage(body || fn, mapping);
+ 248| |  return {
+ 249| |    body: bodyText,
+ 250| |    isAsync,
+ 251| |    paramName: rootParam,
+ 252| |    usage,
+ 253| |  };
+ 254| |}
+ 255| |// ---------------------------------------------------------------------------
+ 256| |// Import / Export / Symbol Extraction (AST-based, zero regex)
+ 257| |// ---------------------------------------------------------------------------
+ 259|▼|export function extractImportsAST(ast: any): ImportInfo[] {
+ 260| |  const imports: ImportInfo[] = [];
+ 262| |  walk(ast, (n) => {
+ 263| |    if (n.type !== "ImportDeclaration") return;
+ 265| |    const source = n.source?.value as string;
+ 266| |    if (!source) return;
+ 268| |    const names: string[] = [];
+ 269| |    let defaultName: string | undefined;
+ 270| |    let namespaceName: string | undefined;
+ 272| |    for (const spec of n.specifiers || []) {
+ 273| |      if (spec.type === "ImportDefaultSpecifier") defaultName = spec.local.name;
+ 274| |      if (spec.type === "ImportNamespaceSpecifier") namespaceName = spec.local.name;
+ 275| |      if (spec.type === "ImportSpecifier") names.push(spec.local.name);
+ 276| |    }
+ 278| |    imports.push(createImportInfo(source, names, defaultName, namespaceName));
+ 279| |  });
+ 281| |  return imports;
+ 282| |}
+ 284|▼|export function extractExportsAST(ast: any): ExportInfo[] {
+ 285| |  const exports: ExportInfo[] = [];
+ 286| |  walk(ast, (n) => {
+ 287| |    if (n.type === "ExportDefaultDeclaration") {
+ 288| |      const name = n.declaration?.name || "default";
+ 289| |      exports.push({ name, kind: "default" });
+ 290| |    }
+ 291| |    if (n.type === "ExportNamedDeclaration") {
+ 292| |      for (const spec of n.specifiers || []) {
+ 293| |        if (spec.type === "ExportSpecifier") {
+ 294| |          exports.push({ name: spec.local.name, kind: "named" });
+ 295| |        }
+ 296| |      }
+ 297| |      for (const decl of n.declaration ? [n.declaration] : []) {
+ 298| |        if (decl.type === "FunctionDeclaration" || decl.type === "VariableDeclaration") {
+ 299| |          const id = decl.id || decl.declarations?.[0]?.id;
+ 300| |          if (id?.name) exports.push({ name: id.name, kind: "named" });
+ 301| |        }
+ 302| |      }
+ 303| |    }
+ 304| |  });
+ 305| |  return exports;
+ 306| |}
+ 308|▼|function posFromNode(source: string, node: any): Position {
+ 309| |  if (node.loc) return { line: node.loc.start.line, column: node.loc.start.column };
+ 310| |  return { line: 0, column: 0 };
+ 311| |}
+ 313|▼|export function extractSymbolsAST(source: string, ast: any): SymbolInfo[] {
+ 314| |  const symbols: SymbolInfo[] = [];
+ 315| |  walk(ast, (n) => {
+ 316| |    if (n.type === "FunctionDeclaration" && n.id?.name) {
+ 317| |      symbols.push({
+ 318| |        name: n.id.name,
+ 319| |        kind: "function",
+ 320| |        pos: posFromNode(source, n),
+ 321| |        isAsync: n.async ?? false,
+ 322| |        isDefaultExport: false,
+ 323| |        params: (n.params || []).map((p: any) => p.name || "..."),
+ 324| |        decorators: [],
+ 325| |        calls: [],
+ 326| |        calledBy: [],
+ 327| |        size: n.range ? n.range[1] - n.range[0] : 9999,
+ 328| |        hotness: 0,
+ 329| |      });
+ 330| |    }
+ 331| |    if (n.type === "VariableDeclaration") {
+ 332| |      for (const decl of n.declarations || []) {
+ 333| |        if (decl.id?.name && decl.init?.type === "ArrowFunctionExpression") {
+ 334| |          symbols.push({
+ 335| |            name: decl.id.name,
+ 336| |            kind: "const",
+ 337| |            pos: posFromNode(source, n),
+ 338| |            isAsync: decl.init.async ?? false,
+ 339| |            isDefaultExport: false,
+ 340| |            params: (decl.init.params || []).map((p: any) => p.name || "..."),
+ 341| |            decorators: [],
+ 342| |            calls: [],
+ 343| |            calledBy: [],
+ 344| |            size: n.range ? n.range[1] - n.range[0] : 9999,
+ 345| |            hotness: 0,
+ 346| |          });
+ 347| |        }
+ 348| |      }
+ 349| |    }
+ 350| |  });
+ 351| |  return symbols;
+ 352| |}
+ 354|▼|export function hasDefaultExportAST(ast: any): boolean {
+ 355| |  return walkUntil(ast, (n) => (n.type === "ExportDefaultDeclaration" ? true : undefined)) ?? false;
+ 356| |}
+ 358|▼|export function hasSchemaExportAST(ast: any): boolean {
+ 359| |  let found = false;
+ 360| |  walk(ast, (n) => {
+ 361| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
+ 362| |      for (const d of n.declaration.declarations || []) {
+ 363| |        if (d.id?.name === "schema") found = true;
+ 364| |      }
+ 365| |    }
+ 366| |    if (n.type === "ExportSpecifier" && n.local?.name === "schema") found = true;
+ 368| |    // Schema-first HTTP: export default get(handler, { ... })
+ 369| |    if (
+ 370| |      n.type === "ExportDefaultDeclaration" &&
+ 371| |      n.declaration?.type === "CallExpression" &&
+ 372| |      n.declaration.callee?.type === "Identifier" &&
+ 373| |      HTTP_WRAPPERS.has(n.declaration.callee.name)
+ 374| |    ) {
+ 375| |      const args = n.declaration.arguments || [];
+ 376| |      const schemaArg = args[1];
+ 378| |      if (
+ 379| |        schemaArg &&
+ 380| |        schemaArg.type !== "Literal" &&
+ 381| |        schemaArg.type !== "StringLiteral" &&
+ 382| |        schemaArg.type !== "TemplateLiteral"
+ 383| |      ) {
+ 384| |        found = true;
+ 385| |      }
+ 386| |    }
+ 387| |  });
+ 388| |  return found;
+ 389| |}
+ 391|▼|export function hasConfigExportAST(ast: any): boolean {
+ 392| |  let found = false;
+ 393| |  walk(ast, (n) => {
+ 394| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
+ 395| |      for (const d of n.declaration.declarations || []) {
+ 396| |        if (d.id?.name === "config") found = true;
+ 397| |      }
+ 398| |    }
+ 399| |    if (n.type === "ExportSpecifier" && n.local?.name === "config") found = true;
+ 400| |  });
+ 401| |  return found;
+ 402| |}
+ 404| |// ---------------------------------------------------------------------------
+ 405| |// Purity Analysis (AST-based)
+ 406| |// ---------------------------------------------------------------------------
+ 408| |const IMPURE_GLOBALS = new Set([
+ 409| |  "fetch", "Date", "Math", "console", "process", "crypto",
+ 410| |  "setTimeout", "setInterval", "clearTimeout", "clearInterval",
+ 411| |  "Promise", "Map", "Set", "WeakMap", "WeakSet",
+ 412| |]);
+ 414| |const IMPURE_CALLS = new Set([
+ 415| |  "Math.random", "Date.now", "crypto.randomUUID", "crypto.getRandomValues",
+ 416| |  "console.log", "console.warn", "console.error", "fetch",
+ 417| |]);
+ 419|▼|export function isPureBodyAST(ast: any): boolean {
+ 420| |  let impure = false;
+ 421| |  walk(ast, (n) => {
+ 422| |    if (impure) return;
+ 423| |    // new Date(), new Map(), etc.
+ 424| |    if (n.type === "NewExpression" && n.callee?.type === "Identifier" && IMPURE_GLOBALS.has(n.callee.name)) {
+ 425| |      impure = true;
+ 426| |    }
+ 427| |    // fetch(), Math.random(), etc.
+ 428| |    if (n.type === "CallExpression") {
+ 429| |      const callee = n.callee;
+ 430| |      if (callee.type === "Identifier" && IMPURE_GLOBALS.has(callee.name)) {
+ 431| |        impure = true;
+ 432| |      }
+ 433| |      if (callee.type === "MemberExpression") {
+ 434| |        const chain = flattenMember(callee);
+ 435| |        if (chain && IMPURE_CALLS.has(chain)) impure = true;
+ 436| |      }
+ 437| |    }
+ 438| |    // await
+ 439| |    if (n.type === "AwaitExpression") {
+ 440| |      // Conservative: any await is impure (could be DB, fetch, etc.)
+ 441| |      impure = true;
+ 442| |    }
+ 443| |  });
+ 444| |  return !impure;
+ 445| |}
+ 447|▼|function flattenMember(node: any): string | null {
+ 448| |  if (node.type === "Identifier") return node.name;
+ 449| |  if (node.type === "MemberExpression" && !node.computed) {
+ 450| |    const obj = flattenMember(node.object);
+ 451| |    const prop = node.property?.name;
+ 452| |    if (obj && prop) return `${obj}.${prop}`;
+ 453| |  }
+ 454| |  return null;
+ 455| |}
+ 457| |// ---------------------------------------------------------------------------
+ 458| |// Response-Type Inference (AST-based)
+ 459| |// ---------------------------------------------------------------------------
+ 461|▼|export function inferResponseTypeAST(ast: any): "json" | "text" | "html" | "stream" | "unknown" {
+ 462| |  let type: "json" | "text" | "html" | "stream" | "unknown" = "unknown";
+ 463| |  walk(ast, (n) => {
+ 464| |    if (n.type === "CallExpression" && n.callee?.type === "MemberExpression") {
+ 465| |      const chain = flattenMember(n.callee);
+ 466| |      if (chain === "ctx.json") type = "json";
+ 467| |      if (chain === "ctx.text") type = "text";
+ 468| |      if (chain === "ctx.html") type = "html";
+ 469| |      if (chain === "ctx.stream") type = "stream";
+ 470| |    }
+ 471| |    // Heuristic: return "string" or template literal → text
+ 472| |    if (n.type === "ReturnStatement" && n.argument?.type === "Literal" && typeof n.argument.value === "string") {
+ 473| |      if (type === "unknown") type = "text";
+ 474| |    }
+ 475| |  });
+ 476| |  return type;
+ 477| |}
+ 479| |// ---------------------------------------------------------------------------
+ 480| |// Main Parse Entry
+ 481| |// ---------------------------------------------------------------------------
+ 483|▼|export interface ParseResult {
+ 484| |  readonly ast: any;
+ 485| |  readonly imports: ImportInfo[];
+ 486| |  readonly exports: ExportInfo[];
+ 487| |  readonly symbols: SymbolInfo[];
+ 488| |  readonly hasDefaultExport: boolean;
+ 489| |  readonly schemaExport: boolean;
+ 490| |  readonly configExport: boolean;
+ 491| |  readonly handler: ExtractedHandler | null;
+ 492| |  readonly config?: any;
+ 493| |}
+ 495| |// ---------------------------------------------------------------------------
+ 496| |// AST Parser Bridge
+ 497| |// ---------------------------------------------------------------------------
+ 499|▼|function normalizeAst(result: any): any {
+ 500| |  if (!result) {
+ 501| |    return { type: "Program", body: [] };
+ 502| |  }
+ 504| |  if (result.errors && result.errors.length > 0) {
+ 505|!|    throw new Error(result.errors[0]?.message ?? "AST parse error");
+ 506| |  }
+ 508| |  const ast = result.program ?? result.ast ?? result.root ?? result;
+ 510| |  if (!ast.type) ast.type = "Program";
+ 511| |  if (!Array.isArray(ast.body)) ast.body = [];
+ 513| |  return ast;
+ 514| |}
+ 516|▼|function tryOxcParser(source: string): any | undefined {
+ 517| |  const mod = oxcParser as any;
+ 518| |  const parseSync = mod.parseSync ?? mod.default?.parseSync;
+ 520| |  if (typeof parseSync !== "function") return undefined;
+ 522| |  const attempts = [
+ 523| |    () =>
+ 524| |      parseSync("flux.ts", source, {
+ 525| |        sourceType: "module",
+ 526| |        target: "esnext",
+ 527| |      }),
+ 528| |    () =>
+ 529| |      parseSync(source, {
+ 530| |        sourceType: "module",
+ 531| |        target: "esnext",
+ 532| |      }),
+ 533| |  ];
+ 535| |  for (const attempt of attempts) {
+ 536| |    try {
+ 537| |      const result = attempt();
+ 539| |      if (result && typeof result.then === "function") continue;
+ 540| |      if (result?.errors?.length) continue;
+ 542| |      const program = result?.program ?? result?.ast ?? result;
+ 544| |      if (program?.type || Array.isArray(program?.body)) {
+ 545| |        return program;
+ 546| |      }
+ 547| |    } catch {
+ 548| |      // try next shape
+ 549| |    }
+ 550| |  }
+ 552| |  return undefined;
+ 553| |}
+ 555|▼|function parseToAst(source: string): any {
+ 556| |  const oxc = tryOxcParser(source);
+ 557| |  if (oxc) return normalizeAst(oxc);
+ 559| |  const B: any = Bun;
+ 561| |  const parsers: Array<() => any> = [
+ 562| |    () =>
+ 563| |      typeof B.parse === "function"
+ 564| |        ? B.parse(source, {
+ 565| |            loader: "ts",
+ 566| |            target: "bun",
+ 567| |            ranges: true,
+ 568| |            loc: true,
+ 569| |          })
+ 570| |        : undefined,
+ 572| |    () =>
+ 573| |      typeof B.parseSync === "function"
+ 574| |        ? B.parseSync(source, {
+ 575| |            loader: "ts",
+ 576| |            target: "bun",
+ 577| |            ranges: true,
+ 578| |            loc: true,
+ 579| |          })
+ 580| |        : undefined,
+ 582| |    () => {
+   ... (110 more lines)
+---
+
+>src/core/openapi.ts
+l:./types
+e:OpenAPIInfo|RouteDefinition|generateOpenAPI
+f:generateOpenAPI(
+    info: OpenAPIInfo,
+    routes: RouteDefinition[]
+):Record<string, unknown>
+t:OpenAPIInfo
+t:RouteDefinition
+---
+   1| |/**
+   2| | * @fileoverview OpenAPI 3.1 Specification Generator.
+   3| | * Auto-generates docs from route definitions.
+   4| | */
+   6| |import type { RouteSchema, DocumentDecoration, HttpMethod } from "./types";
+   8|▼|export interface OpenAPIInfo {
+   9| |    title: string;
+  10| |    version: string;
+  11| |    description?: string;
+  12| |}
+  14|▼|export interface RouteDefinition {
+  15| |    method: HttpMethod;
+  16| |    path: string;
+  17| |    schema?: RouteSchema;
+  18| |    detail?: DocumentDecoration;
+  19| |}
+  21|▼|export const generateOpenAPI = (
+  22| |    info: OpenAPIInfo,
+  23| |    routes: RouteDefinition[]
+  24| |): Record<string, unknown> => {
+  25| |    const paths: Record<string, Record<string, unknown>> = {};
+  27| |    for (const route of routes) {
+  28| |        if (route.method === "ALL" || route.method === "WS") continue;
+  30| |        const openApiPath = route.path
+  31| |            .replace(/:(\w+)/g, "{$1}")
+  32| |            .replace(/\*(\w+)/g, "{$1}");
+  34| |        if (!paths[openApiPath]) paths[openApiPath] = {};
+  36| |        const operation: Record<string, unknown> = {
+  37| |            operationId: `${route.method.toLowerCase()}_${openApiPath.replace(/[{}\/]/g, "_")}`,
+  38| |            ...route.detail,
+  39| |            responses: { "200": { description: "Successful response" } },
+  40| |        };
+  42| |        if (route.schema?.params) {
+  43| |            const schema = route.schema.params as any;
+  44| |            const required = new Set(schema.required ?? []);
+  46| |            operation.parameters = Object.entries(schema.properties ?? {}).map(
+  47| |                ([name, propSchema]: [string, any]) => ({
+  48| |                    name,
+  49| |                    in: "path",
+  50| |                    required: required.has(name),
+  51| |                    schema: {
+  52| |                        type: propSchema.type ?? "string",
+  53| |                        ...(propSchema.format ? { format: propSchema.format } : {}),
+  54| |                        ...(propSchema.enum ? { enum: propSchema.enum } : {}),
+  55| |                    },
+  56| |                })
+  57| |            );
+  58| |        }
+  60| |        if (route.schema?.query) {
+  61| |            const schema = route.schema.query as any;
+  62| |            const required = new Set(schema.required ?? []);
+  64| |            const queryParams = Object.entries(schema.properties ?? {}).map(
+  65| |                ([name, propSchema]: [string, any]) => ({
+  66| |                    name,
+  67| |                    in: "query",
+  68| |                    required: required.has(name),
+  69| |                    schema: {
+  70| |                        type: propSchema.type ?? "string",
+  71| |                        ...(propSchema.format ? { format: propSchema.format } : {}),
+  72| |                        ...(propSchema.enum ? { enum: propSchema.enum } : {}),
+  73| |                        ...(propSchema.default !== undefined
+  74| |                            ? { default: propSchema.default }
+  75| |                            : {}),
+  76| |                    },
+  77| |                })
+  78| |            );
+  80| |            operation.parameters = [
+  81| |                ...((operation.parameters as any[]) ?? []),
+  82| |                ...queryParams,
+  83| |            ];
+  85| |        }
+  87| |        if (route.schema?.body) {
+  88| |            operation.requestBody = {
+  89| |                content: { "application/json": { schema: route.schema.body } },
+  90| |            };
+  91| |        }
+  93| |        paths[openApiPath][route.method.toLowerCase()] = operation;
   94| |    }
-  96| |    const responseSchema = pickResponseSchema(schema.response);
-  98| |    if (!responseSchema || isStandardSchema(responseSchema)) {
-  99| |      nextRoutes.push(route);
- 100| |      continue;
- 101| |    }
- 103| |    let cloned: any;
- 105| |    try {
- 106| |      cloned = cloneSchema(responseSchema);
- 107| |    } catch {
- 108| |      nextRoutes.push(route);
- 109| |      continue;
- 110| |    }
- 112| |    try {
- 113| |      // Test compile first.
- 114| |      fastJson(cloned);
- 116| |      const code = `import fastJson from "fast-json-stringify";
- 118| |const schema = ${JSON.stringify(cloned)};
- 120| |const serialize = fastJson(schema);
- 122| |export default serialize;
- 123| |`;
- 125| |      writeFileSync(join(serializersDir, serializerFileName(route)), code);
- 127| |      nextRoutes.push({
- 128| |        ...route,
- 129| |        serializers: {
- 130| |          json: serializerImportName(route),
- 131| |        },
- 132| |      });
- 134| |      logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
- 135| |    } catch {
- 136| |      nextRoutes.push(route);
- 137| |    }
- 138| |  }
- 140| |  return nextRoutes;
- 141| |};
+  96| |    return {
+  97| |        openapi: "3.1.0",
+  98| |        info,
+  99| |        paths,
+ 100| |    };
+ 101| |};
+---
+
+>src/core/schema.ts
+i:ajv|ajv-formats
+l:./types|./errors
+e:compileValidator|validateOrThrow
+f:isStandardSchema(schema: AnySchema)
+f:toErrorRecord(
+  errors: ErrorObject[] | null | undefined,
+  on: string
+)
+f:compileValidator(
+  schema: AnySchema,
+  on: string = "input"
+)
+f:validateOrThrow(
+  schema: AnySchema,
+  input: unknown,
+  on: string = "input"
+)
+f:validateAsync(
+  schema: AnySchema,
+  input: unknown,
+  on: string = "input"
+)|a
+---
+   1| |/**
+   2| | * Runtime schema validation.
+   3| | *
+   4| | * Supports:
+   5| | * - TypeBox / JSON Schema via Ajv
+   6| | * - Standard Schema v1 via async validation
+   7| | */
+   9| |import Ajv, { type ErrorObject } from "ajv";
+  10| |import addFormats from "ajv-formats";
+  11| |import type { AnySchema, StandardSchemaV1 } from "./types";
+  12| |import { ValidationError } from "./errors";
+  14| |const ajv = new Ajv({
+  15| |  allErrors: true,
+  16| |  strict: false,
+  17| |  coerceTypes: true,
+  18| |  removeAdditional: true,
+  19| |  useDefaults: true,
+  20| |});
+  22| |addFormats(ajv);
+  24|▼|function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
+  25| |  return typeof schema === "object" && schema !== null && "~standard" in schema;
+  26| |}
+  28|▼|function toErrorRecord(
+  29| |  errors: ErrorObject[] | null | undefined,
+  30| |  on: string
+  31| |): Record<string, string[]> {
+  32| |  const out: Record<string, string[]> = {};
+  34| |  for (const e of errors ?? []) {
+  35| |    const path =
+  36| |      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
+  37| |      (e.params as any)?.missingProperty ||
+  38| |      on;
+  40| |    out[path] ??= [];
+  41| |    out[path].push(e.message ?? "Invalid value");
+  42| |  }
+  44| |  return out;
+  45| |}
+  47|▼|export function compileValidator<T = unknown>(
+  48| |  schema: AnySchema,
+  49| |  on: string = "input"
+  50| |) {
+  51| |  if (isStandardSchema(schema)) {
+  52| |    return (_input: unknown): T => {
+  53|!|      throw new Error(
+  54| |        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
+  55| |      );
+  56| |    };
+  57| |  }
+  59| |  const validate = ajv.compile(schema as object);
+  61| |  return (input: unknown): T => {
+  62| |    if (!validate(input)) {
+  63|!|      throw new ValidationError(
+  64| |        "Validation failed",
+  65| |        toErrorRecord(validate.errors, on),
+  66| |        on
+  67| |      );
+  68| |    }
+  70| |    return input as T;
+  71| |  };
+  72| |}
+  74|▼|export function validateOrThrow<T = unknown>(
+  75| |  schema: AnySchema,
+  76| |  input: unknown,
+  77| |  on: string = "input"
+  78| |): T {
+  79| |  return compileValidator<T>(schema, on)(input);
+  80| |}
+  82|▼|export async function validateAsync<T = unknown>(
+  83| |  schema: AnySchema,
+  84| |  input: unknown,
+  85| |  on: string = "input"
+  86| |): Promise<T> {
+  87| |  if (isStandardSchema(schema)) {
+  88| |    const result = await schema["~standard"].validate(input);
+  90| |    if ("issues" in result) {
+  91| |      const errors: Record<string, string[]> = {};
+  93| |      for (const issue of result.issues) {
+  94| |        const path = issue.path?.join(".") || on;
+  95| |        errors[path] ??= [];
+  96| |        errors[path].push(issue.message);
+  97| |      }
+  99|!|      throw new ValidationError("Validation failed", errors, on);
+ 100| |    }
+ 102| |    return result.value as T;
+ 103| |  }
+ 105| |  return compileValidator<T>(schema, on)(input);
+ 106| |}
 ---
 
 >src/core/context.ts
@@ -5594,6 +5594,375 @@ f:runOptimization(
  142| |  });
 ---
 
+>src/core/derive.ts
+l:./context|./types
+e:DeriveFn|ResolveFn|createDerivePipeline|createResolvePipeline|deriveUser|deriveDb|deriveRequestId
+f:createDerivePipeline()
+f:createResolvePipeline()
+f:deriveUser(extractor: (ctx: FluxContext)
+f:deriveDb(factory: ()
+f:deriveRequestId()
+t:DeriveFn
+t:ResolveFn
+---
+   1| |/**
+   2| | * @fileoverview Derive & Resolve — Context enrichment pipeline.
+   3| | * Composable, type-safe context extensions.
+   4| | */
+   6| |import type { FluxContext } from "./context";
+   7| |import type { MaybePromise } from "./types";
+   9|▼|export type DeriveFn<In extends Record<string, unknown> = {}, Out extends Record<string, unknown> = {}> =
+  10| |  (ctx: FluxContext & In) => MaybePromise<Out>;
+  12|▼|export type ResolveFn<In extends Record<string, unknown> = {}, Out extends Record<string, unknown> = {}> =
+  13| |  (ctx: FluxContext & In) => MaybePromise<Out>;
+  15| |// ============================================================================
+  16| |// Derive Pipeline (runs before validation)
+  17| |// ============================================================================
+  19|▼|export const createDerivePipeline = () => {
+  20| |  const fns: DeriveFn[] = [];
+  22| |  return {
+  23| |    add(fn: DeriveFn) { fns.push(fn); return this; },
+  25| |    async execute(ctx: FluxContext): Promise<FluxContext> {
+  26| |      let current = ctx;
+  27| |      for (const fn of fns) {
+  28| |        const result = await fn(current);
+  29| |        if (result && typeof result === "object") {
+  30| |          Object.assign(current, result);
+  31| |        }
+  32| |      }
+  33| |      return current;
+  34| |    },
+  36| |    get length() { return fns.length; },
+  37| |  };
+  38| |};
+  40| |// ============================================================================
+  41| |// Resolve Pipeline (runs after validation, before handler)
+  42| |// ============================================================================
+  44|▼|export const createResolvePipeline = () => {
+  45| |  const fns: ResolveFn[] = [];
+  47| |  return {
+  48| |    add(fn: ResolveFn) { fns.push(fn); return this; },
+  50| |    async execute(ctx: FluxContext): Promise<FluxContext> {
+  51| |      let current = ctx;
+  52| |      for (const fn of fns) {
+  53| |        const result = await fn(current);
+  54| |        if (result && typeof result === "object") {
+  55| |          Object.assign(current, result);
+  56| |        }
+  57| |      }
+  58| |      return current;
+  59| |    },
+  61| |    get length() { return fns.length; },
+  62| |  };
+  63| |};
+  65| |// ============================================================================
+  66| |// Common Derive Factories
+  67| |// ============================================================================
+  69|▼|export const deriveUser = <T>(extractor: (ctx: FluxContext) => MaybePromise<T | null>) =>
+  70| |  async (ctx: FluxContext) => ({ user: await extractor(ctx) });
+  72|▼|export const deriveDb = <T>(factory: () => T) =>
+  73| |  (ctx: FluxContext) => ({ db: factory() });
+  75|▼|export const deriveRequestId = () =>
+  76| |  (ctx: FluxContext) => ({ requestId: ctx.requestId });
+---
+
+>src/core/hooks.ts
+l:./context|./types
+e:HookResult|HookFn|continueHook|haltHook|executeHooks|composeHooks|filterByScope|filterGlobal|mergeHookArrays|isAsyncFn|withTiming|withErrorBoundary|conditional
+f:continueHook(ctx: FluxContext):HookResult
+f:haltHook(response: Response):HookResult
+f:composeHooks(...hooks: HookFn[]):HookFn
+f:filterByScope(scope: LifeCycleType)
+f:filterGlobal(hooks: HookContainer[]):HookContainer[]
+f:mergeHookArrays(
+  a: HookContainer[] | undefined,
+  b: HookContainer[] | undefined
+):HookContainer[]
+f:isAsyncFn(fn: Function):boolean
+f:withTiming(name: string, hook: HookFn):HookFn
+f:withErrorBoundary(fallback: (err: Error)
+f:conditional(predicate: (ctx: FluxContext)
+t:HookResult
+t:HookFn
+---
+   1| |/**
+   2| | * @fileoverview Hook Execution Engine v3.0
+   3| | * Composable, async middleware with scoped lifecycle.
+   4| | */
+   6| |import type { FluxContext } from "./context";
+   7| |import type { HookContainer, LifeCycleType } from "./types";
+   9| |// ============================================================================
+  10| |// Types
+  11| |// ============================================================================
+  13|▼|export type HookResult =
+  14| |  | { readonly ok: true; ctx: FluxContext }
+  15| |  | { readonly ok: false; response: Response };
+  17|▼|export type HookFn = (ctx: FluxContext) => Promise<HookResult> | HookResult;
+  19| |// ============================================================================
+  20| |// Hook Constructors
+  21| |// ============================================================================
+  23|▼|export const continueHook = (ctx: FluxContext): HookResult => ({ ok: true, ctx });
+  24|▼|export const haltHook = (response: Response): HookResult => ({ ok: false, response });
+  26| |// ============================================================================
+  27| |// Hook Execution
+  28| |// ============================================================================
+  30| |export const executeHooks = async (
+  31| |  ctx: FluxContext,
+  32| |  hooks: readonly HookFn[]
+  33| |): Promise<{ ctx: FluxContext; halted?: Response }> => {
+  34| |  let current = ctx;
+  35| |  for (const hook of hooks) {
+  36| |    const result = await hook(current);
+  37| |    if (!result.ok) return { ctx: current, halted: result.response };
+  38| |    current = result.ctx;
+  39| |  }
+  40| |  return { ctx: current };
+  41| |};
+  43| |// ============================================================================
+  44| |// Hook Composition
+  45| |// ============================================================================
+  47|▼|export const composeHooks = (...hooks: HookFn[]): HookFn =>
+  48| |  async (ctx) => {
+  49| |    const result = await executeHooks(ctx, hooks);
+  50| |    if (result.halted) return haltHook(result.halted);
+  51| |    return continueHook(result.ctx);
+  52| |  };
+  54| |// ============================================================================
+  55| |// Hook Filtering by Scope
+  56| |// ============================================================================
+  58|▼|export const filterByScope = (scope: LifeCycleType) =>
+  59| |  (hooks: HookContainer[]): HookContainer[] =>
+  60| |    hooks.filter(h => !h.scope || h.scope === scope || h.scope === "global");
+  62|▼|export const filterGlobal = (hooks: HookContainer[]): HookContainer[] =>
+  63| |  hooks.filter(h => h.scope === "global" || h.scope === "scoped");
+  65| |// ============================================================================
+  66| |// Hook Merging (Pure)
+  67| |// ============================================================================
+  69|▼|export const mergeHookArrays = (
+  70| |  a: HookContainer[] | undefined,
+  71| |  b: HookContainer[] | undefined
+  72| |): HookContainer[] => {
+  73| |  if (!a && !b) return [];
+  74| |  if (!a) return b!;
+  75| |  if (!b) return a;
+  77| |  const checksums = new Set(a.map(h => h.checksum).filter(Boolean));
+  78| |  const merged = [...a];
+  79| |  for (const hook of b) {
+  80| |    if (hook.checksum && checksums.has(hook.checksum)) continue;
+  81| |    merged.push(hook);
+  82| |  }
+  83| |  return merged;
+  84| |};
+  86| |// ============================================================================
+  87| |// Async Detection
+  88| |// ============================================================================
+  90|▼|export const isAsyncFn = (fn: Function): boolean =>
+  91| |  fn.constructor.name === "AsyncFunction" ||
+  92| |  fn.constructor.name === "AsyncGeneratorFunction";
+  94| |// ============================================================================
+  95| |// Higher-Order Hook Factories
+  96| |// ============================================================================
+  98|▼|export const withTiming = (name: string, hook: HookFn): HookFn =>
+  99| |  async (ctx) => {
+ 100| |    const start = performance.now();
+ 101| |    const result = await hook(ctx);
+ 102| |    ctx.setState(`__timing_${name}`, performance.now() - start);
+ 103| |    return result;
+ 104| |  };
+ 106|▼|export const withErrorBoundary = (fallback: (err: Error) => Response) => (hook: HookFn): HookFn =>
+ 107| |  async (ctx) => {
+ 108| |    try { return await hook(ctx); }
+ 109|!|    catch (err) { return haltHook(fallback(err as Error)); }
+ 110| |  };
+ 112|▼|export const conditional = (predicate: (ctx: FluxContext) => boolean) => (hook: HookFn): HookFn =>
+ 113| |  (ctx) => predicate(ctx) ? hook(ctx) : continueHook(ctx);
+---
+
+>src/core/http.ts
+l:./context|./body|./types
+e:SchemaLike|RouteSchemas|BodyRouteSchemas|NoBodyRouteSchemas|RouteContext|RouteHandler|Handler|get|post|put|patch|del|all
+f:get(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:post(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:put(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:patch(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:del(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:all(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:attachSchema(fn: T, schemaOrPath?: unknown):T
+t:SchemaLike
+t:RouteSchemas
+t:BodyRouteSchemas
+t:NoBodyRouteSchemas
+t:InferSchema
+t:InferBody
+t:InferQuery
+t:InferParams
+t:LooksLikeSchema
+t:InferResponse
+t:TypedLazyBody
+t:RouteContext
+t:RouteResult
+t:RouteHandler
+t:Handler
+t:AnyFunction
+---
+   1| |// ============================================================================
+   2| |// FLUX HTTP — Schema-first typed route definitions
+   3| |// ============================================================================
+   4| |//
+   5| |// Breaking change:
+   6| |// - The second argument is now a schema object, not a route path.
+   7| |// - Route path is inferred from the filename by the compiler.
+   8| |//
+   9| |// Example:
+  10| |//   export default get(async (ctx) => {
+  11| |//     return ctx.json({ q: ctx.query.q });
+  12| |//   }, {
+  13| |//     query: Type.Object({ q: Type.String() }),
+  14| |//   });
+  15| |// ============================================================================
+  17| |import type { FluxContext } from "./context";
+  18| |import type { LazyBody } from "./body";
+  19| |import type { MaybePromise, StandardSchemaV1, TSchema } from "./types";
+  21|▼|export type SchemaLike = StandardSchemaV1<any, any> | TSchema | object;
+  23|▼|export type RouteSchemas = {
+  24| |  body?: SchemaLike;
+  25| |  query?: SchemaLike;
+  26| |  params?: SchemaLike;
+  27| |  headers?: SchemaLike;
+  28| |  response?: SchemaLike | Record<number, SchemaLike>;
+  29| |};
+  31|▼|export type BodyRouteSchemas = RouteSchemas;
+  32|▼|export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
+  34|▼|type InferSchema<T> = T extends StandardSchemaV1<any, infer Output>
+  35| |  ? Output
+  36| |  : T extends { static: infer S }
+  37| |    ? S
+  38| |    : unknown;
+  40|▼|type InferBody<S> = S extends { body: infer X } ? InferSchema<X> : unknown;
+  42|▼|type InferQuery<S> = S extends { query: infer X }
+  43| |  ? InferSchema<X>
+  44| |  : URLSearchParams;
+  46|▼|type InferParams<S> = S extends { params: infer X }
+  47| |  ? InferSchema<X>
+  48| |  : Record<string, string>;
+  50|▼|type LooksLikeSchema<T> = T extends StandardSchemaV1<any, any>
+  51| |  ? true
+  52| |  : T extends { "~standard": unknown }
+  53| |    ? true
+  54| |    : T extends { static: unknown }
+  55| |      ? true
+  56| |      : T extends { type: string }
+  57| |        ? true
+  58| |        : false;
+  60|▼|type InferResponse<S> = S extends { response: infer R }
+  61| |  ? LooksLikeSchema<R> extends true
+  62| |    ? InferSchema<R>
+  63| |    : R extends Record<string, infer V>
+  64| |      ? InferSchema<V>
+  65| |      : unknown
+  66| |  : unknown;
+  68|▼|type TypedLazyBody<B> = {
+  69| |  json<T = B>(): Promise<T>;
+  70| |  form<T = B extends Record<string, unknown> ? B : Record<string, string>>(): Promise<T>;
+  71| |  multipart<T = B extends Record<string, unknown> ? B : Record<string, unknown>>(): Promise<T>;
+  72| |} & LazyBody;
+  74|▼|export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
+  75| |  FluxContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
+  76| |  "body" | "query"
+  77| |> & {
+  78| |  body: TypedLazyBody<InferBody<S>>;
+  79| |  query: InferQuery<S>;
+  80| |};
+  82|▼|type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
+  83| |  Response | InferResponse<S>
+  84| |>;
+  86|▼|export type RouteHandler<S extends Partial<RouteSchemas>> = (
+  87| |  ctx: RouteContext<S>,
+  88| |) => RouteResult<S>;
+  90| |/**
+  91| | * Backward-compatible handler type.
+  92| | */
+  93|▼|export type Handler<
+  94| |  B = unknown,
+  95| |  Q = URLSearchParams,
+  96| |  P = Record<string, string>,
+  97| |> = (ctx: FluxContext<P, Q, B>) => MaybePromise<unknown>;
+  99|▼|type AnyFunction = (...args: any[]) => any;
+ 101|▼|const attachSchema = <T extends AnyFunction>(fn: T, schemaOrPath?: unknown): T => {
+ 102| |  // Runtime compatibility: if an old path string is passed, ignore it.
+ 103| |  if (schemaOrPath == null || typeof schemaOrPath === "string") {
+ 104| |    return fn;
+ 105| |  }
+ 107| |  Object.defineProperty(fn, "schema", {
+ 108| |    value: schemaOrPath,
+ 109| |    enumerable: false,
+ 110| |    writable: false,
+ 111| |    configurable: true,
+ 112| |  });
+ 114| |  return fn;
+ 115| |};
+ 117| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 118|▼|export function get<const S extends NoBodyRouteSchemas = {}>(
+ 119| |  fn: RouteHandler<S>,
+ 120| |  schema?: S,
+ 121| |): RouteHandler<S> {
+ 122| |  return attachSchema(fn, schema);
+ 123| |}
+ 125| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 126|▼|export function post<const S extends BodyRouteSchemas = {}>(
+ 127| |  fn: RouteHandler<S>,
+ 128| |  schema?: S,
+ 129| |): RouteHandler<S> {
+ 130| |  return attachSchema(fn, schema);
+ 131| |}
+ 133| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 134|▼|export function put<const S extends BodyRouteSchemas = {}>(
+ 135| |  fn: RouteHandler<S>,
+ 136| |  schema?: S,
+ 137| |): RouteHandler<S> {
+ 138| |  return attachSchema(fn, schema);
+ 139| |}
+ 141| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 142|▼|export function patch<const S extends BodyRouteSchemas = {}>(
+ 143| |  fn: RouteHandler<S>,
+ 144| |  schema?: S,
+ 145| |): RouteHandler<S> {
+ 146| |  return attachSchema(fn, schema);
+ 147| |}
+ 149| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 150|▼|export function del<const S extends BodyRouteSchemas = {}>(
+ 151| |  fn: RouteHandler<S>,
+ 152| |  schema?: S,
+ 153| |): RouteHandler<S> {
+ 154| |  return attachSchema(fn, schema);
+ 155| |}
+ 157| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 158|▼|export function all<const S extends BodyRouteSchemas = {}>(
+ 159| |  fn: RouteHandler<S>,
+ 160| |  schema?: S,
+ 161| |): RouteHandler<S> {
+ 162| |  return attachSchema(fn, schema);
+ 163| |}
+---
+
 >src/core/macro.ts
 l:./context|./types
 e:MacroContext|MacroFn|MacroDefinition|createMacroRegistry|authMacro|cacheMacro
@@ -5786,375 +6155,6 @@ t:WSLocalHook
   89| |    );
   90| |  },
   91| |});
----
-
->src/core/derive.ts
-l:./context|./types
-e:DeriveFn|ResolveFn|createDerivePipeline|createResolvePipeline|deriveUser|deriveDb|deriveRequestId
-f:createDerivePipeline()
-f:createResolvePipeline()
-f:deriveUser(extractor: (ctx: FluxContext)
-f:deriveDb(factory: ()
-f:deriveRequestId()
-t:DeriveFn
-t:ResolveFn
----
-   1| |/**
-   2| | * @fileoverview Derive & Resolve — Context enrichment pipeline.
-   3| | * Composable, type-safe context extensions.
-   4| | */
-   6| |import type { FluxContext } from "./context";
-   7| |import type { MaybePromise } from "./types";
-   9|▼|export type DeriveFn<In extends Record<string, unknown> = {}, Out extends Record<string, unknown> = {}> =
-  10| |  (ctx: FluxContext & In) => MaybePromise<Out>;
-  12|▼|export type ResolveFn<In extends Record<string, unknown> = {}, Out extends Record<string, unknown> = {}> =
-  13| |  (ctx: FluxContext & In) => MaybePromise<Out>;
-  15| |// ============================================================================
-  16| |// Derive Pipeline (runs before validation)
-  17| |// ============================================================================
-  19|▼|export const createDerivePipeline = () => {
-  20| |  const fns: DeriveFn[] = [];
-  22| |  return {
-  23| |    add(fn: DeriveFn) { fns.push(fn); return this; },
-  25| |    async execute(ctx: FluxContext): Promise<FluxContext> {
-  26| |      let current = ctx;
-  27| |      for (const fn of fns) {
-  28| |        const result = await fn(current);
-  29| |        if (result && typeof result === "object") {
-  30| |          Object.assign(current, result);
-  31| |        }
-  32| |      }
-  33| |      return current;
-  34| |    },
-  36| |    get length() { return fns.length; },
-  37| |  };
-  38| |};
-  40| |// ============================================================================
-  41| |// Resolve Pipeline (runs after validation, before handler)
-  42| |// ============================================================================
-  44|▼|export const createResolvePipeline = () => {
-  45| |  const fns: ResolveFn[] = [];
-  47| |  return {
-  48| |    add(fn: ResolveFn) { fns.push(fn); return this; },
-  50| |    async execute(ctx: FluxContext): Promise<FluxContext> {
-  51| |      let current = ctx;
-  52| |      for (const fn of fns) {
-  53| |        const result = await fn(current);
-  54| |        if (result && typeof result === "object") {
-  55| |          Object.assign(current, result);
-  56| |        }
-  57| |      }
-  58| |      return current;
-  59| |    },
-  61| |    get length() { return fns.length; },
-  62| |  };
-  63| |};
-  65| |// ============================================================================
-  66| |// Common Derive Factories
-  67| |// ============================================================================
-  69|▼|export const deriveUser = <T>(extractor: (ctx: FluxContext) => MaybePromise<T | null>) =>
-  70| |  async (ctx: FluxContext) => ({ user: await extractor(ctx) });
-  72|▼|export const deriveDb = <T>(factory: () => T) =>
-  73| |  (ctx: FluxContext) => ({ db: factory() });
-  75|▼|export const deriveRequestId = () =>
-  76| |  (ctx: FluxContext) => ({ requestId: ctx.requestId });
----
-
->src/core/http.ts
-l:./context|./body|./types
-e:SchemaLike|RouteSchemas|BodyRouteSchemas|NoBodyRouteSchemas|RouteContext|RouteHandler|Handler|get|post|put|patch|del|all
-f:get(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:post(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:put(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:patch(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:del(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:all(
-  fn: RouteHandler<S>,
-  schema?: S,
-)
-f:attachSchema(fn: T, schemaOrPath?: unknown):T
-t:SchemaLike
-t:RouteSchemas
-t:BodyRouteSchemas
-t:NoBodyRouteSchemas
-t:InferSchema
-t:InferBody
-t:InferQuery
-t:InferParams
-t:LooksLikeSchema
-t:InferResponse
-t:TypedLazyBody
-t:RouteContext
-t:RouteResult
-t:RouteHandler
-t:Handler
-t:AnyFunction
----
-   1| |// ============================================================================
-   2| |// FLUX HTTP — Schema-first typed route definitions
-   3| |// ============================================================================
-   4| |//
-   5| |// Breaking change:
-   6| |// - The second argument is now a schema object, not a route path.
-   7| |// - Route path is inferred from the filename by the compiler.
-   8| |//
-   9| |// Example:
-  10| |//   export default get(async (ctx) => {
-  11| |//     return ctx.json({ q: ctx.query.q });
-  12| |//   }, {
-  13| |//     query: Type.Object({ q: Type.String() }),
-  14| |//   });
-  15| |// ============================================================================
-  17| |import type { FluxContext } from "./context";
-  18| |import type { LazyBody } from "./body";
-  19| |import type { MaybePromise, StandardSchemaV1, TSchema } from "./types";
-  21|▼|export type SchemaLike = StandardSchemaV1<any, any> | TSchema | object;
-  23|▼|export type RouteSchemas = {
-  24| |  body?: SchemaLike;
-  25| |  query?: SchemaLike;
-  26| |  params?: SchemaLike;
-  27| |  headers?: SchemaLike;
-  28| |  response?: SchemaLike | Record<number, SchemaLike>;
-  29| |};
-  31|▼|export type BodyRouteSchemas = RouteSchemas;
-  32|▼|export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
-  34|▼|type InferSchema<T> = T extends StandardSchemaV1<any, infer Output>
-  35| |  ? Output
-  36| |  : T extends { static: infer S }
-  37| |    ? S
-  38| |    : unknown;
-  40|▼|type InferBody<S> = S extends { body: infer X } ? InferSchema<X> : unknown;
-  42|▼|type InferQuery<S> = S extends { query: infer X }
-  43| |  ? InferSchema<X>
-  44| |  : URLSearchParams;
-  46|▼|type InferParams<S> = S extends { params: infer X }
-  47| |  ? InferSchema<X>
-  48| |  : Record<string, string>;
-  50|▼|type LooksLikeSchema<T> = T extends StandardSchemaV1<any, any>
-  51| |  ? true
-  52| |  : T extends { "~standard": unknown }
-  53| |    ? true
-  54| |    : T extends { static: unknown }
-  55| |      ? true
-  56| |      : T extends { type: string }
-  57| |        ? true
-  58| |        : false;
-  60|▼|type InferResponse<S> = S extends { response: infer R }
-  61| |  ? LooksLikeSchema<R> extends true
-  62| |    ? InferSchema<R>
-  63| |    : R extends Record<string, infer V>
-  64| |      ? InferSchema<V>
-  65| |      : unknown
-  66| |  : unknown;
-  68|▼|type TypedLazyBody<B> = {
-  69| |  json<T = B>(): Promise<T>;
-  70| |  form<T = B extends Record<string, unknown> ? B : Record<string, string>>(): Promise<T>;
-  71| |  multipart<T = B extends Record<string, unknown> ? B : Record<string, unknown>>(): Promise<T>;
-  72| |} & LazyBody;
-  74|▼|export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
-  75| |  FluxContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
-  76| |  "body" | "query"
-  77| |> & {
-  78| |  body: TypedLazyBody<InferBody<S>>;
-  79| |  query: InferQuery<S>;
-  80| |};
-  82|▼|type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
-  83| |  Response | InferResponse<S>
-  84| |>;
-  86|▼|export type RouteHandler<S extends Partial<RouteSchemas>> = (
-  87| |  ctx: RouteContext<S>,
-  88| |) => RouteResult<S>;
-  90| |/**
-  91| | * Backward-compatible handler type.
-  92| | */
-  93|▼|export type Handler<
-  94| |  B = unknown,
-  95| |  Q = URLSearchParams,
-  96| |  P = Record<string, string>,
-  97| |> = (ctx: FluxContext<P, Q, B>) => MaybePromise<unknown>;
-  99|▼|type AnyFunction = (...args: any[]) => any;
- 101|▼|const attachSchema = <T extends AnyFunction>(fn: T, schemaOrPath?: unknown): T => {
- 102| |  // Runtime compatibility: if an old path string is passed, ignore it.
- 103| |  if (schemaOrPath == null || typeof schemaOrPath === "string") {
- 104| |    return fn;
- 105| |  }
- 107| |  Object.defineProperty(fn, "schema", {
- 108| |    value: schemaOrPath,
- 109| |    enumerable: false,
- 110| |    writable: false,
- 111| |    configurable: true,
- 112| |  });
- 114| |  return fn;
- 115| |};
- 117| |/** Path is inferred from filename. Second parameter is a schema object. */
- 118|▼|export function get<const S extends NoBodyRouteSchemas = {}>(
- 119| |  fn: RouteHandler<S>,
- 120| |  schema?: S,
- 121| |): RouteHandler<S> {
- 122| |  return attachSchema(fn, schema);
- 123| |}
- 125| |/** Path is inferred from filename. Second parameter is a schema object. */
- 126|▼|export function post<const S extends BodyRouteSchemas = {}>(
- 127| |  fn: RouteHandler<S>,
- 128| |  schema?: S,
- 129| |): RouteHandler<S> {
- 130| |  return attachSchema(fn, schema);
- 131| |}
- 133| |/** Path is inferred from filename. Second parameter is a schema object. */
- 134|▼|export function put<const S extends BodyRouteSchemas = {}>(
- 135| |  fn: RouteHandler<S>,
- 136| |  schema?: S,
- 137| |): RouteHandler<S> {
- 138| |  return attachSchema(fn, schema);
- 139| |}
- 141| |/** Path is inferred from filename. Second parameter is a schema object. */
- 142|▼|export function patch<const S extends BodyRouteSchemas = {}>(
- 143| |  fn: RouteHandler<S>,
- 144| |  schema?: S,
- 145| |): RouteHandler<S> {
- 146| |  return attachSchema(fn, schema);
- 147| |}
- 149| |/** Path is inferred from filename. Second parameter is a schema object. */
- 150|▼|export function del<const S extends BodyRouteSchemas = {}>(
- 151| |  fn: RouteHandler<S>,
- 152| |  schema?: S,
- 153| |): RouteHandler<S> {
- 154| |  return attachSchema(fn, schema);
- 155| |}
- 157| |/** Path is inferred from filename. Second parameter is a schema object. */
- 158|▼|export function all<const S extends BodyRouteSchemas = {}>(
- 159| |  fn: RouteHandler<S>,
- 160| |  schema?: S,
- 161| |): RouteHandler<S> {
- 162| |  return attachSchema(fn, schema);
- 163| |}
----
-
->src/core/hooks.ts
-l:./context|./types
-e:HookResult|HookFn|continueHook|haltHook|executeHooks|composeHooks|filterByScope|filterGlobal|mergeHookArrays|isAsyncFn|withTiming|withErrorBoundary|conditional
-f:continueHook(ctx: FluxContext):HookResult
-f:haltHook(response: Response):HookResult
-f:composeHooks(...hooks: HookFn[]):HookFn
-f:filterByScope(scope: LifeCycleType)
-f:filterGlobal(hooks: HookContainer[]):HookContainer[]
-f:mergeHookArrays(
-  a: HookContainer[] | undefined,
-  b: HookContainer[] | undefined
-):HookContainer[]
-f:isAsyncFn(fn: Function):boolean
-f:withTiming(name: string, hook: HookFn):HookFn
-f:withErrorBoundary(fallback: (err: Error)
-f:conditional(predicate: (ctx: FluxContext)
-t:HookResult
-t:HookFn
----
-   1| |/**
-   2| | * @fileoverview Hook Execution Engine v3.0
-   3| | * Composable, async middleware with scoped lifecycle.
-   4| | */
-   6| |import type { FluxContext } from "./context";
-   7| |import type { HookContainer, LifeCycleType } from "./types";
-   9| |// ============================================================================
-  10| |// Types
-  11| |// ============================================================================
-  13|▼|export type HookResult =
-  14| |  | { readonly ok: true; ctx: FluxContext }
-  15| |  | { readonly ok: false; response: Response };
-  17|▼|export type HookFn = (ctx: FluxContext) => Promise<HookResult> | HookResult;
-  19| |// ============================================================================
-  20| |// Hook Constructors
-  21| |// ============================================================================
-  23|▼|export const continueHook = (ctx: FluxContext): HookResult => ({ ok: true, ctx });
-  24|▼|export const haltHook = (response: Response): HookResult => ({ ok: false, response });
-  26| |// ============================================================================
-  27| |// Hook Execution
-  28| |// ============================================================================
-  30| |export const executeHooks = async (
-  31| |  ctx: FluxContext,
-  32| |  hooks: readonly HookFn[]
-  33| |): Promise<{ ctx: FluxContext; halted?: Response }> => {
-  34| |  let current = ctx;
-  35| |  for (const hook of hooks) {
-  36| |    const result = await hook(current);
-  37| |    if (!result.ok) return { ctx: current, halted: result.response };
-  38| |    current = result.ctx;
-  39| |  }
-  40| |  return { ctx: current };
-  41| |};
-  43| |// ============================================================================
-  44| |// Hook Composition
-  45| |// ============================================================================
-  47|▼|export const composeHooks = (...hooks: HookFn[]): HookFn =>
-  48| |  async (ctx) => {
-  49| |    const result = await executeHooks(ctx, hooks);
-  50| |    if (result.halted) return haltHook(result.halted);
-  51| |    return continueHook(result.ctx);
-  52| |  };
-  54| |// ============================================================================
-  55| |// Hook Filtering by Scope
-  56| |// ============================================================================
-  58|▼|export const filterByScope = (scope: LifeCycleType) =>
-  59| |  (hooks: HookContainer[]): HookContainer[] =>
-  60| |    hooks.filter(h => !h.scope || h.scope === scope || h.scope === "global");
-  62|▼|export const filterGlobal = (hooks: HookContainer[]): HookContainer[] =>
-  63| |  hooks.filter(h => h.scope === "global" || h.scope === "scoped");
-  65| |// ============================================================================
-  66| |// Hook Merging (Pure)
-  67| |// ============================================================================
-  69|▼|export const mergeHookArrays = (
-  70| |  a: HookContainer[] | undefined,
-  71| |  b: HookContainer[] | undefined
-  72| |): HookContainer[] => {
-  73| |  if (!a && !b) return [];
-  74| |  if (!a) return b!;
-  75| |  if (!b) return a;
-  77| |  const checksums = new Set(a.map(h => h.checksum).filter(Boolean));
-  78| |  const merged = [...a];
-  79| |  for (const hook of b) {
-  80| |    if (hook.checksum && checksums.has(hook.checksum)) continue;
-  81| |    merged.push(hook);
-  82| |  }
-  83| |  return merged;
-  84| |};
-  86| |// ============================================================================
-  87| |// Async Detection
-  88| |// ============================================================================
-  90|▼|export const isAsyncFn = (fn: Function): boolean =>
-  91| |  fn.constructor.name === "AsyncFunction" ||
-  92| |  fn.constructor.name === "AsyncGeneratorFunction";
-  94| |// ============================================================================
-  95| |// Higher-Order Hook Factories
-  96| |// ============================================================================
-  98|▼|export const withTiming = (name: string, hook: HookFn): HookFn =>
-  99| |  async (ctx) => {
- 100| |    const start = performance.now();
- 101| |    const result = await hook(ctx);
- 102| |    ctx.setState(`__timing_${name}`, performance.now() - start);
- 103| |    return result;
- 104| |  };
- 106|▼|export const withErrorBoundary = (fallback: (err: Error) => Response) => (hook: HookFn): HookFn =>
- 107| |  async (ctx) => {
- 108| |    try { return await hook(ctx); }
- 109|!|    catch (err) { return haltHook(fallback(err as Error)); }
- 110| |  };
- 112|▼|export const conditional = (predicate: (ctx: FluxContext) => boolean) => (hook: HookFn): HookFn =>
- 113| |  (ctx) => predicate(ctx) ? hook(ctx) : continueHook(ctx);
 ---
 
 >src/compiler/phases/analysis.ts
@@ -6507,98 +6507,6 @@ f:runAnalysis(
  360| |  });
 ---
 
->src/routes/health.get.ts
-l:../core/http
----
-   1| |import { get } from "../core/http";
-   3| |export default get(() => ({ status: "ok", time: Date.now() }));
----
-
->src/routes/index.get.ts
-l:../core/http
----
-   1| |import { get } from "../core/http";
-   3| |export default get(() => ({ message: "flux-core zero-runtime API" }));
----
-
->src/routes/upload.post.ts
-i:node:fs/promises
-l:../core/http
----
-   1| |import { post } from "../core/http";
-   2| |import { mkdir } from "node:fs/promises";
-   4| |export default post(async (ctx) => {
-   5| |  const file = await ctx.body.file();
-   7| |  if (!file) {
-   8| |    return ctx.json({ error: "file required" }, { status: 400 });
-   9| |  }
-  11| |  await mkdir("uploads", { recursive: true });
-  13| |  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  14| |  const storedName = `${Date.now().toString(36)}-${safeName}`;
-  15| |  const dest = `uploads/${storedName}`;
-  17| |  await Bun.write(dest, file);
-  19| |  return ctx.json({
-  20| |    ok: true,
-  21| |    size: file.size,
-  22| |    type: file.type,
-  23| |    path: `/files/${storedName}`,
-  24| |  });
-  25| |});
----
-
->src/routes/products/add.post.ts
-l:../../core/http
----
-   1| |import { post } from "../../core/http";
-   3| |export default post(async (ctx) => {
-   4| |  const body = await ctx.body.json<{ name?: string }>();
-   6| |  return ctx.json({
-   7| |    created: true,
-   8| |    body,
-   9| |  });
-  10| |});
----
-
->src/routes/products/[id].get.ts
-i:@sinclair/typebox
-l:../../core/http
----
-   1| |import { Type } from "@sinclair/typebox";
-   2| |import { get } from "../../core/http";
-   4| |export default get(async (ctx) => {
-   5| |  return ctx.json({
-   6| |    product: {
-   7| |      id: ctx.params.id,
-   8| |    },
-   9| |  });
-  10| |}, {
-  11| |  params: Type.Object({
-  12| |    id: Type.String()
-  13| |  })
-  14| |}
-  15| |);
----
-
->src/routes/files/[name].get.ts
-l:../../core|../../core/http
----
-   1| |import { safeJoin } from "../../core";
-   2| |import { get } from "../../core/http";
-   4| |export default get(async (ctx) => {
-   5| |  const name = ctx.params.name;
-   7| |  if (!name) {
-   8| |    return ctx.json({ error: "file name required" }, { status: 400 });
-   9| |  }
-  11| |  const path = safeJoin("uploads", name);
-  13| |  return ctx.sendFile(path, {
-  14| |    req: ctx.req,
-  15| |    download: true,
-  16| |    maxAge: 3600,
-  17| |    swr: 86400,
-  18| |  });
-  19| |});
----
-
 >src/core/guard.ts
 l:./types|./types|./hooks
 e:GuardOptions|createGuard|mergeLifeCycle
@@ -6759,6 +6667,98 @@ t:PluginContext
   94| |    }
   95| |  },
   96| |});
+---
+
+>src/routes/health.get.ts
+l:../core/http
+---
+   1| |import { get } from "../core/http";
+   3| |export default get(() => ({ status: "ok", time: Date.now() }));
+---
+
+>src/routes/index.get.ts
+l:../core/http
+---
+   1| |import { get } from "../core/http";
+   3| |export default get(() => ({ message: "flux-core zero-runtime API" }));
+---
+
+>src/routes/upload.post.ts
+i:node:fs/promises
+l:../core/http
+---
+   1| |import { post } from "../core/http";
+   2| |import { mkdir } from "node:fs/promises";
+   4| |export default post(async (ctx) => {
+   5| |  const file = await ctx.body.file();
+   7| |  if (!file) {
+   8| |    return ctx.json({ error: "file required" }, { status: 400 });
+   9| |  }
+  11| |  await mkdir("uploads", { recursive: true });
+  13| |  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  14| |  const storedName = `${Date.now().toString(36)}-${safeName}`;
+  15| |  const dest = `uploads/${storedName}`;
+  17| |  await Bun.write(dest, file);
+  19| |  return ctx.json({
+  20| |    ok: true,
+  21| |    size: file.size,
+  22| |    type: file.type,
+  23| |    path: `/files/${storedName}`,
+  24| |  });
+  25| |});
+---
+
+>src/routes/files/[name].get.ts
+l:../../core|../../core/http
+---
+   1| |import { safeJoin } from "../../core";
+   2| |import { get } from "../../core/http";
+   4| |export default get(async (ctx) => {
+   5| |  const name = ctx.params.name;
+   7| |  if (!name) {
+   8| |    return ctx.json({ error: "file name required" }, { status: 400 });
+   9| |  }
+  11| |  const path = safeJoin("uploads", name);
+  13| |  return ctx.sendFile(path, {
+  14| |    req: ctx.req,
+  15| |    download: true,
+  16| |    maxAge: 3600,
+  17| |    swr: 86400,
+  18| |  });
+  19| |});
+---
+
+>src/routes/products/[id].get.ts
+i:@sinclair/typebox
+l:../../core/http
+---
+   1| |import { Type } from "@sinclair/typebox";
+   2| |import { get } from "../../core/http";
+   4| |export default get(async (ctx) => {
+   5| |  return ctx.json({
+   6| |    product: {
+   7| |      id: ctx.params.id,
+   8| |    },
+   9| |  });
+  10| |}, {
+  11| |  params: Type.Object({
+  12| |    id: Type.String()
+  13| |  })
+  14| |}
+  15| |);
+---
+
+>src/routes/products/add.post.ts
+l:../../core/http
+---
+   1| |import { post } from "../../core/http";
+   3| |export default post(async (ctx) => {
+   4| |  const body = await ctx.body.json<{ name?: string }>();
+   6| |  return ctx.json({
+   7| |    created: true,
+   8| |    body,
+   9| |  });
+  10| |});
 ---
 
 >src/compiler/index.ts
@@ -7019,79 +7019,70 @@ c:FluxCompiler
  260| |}
 ---
 
->src/core/plugins/logger.ts
-i:pino
-l:../plugin|../context
-e:LoggerOptions|logger
-f:createPinoLogger(options: LoggerOptions):PinoLogger
-f:createLogPayload(ctx: FluxContext, response: Response)
-f:logger(options: LoggerOptions = {}):FluxPlugin
-t:LoggerOptions
+>src/core/plugins/compression.ts
+l:../plugin
+e:CompressionOptions|compression
+f:shouldCompress(ct: string):boolean
+f:compression(options: CompressionOptions = {}):FluxPlugin
+t:CompressionOptions
 ---
    1| |/**
-   2| | * Logger plugin.
+   2| | * Compression plugin.
    3| | *
    4| | * Hardened:
-   5| | * - redacts sensitive headers
-   6| | * - exactOptionalPropertyTypes-safe pino options
-   7| | */
-   8| |import pino, { type Logger as PinoLogger } from "pino";
-   9| |import type { FluxPlugin } from "../plugin";
-  10| |import type { FluxContext } from "../context";
-  12|▼|export interface LoggerOptions {
-  13| |  level?: string;
-  14| |  logger?: PinoLogger;
-  15| |  skip?: (ctx: FluxContext) => boolean;
-  16| |}
-  18| |const REDACT_PATHS = [
-  19| |  "req.headers.authorization",
-  20| |  "req.headers.cookie",
-  21| |  "headers.authorization",
-  22| |  "headers.cookie",
-  23| |] as const;
-  25| |/**
-  26| | * Create a pino logger with safe defaults.
-  27| | */
-  28|▼|const createPinoLogger = (options: LoggerOptions): PinoLogger => {
-  29| |  if (options.logger) return options.logger;
-  31|→|  return pino({
-  32| |    level: options.level ?? "info",
-  33| |    base: null,
-  34| |    redact: [...REDACT_PATHS],
-  35| |  });
-  36| |};
-  38| |/**
-  39| | * Build structured access-log payload.
-  40| | */
-  41|▼|const createLogPayload = (ctx: FluxContext, response: Response) => {
-  42| |  const duration = performance.now() - ctx.startTime;
-  44| |  return {
-  45| |    requestId: ctx.requestId,
-  46| |    method: ctx.method,
-  47| |    path: ctx.path,
-  48| |    status: response.status,
-  49| |    durationMs: Math.round(duration * 1000) / 1000,
-  50| |    timestamp: new Date().toISOString(),
-  51| |  };
-  52| |};
-  54|▼|export const logger = (options: LoggerOptions = {}): FluxPlugin => {
-  55| |  const log = createPinoLogger(options);
-  57| |  return {
-  58| |    name: "logger",
-  60| |    onResponse(ctx, response) {
-  61| |      if (options.skip?.(ctx)) return response;
-  63| |      const payload = createLogPayload(ctx, response);
-  65| |      if (response.status >= 500) {
-  66| |        log.error(payload);
-  67| |      } else if (response.status >= 400) {
-  68| |        log.warn(payload);
-  69| |      } else {
-  70| |        log.info(payload);
-  71| |      }
-  73| |      return response;
-  74| |    },
-  75| |  };
-  76| |};
+   5| | * - guards against missing CompressionStream
+   6| | */
+   8| |import type { FluxPlugin } from "../plugin";
+  10|▼|export interface CompressionOptions {
+  11| |  threshold?: number;
+  12| |  filter?: (contentType: string) => boolean;
+  13| |}
+  15| |const COMPRESSIBLE = new Set([
+  16| |  "text/",
+  17| |  "application/json",
+  18| |  "application/javascript",
+  19| |  "application/xml",
+  20| |  "image/svg+xml",
+  21| |]);
+  23|▼|const shouldCompress = (ct: string): boolean => {
+  24| |  for (const prefix of COMPRESSIBLE) {
+  25| |    if (ct.startsWith(prefix)) return true;
+  26| |  }
+  28| |  return false;
+  29| |};
+  31|▼|export const compression = (options: CompressionOptions = {}): FluxPlugin => {
+  32| |  const { threshold = 1024, filter = shouldCompress } = options;
+  34| |  return {
+  35| |    name: "compression",
+  37| |    onResponse(ctx, response) {
+  38| |      if (!response.body) return response;
+  39| |      if (response.headers.get("content-encoding")) return response;
+  41| |      const ct = response.headers.get("content-type") || "";
+  42| |      if (!filter(ct)) return response;
+  44| |      const len = Number(response.headers.get("content-length") || "0");
+  45| |      if (len && len < threshold) return response;
+  47| |      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
+  49| |      const encoding = acceptEncoding.includes("gzip")
+  50| |        ? "gzip"
+  51| |        : acceptEncoding.includes("deflate")
+  52| |          ? "deflate"
+  53| |          : null;
+  55| |      if (!encoding) return response;
+  57| |      if (typeof CompressionStream === "undefined") {
+  58| |        return response;
+  59| |      }
+  61| |      const headers = new Headers(response.headers);
+  62| |      headers.set("content-encoding", encoding);
+  63| |      headers.delete("content-length");
+  65| |      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
+  67| |      return new Response(compressed, {
+  68| |        status: response.status,
+  69| |        statusText: response.statusText,
+  70| |        headers,
+  71| |      });
+  72| |    },
+  73| |  };
+  74| |};
 ---
 
 >src/core/plugins/cors.ts
@@ -7200,82 +7191,79 @@ t:CorsOptions
  118| |};
 ---
 
->src/core/plugins/security.ts
-l:../plugin
-e:SecurityOptions|security
-f:security(options: SecurityOptions = {}):FluxPlugin
-t:SecurityOptions
+>src/core/plugins/logger.ts
+i:pino
+l:../plugin|../context
+e:LoggerOptions|logger
+f:createPinoLogger(options: LoggerOptions):PinoLogger
+f:createLogPayload(ctx: FluxContext, response: Response)
+f:logger(options: LoggerOptions = {}):FluxPlugin
+t:LoggerOptions
 ---
    1| |/**
-   2| | * Security Headers Plugin
+   2| | * Logger plugin.
    3| | *
-   4| | * Fixed:
-   5| | * - no direct mutation of response headers
-   6| | */
-   8| |import type { FluxPlugin } from "../plugin";
-  10|▼|export interface SecurityOptions {
-  11| |  contentSecurityPolicy?: string | false;
-  12| |  crossOriginEmbedderPolicy?: string | false;
-  13| |  crossOriginOpenerPolicy?: string | false;
-  14| |  crossOriginResourcePolicy?: string | false;
-  15| |  frameguard?: { action: "deny" | "sameorigin" } | false;
-  16| |  hidePoweredBy?: boolean;
-  17| |  hsts?: { maxAge?: number; includeSubDomains?: boolean; preload?: boolean } | false;
-  18| |  noSniff?: boolean;
-  19| |  referrerPolicy?: string | false;
-  20| |  xssFilter?: boolean;
-  21| |}
-  23| |const DEFAULTS: SecurityOptions = {
-  24| |  contentSecurityPolicy:
-  25| |    "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'",
-  26| |  crossOriginEmbedderPolicy: "require-corp",
-  27| |  crossOriginOpenerPolicy: "same-origin",
-  28| |  crossOriginResourcePolicy: "same-origin",
-  29| |  frameguard: { action: "deny" },
-  30| |  hidePoweredBy: true,
-  31| |  hsts: { maxAge: 15552000, includeSubDomains: true, preload: true },
-  32| |  noSniff: true,
-  33| |  referrerPolicy: "no-referrer",
-  34| |  xssFilter: true,
-  35| |};
-  37|▼|export const security = (options: SecurityOptions = {}): FluxPlugin => {
-  38| |  const opts = { ...DEFAULTS, ...options };
-  40| |  return {
-  41| |    name: "security",
-  42| |    onResponse(_ctx, response) {
-  43| |      const headers = new Headers(response.headers);
-  45| |      if (opts.contentSecurityPolicy)
-  46| |        headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
-  48| |      if (opts.crossOriginEmbedderPolicy)
-  49| |        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
-  51| |      if (opts.crossOriginOpenerPolicy)
-  52| |        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
-  54| |      if (opts.crossOriginResourcePolicy)
-  55| |        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
-  57| |      if (opts.frameguard)
-  58| |        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
-  60| |      if (opts.hidePoweredBy)
-  61| |        headers.delete("X-Powered-By");
-  63| |      if (opts.hsts) {
-  64| |        let val = `max-age=${opts.hsts.maxAge ?? 15552000}`;
-  65| |        if (opts.hsts.includeSubDomains) val += "; includeSubDomains";
-  66| |        if (opts.hsts.preload) val += "; preload";
-  67| |        headers.set("Strict-Transport-Security", val);
-  68| |      }
-  70| |      if (opts.noSniff)
-  71| |        headers.set("X-Content-Type-Options", "nosniff");
-  73| |      if (opts.referrerPolicy)
-  74| |        headers.set("Referrer-Policy", opts.referrerPolicy);
-  76| |      if (opts.xssFilter)
-  77| |        headers.set("X-XSS-Protection", "0");
-  79| |      return new Response(response.body, {
-  80| |        status: response.status,
-  81| |        statusText: response.statusText,
-  82| |        headers,
-  83| |      });
-  84| |    },
-  85| |  };
-  86| |};
+   4| | * Hardened:
+   5| | * - redacts sensitive headers
+   6| | * - exactOptionalPropertyTypes-safe pino options
+   7| | */
+   8| |import pino, { type Logger as PinoLogger } from "pino";
+   9| |import type { FluxPlugin } from "../plugin";
+  10| |import type { FluxContext } from "../context";
+  12|▼|export interface LoggerOptions {
+  13| |  level?: string;
+  14| |  logger?: PinoLogger;
+  15| |  skip?: (ctx: FluxContext) => boolean;
+  16| |}
+  18| |const REDACT_PATHS = [
+  19| |  "req.headers.authorization",
+  20| |  "req.headers.cookie",
+  21| |  "headers.authorization",
+  22| |  "headers.cookie",
+  23| |] as const;
+  25| |/**
+  26| | * Create a pino logger with safe defaults.
+  27| | */
+  28|▼|const createPinoLogger = (options: LoggerOptions): PinoLogger => {
+  29| |  if (options.logger) return options.logger;
+  31|→|  return pino({
+  32| |    level: options.level ?? "info",
+  33| |    base: null,
+  34| |    redact: [...REDACT_PATHS],
+  35| |  });
+  36| |};
+  38| |/**
+  39| | * Build structured access-log payload.
+  40| | */
+  41|▼|const createLogPayload = (ctx: FluxContext, response: Response) => {
+  42| |  const duration = performance.now() - ctx.startTime;
+  44| |  return {
+  45| |    requestId: ctx.requestId,
+  46| |    method: ctx.method,
+  47| |    path: ctx.path,
+  48| |    status: response.status,
+  49| |    durationMs: Math.round(duration * 1000) / 1000,
+  50| |    timestamp: new Date().toISOString(),
+  51| |  };
+  52| |};
+  54|▼|export const logger = (options: LoggerOptions = {}): FluxPlugin => {
+  55| |  const log = createPinoLogger(options);
+  57| |  return {
+  58| |    name: "logger",
+  60| |    onResponse(ctx, response) {
+  61| |      if (options.skip?.(ctx)) return response;
+  63| |      const payload = createLogPayload(ctx, response);
+  65| |      if (response.status >= 500) {
+  66| |        log.error(payload);
+  67| |      } else if (response.status >= 400) {
+  68| |        log.warn(payload);
+  69| |      } else {
+  70| |        log.info(payload);
+  71| |      }
+  73| |      return response;
+  74| |    },
+  75| |  };
+  76| |};
 ---
 
 >src/core/plugins/ratelimit.ts
@@ -7384,70 +7372,82 @@ t:WindowEntry
  118| |};
 ---
 
->src/core/plugins/compression.ts
+>src/core/plugins/security.ts
 l:../plugin
-e:CompressionOptions|compression
-f:shouldCompress(ct: string):boolean
-f:compression(options: CompressionOptions = {}):FluxPlugin
-t:CompressionOptions
+e:SecurityOptions|security
+f:security(options: SecurityOptions = {}):FluxPlugin
+t:SecurityOptions
 ---
    1| |/**
-   2| | * Compression plugin.
+   2| | * Security Headers Plugin
    3| | *
-   4| | * Hardened:
-   5| | * - guards against missing CompressionStream
+   4| | * Fixed:
+   5| | * - no direct mutation of response headers
    6| | */
    8| |import type { FluxPlugin } from "../plugin";
-  10|▼|export interface CompressionOptions {
-  11| |  threshold?: number;
-  12| |  filter?: (contentType: string) => boolean;
-  13| |}
-  15| |const COMPRESSIBLE = new Set([
-  16| |  "text/",
-  17| |  "application/json",
-  18| |  "application/javascript",
-  19| |  "application/xml",
-  20| |  "image/svg+xml",
-  21| |]);
-  23|▼|const shouldCompress = (ct: string): boolean => {
-  24| |  for (const prefix of COMPRESSIBLE) {
-  25| |    if (ct.startsWith(prefix)) return true;
-  26| |  }
-  28| |  return false;
-  29| |};
-  31|▼|export const compression = (options: CompressionOptions = {}): FluxPlugin => {
-  32| |  const { threshold = 1024, filter = shouldCompress } = options;
-  34| |  return {
-  35| |    name: "compression",
-  37| |    onResponse(ctx, response) {
-  38| |      if (!response.body) return response;
-  39| |      if (response.headers.get("content-encoding")) return response;
-  41| |      const ct = response.headers.get("content-type") || "";
-  42| |      if (!filter(ct)) return response;
-  44| |      const len = Number(response.headers.get("content-length") || "0");
-  45| |      if (len && len < threshold) return response;
-  47| |      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
-  49| |      const encoding = acceptEncoding.includes("gzip")
-  50| |        ? "gzip"
-  51| |        : acceptEncoding.includes("deflate")
-  52| |          ? "deflate"
-  53| |          : null;
-  55| |      if (!encoding) return response;
-  57| |      if (typeof CompressionStream === "undefined") {
-  58| |        return response;
-  59| |      }
-  61| |      const headers = new Headers(response.headers);
-  62| |      headers.set("content-encoding", encoding);
-  63| |      headers.delete("content-length");
-  65| |      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
-  67| |      return new Response(compressed, {
-  68| |        status: response.status,
-  69| |        statusText: response.statusText,
-  70| |        headers,
-  71| |      });
-  72| |    },
-  73| |  };
-  74| |};
+  10|▼|export interface SecurityOptions {
+  11| |  contentSecurityPolicy?: string | false;
+  12| |  crossOriginEmbedderPolicy?: string | false;
+  13| |  crossOriginOpenerPolicy?: string | false;
+  14| |  crossOriginResourcePolicy?: string | false;
+  15| |  frameguard?: { action: "deny" | "sameorigin" } | false;
+  16| |  hidePoweredBy?: boolean;
+  17| |  hsts?: { maxAge?: number; includeSubDomains?: boolean; preload?: boolean } | false;
+  18| |  noSniff?: boolean;
+  19| |  referrerPolicy?: string | false;
+  20| |  xssFilter?: boolean;
+  21| |}
+  23| |const DEFAULTS: SecurityOptions = {
+  24| |  contentSecurityPolicy:
+  25| |    "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'",
+  26| |  crossOriginEmbedderPolicy: "require-corp",
+  27| |  crossOriginOpenerPolicy: "same-origin",
+  28| |  crossOriginResourcePolicy: "same-origin",
+  29| |  frameguard: { action: "deny" },
+  30| |  hidePoweredBy: true,
+  31| |  hsts: { maxAge: 15552000, includeSubDomains: true, preload: true },
+  32| |  noSniff: true,
+  33| |  referrerPolicy: "no-referrer",
+  34| |  xssFilter: true,
+  35| |};
+  37|▼|export const security = (options: SecurityOptions = {}): FluxPlugin => {
+  38| |  const opts = { ...DEFAULTS, ...options };
+  40| |  return {
+  41| |    name: "security",
+  42| |    onResponse(_ctx, response) {
+  43| |      const headers = new Headers(response.headers);
+  45| |      if (opts.contentSecurityPolicy)
+  46| |        headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
+  48| |      if (opts.crossOriginEmbedderPolicy)
+  49| |        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
+  51| |      if (opts.crossOriginOpenerPolicy)
+  52| |        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
+  54| |      if (opts.crossOriginResourcePolicy)
+  55| |        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
+  57| |      if (opts.frameguard)
+  58| |        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
+  60| |      if (opts.hidePoweredBy)
+  61| |        headers.delete("X-Powered-By");
+  63| |      if (opts.hsts) {
+  64| |        let val = `max-age=${opts.hsts.maxAge ?? 15552000}`;
+  65| |        if (opts.hsts.includeSubDomains) val += "; includeSubDomains";
+  66| |        if (opts.hsts.preload) val += "; preload";
+  67| |        headers.set("Strict-Transport-Security", val);
+  68| |      }
+  70| |      if (opts.noSniff)
+  71| |        headers.set("X-Content-Type-Options", "nosniff");
+  73| |      if (opts.referrerPolicy)
+  74| |        headers.set("Referrer-Policy", opts.referrerPolicy);
+  76| |      if (opts.xssFilter)
+  77| |        headers.set("X-XSS-Protection", "0");
+  79| |      return new Response(response.body, {
+  80| |        status: response.status,
+  81| |        statusText: response.statusText,
+  82| |        headers,
+  83| |      });
+  84| |    },
+  85| |  };
+  86| |};
 ---
 
 >builder.ts
@@ -7465,16 +7465,17 @@ l:./src/compiler/index
   13| |  enableTracing: false,
   14| |  enableAccessLog: false,
   15| |  enableStrictMethods: false,
-  17| |  router: "auto",
-  18| |  generateTypes: true,
-  19| |  generateOpenAPI: true,
-  20| |  generateClient: true,
-  22| |  specializeContext: true,
-  23| |  hoistConstants: true,
-  24| |  inlineHooks: true,
-  25| |  treeshakeRuntime: true,
-  26| |  routeCache: true,
-  28| |  precompileValidators: true,
-  29| |  precompileSerializers: true,
-  30| |});
+  17| |  // Bun 1.4 native router
+  18| |  router: "bun-native",
+  20| |  generateTypes: true,
+  21| |  generateOpenAPI: true,
+  22| |  generateClient: true,
+  24| |  specializeContext: true,
+  25| |  hoistConstants: true,
+  26| |  inlineHooks: true,
+  27| |  treeshakeRuntime: true,
+  28| |  routeCache: true,
+  30| |  precompileValidators: true,
+  31| |  precompileSerializers: true,
+  32| |});
 ---
