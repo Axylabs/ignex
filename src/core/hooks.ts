@@ -87,12 +87,9 @@ export const mergeHookArrays = (
 // Async Detection
 // ============================================================================
 
-const ASYNC_RE = /async|await|\.then\(|Promise/;
-
 export const isAsyncFn = (fn: Function): boolean =>
   fn.constructor.name === "AsyncFunction" ||
-  fn.constructor.name === "AsyncGeneratorFunction" ||
-  ASYNC_RE.test(fn.toString().slice(0, 200));
+  fn.constructor.name === "AsyncGeneratorFunction";
 
 // ============================================================================
 // Higher-Order Hook Factories

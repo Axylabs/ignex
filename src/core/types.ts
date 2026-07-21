@@ -1,26 +1,38 @@
 /**
- * @fileoverview Flux Core v3.0 — Unified Type System
- * Zero-runtime-cost types. All contracts are compile-time only.
- * Supports TypeBox, Standard Schema v1, and custom validators.
+ * Flux Core Unified Type System
+ *
+ * AOT upgrade:
+ * - ContextUsage now comes from shared
+ * - keeps runtime schema/lifecycle/server types
  */
 
-// ============================================================================
-// HTTP Primitives
-// ============================================================================
+import type { ContextUsage } from "../shared/context-usage";
+import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
 
-export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "ALL", "WS"] as const;
+export type { ContextUsage };
+export { EMPTY_USAGE, FULL_USAGE };
+
+export const HTTP_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+  "ALL",
+  "WS",
+] as const;
+
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export type MaybePromise<T> = T | Promise<T>;
 export type MaybeArray<T> = T | T[];
 export type MaybeReadonlyArray<T> = T | readonly T[];
+
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
 export type IsAny<T> = 0 extends 1 & T ? true : false;
 export type IsNever<T> = [T] extends [never] ? true : false;
-
-// ============================================================================
-// Schema Contracts (Standard Schema v1 + TypeBox compatible)
-// ============================================================================
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
@@ -64,11 +76,13 @@ export interface TSchema {
 }
 
 export type AnySchema = TSchema | StandardSchemaV1;
-export type Static<T extends AnySchema> = T extends StandardSchemaV1<any, infer O> ? O : T extends TSchema ? T["static"] : unknown;
 
-// ============================================================================
-// Route Schema
-// ============================================================================
+export type Static<T extends AnySchema> =
+  T extends StandardSchemaV1<any, infer O>
+    ? O
+    : T extends TSchema
+      ? T["static"]
+      : unknown;
 
 export interface RouteSchema {
   body?: unknown;
@@ -87,47 +101,6 @@ export interface InputSchema<Name extends string = string> {
   cookie?: AnySchema | Name;
   response?: { [status: number]: AnySchema | Name };
 }
-
-// ============================================================================
-// Context Usage (Build-time inference)
-// ============================================================================
-
-export interface ContextUsage {
-  body: boolean;
-  params: boolean;
-  query: boolean;
-  file: boolean;
-  headers: boolean;
-  state: boolean;
-  json: boolean;
-  text: boolean;
-  html: boolean;
-  redirect: boolean;
-  stream: boolean;
-  req: boolean;
-  url: boolean;
-  cookie: boolean;
-  server: boolean;
-  set: boolean;
-}
-
-export const EMPTY_USAGE: ContextUsage = {
-  body: false, params: false, query: false, file: false,
-  headers: false, state: false, json: false, text: false,
-  html: false, redirect: false, stream: false, req: false,
-  url: false, cookie: false, server: false, set: false,
-};
-
-export const FULL_USAGE: ContextUsage = {
-  body: true, params: true, query: true, file: true,
-  headers: true, state: true, json: true, text: true,
-  html: true, redirect: true, stream: true, req: true,
-  url: true, cookie: true, server: true, set: true,
-};
-
-// ============================================================================
-// Lifecycle Types
-// ============================================================================
 
 export type LifeCycleType = "global" | "scoped" | "local";
 
@@ -155,14 +128,18 @@ export interface LifeCycleStore {
 }
 
 export const EMPTY_LIFECYCLE: LifeCycleStore = {
-  start: [], request: [], parse: [], transform: [],
-  beforeHandle: [], afterHandle: [], mapResponse: [],
-  afterResponse: [], trace: [], error: [], stop: [],
+  start: [],
+  request: [],
+  parse: [],
+  transform: [],
+  beforeHandle: [],
+  afterHandle: [],
+  mapResponse: [],
+  afterResponse: [],
+  trace: [],
+  error: [],
+  stop: [],
 };
-
-// ============================================================================
-// Singleton & Definitions
-// ============================================================================
 
 export interface SingletonBase {
   decorator: Record<string, unknown>;
@@ -176,12 +153,10 @@ export interface DefinitionBase {
   error: Record<string, Error>;
 }
 
-// ============================================================================
-// Route Configuration
-// ============================================================================
-
 export interface RouteConfig {
-  cache?: number | { maxAge?: number; swr?: number; immutable?: boolean; vary?: string[] };
+  cache?:
+    | number
+    | { maxAge?: number; swr?: number; immutable?: boolean; vary?: string[] };
   headers?: Record<string, string>;
   hooks?: string[];
   mount?: (req: Request) => MaybePromise<Response>;
@@ -195,10 +170,6 @@ export interface DocumentDecoration {
   security?: Record<string, string[]>[];
   [key: string]: unknown;
 }
-
-// ============================================================================
-// Cookie Types
-// ============================================================================
 
 export interface CookieOptions {
   domain?: string;
@@ -217,10 +188,6 @@ export interface ElysiaCookie extends CookieOptions {
   value?: unknown;
 }
 
-// ============================================================================
-// Server Types
-// ============================================================================
-
 export interface ServerOptions {
   port?: number | string;
   hostname?: string;
@@ -228,7 +195,10 @@ export interface ServerOptions {
   development?: boolean;
   maxRequestBodySize?: number;
   idleTimeout?: number;
-  routes?: Record<string, Function | Response | Record<string, Function | Response>>;
+  routes?: Record<
+    string,
+    Function | Response | Record<string, Function | Response>
+  >;
   websocket?: WebSocketHandler;
 }
 
@@ -244,7 +214,9 @@ export interface WebSocketHandler<T = undefined> {
   closeOnBackpressureLimit?: boolean;
   idleTimeout?: number;
   sendPings?: boolean;
-  perMessageDeflate?: boolean | { compress?: boolean | string; decompress?: boolean | string };
+  perMessageDeflate?:
+    | boolean
+    | { compress?: boolean | string; decompress?: boolean | string };
 }
 
 export interface ServerWebSocket<T = undefined> {
@@ -268,10 +240,6 @@ export interface ServerWebSocket<T = undefined> {
   binaryType?: "nodebuffer" | "arraybuffer" | "uint8array";
   data: T;
 }
-
-// ============================================================================
-// Compiler Options (shared from compiler)
-// ============================================================================
 
 export type { CompilerOptions } from "../compiler/types";
 export { DEFAULT_OPTS } from "../compiler/types";

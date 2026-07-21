@@ -168,7 +168,11 @@ export const createRouteDef = (
     ? "json"
     : usage.text
       ? "text"
-      : inferredResponseType;
+      : usage.html
+        ? "html"
+        : usage.stream
+          ? "stream"
+          : inferredResponseType;
 
   return {
     ...parsed,
@@ -189,6 +193,7 @@ export const createRouteDef = (
 
     ...(constantResponse !== undefined ? { constantResponse } : {}),
     ...(cache !== undefined ? { cache } : {}),
+    ...(astParsed.config !== undefined ? { config: astParsed.config } : {}),
   };
 };
 

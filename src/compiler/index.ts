@@ -1,11 +1,10 @@
 /**
  * Flux Compiler Orchestrator
  *
- * Production cleanup:
- * - removed console.log orchestration
- * - removed jump table and trie reporting
- * - validates compiler options
- * - uses structured logger
+ * AOT upgrade:
+ * - validates options
+ * - runs phases
+ * - emits DX artifacts
  */
 
 import type {
@@ -23,6 +22,7 @@ import { runAnalysis } from "./phases/analysis";
 import { runOptimization } from "./phases/optimization";
 import { runCodeGen } from "./phases/codegen";
 import { runLinker } from "./phases/linker";
+import { writeArtifacts } from "./phases/artifacts";
 import { consoleLogger } from "./logger";
 import { validateOptions } from "./validate";
 import { defu } from "defu";
@@ -87,7 +87,12 @@ export const runOptimizationPhase = (
   logger: Logger
 ): OptimizationResult =>
   logger.time("optimization", () => {
-    const result = runOptimization(analysis.routes, analysis.modules, opts, logger);
+    const result = runOptimization(
+      analysis.routes,
+      analysis.modules,
+      opts,
+      logger
+    );
 
     logger.info("optimization complete", {
       inlined: result.meta.inlined,
@@ -155,6 +160,9 @@ export class FluxCompiler {
     const discovery = runDiscoveryPhase(opts, logger);
     const analysis = runAnalysisPhase(discovery, opts, logger);
     const optimized = runOptimizationPhase(analysis, opts, logger);
+
+    writeArtifacts(optimized.routes, opts, logger);
+
     const code = runCodegenPhase(optimized, analysis, opts, logger);
     const outPath = runLinkingPhase(code, opts, logger);
 

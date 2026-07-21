@@ -1,16 +1,7 @@
 /**
  * Compiler options validation.
  *
- * Removed unimplemented flags:
- * - enableSIMDPaths
- * - enableBranchPrediction
- * - enableDeadCodeElimination
- * - enableConstantFolding
- * - enableWorkerThreads
- * - enableSchemaInlining
- * - enableResponsePreserialization
- * - browserCache
- * - cacheBust
+ * Updated for AOT compiler options.
  */
 
 import { Type, type Static } from "@sinclair/typebox";
@@ -67,6 +58,30 @@ const CompilerOptionsSchema = Type.Object(
     ),
 
     reusePort: Type.Optional(Type.Boolean()),
+
+    router: Type.Optional(
+      Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("static-map"),
+        Type.Literal("radix"),
+        Type.Literal("bun-native"),
+      ])
+    ),
+
+    generateTypes: Type.Optional(Type.Boolean()),
+    generateOpenAPI: Type.Optional(Type.Boolean()),
+    generateClient: Type.Optional(Type.Boolean()),
+
+    precompileValidators: Type.Optional(Type.Boolean()),
+    precompileSerializers: Type.Optional(Type.Boolean()),
+
+    hoistConstants: Type.Optional(Type.Boolean()),
+    specializeContext: Type.Optional(Type.Boolean()),
+    inlineHooks: Type.Optional(Type.Boolean()),
+    treeshakeRuntime: Type.Optional(Type.Boolean()),
+    routeCache: Type.Optional(Type.Boolean()),
+
+    maxInlineBytes: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: false }
 );

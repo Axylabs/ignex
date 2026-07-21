@@ -2,33 +2,26 @@
 set -euo pipefail
 
 # ============================================================================
-# Flux Production Refactor Script
-# Option A: Remove unused optimizer complexity
+# Flux AOT Upgrade + Restructure Script
 # ============================================================================
 
-echo "Starting Flux production refactor..."
+echo "Starting Flux AOT upgrade..."
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required."
   exit 1
 fi
 
-if ! command -v perl >/dev/null 2>&1; then
-  echo "Error: perl is required for patching."
-  exit 1
-fi
-
-# ----------------------------------------------------------------------------
-# Backup
-# ----------------------------------------------------------------------------
-
-BACKUP_DIR=".flux-refactor-backup-$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR=".flux-aot-backup-$(date +%Y%m%d-%H%M%S)"
 echo "Backing up current project to ${BACKUP_DIR}"
-
 mkdir -p "${BACKUP_DIR}"
 
 if [[ -d src ]]; then
   cp -r src "${BACKUP_DIR}/src"
+fi
+
+if [[ -f builder.ts ]]; then
+  cp builder.ts "${BACKUP_DIR}/builder.ts"
 fi
 
 if [[ -f package.json ]]; then
@@ -39,380 +32,131 @@ if [[ -f tsconfig.json ]]; then
   cp tsconfig.json "${BACKUP_DIR}/tsconfig.json"
 fi
 
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
-
-move() {
-  local src="$1"
-  local dest="$2"
-
-  if [[ ! -e "$src" ]]; then
-    echo "Skip move, missing: $src"
-    return 0
-  fi
-
-  if [[ -e "$dest" ]]; then
-    echo "Skip move, already exists: $dest"
-    return 0
-  fi
-
-  if git rev-parse --git-dir >/dev/null 2>&1; then
-    git mv "$src" "$dest"
-  else
-    mv "$src" "$dest"
-  fi
-}
-
-# ----------------------------------------------------------------------------
-# Delete known dead files
-# ----------------------------------------------------------------------------
-
-echo "Removing dead files..."
-
-rm -f index.ts
-rm -f src/types/modules.d.ts
-rm -f src/compiler/utils/trie.ts
-
-# ----------------------------------------------------------------------------
-# Create shared placeholder
-# ----------------------------------------------------------------------------
-
 mkdir -p src/shared
+mkdir -p src/compiler/runtime
+mkdir -p scripts/patches
 
-cat > src/shared/README.md <<'FLUX_EOF'
-# Shared Types
+# ============================================================================
+# Shared ContextUsage
+# ============================================================================
 
-This directory is reserved for the unified type system.
-
-Next step:
-
-- move HTTP primitives here
-- move ContextUsage here
-- move CompilerOptions here
-- make compiler and runtime import from this shared package
-
-This removes duplicated type definitions between:
-
-- src/compiler/types.ts
-- src/runtime/types.ts or src/core/types.ts
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Update package.json
-# ----------------------------------------------------------------------------
-
-echo "Updating package.json..."
-
-mkdir -p scripts
-
-cat > scripts/update-package.mjs <<'FLUX_EOF'
-import { readFileSync, writeFileSync } from "node:fs";
-
-const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-
-pkg.dependencies ??= {};
-pkg.devDependencies ??= {};
-pkg.scripts ??= {};
-
-const removeDeps = [
-  "acorn",
-  "just-debounce",
-  "just-throttle",
-  "memoizee",
-  "p-retry",
-  "dequal",
-  "p-timeout",
-];
-
-for (const dep of removeDeps) {
-  delete pkg.dependencies[dep];
-}
-
-delete pkg.devDependencies["@types/memoizee"];
-
-Object.assign(pkg.dependencies, {
-  pino: "^9.0.0",
-  "set-cookie-parser": "^2.7.0",
-});
-
-Object.assign(pkg.devDependencies, {
-  "@biomejs/biome": "^2.5.4",
-  "@types/bun": "^1.3.14",
-  "@types/cookie": "^1.0.0",
-  "@types/set-cookie-parser": "^2.4.10",
-  typescript: "^5.9.0",
-  vitest: "^4.1.10",
-});
-
-Object.assign(pkg.scripts, {
-  typecheck: "tsc --noEmit",
-  lint: "biome check .",
-  "lint:fix": "biome check --write .",
-  test: "vitest run",
-  "test:watch": "vitest",
-  build: "bun run builder.ts",
-  smoke: "bun run dist/__server.js",
-});
-
-writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
-FLUX_EOF
-
-bun scripts/update-package.mjs
-
-# ----------------------------------------------------------------------------
-# TypeScript config
-# ----------------------------------------------------------------------------
-
-echo "Writing strict tsconfig.json..."
-
-cat > tsconfig.json <<'FLUX_EOF'
-{
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ESNext"],
-    "types": ["bun"],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
-    "exactOptionalPropertyTypes": true,
-    "verbatimModuleSyntax": true,
-    "forceConsistentCasingInFileNames": true,
-    "allowJs": false,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "noEmit": true
-  },
-  "include": ["src", "test", "builder.ts", "vitest.config.ts"]
-}
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Biome config
-# ----------------------------------------------------------------------------
-
-echo "Writing biome.json..."
-
-cat > biome.json <<'FLUX_EOF'
-{
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
-  "organizeImports": {
-    "enabled": true
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "suspicious": {
-        "noConsoleLog": "warn",
-        "noExplicitAny": "off"
-      },
-      "correctness": {
-        "noUnusedVariables": "warn"
-      }
-    }
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 100
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "double",
-      "semicolons": "always"
-    }
-  }
-}
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Vitest config
-# ----------------------------------------------------------------------------
-
-echo "Writing vitest.config.ts..."
-
-cat > vitest.config.ts <<'FLUX_EOF'
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
-  test: {
-    include: ["test/**/*.test.ts"],
-    environment: "node",
-  },
-});
-FLUX_EOF
-
-mkdir -p test
-
-cat > test/refactor.test.ts <<'FLUX_EOF'
-import { describe, expect, it } from "vitest";
-
-describe("production refactor", () => {
-  it("should run tests", () => {
-    expect(true).toBe(true);
-  });
-});
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/compiler/fp.ts with minimal zero-dependency FP core
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/compiler/fp.ts with minimal FP core..."
-
-cat > src/compiler/fp.ts <<'FLUX_EOF'
+cat > src/shared/context-usage.ts <<'EOF'
 /**
- * Minimal functional core used by the compiler.
+ * Shared context usage flags used by both compiler and runtime.
  *
- * This intentionally removes unused utility-belt code and external dependencies.
- * If you need debounce/throttle/memoize/retry, add them in a separate optional
- * module and do not import them into core runtime paths.
+ * This removes duplicated ContextUsage definitions between:
+ * - src/compiler/types.ts
+ * - src/core/types.ts
  */
 
-export type Result<T, E = string> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: E };
+export interface ContextUsage {
+  body: boolean;
+  params: boolean;
+  query: boolean;
+  file: boolean;
+  headers: boolean;
+  state: boolean;
 
-export const ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
+  json: boolean;
+  text: boolean;
+  html: boolean;
+  redirect: boolean;
+  stream: boolean;
+  empty: boolean;
+  status: boolean;
 
-export const err = <E>(error: E): Result<never, E> => ({ ok: false, error });
+  req: boolean;
+  url: boolean;
 
-export const isOk = <T, E>(r: Result<T, E>): r is { ok: true; value: T } => r.ok;
+  cookie: boolean;
+  server: boolean;
+  set: boolean;
 
-export const isErr = <T, E>(r: Result<T, E>): r is { ok: false; error: E } => !r.ok;
+  sendFile: boolean;
+  proxy: boolean;
+  forward: boolean;
+  cache: boolean;
+}
 
-export const unwrapOr =
-  <T>(fallback: T) =>
-  (r: Result<T>): T =>
-    r.ok ? r.value : fallback;
+export const EMPTY_USAGE: ContextUsage = Object.freeze({
+  body: false,
+  params: false,
+  query: false,
+  file: false,
+  headers: false,
+  state: false,
 
-export const unwrapOrElse =
-  <T, E>(fn: (e: E) => T) =>
-  (r: Result<T, E>): T =>
-    r.ok ? r.value : fn(r.error);
+  json: false,
+  text: false,
+  html: false,
+  redirect: false,
+  stream: false,
+  empty: false,
+  status: false,
 
-export const mapResult =
-  <T, U>(fn: (x: T) => U) =>
-  <E>(r: Result<T, E>): Result<U, E> =>
-    r.ok ? ok(fn(r.value)) : r;
+  req: false,
+  url: false,
 
-export const flatMapResult =
-  <T, U, E>(fn: (x: T) => Result<U, E>) =>
-  (r: Result<T, E>): Result<U, E> =>
-    r.ok ? fn(r.value) : r;
+  cookie: false,
+  server: false,
+  set: false,
 
-export const mapErr =
-  <E, F>(fn: (e: E) => F) =>
-  <T>(r: Result<T, E>): Result<T, F> =>
-    r.ok ? r : err(fn(r.error));
+  sendFile: false,
+  proxy: false,
+  forward: false,
+  cache: false,
+});
 
-export const tryCatch = <T>(fn: () => T): Result<T, unknown> => {
-  try {
-    return ok(fn());
-  } catch (error) {
-    return err(error);
-  }
-};
+export const FULL_USAGE: ContextUsage = Object.freeze({
+  body: true,
+  params: true,
+  query: true,
+  file: true,
+  headers: true,
+  state: true,
 
-export const tryCatchAsync = async <T>(fn: () => Promise<T>): Promise<Result<T, unknown>> => {
-  try {
-    return ok(await fn());
-  } catch (error) {
-    return err(error);
-  }
-};
+  json: true,
+  text: true,
+  html: true,
+  redirect: true,
+  stream: true,
+  empty: true,
+  status: true,
 
-export const tryCatchOr = <T>(fallback: T, fn: () => T): T => {
-  try {
-    return fn();
-  } catch {
-    return fallback;
-  }
-};
+  req: true,
+  url: true,
 
-export type Task<T> = () => Promise<T>;
+  cookie: true,
+  server: true,
+  set: true,
 
-export const taskMap =
-  <T, U>(fn: (x: T) => U) =>
-  (task: Task<T>): Task<U> =>
-  async () =>
-    fn(await task());
+  sendFile: true,
+  proxy: true,
+  forward: true,
+  cache: true,
+});
+EOF
 
-export const taskChain =
-  <T, U>(fn: (x: T) => Task<U>) =>
-  (task: Task<T>): Task<U> =>
-  async () =>
-    fn(await task())();
+# ============================================================================
+# New compiler types
+# ============================================================================
 
-export const taskFromResult =
-  <T>(value: T): Task<T> =>
-  async () =>
-    value;
-
-export const pipe =
-  <A>(a: A) =>
-  <B>(...fns: Array<(x: any) => any>): B =>
-    fns.reduce((acc: any, fn) => fn(acc), a) as unknown as B;
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/compiler/utils/hash.ts
-# Keep only hashes actually used by analysis/codegen.
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/compiler/utils/hash.ts..."
-
-cat > src/compiler/utils/hash.ts <<'FLUX_EOF'
-/**
- * Hash utilities used by route analysis.
- *
- * Removed:
- * - canUseDenseArray
- * - generatePerfectHash
- * - segmentHash
- *
- * These belonged to the unused jump-table optimizer path.
- */
-
-export const fnv1a = (str: string): number => {
-  let hash = 0x811c9dc5;
-
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-
-  return hash >>> 0;
-};
-
-export const computeSignatureHash = (methodIdx: number, path: string): number => {
-  const pathHash = fnv1a(path);
-  return ((methodIdx & 0x07) << 29) | (pathHash >>> 3);
-};
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/compiler/types.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/compiler/types.ts..."
-
-cat > src/compiler/types.ts <<'FLUX_EOF'
+cat > src/compiler/types.ts <<'EOF'
 /**
  * Flux Compiler Type System
  *
- * Production cleanup:
- * - removed unused jump table types
- * - removed unused trie types from compiler pipeline
- * - removed unimplemented compiler flags
- * - removed preserialized buffer pipeline
+ * AOT upgrade:
+ * - unified ContextUsage from shared
+ * - added advanced compiler options
+ * - added route metadata for future validators/serializers/OpenAPI
  */
+
+import type { ContextUsage } from "../shared/context-usage";
+import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
+
+export type { ContextUsage };
+export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
+export const FULL_CONTEXT_USAGE = FULL_USAGE;
 
 export const HTTP_METHODS = [
   "GET",
@@ -427,39 +171,18 @@ export const HTTP_METHODS = [
 
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
-export interface ContextUsage {
-  body: boolean;
-  params: boolean;
-  query: boolean;
-  file: boolean;
-  headers: boolean;
-  state: boolean;
-  json: boolean;
-  text: boolean;
-  redirect: boolean;
-  req: boolean;
-  url: boolean;
-}
-
-export const FULL_CONTEXT_USAGE: ContextUsage = {
-  body: true,
-  params: true,
-  query: true,
-  file: true,
-  headers: true,
-  state: true,
-  json: true,
-  text: true,
-  redirect: true,
-  req: true,
-  url: true,
-};
+export type RouterMode =
+  | "auto"
+  | "static-map"
+  | "radix"
+  | "bun-native";
 
 export interface CompilerOptions {
   readonly routesDir: string;
   readonly outDir: string;
   readonly outFile: string;
   readonly target: "bun" | "node" | "deno";
+
   readonly optimizationLevel: 0 | 1 | 2 | 3;
   readonly inlineThreshold: number;
   readonly enableHandlerDeduplication: boolean;
@@ -486,6 +209,23 @@ export interface CompilerOptions {
 
   readonly cluster?: number | "auto";
   readonly reusePort?: boolean;
+
+  // Advanced AOT options
+  readonly router?: RouterMode;
+  readonly generateTypes?: boolean;
+  readonly generateOpenAPI?: boolean;
+  readonly generateClient?: boolean;
+
+  readonly precompileValidators?: boolean;
+  readonly precompileSerializers?: boolean;
+
+  readonly hoistConstants?: boolean;
+  readonly specializeContext?: boolean;
+  readonly inlineHooks?: boolean;
+  readonly treeshakeRuntime?: boolean;
+  readonly routeCache?: boolean;
+
+  readonly maxInlineBytes?: number;
 }
 
 export interface RouteCacheConfig {
@@ -500,6 +240,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   outDir: process.env.OUT_DIR || "./dist",
   outFile: "__server.js",
   target: "bun",
+
   optimizationLevel: 3,
   inlineThreshold: 50,
   enableHandlerDeduplication: true,
@@ -516,6 +257,22 @@ export const createDefaultOptions = (): CompilerOptions => ({
   serviceName: "flux",
   requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
+
+  router: "auto",
+  generateTypes: true,
+  generateOpenAPI: true,
+  generateClient: true,
+
+  precompileValidators: false,
+  precompileSerializers: false,
+
+  hoistConstants: true,
+  specializeContext: true,
+  inlineHooks: true,
+  treeshakeRuntime: true,
+  routeCache: true,
+
+  maxInlineBytes: 2048,
 });
 
 export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
@@ -578,6 +335,18 @@ export interface ModuleInfo {
 
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
 
+export interface RouteValidators {
+  readonly body?: string;
+  readonly query?: string;
+  readonly params?: string;
+  readonly headers?: string;
+  readonly cookie?: string;
+}
+
+export interface RouteSerializers {
+  readonly json?: string;
+}
+
 export interface RouteDef {
   readonly method: HttpMethod;
   readonly cache?: RouteCacheConfig;
@@ -602,6 +371,14 @@ export interface RouteDef {
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;
+
+  // New optional AOT metadata
+  readonly config?: Record<string, unknown>;
+  readonly validators?: RouteValidators;
+  readonly serializers?: RouteSerializers;
+  readonly statusCodes?: readonly number[];
+  readonly contentType?: string;
+  readonly openapi?: Record<string, unknown>;
 }
 
 export interface HookDef {
@@ -648,28 +425,17 @@ export interface CompiledRoute {
   readonly modules: readonly ModuleInfo[];
   readonly meta: CompilationMeta;
 }
-FLUX_EOF
+EOF
 
-# ----------------------------------------------------------------------------
-# Replace src/compiler/validate.ts
-# ----------------------------------------------------------------------------
+# ============================================================================
+# New compiler options validation
+# ============================================================================
 
-echo "Replacing src/compiler/validate.ts..."
-
-cat > src/compiler/validate.ts <<'FLUX_EOF'
+cat > src/compiler/validate.ts <<'EOF'
 /**
  * Compiler options validation.
  *
- * Removed unimplemented flags:
- * - enableSIMDPaths
- * - enableBranchPrediction
- * - enableDeadCodeElimination
- * - enableConstantFolding
- * - enableWorkerThreads
- * - enableSchemaInlining
- * - enableResponsePreserialization
- * - browserCache
- * - cacheBust
+ * Updated for AOT compiler options.
  */
 
 import { Type, type Static } from "@sinclair/typebox";
@@ -726,6 +492,30 @@ const CompilerOptionsSchema = Type.Object(
     ),
 
     reusePort: Type.Optional(Type.Boolean()),
+
+    router: Type.Optional(
+      Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("static-map"),
+        Type.Literal("radix"),
+        Type.Literal("bun-native"),
+      ])
+    ),
+
+    generateTypes: Type.Optional(Type.Boolean()),
+    generateOpenAPI: Type.Optional(Type.Boolean()),
+    generateClient: Type.Optional(Type.Boolean()),
+
+    precompileValidators: Type.Optional(Type.Boolean()),
+    precompileSerializers: Type.Optional(Type.Boolean()),
+
+    hoistConstants: Type.Optional(Type.Boolean()),
+    specializeContext: Type.Optional(Type.Boolean()),
+    inlineHooks: Type.Optional(Type.Boolean()),
+    treeshakeRuntime: Type.Optional(Type.Boolean()),
+    routeCache: Type.Optional(Type.Boolean()),
+
+    maxInlineBytes: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: false }
 );
@@ -761,175 +551,989 @@ export const validateOptions = (
 
   return err(errors);
 };
-FLUX_EOF
+EOF
 
-# ----------------------------------------------------------------------------
-# Replace src/compiler/phases/optimization.ts
-# Option A: remove jump table / preserialization / schema compilation
-# ----------------------------------------------------------------------------
+# ============================================================================
+# Artifacts phase: types, OpenAPI, client, manifest
+# ============================================================================
 
-echo "Replacing src/compiler/phases/optimization.ts..."
-
-cat > src/compiler/phases/optimization.ts <<'FLUX_EOF'
+cat > src/compiler/phases/artifacts.ts <<'EOF'
 /**
- * Phase 3: OPTIMIZATION
- *
- * Production cleanup:
- * - removed jump table generation
- * - removed dense/sparse/perfect-hash tables
- * - removed response preserialization buffers
- * - removed Zod-specific schema compilation
- * - kept inline detection and deduplication
+ * AOT artifact generation:
+ * - routes.d.ts
+ * - openapi.json
+ * - client.d.ts
+ * - manifest.json
  */
 
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import type { RouteDef, CompilerOptions } from "../types";
+import type { Logger } from "../logger";
+
+const tsParamType = (paramNames: readonly string[]): string => {
+  if (paramNames.length === 0) return "Record<string, never>";
+
+  const lines = paramNames.map((name) => `    ${name}: string;`);
+  return `{
+${lines.join("\n")}
+  }`;
+};
+
+export const generateRouteTypes = (routes: readonly RouteDef[]): string => {
+  const lines: string[] = [];
+
+  lines.push("// Auto-generated by Flux AOT compiler.");
+  lines.push("// Do not edit manually.");
+  lines.push("");
+  lines.push("export interface FluxRoutes {");
+
+  for (const route of routes) {
+    const method = route.method.toLowerCase();
+
+    lines.push(`  ${JSON.stringify(route.path)}: {`);
+    lines.push(`    ${method}: {`);
+
+    if (route.paramNames.length > 0) {
+      lines.push(`      params: ${tsParamType(route.paramNames)};`);
+    }
+
+    if (route.usage.query) {
+      lines.push("      query: Record<string, string | string[]>;");
+    }
+
+    if (route.usage.body) {
+      lines.push("      body: unknown;");
+    }
+
+    lines.push("      response: unknown;");
+
+    lines.push("    };");
+    lines.push("  };");
+  }
+
+  lines.push("}");
+  lines.push("");
+
+  return lines.join("\n");
+};
+
+export const generateClientDts = (): string => {
+  return `// Auto-generated by Flux AOT compiler.
+import type { FluxRoutes } from "./routes";
+
+export type FluxClient = {
+  [Path in keyof FluxRoutes]: {
+    [Method in keyof FluxRoutes[Path]]: (
+      ...args: FluxRoutes[Path][Method] extends { params: infer P }
+        ? [params: P, init?: RequestInit]
+        : [init?: RequestInit]
+    ) => Promise<Response>;
+  };
+};
+
+export declare function createClient(baseUrl?: string): FluxClient;
+`;
+};
+
+const toOpenApiPath = (path: string): string =>
+  path.replace(/:([A-Za-z0-9_]+)/g, "{$1}").replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
+
+export const generateOpenApi = (
+  routes: readonly RouteDef[],
+  opts: CompilerOptions
+): Record<string, unknown> => {
+  const paths: Record<string, Record<string, unknown>> = {};
+
+  for (const route of routes) {
+    if (route.method === "ALL") continue;
+
+    const openApiPath = toOpenApiPath(route.path);
+    paths[openApiPath] ??= {};
+
+    const operation: Record<string, unknown> = {
+      operationId: `${route.method.toLowerCase()}_${openApiPath.replace(/[{}\/]/g, "_")}`,
+      responses: {
+        "200": {
+          description: "Successful response",
+        },
+      },
+    };
+
+    const detail = (route.config as any)?.detail;
+    if (detail && typeof detail === "object") {
+      Object.assign(operation, detail);
+    }
+
+    if (route.paramNames.length > 0) {
+      operation.parameters = route.paramNames.map((name) => ({
+        name,
+        in: "path",
+        required: true,
+        schema: { type: "string" },
+      }));
+    }
+
+    if (route.usage.body) {
+      operation.requestBody = {
+        content: {
+          "application/json": {
+            schema: { type: "object" },
+          },
+        },
+      };
+    }
+
+    paths[openApiPath][route.method.toLowerCase()] = operation;
+  }
+
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: opts.serviceName ?? "flux",
+      version: "1.0.0",
+    },
+    paths,
+  };
+};
+
+export const generateManifest = (
+  routes: readonly RouteDef[],
+  opts: CompilerOptions
+): Record<string, unknown> => ({
+  generatedAt: new Date().toISOString(),
+  serviceName: opts.serviceName ?? "flux",
+  target: opts.target,
+  routes: routes.map((r) => ({
+    method: r.method,
+    path: r.path,
+    file: r.file,
+    isStatic: r.isStatic,
+    isDynamic: r.isDynamic,
+    isConstantResponse: r.isConstantResponse,
+    responseType: r.responseType,
+    paramNames: r.paramNames,
+    hooks: r.hooks,
+    usage: r.usage,
+  })),
+});
+
+export const writeArtifacts = (
+  routes: readonly RouteDef[],
+  opts: CompilerOptions,
+  logger: Logger
+): void => {
+  mkdirSync(opts.outDir, { recursive: true });
+
+  if (opts.generateTypes) {
+    const types = generateRouteTypes(routes);
+    writeFileSync(join(opts.outDir, "routes.d.ts"), types);
+    logger.info("Generated routes.d.ts");
+  }
+
+  if (opts.generateClient) {
+    writeFileSync(join(opts.outDir, "client.d.ts"), generateClientDts());
+    logger.info("Generated client.d.ts");
+  }
+
+  if (opts.generateOpenAPI) {
+    const openapi = generateOpenApi(routes, opts);
+    writeFileSync(
+      join(opts.outDir, "openapi.json"),
+      JSON.stringify(openapi, null, 2)
+    );
+    logger.info("Generated openapi.json");
+  }
+
+  const manifest = generateManifest(routes, opts);
+  writeFileSync(join(opts.outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  logger.info("Generated manifest.json");
+};
+EOF
+
+# ============================================================================
+# New optimized codegen
+# ============================================================================
+
+cat > src/compiler/phases/codegen.ts <<'EOF'
+/**
+ * Flux AOT Code Generator
+ *
+ * Goals:
+ * - prebake constant responses
+ * - emit static route map
+ * - emit sorted dynamic matcher
+ * - specialize context per route
+ * - tree-shake helpers
+ * - avoid unnecessary runtime allocation
+ */
+
+import { dirname, join, relative } from "path";
 import type {
   RouteDef,
   ModuleInfo,
   CompilerOptions,
-  OptimizationResult,
+  HookDef,
 } from "../types";
-
-import { estimateNodeCount } from "../utils/ast";
 import type { Logger } from "../logger";
 
-export const isInlineEligible = (
+interface CodegenConfig {
+  target: "bun" | "node" | "deno";
+  tracing: boolean;
+  lifecycle: boolean;
+  serviceName: string;
+  exposeErrorDetails: boolean;
+  specializeContext: boolean;
+  reusePort: boolean;
+}
+
+interface RouteInfo {
+  route: RouteDef;
+  mod?: ModuleInfo;
+  constantJson: string | null;
+  hookNames: string[];
+  hasHooks: boolean;
+  needsFull: boolean;
+  needsBody: boolean;
+  minimalBody: boolean;
+  minimalSendFile: boolean;
+}
+
+interface DynamicRouteInfo {
+  method: string;
+  regexLiteral: string;
+  paramNames: string[];
+  handlerName: string;
+  segmentCount: number;
+  hasWildcard: boolean;
+  path: string;
+}
+
+const getConfig = (opts: CompilerOptions): CodegenConfig => ({
+  target: opts.target,
+  tracing: opts.enableTracing ?? false,
+  lifecycle: opts.enableLifecycle ?? true,
+  serviceName: opts.serviceName ?? "flux",
+  exposeErrorDetails: opts.exposeErrorDetails ?? false,
+  specializeContext: opts.specializeContext ?? true,
+  reusePort: opts.reusePort ?? false,
+});
+
+const normalizeImportPath = (p: string): string => {
+  let s = p.replace(/\\/g, "/").replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
+  if (!s.startsWith(".")) s = "./" + s;
+  return s;
+};
+
+const handlerImportName = (route: RouteDef): string => `handler_${route.handlerRef}`;
+const methodHandlerName = (route: RouteDef): string => `${route.method}_${route.handlerRef}`;
+const finalizeName = (route: RouteDef): string => `finalize_${route.handlerRef}`;
+const constantBodyVar = (route: RouteDef): string => `BODY_${route.handlerRef}`;
+const constantInitVar = (route: RouteDef): string => `INIT_${route.handlerRef}`;
+
+const hookIdent = (name: string): string =>
+  `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+
+const tryNormalizeConstant = (route: RouteDef): string | null => {
+  if (!route.isConstantResponse || !route.constantResponse) return null;
+  if (route.hooks.length > 0) return null;
+
+  try {
+    JSON.parse(route.constantResponse);
+    return route.constantResponse;
+  } catch {
+    return null;
+  }
+};
+
+const validHookNames = (
+  route: RouteDef,
+  hooks: ReadonlyMap<string, HookDef>
+): string[] => route.hooks.filter((name) => hooks.has(name));
+
+const routeReplyFn = (route: RouteDef): string => {
+  if (route.responseType === "text") return "textReply";
+  if (route.responseType === "html") return "htmlReply";
+  if (route.responseType === "stream") return "streamReply";
+  return "jsonReply";
+};
+
+const FORCE_FULL_TOKENS = [
+  "ctx.cookie",
+  "ctx.server",
+  "ctx.set",
+  "ctx.proxy",
+  "ctx.forward",
+  "ctx.cache",
+];
+
+const needsFullContext = (
   route: RouteDef,
   mod: ModuleInfo | undefined,
-  threshold: number
+  cfg: CodegenConfig,
+  hasHooks: boolean
 ): boolean => {
-  if (!mod) return false;
-  if (route.hasValidation) return false;
-  if (route.hooks.length > 0) return false;
+  if (!cfg.specializeContext) return true;
+  if (hasHooks) return true;
 
-  const nodeCount = estimateNodeCount(mod.content);
-  return nodeCount <= threshold;
-};
-
-export const markInline = (
-  route: RouteDef,
-  modules: readonly ModuleInfo[],
-  threshold: number
-): RouteDef => {
-  const mod = modules[route.moduleIdx];
-  const shouldInline = isInlineEligible(route, mod, threshold);
-
-  return shouldInline === route.shouldInline ? route : { ...route, shouldInline };
-};
-
-export const detectInlineCandidates = (
-  routes: readonly RouteDef[],
-  modules: readonly ModuleInfo[],
-  threshold: number
-): RouteDef[] => routes.map((r) => markInline(r, modules, threshold));
-
-export const hasConstantResponse = (route: RouteDef): boolean =>
-  route.isConstantResponse && !!route.constantResponse;
-
-export const groupByConstantResponse = (
-  routes: readonly RouteDef[]
-): Map<string, RouteDef[]> => {
-  const groups = new Map<string, RouteDef[]>();
-
-  for (const route of routes) {
-    if (!hasConstantResponse(route)) continue;
-
-    const key = route.constantResponse!;
-    const existing = groups.get(key);
-
-    if (existing) existing.push(route);
-    else groups.set(key, [route]);
+  if (
+    route.usage.cookie ||
+    route.usage.set ||
+    route.usage.proxy ||
+    route.usage.forward ||
+    route.usage.cache
+  ) {
+    return true;
   }
 
-  return groups;
+  if (mod && FORCE_FULL_TOKENS.some((token) => mod.content.includes(token))) {
+    return true;
+  }
+
+  return false;
 };
 
-export const buildDedupMap = (
-  groups: Map<string, RouteDef[]>
-): Map<string, string> => {
-  const replacements = new Map<string, string>();
+const generateFinalizer = (route: RouteDef): string => {
+  const reply = routeReplyFn(route);
 
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
+  return `function ${finalizeName(route)}(result) {
+  if (result instanceof Response) return result;
+  return ${reply}(result);
+}`;
+};
 
-    const leader = group[0]!;
+const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
+  const route = info.route;
+  const name = methodHandlerName(route);
 
-    for (let i = 1; i < group.length; i++) {
-      replacements.set(group[i]!.handlerRef, leader.handlerRef);
+  if (info.constantJson !== null) {
+    return `function ${name}(req, params, url, server) {
+  return new Response(${constantBodyVar(route)}, ${constantInitVar(route)});
+}`;
+  }
+
+  const pre: string[] = [];
+  let callExpr = "";
+
+  if (info.needsFull) {
+    const ctxOpts: string[] = [];
+
+    if (info.needsBody) {
+      ctxOpts.push("body: BODY_LIMITS");
+    }
+
+    const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
+
+    pre.push(`const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`);
+
+    if (route.usage.server) {
+      pre.push("ctx.server = server;");
+    }
+
+    if (info.hasHooks) {
+      pre.push(
+        `const halted = await runHooks([${info.hookNames
+          .map(hookIdent)
+          .join(", ")}], ctx);`
+      );
+      pre.push("if (halted) return halted;");
+    }
+
+    callExpr = `${handlerImportName(route)}(ctx)`;
+  } else {
+    if (route.usage.query) {
+      pre.push("const query = url.searchParams;");
+    }
+
+    if (info.minimalBody) {
+      pre.push("const body = createLazyBody(req, BODY_LIMITS);");
+    }
+
+    if (route.usage.state) {
+      pre.push("const state = new Map();");
+    }
+
+    const props: string[] = [];
+
+    if (route.usage.params) {
+      props.push("params: params ?? EMPTY_PARAMS");
+    }
+
+    if (info.minimalBody) {
+      props.push("body");
+    }
+
+    if (route.usage.query) {
+      props.push("query");
+    }
+
+    if (route.usage.headers) {
+      props.push("headers: req.headers");
+    }
+
+    if (route.usage.req) {
+      props.push("req");
+    }
+
+    if (route.usage.url) {
+      props.push("url");
+    }
+
+    if (route.usage.server) {
+      props.push("server");
+    }
+
+    if (route.usage.state) {
+      props.push("state");
+      props.push("getState: (key) => state.get(key)");
+      props.push("setState: (key, value) => { state.set(key, value); }");
+    }
+
+    if (route.usage.json) {
+      props.push("json: jsonReply");
+    }
+
+    if (route.usage.text) {
+      props.push("text: textReply");
+    }
+
+    if (route.usage.html) {
+      props.push("html: htmlReply");
+    }
+
+    if (route.usage.stream) {
+      props.push("stream: streamReply");
+    }
+
+    if (route.usage.redirect) {
+      props.push("redirect: redirectReply");
+    }
+
+    if (route.usage.empty) {
+      props.push("empty: emptyReply");
+    }
+
+    if (route.usage.status) {
+      props.push("status: (code) => new Response(null, { status: code })");
+    }
+
+    if (info.minimalSendFile) {
+      props.push("sendFile: (path, opts) => coreSendFile(path, { req, ...opts })");
+    }
+
+    callExpr =
+      props.length === 0
+        ? `${handlerImportName(route)}({})`
+        : `${handlerImportName(route)}({ ${props.join(", ")} })`;
+  }
+
+  const isAsync =
+    route.isAsync ||
+    info.hasHooks ||
+    info.needsFull ||
+    info.minimalBody ||
+    route.usage.state;
+
+  if (isAsync) {
+    return `async function ${name}(req, params, url, server) {
+  try {
+    ${pre.join("\n    ")}
+    const result = await ${callExpr};
+    return ${finalizeName(route)}(result);
+  } catch (err) {
+    return errorResponse(err);
+  }
+}`;
+  }
+
+  return `function ${name}(req, params, url, server) {
+  try {
+    ${pre.join("\n    ")}
+    const result = ${callExpr};
+    if (result instanceof Response) return result;
+    if (result && typeof result.then === "function") {
+      return result
+        .then((v) => ${finalizeName(route)}(v))
+        .catch((err) => errorResponse(err));
+    }
+    return ${finalizeName(route)}(result);
+  } catch (err) {
+    return errorResponse(err);
+  }
+}`;
+};
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const routePattern = (
+  path: string
+): { regexLiteral: string; paramNames: string[] } => {
+  const paramNames: string[] = [];
+  const segments = path.split("/").filter(Boolean);
+
+  const pattern = segments
+    .map((seg) => {
+      if (seg.startsWith(":")) {
+        paramNames.push(seg.slice(1));
+        return "([^/]+)";
+      }
+
+      if (seg.startsWith("*")) {
+        paramNames.push(seg.slice(1));
+        return "(.*)";
+      }
+
+      return escapeRegex(seg);
+    })
+    .join("/");
+
+  const source = segments.length === 0 ? "^/$" : `^/${pattern}$`;
+  const regexLiteral = `/${source.replace(/\//g, "\\/")}/`;
+
+  return { regexLiteral, paramNames };
+};
+
+export const generateServer = (
+  routes: readonly RouteDef[],
+  modules: readonly ModuleInfo[],
+  hooks: ReadonlyMap<string, HookDef>,
+  opts: CompilerOptions
+): string => {
+  const cfg = getConfig(opts);
+
+  const BODY_LIMITS = JSON.stringify({
+    maxJsonBytes: opts.maxJsonBytes ?? 2 * 1024 * 1024,
+    maxTextBytes: opts.maxTextBytes ?? 2 * 1024 * 1024,
+    maxFormBytes: opts.maxFormBytes ?? 2 * 1024 * 1024,
+    maxFileBytes: opts.maxFileBytes ?? 20 * 1024 * 1024,
+  });
+
+  const fromDir = dirname(join(process.cwd(), opts.outDir, opts.outFile));
+
+  const toImportPath = (absPath: string): string =>
+    normalizeImportPath(relative(fromDir, absPath));
+
+  const runtimeImport = (projectPath: string): string =>
+    toImportPath(join(process.cwd(), projectPath));
+
+  const routeInfos: RouteInfo[] = routes.map((route) => {
+    const mod = modules[route.moduleIdx];
+    const constantJson = tryNormalizeConstant(route);
+    const hookNames = validHookNames(route, hooks);
+    const hasHooks = cfg.lifecycle && hookNames.length > 0;
+    const needsFull = needsFullContext(route, mod, cfg, hasHooks);
+    const needsBody = route.usage.body || route.usage.file;
+    const minimalBody = needsBody && !needsFull;
+    const minimalSendFile = route.usage.sendFile && !needsFull;
+
+    return {
+      route,
+      mod,
+      constantJson,
+      hookNames,
+      hasHooks,
+      needsFull,
+      needsBody,
+      minimalBody,
+      minimalSendFile,
+    };
+  });
+
+  const nonConstantInfos = routeInfos.filter((x) => x.constantJson === null);
+
+  const anyNonConstant = nonConstantInfos.length > 0;
+  const anyFullContext = nonConstantInfos.some((x) => x.needsFull);
+  const anyLazyBody = nonConstantInfos.some((x) => x.minimalBody);
+  const anySendFile = nonConstantInfos.some((x) => x.minimalSendFile);
+  const anyHooks = cfg.lifecycle && nonConstantInfos.some((x) => x.hasHooks);
+
+  const anyJson = anyNonConstant;
+  const anyText = nonConstantInfos.some(
+    (x) => x.route.usage.text || x.route.responseType === "text"
+  );
+  const anyHtml = nonConstantInfos.some(
+    (x) => x.route.usage.html || x.route.responseType === "html"
+  );
+  const anyStream = nonConstantInfos.some(
+    (x) => x.route.usage.stream || x.route.responseType === "stream"
+  );
+  const anyRedirect = nonConstantInfos.some((x) => x.route.usage.redirect);
+  const anyEmpty = nonConstantInfos.some(
+    (x) => x.route.usage.empty || x.route.usage.status
+  );
+
+  const handlerImports = Array.from(
+    new Set(
+      nonConstantInfos
+        .map((info) => {
+          if (!info.mod) return "";
+
+          return `import { default as ${handlerImportName(
+            info.route
+          )} } from "${toImportPath(info.mod.path)}";`;
+        })
+        .filter(Boolean)
+    )
+  ).join("\n");
+
+  const missingStubs = nonConstantInfos
+    .filter((info) => !info.mod)
+    .map((info) => {
+      return `function ${handlerImportName(info.route)}() {
+  throw new Error(${JSON.stringify(`Missing module for ${info.route.file}`)});
+}`;
+    })
+    .join("\n");
+
+  const hookImports = anyHooks
+    ? Array.from(hooks.values())
+        .map((h) => {
+          const abs = join(process.cwd(), h.source);
+          return `import { default as ${hookIdent(
+            h.name
+          )} } from "${toImportPath(abs)}";`;
+        })
+        .join("\n")
+    : "";
+
+  const coreImports: string[] = [];
+
+  if (anyFullContext) {
+    coreImports.push(
+      `import { createContext } from "${runtimeImport("src/core/context.ts")}";`
+    );
+  }
+
+  if (anyLazyBody) {
+    coreImports.push(
+      `import { createLazyBody } from "${runtimeImport("src/core/body.ts")}";`
+    );
+  }
+
+  if (anySendFile) {
+    coreImports.push(
+      `import { sendFile as coreSendFile } from "${runtimeImport(
+        "src/core/files.ts"
+      )}";`
+    );
+  }
+
+  const constants: string[] = [];
+
+  constants.push(`const HDR_JSON = { "content-type": "application/json; charset=utf-8" };`);
+  constants.push(`const JSON_INIT = { headers: HDR_JSON };`);
+  constants.push(`const BODY_LIMITS = ${BODY_LIMITS};`);
+  constants.push(`const EMPTY_PARAMS = Object.freeze({});`);
+  constants.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails};`);
+  constants.push(`const NOT_FOUND_BODY = '{"error":"Not Found"}';`);
+  constants.push(`const NOT_FOUND_INIT = { status: 404, headers: HDR_JSON };`);
+  constants.push(`const STATUS_TEXT = {
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  405: "Method Not Allowed",
+  409: "Conflict",
+  422: "Unprocessable Entity",
+  429: "Too Many Requests",
+  500: "Internal Server Error",
+};`);
+
+  for (const info of routeInfos) {
+    if (info.constantJson === null) continue;
+
+    constants.push(
+      `const ${constantBodyVar(info.route)} = ${JSON.stringify(
+        info.constantJson
+      )};`
+    );
+    constants.push(
+      `const ${constantInitVar(info.route)} = { status: 200, headers: HDR_JSON };`
+    );
+  }
+
+  const helpers: string[] = [];
+
+  helpers.push(`function notFound() {
+  return new Response(NOT_FOUND_BODY, NOT_FOUND_INIT);
+}`);
+
+  helpers.push(`function errorResponse(err) {
+  const status = err && typeof err.status === "number" ? err.status : 500;
+  const message =
+    EXPOSE_ERRORS && err instanceof Error
+      ? err.message
+      : STATUS_TEXT[status] || "Error";
+
+  return Response.json({ error: message, status }, { status });
+}`);
+
+  if (anyJson) {
+    helpers.push(`function jsonReply(data, init) {
+  if (!init) return Response.json(data, JSON_INIT);
+
+  const headers = new Headers(HDR_JSON);
+
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+
+  return Response.json(data, {
+    status: init.status ?? 200,
+    headers,
+  });
+}`);
+  }
+
+  if (anyText) {
+    helpers.push(`const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
+const TEXT_INIT = { headers: HDR_TEXT };
+
+function textReply(data, init) {
+  const body = typeof data === "string" ? data : JSON.stringify(data);
+
+  if (!init) return new Response(body, TEXT_INIT);
+
+  const headers = new Headers(HDR_TEXT);
+
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers,
+  });
+}`);
+  }
+
+  if (anyHtml) {
+    helpers.push(`const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
+const HTML_INIT = { headers: HDR_HTML };
+
+function htmlReply(data, init) {
+  const body = typeof data === "string" ? data : JSON.stringify(data);
+
+  if (!init) return new Response(body, HTML_INIT);
+
+  const headers = new Headers(HDR_HTML);
+
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers,
+  });
+}`);
+  }
+
+  if (anyStream) {
+    helpers.push(`function streamReply(stream, init) {
+  return new Response(stream, init);
+}`);
+  }
+
+  if (anyRedirect) {
+    helpers.push(`function redirectReply(location, status = 302) {
+  return Response.redirect(location, status);
+}`);
+  }
+
+  if (anyEmpty) {
+    helpers.push(`function emptyReply(status = 204) {
+  return new Response(null, { status });
+}`);
+  }
+
+  if (anyHooks) {
+    helpers.push(`async function runHooks(hooks, ctx) {
+  for (const hook of hooks) {
+    const result = await hook(ctx);
+
+    if (result instanceof Response) return result;
+
+    if (
+      result &&
+      typeof result === "object" &&
+      result.ok === false &&
+      result.response instanceof Response
+    ) {
+      return result.response;
     }
   }
 
-  return replacements;
+  return null;
+}`);
+  }
+
+  const finalizers = nonConstantInfos
+    .map((info) => generateFinalizer(info.route))
+    .join("\n\n");
+
+  const handlers = routeInfos
+    .map((info) => generateMethodHandler(info, cfg))
+    .join("\n\n");
+
+  const staticEntries: string[] = [];
+  const dynamicEntries: DynamicRouteInfo[] = [];
+
+  for (const info of routeInfos) {
+    const handlerName = methodHandlerName(info.route);
+
+    if (info.route.isStatic) {
+      staticEntries.push(
+        `[${JSON.stringify(`${info.route.method}:${info.route.path}`)}, ${handlerName}]`
+      );
+      continue;
+    }
+
+    const pattern = routePattern(info.route.path);
+
+    dynamicEntries.push({
+      method: info.route.method,
+      regexLiteral: pattern.regexLiteral,
+      paramNames: pattern.paramNames,
+      handlerName,
+      segmentCount: info.route.segmentCount,
+      hasWildcard: info.route.path.includes("*"),
+      path: info.route.path,
+    });
+  }
+
+  dynamicEntries.sort((a, b) => {
+    if (a.hasWildcard !== b.hasWildcard) {
+      return a.hasWildcard ? 1 : -1;
+    }
+
+    if (a.segmentCount !== b.segmentCount) {
+      return b.segmentCount - a.segmentCount;
+    }
+
+    return a.path.localeCompare(b.path);
+  });
+
+  const staticRoutes = `const staticRoutes = new Map([
+${staticEntries.join(",\n")}
+]);`;
+
+  const dynamicRoutes = `const dynamicRoutes = [
+${dynamicEntries
+  .map(
+    (entry) => `  {
+    method: ${JSON.stringify(entry.method)},
+    pattern: ${entry.regexLiteral},
+    paramNames: ${JSON.stringify(entry.paramNames)},
+    handler: ${entry.handlerName},
+  },`
+  )
+  .join("\n")}
+];`;
+
+  const router = `function decodeParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function routerFetch(req, server) {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const method = req.method;
+
+  let handler = staticRoutes.get(method + ":" + path);
+
+  if (!handler) {
+    handler = staticRoutes.get("ALL:" + path);
+  }
+
+  if (!handler && method === "HEAD") {
+    handler = staticRoutes.get("GET:" + path);
+  }
+
+  if (handler) {
+    return handler(req, EMPTY_PARAMS, url, server);
+  }
+
+  for (const route of dynamicRoutes) {
+    if (route.method !== method && route.method !== "ALL") continue;
+
+    const match = route.pattern.exec(path);
+    if (!match) continue;
+
+    const params = {};
+
+    for (let i = 0; i < route.paramNames.length; i++) {
+      params[route.paramNames[i]] = decodeParam(match[i + 1] ?? "");
+    }
+
+    return route.handler(req, params, url, server);
+  }
+
+  return notFound();
+}`;
+
+  const serverBootstrap =
+    cfg.target === "bun"
+      ? `if (import.meta.main) {
+  const port = Number(process.env.PORT || 3000);
+
+  Bun.serve({
+    port,
+    fetch: routerFetch,
+    reusePort: ${cfg.reusePort},
+  });
+
+  console.log(${JSON.stringify(cfg.serviceName)} + " listening on :" + port);
+}`
+      : `// Node/Deno target: export fetch handler only.`;
+
+  return [
+    handlerImports,
+    hookImports,
+    coreImports.join("\n"),
+    missingStubs,
+    constants.join("\n"),
+    helpers.join("\n\n"),
+    finalizers,
+    handlers,
+    staticRoutes,
+    dynamicRoutes,
+    router,
+    serverBootstrap,
+    `export { routerFetch as fetch };`,
+    `export default { fetch: routerFetch };`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 };
 
-export const applyDedup = (
-  route: RouteDef,
-  dedupMap: Map<string, string>
-): RouteDef => {
-  const dedupGroup = dedupMap.get(route.handlerRef);
-  return dedupGroup ? { ...route, dedupGroup } : route;
-};
-
-export const deduplicateRoutes = (routes: RouteDef[]): RouteDef[] => {
-  const groups = groupByConstantResponse(routes);
-  const dedupMap = buildDedupMap(groups);
-
-  if (dedupMap.size === 0) return routes;
-
-  return routes.map((r) => applyDedup(r, dedupMap));
-};
-
-export const countInlined = (routes: readonly RouteDef[]): number =>
-  routes.filter((r) => r.shouldInline).length;
-
-export const countDeduped = (routes: readonly RouteDef[]): number =>
-  routes.filter((r) => r.dedupGroup).length;
-
-export const runOptimization = (
+export const runCodeGen = (
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
+  hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
   logger: Logger
-): OptimizationResult =>
-  logger.time("optimization", () => {
-    const inlined = detectInlineCandidates(routes, modules, opts.inlineThreshold);
+): string =>
+  logger.time("codegen", () => generateServer(routes, modules, hooks, opts));
+EOF
 
-    const deduped = opts.enableHandlerDeduplication
-      ? deduplicateRoutes(inlined)
-      : inlined;
+# ============================================================================
+# New compiler orchestrator with artifacts
+# ============================================================================
 
-    const inlinedCount = countInlined(deduped);
-    const dedupedCount = countDeduped(deduped);
-
-    logger.info(
-      `Optimized: ${inlinedCount} inlined | ${dedupedCount} deduplicated`
-    );
-
-    return {
-      routes: deduped,
-      meta: {
-        inlined: inlinedCount,
-        deduplicated: dedupedCount,
-        eliminated: routes.length - deduped.length,
-      },
-    };
-  });
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/compiler/index.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/compiler/index.ts..."
-
-cat > src/compiler/index.ts <<'FLUX_EOF'
+cat > src/compiler/index.ts <<'EOF'
 /**
  * Flux Compiler Orchestrator
  *
- * Production cleanup:
- * - removed console.log orchestration
- * - removed jump table and trie reporting
- * - validates compiler options
- * - uses structured logger
+ * AOT upgrade:
+ * - validates options
+ * - runs phases
+ * - emits DX artifacts
  */
 
 import type {
@@ -947,6 +1551,7 @@ import { runAnalysis } from "./phases/analysis";
 import { runOptimization } from "./phases/optimization";
 import { runCodeGen } from "./phases/codegen";
 import { runLinker } from "./phases/linker";
+import { writeArtifacts } from "./phases/artifacts";
 import { consoleLogger } from "./logger";
 import { validateOptions } from "./validate";
 import { defu } from "defu";
@@ -1011,7 +1616,12 @@ export const runOptimizationPhase = (
   logger: Logger
 ): OptimizationResult =>
   logger.time("optimization", () => {
-    const result = runOptimization(analysis.routes, analysis.modules, opts, logger);
+    const result = runOptimization(
+      analysis.routes,
+      analysis.modules,
+      opts,
+      logger
+    );
 
     logger.info("optimization complete", {
       inlined: result.meta.inlined,
@@ -1079,6 +1689,9 @@ export class FluxCompiler {
     const discovery = runDiscoveryPhase(opts, logger);
     const analysis = runAnalysisPhase(discovery, opts, logger);
     const optimized = runOptimizationPhase(analysis, opts, logger);
+
+    writeArtifacts(optimized.routes, opts, logger);
+
     const code = runCodegenPhase(optimized, analysis, opts, logger);
     const outPath = runLinkingPhase(code, opts, logger);
 
@@ -1100,716 +1713,376 @@ export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
 if (import.meta.main) {
   build();
 }
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/core/lru.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/core/lru.ts..."
-
-cat > src/core/lru.ts <<'FLUX_EOF'
-/**
- * Production LRU cache backed by lru-cache.
- *
- * Fixed:
- * - allowStale is now respected
- */
-
-import { LRUCache as LRU } from "lru-cache";
-
-export interface LRUCacheOptions<K, V> {
-  max?: number;
-  ttlMs?: number;
-  staleTtlMs?: number;
-  maxBytes?: number;
-  sizeOf?: (value: V, key: K) => number;
-  onEvict?: (key: K, value: V) => void;
-}
-
-interface Entry<V> {
-  value: V;
-  bytes: number;
-  expiresAt: number;
-  staleAt: number;
-}
-
-export class LRUCache<K, V> {
-  private lru: LRU<K, Entry<V>>;
-  private inflight = new Map<K, Promise<V>>();
-
-  constructor(private readonly opts: LRUCacheOptions<K, V> = {}) {
-    this.lru = new LRU<K, Entry<V>>({
-      max: opts.max ?? 1000,
-      maxSize: opts.maxBytes,
-      sizeCalculation: (entry) => Math.max(1, entry.bytes),
-      dispose: (entry, key) => {
-        opts.onEvict?.(key, entry.value);
-      },
-    });
-  }
-
-  get size(): number {
-    return this.lru.size;
-  }
-
-  get byteSize(): number {
-    return this.lru.calculatedSize;
-  }
-
-  private now(): number {
-    return Date.now();
-  }
-
-  private alive(entry: Entry<V>, now: number): boolean {
-    return entry.expiresAt === 0 || entry.expiresAt > now;
-  }
-
-  private fresh(entry: Entry<V>, now: number): boolean {
-    return entry.staleAt === 0 || entry.staleAt > now;
-  }
-
-  get(key: K, options: { allowStale?: boolean } = {}): V | undefined {
-    const entry = this.lru.get(key);
-    if (!entry) return undefined;
-
-    const now = this.now();
-
-    if (!this.alive(entry, now)) {
-      this.lru.delete(key);
-      return undefined;
-    }
-
-    if (!options.allowStale && !this.fresh(entry, now)) {
-      return undefined;
-    }
-
-    return entry.value;
-  }
-
-  set(
-    key: K,
-    value: V,
-    options: { ttlMs?: number; staleTtlMs?: number; bytes?: number } = {}
-  ): this {
-    const ttlMs = options.ttlMs ?? this.opts.ttlMs ?? 0;
-    const staleTtlMs = options.staleTtlMs ?? this.opts.staleTtlMs ?? 0;
-    const bytes = options.bytes ?? this.opts.sizeOf?.(value, key) ?? 0;
-    const maxBytes = this.opts.maxBytes ?? 0;
-
-    if (maxBytes > 0 && bytes > maxBytes) return this;
-
-    const now = this.now();
-    const expiresAt = ttlMs > 0 ? now + ttlMs : 0;
-    const staleAt = staleTtlMs > 0 ? now + staleTtlMs : expiresAt;
-    const lruTtl = Math.max(ttlMs, staleTtlMs);
-
-    this.lru.set(
-      key,
-      { value, bytes, expiresAt, staleAt },
-      lruTtl > 0 ? { ttl: lruTtl } : undefined
-    );
-
-    return this;
-  }
-
-  delete(key: K): boolean {
-    return this.lru.delete(key);
-  }
-
-  clear(): void {
-    this.lru.clear();
-    this.inflight.clear();
-  }
-
-  async getOrSet(
-    key: K,
-    factory: () => Promise<V> | V,
-    options: { ttlMs?: number; staleTtlMs?: number; bytes?: number } = {}
-  ): Promise<V> {
-    const now = this.now();
-    const entry = this.lru.get(key);
-
-    if (entry && this.alive(entry, now)) {
-      if (!this.fresh(entry, now) && !this.inflight.has(key)) {
-        const revalidate = Promise.resolve()
-          .then(factory)
-          .then((value) => this.set(key, value, options))
-          .catch(() => {
-            // keep stale value on failure
-          })
-          .finally(() => {
-            this.inflight.delete(key);
-          });
-
-        this.inflight.set(key, revalidate as Promise<V>);
-      }
-
-      return entry.value;
-    }
-
-    const pending = this.inflight.get(key);
-    if (pending) return pending;
-
-    const promise = Promise.resolve()
-      .then(factory)
-      .then((value) => {
-        this.set(key, value, options);
-        return value;
-      })
-      .finally(() => {
-        this.inflight.delete(key);
-      });
-
-    this.inflight.set(key, promise);
-    return promise;
-  }
-}
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/core/trace.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/core/trace.ts..."
-
-cat > src/core/trace.ts <<'FLUX_EOF'
-/**
- * Distributed tracing helpers.
- *
- * Fixed:
- * - uses crypto.randomUUID()
- * - does not mutate response headers directly
- */
-
-export type TraceEvent =
-  | "request"
-  | "parse"
-  | "transform"
-  | "beforeHandle"
-  | "handle"
-  | "afterHandle"
-  | "mapResponse"
-  | "afterResponse"
-  | "error";
-
-export interface TraceSpan {
-  id: string;
-  name: string;
-  event: TraceEvent;
-  begin: number;
-  end?: number;
-  error?: Error | null;
-  attributes?: Record<string, unknown>;
-  children: TraceSpan[];
-}
-
-export interface TraceContext {
-  traceId: string;
-  spans: TraceSpan[];
-  startSpan(name: string, event: TraceEvent): TraceSpan;
-  endSpan(span: TraceSpan, error?: Error | null): void;
-}
-
-let traceCounter = 0;
-
-export const createTraceContext = (requestId: string): TraceContext => {
-  const spans: TraceSpan[] = [];
-
-  return {
-    traceId: requestId,
-    spans,
-    startSpan(name, event) {
-      const span: TraceSpan = {
-        id: `${requestId}-${++traceCounter}`,
-        name,
-        event,
-        begin: performance.now(),
-        children: [],
-      };
-
-      spans.push(span);
-      return span;
-    },
-    endSpan(span, error = null) {
-      span.end = performance.now();
-      span.error = error;
-    },
-  };
-};
-
-export const startTrace = (req: Request): { traceId: string; start: number } => {
-  const traceId =
-    req.headers.get("x-trace-id") ||
-    req.headers.get("x-request-id") ||
-    crypto.randomUUID();
-
-  return { traceId, start: performance.now() };
-};
-
-export const finishTrace = (
-  _req: Request,
-  trace: { traceId: string; start: number },
-  response: Response
-): Response => {
-  const duration = performance.now() - trace.start;
-
-  const headers = new Headers(response.headers);
-  headers.set("x-trace-id", trace.traceId);
-  headers.set("x-response-time", duration.toFixed(2) + "ms");
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-};
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/core/proxy.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/core/proxy.ts..."
-
-cat > src/core/proxy.ts <<'FLUX_EOF'
-/**
- * Proxy / forwarding helpers.
- *
- * Fixed:
- * - uses AbortSignal.timeout()
- * - removes manual setTimeout cleanup
- */
-
-const HOP_BY_HOP = [
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-];
-
-export interface ProxyOptions extends Omit<RequestInit, "body"> {
-  timeoutMs?: number;
-  body?: BodyInit | ReadableStream | null;
-}
-
-function sanitizeRequestHeaders(headers: Headers): Headers {
-  const out = new Headers(headers);
-
-  for (const h of HOP_BY_HOP) out.delete(h);
-
-  out.delete("host");
-  out.delete("content-length");
-
-  return out;
-}
-
-function sanitizeResponseHeaders(headers: Headers): Headers {
-  const out = new Headers(headers);
-
-  for (const h of HOP_BY_HOP) out.delete(h);
-
-  return out;
-}
-
-export async function proxyRequest(
-  target: string | URL,
-  opts: ProxyOptions = {}
-): Promise<Response> {
-  const timeoutSignal = AbortSignal.timeout(opts.timeoutMs ?? 10_000);
-
-  const signal = opts.signal
-    ? typeof AbortSignal.any === "function"
-      ? AbortSignal.any([opts.signal, timeoutSignal])
-      : timeoutSignal
-    : timeoutSignal;
-
-  try {
-    const headers = sanitizeRequestHeaders(
-      opts.headers instanceof Headers ? opts.headers : new Headers(opts.headers)
-    );
-
-    const init: RequestInit & { duplex?: string } = {
-      method: opts.method ?? "GET",
-      headers,
-      redirect: opts.redirect ?? "manual",
-      signal,
-    };
-
-    if (opts.body != null) {
-      init.body = opts.body;
-
-      if (typeof (opts.body as any).pipeTo === "function") {
-        init.duplex = "half";
-      }
-    }
-
-    const upstream = await fetch(target.toString(), init);
-
-    const responseHeaders = sanitizeResponseHeaders(upstream.headers);
-    responseHeaders.set("x-proxy", "flux");
-
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: responseHeaders,
-    });
-  } catch (err) {
-    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      return Response.json({ error: "Upstream timeout", status: 504 }, { status: 504 });
-    }
-
-    return Response.json({ error: "Bad Gateway", status: 502 }, { status: 502 });
-  }
-}
-
-export async function forwardRequest(
-  req: Request,
-  target: string | URL,
-  opts: ProxyOptions = {}
-): Promise<Response> {
-  const incoming = new URL(req.url);
-  const targetUrl = new URL(target.toString());
-
-  if (!targetUrl.search) {
-    targetUrl.search = incoming.search;
-  }
-
-  const headers = sanitizeRequestHeaders(req.headers);
-
-  const hasBody =
-    req.method !== "GET" && req.method !== "HEAD" && req.body != null;
-
-  return proxyRequest(targetUrl, {
-    ...opts,
-    method: req.method,
-    headers,
-    body: hasBody ? (req.body as ReadableStream) : undefined,
-  });
-}
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/core/cluster.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/core/cluster.ts..."
-
-cat > src/core/cluster.ts <<'FLUX_EOF'
-/**
- * Multi-core server helper.
- *
- * Fixed:
- * - uses node:os availableParallelism()
- */
-
-import { availableParallelism } from "node:os";
-
-export type ServeOptions = Parameters<typeof Bun.serve>[0];
-
-export interface ClusterServeOptions extends ServeOptions {
-  workers?: number | "auto";
-}
-
-export function serveCluster(options: ClusterServeOptions) {
-  const requested = options.workers ?? 1;
-
-  const count =
-    requested === "auto"
-      ? Math.max(1, availableParallelism())
-      : Math.max(1, Number(requested));
-
-  const serveOptions: ServeOptions = { ...options };
-  delete (serveOptions as any).workers;
-
-  const servers = Array.from({ length: count }, () =>
-    Bun.serve({
-      ...serveOptions,
-      reusePort: count > 1 ? true : serveOptions.reusePort,
-    })
-  );
-
-  return {
-    servers,
-    port: servers[0]?.port,
-    stop() {
-      for (const server of servers) {
-        server.stop();
-      }
-    },
-  };
-}
-FLUX_EOF
-
-# ----------------------------------------------------------------------------
-# Replace src/core/schema.ts
-# ----------------------------------------------------------------------------
-
-echo "Replacing src/core/schema.ts..."
-
-cat > src/core/schema.ts <<'FLUX_EOF'
-/**
- * Runtime schema validation.
- *
- * Supports:
- * - TypeBox / JSON Schema via Ajv
- * - Standard Schema v1 via async validation
- */
-
-import Ajv, { type ErrorObject } from "ajv";
-import addFormats from "ajv-formats";
-import type { AnySchema, StandardSchemaV1 } from "./types";
-import { ValidationError } from "./errors";
-
-const ajv = new Ajv({
-  allErrors: true,
-  strict: false,
-  coerceTypes: true,
-  removeAdditional: true,
-  useDefaults: true,
+EOF
+
+# ============================================================================
+# New builder defaults
+# ============================================================================
+
+cat > builder.ts <<'EOF'
+import { build } from "./src/compiler/index";
+
+build({
+  routesDir: "./src/routes",
+  outDir: "./dist",
+  outFile: "__server.js",
+  target: "bun",
+
+  optimizationLevel: 3,
+  minify: true,
+  sourceMap: false,
+
+  enableTracing: false,
+  enableAccessLog: false,
+  enableStrictMethods: false,
+
+  router: "auto",
+  generateTypes: true,
+  generateOpenAPI: true,
+  generateClient: true,
+
+  specializeContext: true,
+  hoistConstants: true,
+  inlineHooks: true,
+  treeshakeRuntime: true,
+  routeCache: true,
 });
+EOF
 
-addFormats(ajv);
+# ============================================================================
+# Safer core types using shared ContextUsage
+# ============================================================================
 
-function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
-  return typeof schema === "object" && schema !== null && "~standard" in schema;
-}
+cat > src/core/types.ts <<'EOF'
+/**
+ * Flux Core Unified Type System
+ *
+ * AOT upgrade:
+ * - ContextUsage now comes from shared
+ * - keeps runtime schema/lifecycle/server types
+ */
 
-function toErrorRecord(
-  errors: ErrorObject[] | null | undefined,
-  on: string
-): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
+import type { ContextUsage } from "../shared/context-usage";
+import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
 
-  for (const e of errors ?? []) {
-    const path =
-      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
-      (e.params as any)?.missingProperty ||
-      on;
+export type { ContextUsage };
+export { EMPTY_USAGE, FULL_USAGE };
 
-    out[path] ??= [];
-    out[path].push(e.message ?? "Invalid value");
-  }
+export const HTTP_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+  "ALL",
+  "WS",
+] as const;
 
-  return out;
-}
+export type HttpMethod = (typeof HTTP_METHODS)[number];
 
-export function compileValidator<T = unknown>(
-  schema: AnySchema,
-  on: string = "input"
-) {
-  if (isStandardSchema(schema)) {
-    return (_input: unknown): T => {
-      throw new Error(
-        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
-      );
-    };
-  }
+export type MaybePromise<T> = T | Promise<T>;
+export type MaybeArray<T> = T | T[];
+export type MaybeReadonlyArray<T> = T | readonly T[];
 
-  const validate = ajv.compile(schema as object);
+export type Prettify<T> = { [K in keyof T]: T[K] } & {};
+export type IsAny<T> = 0 extends 1 & T ? true : false;
+export type IsNever<T> = [T] extends [never] ? true : false;
 
-  return (input: unknown): T => {
-    if (!validate(input)) {
-      throw new ValidationError(
-        "Validation failed",
-        toErrorRecord(validate.errors, on),
-        on
-      );
-    }
-
-    return input as T;
+export interface StandardSchemaV1<Input = unknown, Output = Input> {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (
+      value: unknown
+    ) => MaybePromise<{ value: Output } | { issues: readonly SchemaIssue[] }>;
+    readonly types?: { readonly input: Input; readonly output: Output };
   };
 }
 
-export function validateOrThrow<T = unknown>(
-  schema: AnySchema,
-  input: unknown,
-  on: string = "input"
-): T {
-  return compileValidator<T>(schema, on)(input);
+export interface SchemaIssue {
+  readonly message: string;
+  readonly path?: readonly (string | number)[];
 }
 
-export async function validateAsync<T = unknown>(
-  schema: AnySchema,
-  input: unknown,
-  on: string = "input"
-): Promise<T> {
-  if (isStandardSchema(schema)) {
-    const result = await schema["~standard"].validate(input);
-
-    if ("issues" in result) {
-      const errors: Record<string, string[]> = {};
-
-      for (const issue of result.issues) {
-        const path = issue.path?.join(".") || on;
-        errors[path] ??= [];
-        errors[path].push(issue.message);
-      }
-
-      throw new ValidationError("Validation failed", errors, on);
-    }
-
-    return result.value as T;
-  }
-
-  return compileValidator<T>(schema, on)(input);
+export interface TSchema {
+  [kind: string]: unknown;
+  static?: unknown;
+  type?: string;
+  properties?: Record<string, TSchema>;
+  items?: TSchema | TSchema[];
+  anyOf?: TSchema[];
+  oneOf?: TSchema[];
+  allOf?: TSchema[];
+  $ref?: string;
+  $defs?: Record<string, TSchema>;
+  default?: unknown;
+  enum?: unknown[];
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  required?: string[];
+  additionalProperties?: boolean | TSchema;
+  noValidate?: boolean;
+  elysiaMeta?: string;
 }
-FLUX_EOF
 
-# ----------------------------------------------------------------------------
-# Replace upload route
-# ----------------------------------------------------------------------------
+export type AnySchema = TSchema | StandardSchemaV1;
 
-echo "Replacing src/routes/upload.post.ts..."
+export type Static<T extends AnySchema> =
+  T extends StandardSchemaV1<any, infer O>
+    ? O
+    : T extends TSchema
+      ? T["static"]
+      : unknown;
 
-cat > src/routes/upload.post.ts <<'FLUX_EOF'
-import { post } from "../core/http";
-import { mkdir } from "node:fs/promises";
+export interface RouteSchema {
+  body?: unknown;
+  headers?: unknown;
+  query?: unknown;
+  params?: unknown;
+  cookie?: unknown;
+  response?: unknown;
+}
 
-export default post(async (ctx) => {
-  const file = await ctx.body.file();
+export interface InputSchema<Name extends string = string> {
+  body?: AnySchema | Name;
+  headers?: AnySchema | Name;
+  query?: AnySchema | Name;
+  params?: AnySchema | Name;
+  cookie?: AnySchema | Name;
+  response?: { [status: number]: AnySchema | Name };
+}
 
-  if (!file) {
-    return ctx.json({ error: "file required" }, { status: 400 });
-  }
+export type LifeCycleType = "global" | "scoped" | "local";
 
-  await mkdir("uploads", { recursive: true });
+export interface HookContainer<T = Function> {
+  fn: T;
+  scope?: LifeCycleType;
+  subType?: string;
+  checksum?: number;
+  isAsync?: boolean;
+  hasReturn?: boolean;
+}
 
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  const storedName = `${Date.now().toString(36)}-${safeName}`;
-  const dest = `uploads/${storedName}`;
+export interface LifeCycleStore {
+  start: HookContainer[];
+  request: HookContainer[];
+  parse: HookContainer[];
+  transform: HookContainer[];
+  beforeHandle: HookContainer[];
+  afterHandle: HookContainer[];
+  mapResponse: HookContainer[];
+  afterResponse: HookContainer[];
+  trace: HookContainer[];
+  error: HookContainer[];
+  stop: HookContainer[];
+}
 
-  await Bun.write(dest, file);
+export const EMPTY_LIFECYCLE: LifeCycleStore = {
+  start: [],
+  request: [],
+  parse: [],
+  transform: [],
+  beforeHandle: [],
+  afterHandle: [],
+  mapResponse: [],
+  afterResponse: [],
+  trace: [],
+  error: [],
+  stop: [],
+};
 
-  return ctx.json({
-    ok: true,
-    size: file.size,
-    type: file.type,
-    path: `/files/${storedName}`,
-  });
-});
-FLUX_EOF
+export interface SingletonBase {
+  decorator: Record<string, unknown>;
+  store: Record<string, unknown>;
+  derive: Record<string, unknown>;
+  resolve: Record<string, unknown>;
+}
 
-# ----------------------------------------------------------------------------
-# Replace plugins with hardened versions
-# ----------------------------------------------------------------------------
+export interface DefinitionBase {
+  type: Record<string, AnySchema>;
+  error: Record<string, Error>;
+}
 
-echo "Replacing CORS plugin..."
+export interface RouteConfig {
+  cache?:
+    | number
+    | { maxAge?: number; swr?: number; immutable?: boolean; vary?: string[] };
+  headers?: Record<string, string>;
+  hooks?: string[];
+  mount?: (req: Request) => MaybePromise<Response>;
+}
 
-cat > src/core/plugins/cors.ts <<'FLUX_EOF'
+export interface DocumentDecoration {
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  deprecated?: boolean;
+  security?: Record<string, string[]>[];
+  [key: string]: unknown;
+}
+
+export interface CookieOptions {
+  domain?: string;
+  expires?: Date;
+  httpOnly?: boolean;
+  maxAge?: number;
+  path?: string;
+  priority?: "low" | "medium" | "high";
+  partitioned?: boolean;
+  sameSite?: true | false | "lax" | "strict" | "none";
+  secure?: boolean;
+  secrets?: string | null | (string | null)[];
+}
+
+export interface ElysiaCookie extends CookieOptions {
+  value?: unknown;
+}
+
+export interface ServerOptions {
+  port?: number | string;
+  hostname?: string;
+  reusePort?: boolean;
+  development?: boolean;
+  maxRequestBodySize?: number;
+  idleTimeout?: number;
+  routes?: Record<
+    string,
+    Function | Response | Record<string, Function | Response>
+  >;
+  websocket?: WebSocketHandler;
+}
+
+export interface WebSocketHandler<T = undefined> {
+  open?(ws: ServerWebSocket<T>): MaybePromise<void>;
+  message?(ws: ServerWebSocket<T>, message: string | Buffer): MaybePromise<void>;
+  drain?(ws: ServerWebSocket<T>): MaybePromise<void>;
+  close?(ws: ServerWebSocket<T>, code: number, reason: string): MaybePromise<void>;
+  ping?(ws: ServerWebSocket<T>, data: Buffer): MaybePromise<void>;
+  pong?(ws: ServerWebSocket<T>, data: Buffer): MaybePromise<void>;
+  maxPayloadLength?: number;
+  backpressureLimit?: number;
+  closeOnBackpressureLimit?: boolean;
+  idleTimeout?: number;
+  sendPings?: boolean;
+  perMessageDeflate?:
+    | boolean
+    | { compress?: boolean | string; decompress?: boolean | string };
+}
+
+export interface ServerWebSocket<T = undefined> {
+  send(data: string | ArrayBuffer | Uint8Array, compress?: boolean): number;
+  sendText(data: string, compress?: boolean): number;
+  sendBinary(data: ArrayBuffer | Uint8Array, compress?: boolean): number;
+  close(code?: number, reason?: string): void;
+  terminate(): void;
+  ping(data?: string | ArrayBuffer): number;
+  pong(data?: string | ArrayBuffer): number;
+  publish(topic: string, data: string | ArrayBuffer, compress?: boolean): number;
+  publishText(topic: string, data: string, compress?: boolean): number;
+  publishBinary(topic: string, data: ArrayBuffer | Uint8Array, compress?: boolean): number;
+  subscribe(topic: string): void;
+  unsubscribe(topic: string): void;
+  isSubscribed(topic: string): boolean;
+  readonly subscriptions: string[];
+  cork<T>(callback: (ws: ServerWebSocket<T>) => T): T;
+  readonly remoteAddress: string;
+  readonly readyState: 0 | 1 | 2 | 3;
+  binaryType?: "nodebuffer" | "arraybuffer" | "uint8array";
+  data: T;
+}
+
+export type { CompilerOptions } from "../compiler/types";
+export { DEFAULT_OPTS } from "../compiler/types";
+EOF
+
+# ============================================================================
+# Safer security plugin
+# ============================================================================
+
+cat > src/core/plugins/security.ts <<'EOF'
 /**
- * CORS plugin.
+ * Security Headers Plugin
  *
- * Hardened:
- * - always varies on Origin
- * - safer credentials handling
+ * Fixed:
+ * - no direct mutation of response headers
  */
 
 import type { FluxPlugin } from "../plugin";
-import type { FluxContext } from "../context";
 
-export interface CorsOptions {
-  origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
-  methods?: string[];
-  allowedHeaders?: string[];
-  exposedHeaders?: string[];
-  credentials?: boolean;
-  maxAge?: number;
-  preflightContinue?: boolean;
+export interface SecurityOptions {
+  contentSecurityPolicy?: string | false;
+  crossOriginEmbedderPolicy?: string | false;
+  crossOriginOpenerPolicy?: string | false;
+  crossOriginResourcePolicy?: string | false;
+  frameguard?: { action: "deny" | "sameorigin" } | false;
+  hidePoweredBy?: boolean;
+  hsts?: { maxAge?: number; includeSubDomains?: boolean; preload?: boolean } | false;
+  noSniff?: boolean;
+  referrerPolicy?: string | false;
+  xssFilter?: boolean;
 }
 
-const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
+const DEFAULTS: SecurityOptions = {
+  contentSecurityPolicy:
+    "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'",
+  crossOriginEmbedderPolicy: "require-corp",
+  crossOriginOpenerPolicy: "same-origin",
+  crossOriginResourcePolicy: "same-origin",
+  frameguard: { action: "deny" },
+  hidePoweredBy: true,
+  hsts: { maxAge: 15552000, includeSubDomains: true, preload: true },
+  noSniff: true,
+  referrerPolicy: "no-referrer",
+  xssFilter: true,
+};
 
-export const cors = (options: CorsOptions = {}): FluxPlugin => {
-  const {
-    origin = "*",
-    methods = DEFAULT_METHODS,
-    allowedHeaders,
-    exposedHeaders,
-    credentials = false,
-    maxAge = 86400,
-    preflightContinue = false,
-  } = options;
-
-  const isOriginAllowed = (requestOrigin: string, ctx: FluxContext): boolean => {
-    if (origin === "*") return true;
-    if (typeof origin === "string") return origin === requestOrigin;
-    if (Array.isArray(origin)) return origin.includes(requestOrigin);
-    return origin(requestOrigin, ctx);
-  };
-
-  const appendVary = (headers: Headers, value: string): void => {
-    const existing = headers.get("vary");
-    if (!existing) {
-      headers.set("vary", value);
-      return;
-    }
-
-    const parts = existing.split(",").map((x) => x.trim().toLowerCase());
-    if (!parts.includes(value.toLowerCase())) {
-      headers.set("vary", `${existing}, ${value}`);
-    }
-  };
-
-  const setCorsHeaders = (ctx: FluxContext, headers: Headers): void => {
-    appendVary(headers, "Origin");
-
-    const requestOrigin = ctx.headers.get("origin") || "";
-    if (!requestOrigin) return;
-
-    if (isOriginAllowed(requestOrigin, ctx)) {
-      headers.set("Access-Control-Allow-Origin", requestOrigin);
-    } else if (origin === "*" && !credentials) {
-      headers.set("Access-Control-Allow-Origin", "*");
-    }
-
-    if (credentials) {
-      headers.set("Access-Control-Allow-Credentials", "true");
-    }
-
-    if (exposedHeaders?.length) {
-      headers.set("Access-Control-Expose-Headers", exposedHeaders.join(", "));
-    }
-  };
+export const security = (options: SecurityOptions = {}): FluxPlugin => {
+  const opts = { ...DEFAULTS, ...options };
 
   return {
-    name: "cors",
+    name: "security",
+    onResponse(_ctx, response) {
+      const headers = new Headers(response.headers);
 
-    onRequest(ctx) {
-      if (!ctx.headers.get("origin")) return ctx;
+      if (opts.contentSecurityPolicy)
+        headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
 
-      if (ctx.method === "OPTIONS") {
-        const headers = new Headers();
+      if (opts.crossOriginEmbedderPolicy)
+        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
 
-        setCorsHeaders(ctx, headers);
-        headers.set("Access-Control-Allow-Methods", methods.join(", "));
+      if (opts.crossOriginOpenerPolicy)
+        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
 
-        if (allowedHeaders?.length) {
-          headers.set("Access-Control-Allow-Headers", allowedHeaders.join(", "));
-        } else {
-          const reqHeaders = ctx.headers.get("access-control-request-headers");
-          if (reqHeaders) {
-            headers.set("Access-Control-Allow-Headers", reqHeaders);
-          }
-        }
+      if (opts.crossOriginResourcePolicy)
+        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
 
-        headers.set("Access-Control-Max-Age", String(maxAge));
+      if (opts.frameguard)
+        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
 
-        if (preflightContinue) return ctx;
+      if (opts.hidePoweredBy)
+        headers.delete("X-Powered-By");
 
-        return new Response(null, { status: 204, headers });
+      if (opts.hsts) {
+        let val = `max-age=${opts.hsts.maxAge ?? 15552000}`;
+        if (opts.hsts.includeSubDomains) val += "; includeSubDomains";
+        if (opts.hsts.preload) val += "; preload";
+        headers.set("Strict-Transport-Security", val);
       }
 
-      return ctx;
-    },
+      if (opts.noSniff)
+        headers.set("X-Content-Type-Options", "nosniff");
 
-    onResponse(ctx, response) {
-      const headers = new Headers(response.headers);
-      setCorsHeaders(ctx, headers);
+      if (opts.referrerPolicy)
+        headers.set("Referrer-Policy", opts.referrerPolicy);
+
+      if (opts.xssFilter)
+        headers.set("X-XSS-Protection", "0");
 
       return new Response(response.body, {
         status: response.status,
@@ -1819,432 +2092,350 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
     },
   };
 };
-FLUX_EOF
+EOF
 
-echo "Replacing rate limit plugin..."
+# ============================================================================
+# Safer macro plugin
+# ============================================================================
 
-cat > src/core/plugins/ratelimit.ts <<'FLUX_EOF'
+cat > src/core/macro.ts <<'EOF'
 /**
- * Rate limit plugin.
+ * Macro System
  *
- * Hardened:
- * - does not trust x-forwarded-for unless trustProxy is enabled
+ * Fixed:
+ * - afterHandle can return Response
+ * - afterHandle hooks are placed in afterHandle lifecycle
  */
 
-import type { FluxPlugin } from "../plugin";
-import type { FluxContext } from "../context";
-import { LRUCache } from "../lru";
+import type { FluxContext } from "./context";
+import type { LifeCycleStore, HookContainer } from "./types";
 
-export interface RateLimitOptions {
-  windowMs?: number;
-  maxRequests?: number;
-  storeMax?: number;
-  trustProxy?: boolean;
-  keyGenerator?: (ctx: FluxContext) => string;
-  skip?: (ctx: FluxContext) => boolean;
-  message?: string;
+export interface MacroContext {
+  onRequest?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
+  beforeHandle?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
+  afterHandle?: (
+    ctx: FluxContext,
+    response: Response
+  ) => Response | void | Promise<Response | void>;
+  afterResponse?: (ctx: FluxContext, response: Response) => void | Promise<void>;
 }
 
-interface WindowEntry {
-  count: number;
-  resetTime: number;
+export type MacroFn = (value: unknown, ctx: MacroContext) => void;
+
+export interface MacroDefinition {
+  name: string;
+  fn: MacroFn;
 }
 
-export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
-  const {
-    windowMs = 60_000,
-    maxRequests = 100,
-    storeMax = 10_000,
-    trustProxy = false,
-    skip,
-    message = "Too many requests",
-  } = options;
-
-  const defaultKeyGenerator = (ctx: FluxContext): string => {
-    if (trustProxy) {
-      const xff = ctx.headers.get("x-forwarded-for");
-      if (xff) return xff.split(",")[0]?.trim() || "anonymous";
-    }
-
-    return ctx.headers.get("x-real-ip") || "anonymous";
-  };
-
-  const keyGenerator = options.keyGenerator ?? defaultKeyGenerator;
-
-  const store = new LRUCache<string, WindowEntry>({
-    max: storeMax,
-    ttlMs: windowMs,
-  });
-
-  const getHeaders = (entry: WindowEntry): Record<string, string> => ({
-    "X-RateLimit-Limit": String(maxRequests),
-    "X-RateLimit-Remaining": String(Math.max(0, maxRequests - entry.count)),
-    "X-RateLimit-Reset": String(Math.ceil(entry.resetTime / 1000)),
-  });
+export const createMacroRegistry = () => {
+  const macros = new Map<string, MacroFn>();
 
   return {
-    name: "rateLimit",
-
-    onRequest(ctx) {
-      if (skip?.(ctx)) return ctx;
-
-      const key = keyGenerator(ctx);
-      const now = Date.now();
-
-      let entry = store.get(key);
-
-      if (!entry || entry.resetTime <= now) {
-        entry = { count: 0, resetTime: now + windowMs };
-        store.set(key, entry, { ttlMs: windowMs });
-      }
-
-      entry.count++;
-
-      store.set(key, entry, {
-        ttlMs: Math.max(0, entry.resetTime - now),
-      });
-
-      if (entry.count > maxRequests) {
-        return Response.json(
-          { error: message },
-          {
-            status: 429,
-            headers: {
-              "content-type": "application/json",
-              ...getHeaders(entry),
-            },
-          }
-        );
-      }
-
-      ctx.setState("__ratelimit", entry);
-      return ctx;
+    register(name: string, fn: MacroFn) {
+      macros.set(name, fn);
+      return this;
     },
 
-    onResponse(ctx, response) {
-      const entry = ctx.getState<WindowEntry>("__ratelimit");
+    apply(
+      routeConfig: Record<string, unknown>,
+      lifecycle: LifeCycleStore
+    ): LifeCycleStore {
+      const macroCtx: MacroContext = {};
 
-      if (entry) {
-        const headers = new Headers(response.headers);
-
-        for (const [k, v] of Object.entries(getHeaders(entry))) {
-          headers.set(k, v);
+      for (const [key, value] of Object.entries(routeConfig)) {
+        const macro = macros.get(key);
+        if (macro && value !== undefined) {
+          macro(value, macroCtx);
         }
+      }
+
+      const requestHooks: HookContainer[] = [];
+      const beforeHooks: HookContainer[] = [];
+      const afterHooks: HookContainer[] = [];
+
+      if (macroCtx.onRequest) {
+        requestHooks.push({ fn: macroCtx.onRequest, scope: "local" });
+      }
+
+      if (macroCtx.beforeHandle) {
+        beforeHooks.push({ fn: macroCtx.beforeHandle, scope: "local" });
+      }
+
+      if (macroCtx.afterHandle) {
+        afterHooks.push({ fn: macroCtx.afterHandle, scope: "local" });
+      }
+
+      return {
+        ...lifecycle,
+        request: [...lifecycle.request, ...requestHooks],
+        beforeHandle: [...lifecycle.beforeHandle, ...beforeHooks],
+        afterHandle: [...lifecycle.afterHandle, ...afterHooks],
+      };
+    },
+
+    has(name: string): boolean {
+      return macros.has(name);
+    },
+
+    get size(): number {
+      return macros.size;
+    },
+  };
+};
+
+export const authMacro: MacroDefinition = {
+  name: "auth",
+  fn(value, ctx) {
+    if (value === true) {
+      ctx.beforeHandle = (c: FluxContext) => {
+        if (!c.headers.get("authorization")) {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+      };
+    }
+  },
+};
+
+export const cacheMacro: MacroDefinition = {
+  name: "cache",
+  fn(value, ctx) {
+    if (typeof value === "number") {
+      ctx.afterHandle = (_c: FluxContext, response: Response) => {
+        const headers = new Headers(response.headers);
+        headers.set("cache-control", `public, max-age=${value}`);
 
         return new Response(response.body, {
           status: response.status,
           statusText: response.statusText,
           headers,
         });
-      }
-
-      return response;
-    },
-  };
+      };
+    }
+  },
 };
-FLUX_EOF
+EOF
 
-echo "Replacing compression plugin..."
+# ============================================================================
+# Patch script for files we do not fully rewrite
+# ============================================================================
 
-cat > src/core/plugins/compression.ts <<'FLUX_EOF'
-/**
- * Compression plugin.
- *
- * Hardened:
- * - guards against missing CompressionStream
- */
+cat > scripts/apply-flux-patches.mjs <<'PATCH_EOF'
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
-import type { FluxPlugin } from "../plugin";
-
-export interface CompressionOptions {
-  threshold?: number;
-  filter?: (contentType: string) => boolean;
-}
-
-const COMPRESSIBLE = new Set([
-  "text/",
-  "application/json",
-  "application/javascript",
-  "application/xml",
-  "image/svg+xml",
-]);
-
-const shouldCompress = (ct: string): boolean => {
-  for (const prefix of COMPRESSIBLE) {
-    if (ct.startsWith(prefix)) return true;
+function replaceInFile(file, search, replacement, options = {}){
+  if (!existsSync(file)) {
+    console.warn(`Skip missing file: ${file}`);
+    return;
   }
 
-  return false;
-};
+  let content = readFileSync(file, "utf8");
 
-export const compression = (options: CompressionOptions = {}): FluxPlugin => {
-  const { threshold = 1024, filter = shouldCompress } = options;
+  if (options.regex) {
+    if (!search.test(content)) {
+      console.warn(`Pattern not found in ${file}`);
+      return;
+    }
 
-  return {
-    name: "compression",
+    content = content.replace(search, replacement);
+  } else {
+    if (!content.includes(search)) {
+      console.warn(`Text not found in ${file}`);
+      return;
+    }
 
-    onResponse(ctx, response) {
-      if (!response.body) return response;
-      if (response.headers.get("content-encoding")) return response;
+    content = content.replace(search, replacement);
+  }
 
-      const ct = response.headers.get("content-type") || "";
-      if (!filter(ct)) return response;
-
-      const len = Number(response.headers.get("content-length") || "0");
-      if (len && len < threshold) return response;
-
-      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
-
-      const encoding = acceptEncoding.includes("gzip")
-        ? "gzip"
-        : acceptEncoding.includes("deflate")
-          ? "deflate"
-          : null;
-
-      if (!encoding) return response;
-
-      if (typeof CompressionStream === "undefined") {
-        return response;
-      }
-
-      const headers = new Headers(response.headers);
-      headers.set("content-encoding", encoding);
-      headers.delete("content-length");
-
-      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
-
-      return new Response(compressed, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
-    },
-  };
-};
-FLUX_EOF
-
-echo "Replacing logger plugin..."
-
-cat > src/core/plugins/logger.ts <<'FLUX_EOF'
-/**
- * Logger plugin.
- *
- * Hardened:
- * - adds basic redaction paths
- */
-
-import pino, { type Logger as PinoLogger } from "pino";
-import type { FluxPlugin } from "../plugin";
-import type { FluxContext } from "../context";
-
-export interface LoggerOptions {
-  level?: string;
-  logger?: PinoLogger;
-  skip?: (ctx: FluxContext) => boolean;
+  writeFileSync(file, content);
+  console.log(`Patched ${file}`);
 }
 
-export const logger = (options: LoggerOptions = {}): FluxPlugin => {
-  const log =
-    options.logger ??
-    pino({
-      level: options.level ?? "info",
-      base: undefined,
-      redact: [
-        "req.headers.authorization",
-        "req.headers.cookie",
-        "headers.authorization",
-        "headers.cookie",
-      ],
-    });
+// ---------------------------------------------------------------------------
+// Patch AST usage detection
+// ---------------------------------------------------------------------------
 
-  return {
-    name: "logger",
+replaceInFile(
+  "src/compiler/utils/ast.ts",
+  /(import type \{[\s\S]*?\} from "\.\.\/types";)/,
+  `$1
+import { EMPTY_USAGE } from "../../shared/context-usage";`,
+  { regex: true }
+);
 
-    onResponse(ctx, response) {
-      if (options.skip?.(ctx)) return response;
+replaceInFile(
+  "src/compiler/utils/ast.ts",
+  /const CONTEXT_PROPS = new Set\(\[[\s\S]*?\]\);/,
+  `const CONTEXT_PROPS = new Set([
+  "body", "params", "query", "file", "files", "headers", "state", "req", "url",
+  "cookie", "server", "set", "sendFile", "proxy", "forward", "cache",
+]);`,
+  { regex: true }
+);
 
-      const duration = performance.now() - ctx.startTime;
+replaceInFile(
+  "src/compiler/utils/ast.ts",
+  /function detectUsage\(bodyNode: any, mapping: Map<string, string>\): ContextUsage \{[\s\S]*?\n\}\n/,
+  `function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage {
+  const usage: ContextUsage = { ...EMPTY_USAGE };
 
-      const payload = {
-        requestId: ctx.requestId,
-        method: ctx.method,
-        path: ctx.path,
-        status: response.status,
-        durationMs: Math.round(duration * 1000) / 1000,
-        timestamp: new Date().toISOString(),
-      };
+  walk(bodyNode, (n) => {
+    if (n.type === "MemberExpression" && !n.computed && n.object?.type === "Identifier") {
+      const root = mapping.get(n.object.name);
 
-      if (response.status >= 500) {
-        log.error(payload);
-      } else if (response.status >= 400) {
-        log.warn(payload);
-      } else {
-        log.info(payload);
+      if (root === "__root__") {
+        const prop = n.property.name;
+
+        if (prop === "body" || prop === "files") usage.body = true;
+        if (prop === "file") usage.file = true;
+        if (prop === "params") usage.params = true;
+        if (prop === "query") usage.query = true;
+        if (prop === "headers") usage.headers = true;
+        if (prop === "state" || prop === "getState" || prop === "setState") usage.state = true;
+        if (prop === "req") usage.req = true;
+        if (prop === "url" || prop === "path" || prop === "method") usage.url = true;
+
+        if (prop === "cookie") usage.cookie = true;
+        if (prop === "server") usage.server = true;
+        if (prop === "set") usage.set = true;
+
+        if (prop === "json") usage.json = true;
+        if (prop === "text") usage.text = true;
+        if (prop === "html") usage.html = true;
+        if (prop === "redirect") usage.redirect = true;
+        if (prop === "stream") usage.stream = true;
+        if (prop === "empty") usage.empty = true;
+        if (prop === "status") usage.status = true;
+
+        if (prop === "sendFile") usage.sendFile = true;
+        if (prop === "proxy") usage.proxy = true;
+        if (prop === "forward") usage.forward = true;
+        if (prop === "cache") usage.cache = true;
       }
+    }
 
-      return response;
-    },
-  };
-};
-FLUX_EOF
+    if (n.type === "Identifier" && mapping.has(n.name)) {
+      const prop = mapping.get(n.name)!;
 
-# ----------------------------------------------------------------------------
-# Remove FP barrel export from core index
-# ----------------------------------------------------------------------------
+      if (prop === "body" || prop === "files") usage.body = true;
+      if (prop === "file") usage.file = true;
+      if (prop === "params") usage.params = true;
+      if (prop === "query") usage.query = true;
+      if (prop === "headers") usage.headers = true;
+      if (prop === "state") usage.state = true;
+      if (prop === "req") usage.req = true;
+      if (prop === "url") usage.url = true;
 
-echo "Removing FP barrel export from src/core/index.ts..."
+      if (prop === "cookie") usage.cookie = true;
+      if (prop === "server") usage.server = true;
+      if (prop === "set") usage.set = true;
 
-if [[ -f src/core/index.ts ]]; then
-  perl -pi -e 's|^export \* from "\.\./compiler/fp";|// FP utilities removed from core barrel. Import from src/fp or src/compiler/fp if needed.|' src/core/index.ts
-fi
+      if (prop === "sendFile") usage.sendFile = true;
+      if (prop === "proxy") usage.proxy = true;
+      if (prop === "forward") usage.forward = true;
+      if (prop === "cache") usage.cache = true;
+    }
+  });
 
-# ----------------------------------------------------------------------------
-# Remove duplicated CompilerOptions from src/core/types.ts
-# Re-export from compiler types instead.
-# ----------------------------------------------------------------------------
+  return usage;
+}
+`,
+  { regex: true }
+);
 
-echo "Patching src/core/types.ts to re-export CompilerOptions from compiler..."
+// ---------------------------------------------------------------------------
+// Patch analysis response inference + route config metadata
+// ---------------------------------------------------------------------------
 
-if [[ -f src/core/types.ts ]]; then
-  perl -0pi -e 's#// =+\n// Compiler Options[\s\S]*$#// ============================================================================\n// Compiler Options (shared from compiler)\n// ============================================================================\n\nexport type { CompilerOptions } from "../compiler/types";\nexport { DEFAULT_OPTS } from "../compiler/types";\n#' src/core/types.ts
-fi
+replaceInFile(
+  "src/compiler/phases/analysis.ts",
+  /const responseType = usage\.json[\s\S]*?: inferredResponseType;/,
+  `const responseType = usage.json
+    ? "json"
+    : usage.text
+      ? "text"
+      : usage.html
+        ? "html"
+        : usage.stream
+          ? "stream"
+          : inferredResponseType;`,
+  { regex: true }
+);
 
-# ----------------------------------------------------------------------------
-# Patch analysis to extract route hooks from config export
-# ----------------------------------------------------------------------------
+replaceInFile(
+  "src/compiler/phases/analysis.ts",
+  `...(cache !== undefined ? { cache } : {}),`,
+  `...(cache !== undefined ? { cache } : {}),
+    ...(astParsed.config !== undefined ? { config: astParsed.config } : {}),`
+);
 
-echo "Patching src/compiler/phases/analysis.ts to extract route hooks..."
+// ---------------------------------------------------------------------------
+// Patch body limits
+// ---------------------------------------------------------------------------
 
-if [[ -f src/compiler/phases/analysis.ts ]]; then
-  perl -pi -e 's#const hooks: string\[\] = \[\];#const hooks = Array.isArray(astParsed.config?.hooks)\n    ? astParsed.config.hooks.filter((x: unknown): x is string => typeof x === "string")\n    : [];#' src/compiler/phases/analysis.ts
-fi
+replaceInFile(
+  "src/core/body.ts",
+  /body\.arrayBuffer = \(\) =>\s*use<ArrayBuffer>\([\s\S]*?limits\.maxTextBytes\s*\);/,
+  `body.arrayBuffer = () =>
+    use<ArrayBuffer>(
+      "arrayBuffer",
+      async () => {
+        try {
+          return await req.arrayBuffer();
+        } catch {
+          throw new BodyParseError("Invalid binary body", 400);
+        }
+      },
+      limits.maxFileBytes
+    );`,
+  { regex: true }
+);
 
-# ----------------------------------------------------------------------------
-# Patch codegen for Option A
-# ----------------------------------------------------------------------------
+replaceInFile(
+  "src/core/body.ts",
+  /body\.blob = \(\) =>\s*use<Blob>\([\s\S]*?limits\.maxTextBytes\s*\);/,
+  `body.blob = () =>
+    use<Blob>(
+      "blob",
+      async () => {
+        try {
+          return await req.blob();
+        } catch {
+          throw new BodyParseError("Invalid blob body", 400);
+        }
+      },
+      limits.maxFileBytes
+    );`,
+  { regex: true }
+);
 
-echo "Patching src/compiler/phases/codegen.ts for Option A..."
+// ---------------------------------------------------------------------------
+// Patch async hook detection
+// ---------------------------------------------------------------------------
 
-if [[ -f src/compiler/phases/codegen.ts ]]; then
+replaceInFile(
+  "src/core/hooks.ts",
+  /const ASYNC_RE = \/async\|await\|\\\.then\\\(\|Promise\/;[\s\S]*?ASYNC_RE\.test\(fn\.toString\(\)\.slice\(0, 200\)\);/,
+  `export const isAsyncFn = (fn: Function): boolean =>
+  fn.constructor.name === "AsyncFunction" ||
+  fn.constructor.name === "AsyncGeneratorFunction";`,
+  { regex: true }
+);
 
-  # Remove SegNode and JumpTable from type import.
-  perl -0pi -e 's#import type \{\s*RouteDef,\s*ModuleInfo,\s*SegNode,\s*JumpTable,\s*CompilerOptions,\s*HookDef,\s*\} from "\.\./types";#import type {\n  RouteDef,\n  ModuleInfo,\n  CompilerOptions,\n  HookDef,\n} from "../types";#g' src/compiler/phases/codegen.ts
+console.log("Patch application complete.");
+PATCH_EOF
 
-  # Update generateServer signature.
-  perl -0pi -e 's#export const generateServer = \(\n  routes: readonly RouteDef\[\],\n  _trie: SegNode,\n  _jumpTable: JumpTable,\n  modules: readonly ModuleInfo\[\],\n  hooks: ReadonlyMap<string, HookDef>,\n  _buffers: ReadonlyMap<string, string>,\n  opts: CompilerOptions\n\): string => \{#export const generateServer = (\n  routes: readonly RouteDef[],\n  modules: readonly ModuleInfo[],\n  hooks: ReadonlyMap<string, HookDef>,\n  opts: CompilerOptions\n): string => {#g' src/compiler/phases/codegen.ts
+# ============================================================================
+# Apply patches
+# ============================================================================
 
-  # Remove trie/jumpTable from runCodeGen signature if present.
-  perl -0pi -e 's#(export const runCodeGen = \(\s*routes: readonly RouteDef\[\],\s*)trie: SegNode,\s*jumpTable: JumpTable,\s*#$1#g' src/compiler/phases/codegen.ts
-
-  # Remove buffers from runCodeGen signature if present.
-  perl -0pi -e 's#(hooks: ReadonlyMap<string, HookDef>,\s*)buffers: ReadonlyMap<string, string>,\s*#$1#g' src/compiler/phases/codegen.ts
-
-  # Update generateServer call.
-  perl -0pi -e 's#generateServer\(\s*routes,\s*trie,\s*jumpTable,\s*modules,\s*hooks,\s*buffers,\s*opts\s*\)#generateServer(routes, modules, hooks, opts)#g' src/compiler/phases/codegen.ts
-
-fi
-
-# ----------------------------------------------------------------------------
-# Optional project rearrangement
-# ----------------------------------------------------------------------------
-
-if [[ "${RESTRUCTURE:-0}" == "1" ]]; then
-  echo "Rearranging project structure..."
-
-  mkdir -p src/fp
-
-  move src/core src/runtime
-  move src/runtime/plugins src/plugins
-  move src/compiler/fp.ts src/fp/index.ts
-
-  # Update compiler FP imports.
-  if [[ -f src/compiler/phases/discovery.ts ]]; then
-    perl -pi -e 's#from "\.\./fp"#from "../../fp"#g' src/compiler/phases/discovery.ts
-  fi
-
-  if [[ -f src/compiler/validate.ts ]]; then
-    perl -pi -e 's#from "\./fp"#from "../fp"#g' src/compiler/validate.ts
-  fi
-
-  # Update runtime index plugin imports.
-  if [[ -f src/runtime/index.ts ]]; then
-    perl -pi -e 's#from "\./plugins/#from "../plugins/#g' src/runtime/index.ts
-    perl -pi -e 's#from "\.\./compiler/fp"#from "../fp"#g' src/runtime/index.ts
-  fi
-
-  # Update plugin imports to point to runtime.
-  if [[ -d src/plugins ]]; then
-    find src/plugins -type f -name '*.ts' -print0 | xargs -0 perl -pi -e '
-      s#from "\.\./plugin"#from "../runtime/plugin"#g;
-      s#from "\.\./context"#from "../runtime/context"#g;
-      s#from "\.\./lru"#from "../runtime/lru"#g;
-    '
-  fi
-
-  # Update route imports.
-  if [[ -d src/routes ]]; then
-    find src/routes -type f -name '*.ts' -print0 | xargs -0 perl -pi -e '
-      s#core/http#runtime/http#g;
-      s#core/index#runtime/index#g;
-      s#from "\.\./core"#from "../runtime"#g;
-      s#from "\.\./\.\./core"#from "../../runtime"#g;
-    '
-  fi
-
-  # Update codegen runtime paths.
-  if [[ -f src/compiler/phases/codegen.ts ]]; then
-    perl -pi -e 's#src/core/#src/runtime/#g; s#core/http#runtime/http#g' src/compiler/phases/codegen.ts
-  fi
-fi
-
-# ----------------------------------------------------------------------------
-# Install dependencies
-# ----------------------------------------------------------------------------
-
-echo "Installing dependencies..."
-bun install
-
-# ----------------------------------------------------------------------------
-# Checks
-# ----------------------------------------------------------------------------
-
-echo "Running typecheck..."
-set +e
-bun run typecheck
-TYPECHECK_CODE=$?
-set -e
-
-if [[ $TYPECHECK_CODE -ne 0 ]]; then
-  echo ""
-  echo "Typecheck failed. This is expected if codegen.ts has custom modifications."
-  echo "Review src/compiler/phases/codegen.ts and ensure runCodeGen matches:"
-  echo ""
-  echo "export const runCodeGen = ("
-  echo "  routes: readonly RouteDef[],"
-  echo "  modules: readonly ModuleInfo[],"
-  echo "  hooks: ReadonlyMap<string, HookDef>,"
-  echo "  opts: CompilerOptions,"
-  echo "  logger: Logger"
-  echo "): string => logger.time(\"codegen\", () => generateServer(routes, modules, hooks, opts));"
-  echo ""
-fi
-
-echo "Running lint..."
-set +e
-bun run lint
-set -e
-
-echo "Running tests..."
-set +e
-bun test
-set -e
+echo "Applying embedded patches..."
+bun scripts/apply-flux-patches.mjs
 
 echo ""
-echo "Refactor complete."
-echo "Backup directory: ${BACKUP_DIR}"
+echo "Flux AOT upgrade complete."
+echo "Backup saved to ${BACKUP_DIR}"
 echo ""
 echo "Next steps:"
-echo "1. Review git diff carefully."
-echo "2. Fix any remaining codegen.ts signature issues."
-echo "3. Add integration tests for compiled server output."
-echo "4. Add OpenTelemetry/metrics plugins if observability is required."
+echo "  1. bun run typecheck"
+echo "  2. bun run build"
+echo "  3. bun run dist/__server.js"

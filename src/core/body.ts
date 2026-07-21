@@ -329,7 +329,7 @@ export function createLazyBody(
           throw new BodyParseError("Invalid binary body", 400);
         }
       },
-      limits.maxTextBytes
+      limits.maxFileBytes
     );
 
   body.blob = () =>
@@ -342,7 +342,7 @@ export function createLazyBody(
           throw new BodyParseError("Invalid blob body", 400);
         }
       },
-      limits.maxTextBytes
+      limits.maxFileBytes
     );
 
   body.formData = () =>

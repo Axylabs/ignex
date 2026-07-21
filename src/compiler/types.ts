@@ -1,12 +1,18 @@
 /**
  * Flux Compiler Type System
  *
- * Production cleanup:
- * - removed unused jump table types
- * - removed unused trie types from compiler pipeline
- * - removed unimplemented compiler flags
- * - removed preserialized buffer pipeline
+ * AOT upgrade:
+ * - unified ContextUsage from shared
+ * - added advanced compiler options
+ * - added route metadata for future validators/serializers/OpenAPI
  */
+
+import type { ContextUsage } from "../shared/context-usage";
+import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
+
+export type { ContextUsage };
+export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
+export const FULL_CONTEXT_USAGE = FULL_USAGE;
 
 export const HTTP_METHODS = [
   "GET",
@@ -21,39 +27,18 @@ export const HTTP_METHODS = [
 
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
-export interface ContextUsage {
-  body: boolean;
-  params: boolean;
-  query: boolean;
-  file: boolean;
-  headers: boolean;
-  state: boolean;
-  json: boolean;
-  text: boolean;
-  redirect: boolean;
-  req: boolean;
-  url: boolean;
-}
-
-export const FULL_CONTEXT_USAGE: ContextUsage = {
-  body: true,
-  params: true,
-  query: true,
-  file: true,
-  headers: true,
-  state: true,
-  json: true,
-  text: true,
-  redirect: true,
-  req: true,
-  url: true,
-};
+export type RouterMode =
+  | "auto"
+  | "static-map"
+  | "radix"
+  | "bun-native";
 
 export interface CompilerOptions {
   readonly routesDir: string;
   readonly outDir: string;
   readonly outFile: string;
   readonly target: "bun" | "node" | "deno";
+
   readonly optimizationLevel: 0 | 1 | 2 | 3;
   readonly inlineThreshold: number;
   readonly enableHandlerDeduplication: boolean;
@@ -80,6 +65,23 @@ export interface CompilerOptions {
 
   readonly cluster?: number | "auto";
   readonly reusePort?: boolean;
+
+  // Advanced AOT options
+  readonly router?: RouterMode;
+  readonly generateTypes?: boolean;
+  readonly generateOpenAPI?: boolean;
+  readonly generateClient?: boolean;
+
+  readonly precompileValidators?: boolean;
+  readonly precompileSerializers?: boolean;
+
+  readonly hoistConstants?: boolean;
+  readonly specializeContext?: boolean;
+  readonly inlineHooks?: boolean;
+  readonly treeshakeRuntime?: boolean;
+  readonly routeCache?: boolean;
+
+  readonly maxInlineBytes?: number;
 }
 
 export interface RouteCacheConfig {
@@ -94,6 +96,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   outDir: process.env.OUT_DIR || "./dist",
   outFile: "__server.js",
   target: "bun",
+
   optimizationLevel: 3,
   inlineThreshold: 50,
   enableHandlerDeduplication: true,
@@ -110,6 +113,22 @@ export const createDefaultOptions = (): CompilerOptions => ({
   serviceName: "flux",
   requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
+
+  router: "auto",
+  generateTypes: true,
+  generateOpenAPI: true,
+  generateClient: true,
+
+  precompileValidators: false,
+  precompileSerializers: false,
+
+  hoistConstants: true,
+  specializeContext: true,
+  inlineHooks: true,
+  treeshakeRuntime: true,
+  routeCache: true,
+
+  maxInlineBytes: 2048,
 });
 
 export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
@@ -172,6 +191,18 @@ export interface ModuleInfo {
 
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
 
+export interface RouteValidators {
+  readonly body?: string;
+  readonly query?: string;
+  readonly params?: string;
+  readonly headers?: string;
+  readonly cookie?: string;
+}
+
+export interface RouteSerializers {
+  readonly json?: string;
+}
+
 export interface RouteDef {
   readonly method: HttpMethod;
   readonly cache?: RouteCacheConfig;
@@ -196,6 +227,14 @@ export interface RouteDef {
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;
+
+  // New optional AOT metadata
+  readonly config?: Record<string, unknown>;
+  readonly validators?: RouteValidators;
+  readonly serializers?: RouteSerializers;
+  readonly statusCodes?: readonly number[];
+  readonly contentType?: string;
+  readonly openapi?: Record<string, unknown>;
 }
 
 export interface HookDef {

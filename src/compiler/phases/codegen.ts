@@ -1,111 +1,80 @@
 /**
- * @fileoverview Phase 4: CODE GENERATION — BUN NATIVE PERFORMANCE MODE
+ * Flux AOT Code Generator
  *
- * Output strategy:
- * - Use Bun.serve({ routes }) native router.
- * - Use method-specific route objects where possible.
- * - Use static Response objects for constant routes where possible.
- * - Avoid context allocation unless required.
- * - Avoid URL/query/body parsing unless required.
- * - Add tracing/lifecycle only when enabled.
+ * Goals:
+ * - prebake constant responses
+ * - emit static route map
+ * - emit sorted dynamic matcher
+ * - specialize context per route
+ * - tree-shake helpers
+ * - avoid unnecessary runtime allocation
  */
-import { fnv1a } from "../utils/hash";
+
+import { dirname, join, relative } from "path";
 import type {
   RouteDef,
   ModuleInfo,
   CompilerOptions,
   HookDef,
 } from "../types";
-
 import type { Logger } from "../logger";
-import { join, dirname, relative } from "path";
-
-// ============================================================================
-// Config
-// ============================================================================
-
-
-
 
 interface CodegenConfig {
+  target: "bun" | "node" | "deno";
   tracing: boolean;
-  accessLog: boolean;
-  traceHeaders: boolean;
   lifecycle: boolean;
-  strictMethods: boolean;
-  fastBody: boolean;
   serviceName: string;
-  requestIdHeader: string;
   exposeErrorDetails: boolean;
+  specializeContext: boolean;
+  reusePort: boolean;
 }
 
-const getConfig = (opts: CompilerOptions): CodegenConfig => {
-  const tracing = opts.enableTracing ?? true;
+interface RouteInfo {
+  route: RouteDef;
+  mod?: ModuleInfo;
+  constantJson: string | null;
+  hookNames: string[];
+  hasHooks: boolean;
+  needsFull: boolean;
+  needsBody: boolean;
+  minimalBody: boolean;
+  minimalSendFile: boolean;
+}
 
-  return {
-    tracing,
-    accessLog: opts.enableAccessLog ?? tracing,
-    traceHeaders: opts.enableTraceHeaders ?? tracing,
-    lifecycle: opts.enableLifecycle ?? true,
-    strictMethods: opts.enableStrictMethods ?? true,
-    fastBody: opts.enableFastBodyParsing ?? false,
-    serviceName: opts.serviceName ?? "flux",
-    requestIdHeader: (opts.requestIdHeader ?? "x-request-id").toLowerCase(),
-    exposeErrorDetails: opts.exposeErrorDetails ?? false,
-  };
-};
+interface DynamicRouteInfo {
+  method: string;
+  regexLiteral: string;
+  paramNames: string[];
+  handlerName: string;
+  segmentCount: number;
+  hasWildcard: boolean;
+  path: string;
+}
 
-// ============================================================================
-// Naming Helpers
-// ============================================================================
+const getConfig = (opts: CompilerOptions): CodegenConfig => ({
+  target: opts.target,
+  tracing: opts.enableTracing ?? false,
+  lifecycle: opts.enableLifecycle ?? true,
+  serviceName: opts.serviceName ?? "flux",
+  exposeErrorDetails: opts.exposeErrorDetails ?? false,
+  specializeContext: opts.specializeContext ?? true,
+  reusePort: opts.reusePort ?? false,
+});
 
 const normalizeImportPath = (p: string): string => {
-  let s = p
-    .replace(/\\/g, "/")
-    .replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
-
-  if (!s.startsWith(".")) {
-    s = "./" + s;
-  }
-
+  let s = p.replace(/\\/g, "/").replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
+  if (!s.startsWith(".")) s = "./" + s;
   return s;
 };
 
+const handlerImportName = (route: RouteDef): string => `handler_${route.handlerRef}`;
+const methodHandlerName = (route: RouteDef): string => `${route.method}_${route.handlerRef}`;
+const finalizeName = (route: RouteDef): string => `finalize_${route.handlerRef}`;
+const constantBodyVar = (route: RouteDef): string => `BODY_${route.handlerRef}`;
+const constantInitVar = (route: RouteDef): string => `INIT_${route.handlerRef}`;
+
 const hookIdent = (name: string): string =>
   `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
-
-const handlerImportName = (route: RouteDef): string =>
-  `handler_${route.handlerRef}`;
-
-const methodHandlerName = (route: RouteDef): string =>
-  `${route.method}_${route.handlerRef}`;
-
-const finalizeName = (route: RouteDef): string =>
-  `finalize_${route.handlerRef}`;
-
-const pathHandlerName = (path: string): string =>
-  `route_path_${path
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "root"
-  }`;
-
-const constantBodyVar = (route: RouteDef): string =>
-  `BODY_${route.handlerRef}`;
-
-const constantInitVar = (route: RouteDef): string =>
-  `INIT_${route.handlerRef}`;
-
-const staticResponseVar = (route: RouteDef): string =>
-  `STATIC_${route.handlerRef}`;
-
-const hooksArrayVar = (route: RouteDef): string =>
-  `HOOKS_${route.handlerRef}`;
-
-
-
-// ============================================================================
-// Route Analysis Helpers
-// ============================================================================
 
 const tryNormalizeConstant = (route: RouteDef): string | null => {
   if (!route.isConstantResponse || !route.constantResponse) return null;
@@ -115,30 +84,14 @@ const tryNormalizeConstant = (route: RouteDef): string | null => {
     JSON.parse(route.constantResponse);
     return route.constantResponse;
   } catch {
-    // Continue.
-  }
-
-  try {
-    const expr = route.constantResponse
-      .replace(/^return\s+/, "")
-      .replace(/;\s*$/, "")
-      .trim();
-
-    const value = new Function(`"use strict"; return (${expr});`)();
-    return JSON.stringify(value);
-  } catch {
     return null;
   }
 };
 
-const needsRequestBody = (route: RouteDef): boolean =>
-  route.usage.body &&
-  route.method !== "GET" &&
-  route.method !== "HEAD" &&
-  route.method !== "OPTIONS";
-
-const needsFileBody = (route: RouteDef): boolean =>
-  route.usage.file && needsRequestBody(route);
+const validHookNames = (
+  route: RouteDef,
+  hooks: ReadonlyMap<string, HookDef>
+): string[] => route.hooks.filter((name) => hooks.has(name));
 
 const routeReplyFn = (route: RouteDef): string => {
   if (route.responseType === "text") return "textReply";
@@ -147,14 +100,40 @@ const routeReplyFn = (route: RouteDef): string => {
   return "jsonReply";
 };
 
-const validHookNames = (
-  route: RouteDef,
-  hooks: ReadonlyMap<string, HookDef>
-): string[] => route.hooks.filter((name) => hooks.has(name));
+const FORCE_FULL_TOKENS = [
+  "ctx.cookie",
+  "ctx.server",
+  "ctx.set",
+  "ctx.proxy",
+  "ctx.forward",
+  "ctx.cache",
+];
 
-// ============================================================================
-// Finalizer Generation
-// ============================================================================
+const needsFullContext = (
+  route: RouteDef,
+  mod: ModuleInfo | undefined,
+  cfg: CodegenConfig,
+  hasHooks: boolean
+): boolean => {
+  if (!cfg.specializeContext) return true;
+  if (hasHooks) return true;
+
+  if (
+    route.usage.cookie ||
+    route.usage.set ||
+    route.usage.proxy ||
+    route.usage.forward ||
+    route.usage.cache
+  ) {
+    return true;
+  }
+
+  if (mod && FORCE_FULL_TOKENS.some((token) => mod.content.includes(token))) {
+    return true;
+  }
+
+  return false;
+};
 
 const generateFinalizer = (route: RouteDef): string => {
   const reply = routeReplyFn(route);
@@ -165,100 +144,69 @@ const generateFinalizer = (route: RouteDef): string => {
 }`;
 };
 
-// ============================================================================
-// Method Handler Generation
-// ============================================================================
-
-const generateMethodHandler = (
-  route: RouteDef,
-  constantJson: string | null,
-  cfg: CodegenConfig,
-  hooks: ReadonlyMap<string, HookDef>
-): string => {
+const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
+  const route = info.route;
   const name = methodHandlerName(route);
 
-  const finish = (expr: string): string =>
-    cfg.tracing ? `finishTrace(req, trace, ${expr})` : expr;
-
-  const finishErr = (expr: string): string =>
-    cfg.tracing
-      ? `finishTraceError(req, trace, ${expr})`
-      : `errorResponse(${expr})`;
-
-  // Constant response handler.
-  if (constantJson !== null) {
-    const traceLine = cfg.tracing ? "const trace = startTrace(req);" : "";
-    const responseExpr = `new Response(${constantBodyVar(route)}, ${constantInitVar(route)})`;
-
-    return `function ${name}(req) {
-  ${traceLine}
-  return ${cfg.tracing ? finish(responseExpr) : responseExpr};
+  if (info.constantJson !== null) {
+    return `function ${name}(req, params, url, server) {
+  return new Response(${constantBodyVar(route)}, ${constantInitVar(route)});
 }`;
   }
 
-  const hookNames = validHookNames(route, hooks);
-  const hasHooks = cfg.lifecycle && hookNames.length > 0;
-
-  const body = needsRequestBody(route);
-  const file = needsFileBody(route);
-
-  const isAsync = route.isAsync || body || file || hasHooks;
-
   const pre: string[] = [];
+  let callExpr = "";
 
-  if (cfg.tracing) {
-    pre.push("const trace = startTrace(req);");
-  }
+  if (info.needsFull) {
+    const ctxOpts: string[] = [];
 
-  if (route.usage.url || route.usage.query) {
-    pre.push("const url = new URL(req.url);");
-  }
-
-  if (route.usage.query) {
-    pre.push("const query = url.searchParams;");
-  }
-
-  const usesBody = needsRequestBody(route) || route.usage.file;
-
-  if (usesBody) {
-    pre.push("const body = createLazyBody(req, BODY_LIMITS);");
-  }
-
-  if (route.usage.state) {
-    pre.push("const state = new Map();");
-  }
-
-  if (hasHooks) {
-    pre.push(
-      `const ctx = createFluxContext(req, req.params ?? EMPTY_PARAMS, ${route.usage.query ? "query" : "undefined"
-      });`
-    );
-
-    if (body) {
-      pre.push("ctx.body = body;");
+    if (info.needsBody) {
+      ctxOpts.push("body: BODY_LIMITS");
     }
 
-    pre.push(`const halted = await runHooks(${hooksArrayVar(route)}, ctx);`);
-    pre.push(`if (halted) return ${finish("halted")};`);
-  }
+    const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
 
-  const minimalCallExpr = (): string => {
+    pre.push(`const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`);
+
+    if (route.usage.server) {
+      pre.push("ctx.server = server;");
+    }
+
+    if (info.hasHooks) {
+      pre.push(
+        `const halted = await runHooks([${info.hookNames
+          .map(hookIdent)
+          .join(", ")}], ctx);`
+      );
+      pre.push("if (halted) return halted;");
+    }
+
+    callExpr = `${handlerImportName(route)}(ctx)`;
+  } else {
+    if (route.usage.query) {
+      pre.push("const query = url.searchParams;");
+    }
+
+    if (info.minimalBody) {
+      pre.push("const body = createLazyBody(req, BODY_LIMITS);");
+    }
+
+    if (route.usage.state) {
+      pre.push("const state = new Map();");
+    }
+
     const props: string[] = [];
 
     if (route.usage.params) {
-      props.push("params: req.params ?? EMPTY_PARAMS");
+      props.push("params: params ?? EMPTY_PARAMS");
     }
 
-    if (route.usage.body && body) {
+    if (info.minimalBody) {
       props.push("body");
     }
 
     if (route.usage.query) {
       props.push("query");
-    }
-
-    if (route.usage.body || route.usage.file) {
-      props.push("body");
     }
 
     if (route.usage.headers) {
@@ -271,6 +219,10 @@ const generateMethodHandler = (
 
     if (route.usage.url) {
       props.push("url");
+    }
+
+    if (route.usage.server) {
+      props.push("server");
     }
 
     if (route.usage.state) {
@@ -287,68 +239,102 @@ const generateMethodHandler = (
       props.push("text: textReply");
     }
 
+    if (route.usage.html) {
+      props.push("html: htmlReply");
+    }
+
+    if (route.usage.stream) {
+      props.push("stream: streamReply");
+    }
+
     if (route.usage.redirect) {
       props.push("redirect: redirectReply");
     }
 
-    if (route.responseType === "html") {
-      props.push("html: htmlReply");
+    if (route.usage.empty) {
+      props.push("empty: emptyReply");
     }
 
-    if (route.responseType === "stream") {
-      props.push("stream: streamReply");
+    if (route.usage.status) {
+      props.push("status: (code) => new Response(null, { status: code })");
     }
 
-    if (props.length === 0) {
-      return `${handlerImportName(route)}()`;
+    if (info.minimalSendFile) {
+      props.push("sendFile: (path, opts) => coreSendFile(path, { req, ...opts })");
     }
 
-    return `${handlerImportName(route)}({ ${props.join(", ")} })`;
-  };
+    callExpr =
+      props.length === 0
+        ? `${handlerImportName(route)}({})`
+        : `${handlerImportName(route)}({ ${props.join(", ")} })`;
+  }
 
-  const callExpr = hasHooks
-    ? `${handlerImportName(route)}(ctx)`
-    : minimalCallExpr();
+  const isAsync =
+    route.isAsync ||
+    info.hasHooks ||
+    info.needsFull ||
+    info.minimalBody ||
+    route.usage.state;
 
   if (isAsync) {
-    pre.push(`const result = await ${callExpr};`);
-    pre.push(`return ${finish(`${finalizeName(route)}(result)`)};`);
-
-    return `async function ${name}(req) {
+    return `async function ${name}(req, params, url, server) {
   try {
     ${pre.join("\n    ")}
+    const result = await ${callExpr};
+    return ${finalizeName(route)}(result);
   } catch (err) {
-    return ${finishErr("err")};
+    return errorResponse(err);
   }
 }`;
   }
 
-  // Sync fast path with promise escape hatch.
-  const lines = [...pre];
-
-  lines.push(`const result = ${callExpr};`);
-  lines.push(`if (result instanceof Response) return ${finish("result")};`);
-  lines.push(
-    `if (result && typeof result.then === "function") {
-      return result
-        .then((v) => ${finish(`${finalizeName(route)}(v)`)})
-        .catch((err) => ${finishErr("err")});
-    }`
-  );
-  lines.push(`return ${finish(`${finalizeName(route)}(result)`)};`);
-
-  return `function ${name}(req) {
+  return `function ${name}(req, params, url, server) {
   try {
-    ${lines.join("\n    ")}
+    ${pre.join("\n    ")}
+    const result = ${callExpr};
+    if (result instanceof Response) return result;
+    if (result && typeof result.then === "function") {
+      return result
+        .then((v) => ${finalizeName(route)}(v))
+        .catch((err) => errorResponse(err));
+    }
+    return ${finalizeName(route)}(result);
   } catch (err) {
-    return ${finishErr("err")};
+    return errorResponse(err);
   }
 }`;
 };
 
-// ============================================================================
-// Main Server Generation
-// ============================================================================
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const routePattern = (
+  path: string
+): { regexLiteral: string; paramNames: string[] } => {
+  const paramNames: string[] = [];
+  const segments = path.split("/").filter(Boolean);
+
+  const pattern = segments
+    .map((seg) => {
+      if (seg.startsWith(":")) {
+        paramNames.push(seg.slice(1));
+        return "([^/]+)";
+      }
+
+      if (seg.startsWith("*")) {
+        paramNames.push(seg.slice(1));
+        return "(.*)";
+      }
+
+      return escapeRegex(seg);
+    })
+    .join("/");
+
+  const source = segments.length === 0 ? "^/$" : `^/${pattern}$`;
+  const regexLiteral = `/${source.replace(/\//g, "\\/")}/`;
+
+  return { regexLiteral, paramNames };
+};
 
 export const generateServer = (
   routes: readonly RouteDef[],
@@ -357,6 +343,7 @@ export const generateServer = (
   opts: CompilerOptions
 ): string => {
   const cfg = getConfig(opts);
+
   const BODY_LIMITS = JSON.stringify({
     maxJsonBytes: opts.maxJsonBytes ?? 2 * 1024 * 1024,
     maxTextBytes: opts.maxTextBytes ?? 2 * 1024 * 1024,
@@ -372,136 +359,118 @@ export const generateServer = (
   const runtimeImport = (projectPath: string): string =>
     toImportPath(join(process.cwd(), projectPath));
 
-  // -------------------------------------------------------------------------
-  // Constants / route grouping
-  // -------------------------------------------------------------------------
+  const routeInfos: RouteInfo[] = routes.map((route) => {
+    const mod = modules[route.moduleIdx];
+    const constantJson = tryNormalizeConstant(route);
+    const hookNames = validHookNames(route, hooks);
+    const hasHooks = cfg.lifecycle && hookNames.length > 0;
+    const needsFull = needsFullContext(route, mod, cfg, hasHooks);
+    const needsBody = route.usage.body || route.usage.file;
+    const minimalBody = needsBody && !needsFull;
+    const minimalSendFile = route.usage.sendFile && !needsFull;
 
-  const constantMap = new Map<string, string | null>();
+    return {
+      route,
+      mod,
+      constantJson,
+      hookNames,
+      hasHooks,
+      needsFull,
+      needsBody,
+      minimalBody,
+      minimalSendFile,
+    };
+  });
 
-  for (const route of routes) {
-    constantMap.set(route.handlerRef, tryNormalizeConstant(route));
-  }
+  const nonConstantInfos = routeInfos.filter((x) => x.constantJson === null);
 
-  const groups = new Map<string, RouteDef[]>();
+  const anyNonConstant = nonConstantInfos.length > 0;
+  const anyFullContext = nonConstantInfos.some((x) => x.needsFull);
+  const anyLazyBody = nonConstantInfos.some((x) => x.minimalBody);
+  const anySendFile = nonConstantInfos.some((x) => x.minimalSendFile);
+  const anyHooks = cfg.lifecycle && nonConstantInfos.some((x) => x.hasHooks);
 
-  for (const route of routes) {
-    const arr = groups.get(route.path) ?? [];
-    arr.push(route);
-    groups.set(route.path, arr);
-  }
-
-  const staticRouteRefs = new Set<string>();
-
-  for (const group of groups.values()) {
-    if (!cfg.strictMethods && !cfg.tracing && group.length === 1) {
-      const route = group[0]!;
-
-      if (
-        (route.method === "GET" || route.method === "ALL") &&
-        constantMap.get(route.handlerRef) !== null
-      ) {
-        staticRouteRefs.add(route.handlerRef);
-      }
-    }
-  }
-
-  const nonConstantRoutes = routes.filter(
-    (r) => constantMap.get(r.handlerRef) === null
+  const anyJson = anyNonConstant;
+  const anyText = nonConstantInfos.some(
+    (x) => x.route.usage.text || x.route.responseType === "text"
+  );
+  const anyHtml = nonConstantInfos.some(
+    (x) => x.route.usage.html || x.route.responseType === "html"
+  );
+  const anyStream = nonConstantInfos.some(
+    (x) => x.route.usage.stream || x.route.responseType === "stream"
+  );
+  const anyRedirect = nonConstantInfos.some((x) => x.route.usage.redirect);
+  const anyEmpty = nonConstantInfos.some(
+    (x) => x.route.usage.empty || x.route.usage.status
   );
 
-  const anyNonConstant = nonConstantRoutes.length > 0;
+  const handlerImports = Array.from(
+    new Set(
+      nonConstantInfos
+        .map((info) => {
+          if (!info.mod) return "";
 
-  const anyBody = nonConstantRoutes.some(
-    (r) => needsRequestBody(r) && !needsFileBody(r)
-  );
+          return `import { default as ${handlerImportName(
+            info.route
+          )} } from "${toImportPath(info.mod.path)}";`;
+        })
+        .filter(Boolean)
+    )
+  ).join("\n");
 
-  const anyFile = nonConstantRoutes.some((r) => needsFileBody(r));
-
-  const anyHooks =
-    cfg.lifecycle &&
-    routes.some((r) => validHookNames(r, hooks).length > 0);
-
-  const anyJson =
-    anyNonConstant ||
-    anyHooks ||
-    nonConstantRoutes.some((r) => r.responseType === "json" || r.usage.json);
-
-  const anyText =
-    anyHooks ||
-    nonConstantRoutes.some((r) => r.responseType === "text" || r.usage.text);
-
-  const anyHtml =
-    anyHooks || nonConstantRoutes.some((r) => r.responseType === "html");
-
-  const anyStream =
-    anyHooks || nonConstantRoutes.some((r) => r.responseType === "stream");
-
-  const anyRedirect =
-    anyHooks || nonConstantRoutes.some((r) => r.usage.redirect);
-
-  // -------------------------------------------------------------------------
-  // Imports
-  // -------------------------------------------------------------------------
-
-  const handlerImports = nonConstantRoutes
-    .map((route) => {
-      const mod = modules[route.moduleIdx];
-
-      if (!mod) return "";
-
-      return `import { default as ${handlerImportName(
-        route
-      )} } from "${toImportPath(mod.path)}";`;
-    })
-    .filter((s) => s.length > 0)
-    .join("\n");
-
-  const missingStubs = nonConstantRoutes
-    .filter((route) => !modules[route.moduleIdx])
-    .map((route) => {
-      return `function ${handlerImportName(route)}() {
-  throw new Error(${JSON.stringify(`Missing module for ${route.file}`)});
+  const missingStubs = nonConstantInfos
+    .filter((info) => !info.mod)
+    .map((info) => {
+      return `function ${handlerImportName(info.route)}() {
+  throw new Error(${JSON.stringify(`Missing module for ${info.route.file}`)});
 }`;
     })
     .join("\n");
 
   const hookImports = anyHooks
     ? Array.from(hooks.values())
-      .map((h) => {
-        const abs = join(process.cwd(), h.source);
-
-        return `import { default as ${hookIdent(
-          h.name
-        )} } from "${toImportPath(abs)}";`;
-      })
-      .join("\n")
+        .map((h) => {
+          const abs = join(process.cwd(), h.source);
+          return `import { default as ${hookIdent(
+            h.name
+          )} } from "${toImportPath(abs)}";`;
+        })
+        .join("\n")
     : "";
 
-  // -------------------------------------------------------------------------
-  // Runtime constants
-  // -------------------------------------------------------------------------
+  const coreImports: string[] = [];
 
-  const baseConstants = `const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
-const JSON_INIT = { headers: HDR_JSON };
-const BODY_LIMITS = ${BODY_LIMITS};
-const NOT_FOUND_BODY = '{"error":"Not Found"}';
-const NOT_FOUND_INIT = { status: 404, headers: HDR_JSON };
+  if (anyFullContext) {
+    coreImports.push(
+      `import { createContext } from "${runtimeImport("src/core/context.ts")}";`
+    );
+  }
 
-const METHOD_NOT_ALLOWED_BODY = '{"error":"Method Not Allowed"}';
-const METHOD_NOT_ALLOWED_INIT = { status: 405, headers: HDR_JSON };
+  if (anyLazyBody) {
+    coreImports.push(
+      `import { createLazyBody } from "${runtimeImport("src/core/body.ts")}";`
+    );
+  }
 
-const INTERNAL_ERROR_BODY = '{"error":"Internal Server Error"}';
-const INTERNAL_ERROR_INIT = { status: 500, headers: HDR_JSON };
+  if (anySendFile) {
+    coreImports.push(
+      `import { sendFile as coreSendFile } from "${runtimeImport(
+        "src/core/files.ts"
+      )}";`
+    );
+  }
 
-const EMPTY_PARAMS = Object.freeze({});
+  const constants: string[] = [];
 
-const SERVICE = ${JSON.stringify(cfg.serviceName)};
-const REQUEST_ID_HEADER = ${JSON.stringify(cfg.requestIdHeader)};
-const ACCESS_LOG = ${cfg.accessLog};
-const TRACE_HEADERS = ${cfg.traceHeaders};
-const EXPOSE_ERRORS = ${cfg.exposeErrorDetails};
-
-const STATUS_TEXT = {
+  constants.push(`const HDR_JSON = { "content-type": "application/json; charset=utf-8" };`);
+  constants.push(`const JSON_INIT = { headers: HDR_JSON };`);
+  constants.push(`const BODY_LIMITS = ${BODY_LIMITS};`);
+  constants.push(`const EMPTY_PARAMS = Object.freeze({});`);
+  constants.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails};`);
+  constants.push(`const NOT_FOUND_BODY = '{"error":"Not Found"}';`);
+  constants.push(`const NOT_FOUND_INIT = { status: 404, headers: HDR_JSON };`);
+  constants.push(`const STATUS_TEXT = {
   400: "Bad Request",
   401: "Unauthorized",
   403: "Forbidden",
@@ -511,35 +480,20 @@ const STATUS_TEXT = {
   422: "Unprocessable Entity",
   429: "Too Many Requests",
   500: "Internal Server Error",
-};`;
+};`);
 
-  const constantLines: string[] = [];
+  for (const info of routeInfos) {
+    if (info.constantJson === null) continue;
 
-  for (const route of routes) {
-    const json = constantMap.get(route.handlerRef);
-
-    if (json == null) continue;
-
-    constantLines.push(
-      `const ${constantBodyVar(route)} = ${JSON.stringify(json)};`
+    constants.push(
+      `const ${constantBodyVar(info.route)} = ${JSON.stringify(
+        info.constantJson
+      )};`
     );
-
-    constantLines.push(
-      `const ${constantInitVar(route)} = { status: 200, headers: HDR_JSON };`
+    constants.push(
+      `const ${constantInitVar(info.route)} = { status: 200, headers: HDR_JSON };`
     );
-
-    if (staticRouteRefs.has(route.handlerRef)) {
-      constantLines.push(
-        `const ${staticResponseVar(route)} = new Response(${constantBodyVar(
-          route
-        )}, ${constantInitVar(route)});`
-      );
-    }
   }
-
-  // -------------------------------------------------------------------------
-  // Runtime helpers
-  // -------------------------------------------------------------------------
 
   const helpers: string[] = [];
 
@@ -547,26 +501,17 @@ const STATUS_TEXT = {
   return new Response(NOT_FOUND_BODY, NOT_FOUND_INIT);
 }`);
 
-  helpers.push(`function methodNotAllowed() {
-  return new Response(METHOD_NOT_ALLOWED_BODY, METHOD_NOT_ALLOWED_INIT);
-}`);
-
-  helpers.push(`function errorResponse(err, traceId) {
+  helpers.push(`function errorResponse(err) {
   const status = err && typeof err.status === "number" ? err.status : 500;
-
   const message =
     EXPOSE_ERRORS && err instanceof Error
       ? err.message
       : STATUS_TEXT[status] || "Error";
 
-  const payload = { error: message, status };
-
-  if (traceId) payload.traceId = traceId;
-
-  return Response.json(payload, { status });
+  return Response.json({ error: message, status }, { status });
 }`);
 
-  if (anyJson || anyHooks) {
+  if (anyJson) {
     helpers.push(`function jsonReply(data, init) {
   if (!init) return Response.json(data, JSON_INIT);
 
@@ -583,7 +528,7 @@ const STATUS_TEXT = {
 }`);
   }
 
-  if (anyText || anyHooks) {
+  if (anyText) {
     helpers.push(`const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
 const TEXT_INIT = { headers: HDR_TEXT };
 
@@ -605,7 +550,7 @@ function textReply(data, init) {
 }`);
   }
 
-  if (anyHtml || anyHooks) {
+  if (anyHtml) {
     helpers.push(`const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
 const HTML_INIT = { headers: HDR_HTML };
 
@@ -627,224 +572,38 @@ function htmlReply(data, init) {
 }`);
   }
 
-  if (anyStream || anyHooks) {
+  if (anyStream) {
     helpers.push(`function streamReply(stream, init) {
   return new Response(stream, init);
 }`);
   }
 
-  if (anyRedirect || anyHooks) {
+  if (anyRedirect) {
     helpers.push(`function redirectReply(location, status = 302) {
   return Response.redirect(location, status);
 }`);
   }
 
-  if (anyHooks) {
+  if (anyEmpty) {
     helpers.push(`function emptyReply(status = 204) {
   return new Response(null, { status });
 }`);
   }
 
-  if (cfg.tracing || anyHooks) {
-    helpers.push(`let requestIdSeq = 0;
-
-function getRequestId(req) {
-  const header = req.headers.get(REQUEST_ID_HEADER);
-
-  if (header) return header;
-
-  return Bun.nanoseconds().toString(36) + "-" + (++requestIdSeq).toString(36);
-}`);
-  }
-
-  if (cfg.accessLog) {
-    helpers.push(`function getPath(u) {
-  if (u.charCodeAt(0) === 47) {
-    const q = u.indexOf("?");
-    return q === -1 ? u : u.slice(0, q);
-  }
-
-  const start = u.indexOf("/", 8);
-
-  if (start === -1) return "/";
-
-  const q = u.indexOf("?", start);
-
-  return q === -1 ? u.slice(start) : u.slice(start, q);
-}`);
-  }
-
-  if (cfg.tracing) {
-    helpers.push(`function startTrace(req) {
-  return {
-    id: getRequestId(req),
-    start: performance.now(),
-  };
-}`);
-
-    helpers.push(`function finishTrace(req, trace, response) {
-  const duration = performance.now() - trace.start;
-
-  if (TRACE_HEADERS) {
-    try {
-      response.headers.set(REQUEST_ID_HEADER, trace.id);
-      response.headers.set("x-response-time", duration.toFixed(3));
-    } catch {
-      // Some responses may have immutable headers.
-    }
-  }
-
-  if (ACCESS_LOG) {
-    const level =
-      response.status >= 500 ? "error" : response.status >= 400 ? "warn" : "info";
-
-    console.log(
-      JSON.stringify({
-        level,
-        service: SERVICE,
-        traceId: trace.id,
-        method: req.method,
-        path: getPath(req.url),
-        status: response.status,
-        durationMs: Math.round(duration * 1000) / 1000,
-      })
-    );
-  }
-
-  return response;
-}`);
-
-    helpers.push(`function finishTraceError(req, trace, err) {
-  const response = errorResponse(err, trace.id);
-  const duration = performance.now() - trace.start;
-
-  if (TRACE_HEADERS) {
-    try {
-      response.headers.set(REQUEST_ID_HEADER, trace.id);
-      response.headers.set("x-response-time", duration.toFixed(3));
-    } catch {
-      // Ignore immutable header failures.
-    }
-  }
-
-  if (ACCESS_LOG) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        service: SERVICE,
-        traceId: trace.id,
-        method: req.method,
-        path: getPath(req.url),
-        status: response.status,
-        durationMs: Math.round(duration * 1000) / 1000,
-        error: EXPOSE_ERRORS && err instanceof Error ? err.message : undefined,
-      })
-    );
-  }
-
-  return response;
-}`);
-  }
-
-  if (anyBody && cfg.fastBody) {
-    helpers.push(`async function parseJsonBody(req) {
-  try {
-    return await req.json();
-  } catch {
-    return undefined;
-  }
-}`);
-  }
-
-  if (anyBody && !cfg.fastBody) {
-    helpers.push(`async function parseRequestBody(req) {
-  const ct = req.headers.get("content-type") || "";
-
-  if (ct.includes("application/json")) {
-    try {
-      return await req.json();
-    } catch {
-      return undefined;
-    }
-  }
-
-  if (ct.includes("application/x-www-form-urlencoded")) {
-    const text = await req.text();
-    return Object.fromEntries(new URLSearchParams(text));
-  }
-
-  if (ct.includes("multipart/form-data")) {
-    const form = await req.formData();
-    const obj = {};
-
-    for (const [key, value] of form) {
-      obj[key] = value;
-    }
-
-    return obj;
-  }
-
-  return undefined;
-}`);
-  }
-
-  if (anyFile) {
-    helpers.push(`async function parseMultipartBody(req) {
-  const form = await req.formData();
-  const obj = {};
-
-  for (const [key, value] of form) {
-    obj[key] = value;
-  }
-
-  return obj;
-}`);
-  }
-
   if (anyHooks) {
-    helpers.push(`function createFluxContext(req, params, query) {
-  const url = new URL(req.url);
-  const state = new Map();
-
-  return {
-    req,
-    url,
-    method: req.method,
-    path: url.pathname,
-    headers: req.headers,
-    requestId: getRequestId(req),
-    startTime: performance.now(),
-    params: params ?? EMPTY_PARAMS,
-    query: query ?? url.searchParams,
-    body: undefined,
-    state,
-    get: (key) => state.get(key),
-    set: (key, value) => {
-      state.set(key, value);
-    },
-    json: jsonReply,
-    text: textReply,
-    html: htmlReply,
-    redirect: redirectReply,
-    stream: streamReply,
-    empty: emptyReply,
-  };
-}`);
-
     helpers.push(`async function runHooks(hooks, ctx) {
-  let current = ctx;
-
   for (const hook of hooks) {
-    const result = await hook(current);
+    const result = await hook(ctx);
 
     if (result instanceof Response) return result;
 
-    if (result && result.ok === false && result.response) {
+    if (
+      result &&
+      typeof result === "object" &&
+      result.ok === false &&
+      result.response instanceof Response
+    ) {
       return result.response;
-    }
-
-    if (result && result.ctx) {
-      current = result.ctx;
     }
   }
 
@@ -852,202 +611,147 @@ function getRequestId(req) {
 }`);
   }
 
-  helpers.push(
-    cfg.tracing
-      ? `function fetchHandler(req) {
-  const trace = startTrace(req);
-  return finishTrace(req, trace, notFound());
-}`
-      : `function fetchHandler(req) {
-  return notFound();
-}`
-  );
+  const finalizers = nonConstantInfos
+    .map((info) => generateFinalizer(info.route))
+    .join("\n\n");
 
-  // -------------------------------------------------------------------------
-  // Finalizers
-  // -------------------------------------------------------------------------
+  const handlers = routeInfos
+    .map((info) => generateMethodHandler(info, cfg))
+    .join("\n\n");
 
-  const finalizers = routes
-    .filter(
-      (r) =>
-        !staticRouteRefs.has(r.handlerRef) &&
-        constantMap.get(r.handlerRef) === null
-    )
-    .map((r) => generateFinalizer(r));
+  const staticEntries: string[] = [];
+  const dynamicEntries: DynamicRouteInfo[] = [];
 
-  // -------------------------------------------------------------------------
-  // Hook arrays
-  // -------------------------------------------------------------------------
+  for (const info of routeInfos) {
+    const handlerName = methodHandlerName(info.route);
 
-  const hookArrays = routes
-    .filter((r) => validHookNames(r, hooks).length > 0)
-    .map((r) => {
-      const names = validHookNames(r, hooks).map(hookIdent);
-      return `const ${hooksArrayVar(r)} = [${names.join(", ")}];`;
+    if (info.route.isStatic) {
+      staticEntries.push(
+        `[${JSON.stringify(`${info.route.method}:${info.route.path}`)}, ${handlerName}]`
+      );
+      continue;
+    }
+
+    const pattern = routePattern(info.route.path);
+
+    dynamicEntries.push({
+      method: info.route.method,
+      regexLiteral: pattern.regexLiteral,
+      paramNames: pattern.paramNames,
+      handlerName,
+      segmentCount: info.route.segmentCount,
+      hasWildcard: info.route.path.includes("*"),
+      path: info.route.path,
     });
-
-  // -------------------------------------------------------------------------
-  // Method handlers
-  // -------------------------------------------------------------------------
-
-  const methodHandlers = routes
-    .filter((r) => !staticRouteRefs.has(r.handlerRef))
-    .map((r) =>
-      generateMethodHandler(
-        r,
-        constantMap.get(r.handlerRef) ?? null,
-        cfg,
-        hooks
-      )
-    );
-
-  // -------------------------------------------------------------------------
-  // Route object generation
-  // -------------------------------------------------------------------------
-
-  const routeEntries: string[] = [];
-  const pathHandlers: string[] = [];
-
-  for (const [path, group] of groups.entries()) {
-    const hasAll = group.some((r) => r.method === "ALL");
-
-    // Zero-allocation static route where safe.
-    if (
-      !cfg.strictMethods &&
-      !cfg.tracing &&
-      group.length === 1 &&
-      (group[0]!.method === "GET" || group[0]!.method === "ALL") &&
-      constantMap.get(group[0]!.handlerRef) !== null
-    ) {
-      routeEntries.push(
-        `${JSON.stringify(path)}: ${staticResponseVar(group[0]!)}`
-      );
-      continue;
-    }
-
-    // Direct ALL handler.
-    if (!cfg.strictMethods && hasAll && group.length === 1) {
-      routeEntries.push(
-        `${JSON.stringify(path)}: ${methodHandlerName(group[0]!)}`
-      );
-      continue;
-    }
-
-    // Method-specific route object where possible.
-    if (!cfg.strictMethods && !hasAll) {
-      const methodMap = group
-        .map((r) => `${r.method}: ${methodHandlerName(r)}`)
-        .join(", ");
-
-      routeEntries.push(`${JSON.stringify(path)}: { ${methodMap} }`);
-      continue;
-    }
-
-    // Fallback: path-level method switch for strict 405 or ALL mixing.
-    const phName = pathHandlerName(path);
-
-    const cases = group
-      .filter((r) => r.method !== "ALL")
-      .map((r) => {
-        return `case ${JSON.stringify(r.method)}: return ${methodHandlerName(
-          r
-        )}(req);`;
-      })
-      .join("\n    ");
-
-    const allRoute = group.find((r) => r.method === "ALL");
-
-    const defaultCase = allRoute
-      ? `return ${methodHandlerName(allRoute)}(req);`
-      : cfg.strictMethods
-        ? `return methodNotAllowed();`
-        : `return notFound();`;
-
-    pathHandlers.push(`function ${phName}(req) {
-  switch (req.method) {
-    ${cases}
-    default: ${defaultCase}
-  }
-}`);
-
-    routeEntries.push(`${JSON.stringify(path)}: ${phName}`);
   }
 
-  const routesObject = `const routes = {
-  ${routeEntries.join(",\n  ")}
-};`;
+  dynamicEntries.sort((a, b) => {
+    if (a.hasWildcard !== b.hasWildcard) {
+      return a.hasWildcard ? 1 : -1;
+    }
 
-  // -------------------------------------------------------------------------
-  // Server output
-  // -------------------------------------------------------------------------
+    if (a.segmentCount !== b.segmentCount) {
+      return b.segmentCount - a.segmentCount;
+    }
 
-const clusterMode = JSON.stringify(opts.cluster ?? 1);
-const reusePort = JSON.stringify(opts.reusePort ?? false);
+    return a.path.localeCompare(b.path);
+  });
 
-const serverBootstrap = `
-const WORKER_SETTING = ${clusterMode};
+  const staticRoutes = `const staticRoutes = new Map([
+${staticEntries.join(",\n")}
+]);`;
 
-const SERVER_OPTIONS = {
-  port: Number(process.env.PORT || 3000),
-  hostname: process.env.HOSTNAME || "0.0.0.0",
-  routes,
-  development: false,
-  maxRequestBodySize: ${JSON.stringify(
-    opts.maxFileBytes ?? 20 * 1024 * 1024
-  )},
-  idleTimeout: 30,
-};
+  const dynamicRoutes = `const dynamicRoutes = [
+${dynamicEntries
+  .map(
+    (entry) => `  {
+    method: ${JSON.stringify(entry.method)},
+    pattern: ${entry.regexLiteral},
+    paramNames: ${JSON.stringify(entry.paramNames)},
+    handler: ${entry.handlerName},
+  },`
+  )
+  .join("\n")}
+];`;
 
-const WORKER_COUNT =
-  WORKER_SETTING === "auto"
-    ? Math.max(1, navigator.hardwareConcurrency || 1)
-    : Math.max(1, Number(WORKER_SETTING || 1));
-
-const servers = [];
-
-for (let i = 0; i < WORKER_COUNT; i++) {
-  servers.push(
-    Bun.serve({
-      ...SERVER_OPTIONS,
-      reusePort: WORKER_COUNT > 1 ? true : ${reusePort},
-    })
-  );
+  const router = `function decodeParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
-process.on("SIGTERM", () => {
-  for (const server of servers) server.stop();
-  process.exit(0);
-});
+function routerFetch(req, server) {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const method = req.method;
 
-process.on("SIGINT", () => {
-  for (const server of servers) server.stop();
-  process.exit(0);
-});
+  let handler = staticRoutes.get(method + ":" + path);
 
-export default servers[0];
-`;
+  if (!handler) {
+    handler = staticRoutes.get("ALL:" + path);
+  }
+
+  if (!handler && method === "HEAD") {
+    handler = staticRoutes.get("GET:" + path);
+  }
+
+  if (handler) {
+    return handler(req, EMPTY_PARAMS, url, server);
+  }
+
+  for (const route of dynamicRoutes) {
+    if (route.method !== method && route.method !== "ALL") continue;
+
+    const match = route.pattern.exec(path);
+    if (!match) continue;
+
+    const params = {};
+
+    for (let i = 0; i < route.paramNames.length; i++) {
+      params[route.paramNames[i]] = decodeParam(match[i + 1] ?? "");
+    }
+
+    return route.handler(req, params, url, server);
+  }
+
+  return notFound();
+}`;
+
+  const serverBootstrap =
+    cfg.target === "bun"
+      ? `if (import.meta.main) {
+  const port = Number(process.env.PORT || 3000);
+
+  Bun.serve({
+    port,
+    fetch: routerFetch,
+    reusePort: ${cfg.reusePort},
+  });
+
+  console.log(${JSON.stringify(cfg.serviceName)} + " listening on :" + port);
+}`
+      : `// Node/Deno target: export fetch handler only.`;
 
   return [
     handlerImports,
-    missingStubs,
     hookImports,
-    baseConstants,
-    constantLines.join("\n"),
+    coreImports.join("\n"),
+    missingStubs,
+    constants.join("\n"),
     helpers.join("\n\n"),
-    finalizers.join("\n\n"),
-    hookArrays.join("\n"),
-    methodHandlers.join("\n\n"),
-    pathHandlers.join("\n\n"),
-    routesObject,
-    serverBootstrap
+    finalizers,
+    handlers,
+    staticRoutes,
+    dynamicRoutes,
+    router,
+    serverBootstrap,
+    `export { routerFetch as fetch };`,
   ]
-    .filter((s) => s.trim().length > 0)
+    .filter(Boolean)
     .join("\n\n");
 };
-
-// ============================================================================
-// Phase Orchestrator
-// ============================================================================
 
 export const runCodeGen = (
   routes: readonly RouteDef[],
@@ -1056,12 +760,4 @@ export const runCodeGen = (
   opts: CompilerOptions,
   logger: Logger
 ): string =>
-  logger.time("codegen", () => {
-    const code = generateServer(routes, modules, hooks, opts);
-
-    logger.info(
-      `Generated ${code.split("\n").length} lines of Bun-native server code`
-    );
-
-    return code;
-  });
+  logger.time("codegen", () => generateServer(routes, modules, hooks, opts));

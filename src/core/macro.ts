@@ -1,16 +1,22 @@
 /**
- * @fileoverview Macro System — Custom lifecycle extensions.
- * Allows plugins to define custom route-level configuration.
+ * Macro System
+ *
+ * Fixed:
+ * - afterHandle can return Response
+ * - afterHandle hooks are placed in afterHandle lifecycle
  */
 
 import type { FluxContext } from "./context";
 import type { LifeCycleStore, HookContainer } from "./types";
 
 export interface MacroContext {
-  onRequest?: (ctx: FluxContext) => void;
-  beforeHandle?: (ctx: FluxContext) => void;
-  afterHandle?: (ctx: FluxContext, response: Response) => void;
-  afterResponse?: (ctx: FluxContext, response: Response) => void;
+  onRequest?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
+  beforeHandle?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
+  afterHandle?: (
+    ctx: FluxContext,
+    response: Response
+  ) => Response | void | Promise<Response | void>;
+  afterResponse?: (ctx: FluxContext, response: Response) => void | Promise<void>;
 }
 
 export type MacroFn = (value: unknown, ctx: MacroContext) => void;
@@ -29,7 +35,10 @@ export const createMacroRegistry = () => {
       return this;
     },
 
-    apply(routeConfig: Record<string, unknown>, lifecycle: LifeCycleStore): LifeCycleStore {
+    apply(
+      routeConfig: Record<string, unknown>,
+      lifecycle: LifeCycleStore
+    ): LifeCycleStore {
       const macroCtx: MacroContext = {};
 
       for (const [key, value] of Object.entries(routeConfig)) {
@@ -39,25 +48,39 @@ export const createMacroRegistry = () => {
         }
       }
 
-      // Convert macro context hooks to lifecycle hooks
-      const hooks: HookContainer[] = [];
-      if (macroCtx.beforeHandle) hooks.push({ fn: macroCtx.beforeHandle, scope: "local" });
-      if (macroCtx.afterHandle) hooks.push({ fn: macroCtx.afterHandle, scope: "local" });
+      const requestHooks: HookContainer[] = [];
+      const beforeHooks: HookContainer[] = [];
+      const afterHooks: HookContainer[] = [];
+
+      if (macroCtx.onRequest) {
+        requestHooks.push({ fn: macroCtx.onRequest, scope: "local" });
+      }
+
+      if (macroCtx.beforeHandle) {
+        beforeHooks.push({ fn: macroCtx.beforeHandle, scope: "local" });
+      }
+
+      if (macroCtx.afterHandle) {
+        afterHooks.push({ fn: macroCtx.afterHandle, scope: "local" });
+      }
 
       return {
         ...lifecycle,
-        beforeHandle: [...lifecycle.beforeHandle, ...hooks],
+        request: [...lifecycle.request, ...requestHooks],
+        beforeHandle: [...lifecycle.beforeHandle, ...beforeHooks],
+        afterHandle: [...lifecycle.afterHandle, ...afterHooks],
       };
     },
 
-    has(name: string): boolean { return macros.has(name); },
-    get size(): number { return macros.size; },
+    has(name: string): boolean {
+      return macros.has(name);
+    },
+
+    get size(): number {
+      return macros.size;
+    },
   };
 };
-
-// ============================================================================
-// Built-in Macros
-// ============================================================================
 
 export const authMacro: MacroDefinition = {
   name: "auth",
@@ -65,7 +88,8 @@ export const authMacro: MacroDefinition = {
     if (value === true) {
       ctx.beforeHandle = (c: FluxContext) => {
         if (!c.headers.get("authorization")) {
-          c.setState("__halt", Response.json({ error: "Unauthorized" }, { status: 401 }));        }
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
       };
     }
   },
@@ -76,7 +100,14 @@ export const cacheMacro: MacroDefinition = {
   fn(value, ctx) {
     if (typeof value === "number") {
       ctx.afterHandle = (_c: FluxContext, response: Response) => {
-        response.headers.set("cache-control", `public, max-age=${value}`);
+        const headers = new Headers(response.headers);
+        headers.set("cache-control", `public, max-age=${value}`);
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
       };
     }
   },

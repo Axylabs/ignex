@@ -11,6 +11,7 @@ import type {
   SymbolInfo,
   Position,
 } from "../types";
+import { EMPTY_USAGE } from "../../shared/context-usage";
 import * as oxcParser from "oxc-parser";
 
 import { createRequire } from "node:module";
@@ -81,6 +82,7 @@ const CONTEXT_METHODS = new Set([
 
 const CONTEXT_PROPS = new Set([
   "body", "params", "query", "file", "files", "headers", "state", "req", "url",
+  "cookie", "server", "set", "sendFile", "proxy", "forward", "cache",
 ]);
 
 /** Build a map: localVariableName → contextProperty (or "__root__") */
@@ -104,37 +106,46 @@ function buildContextMapping(params: any[]): Map<string, string> {
 }
 
 function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage {
-  const usage: ContextUsage = {
-    body: false, params: false, query: false, file: false,
-    headers: false, state: false, json: false, text: false,
-    redirect: false, req: false, url: false,
-  };
+  const usage: ContextUsage = { ...EMPTY_USAGE };
 
   walk(bodyNode, (n) => {
-    // MemberExpression: ctx.body, ctx.params, etc.
     if (n.type === "MemberExpression" && !n.computed && n.object?.type === "Identifier") {
       const root = mapping.get(n.object.name);
+
       if (root === "__root__") {
         const prop = n.property.name;
+
         if (prop === "body" || prop === "files") usage.body = true;
         if (prop === "file") usage.file = true;
         if (prop === "params") usage.params = true;
         if (prop === "query") usage.query = true;
         if (prop === "headers") usage.headers = true;
-        if (prop === "state") usage.state = true;
+        if (prop === "state" || prop === "getState" || prop === "setState") usage.state = true;
         if (prop === "req") usage.req = true;
-        if (prop === "url") usage.url = true;
-        if (CONTEXT_METHODS.has(prop)) {
-          if (prop === "json") usage.json = true;
-          if (prop === "text") usage.text = true;
-          if (prop === "redirect") usage.redirect = true;
-        }
+        if (prop === "url" || prop === "path" || prop === "method") usage.url = true;
+
+        if (prop === "cookie") usage.cookie = true;
+        if (prop === "server") usage.server = true;
+        if (prop === "set") usage.set = true;
+
+        if (prop === "json") usage.json = true;
+        if (prop === "text") usage.text = true;
+        if (prop === "html") usage.html = true;
+        if (prop === "redirect") usage.redirect = true;
+        if (prop === "stream") usage.stream = true;
+        if (prop === "empty") usage.empty = true;
+        if (prop === "status") usage.status = true;
+
+        if (prop === "sendFile") usage.sendFile = true;
+        if (prop === "proxy") usage.proxy = true;
+        if (prop === "forward") usage.forward = true;
+        if (prop === "cache") usage.cache = true;
       }
     }
 
-    // Identifier read: destructured `body` from ({ body })
     if (n.type === "Identifier" && mapping.has(n.name)) {
       const prop = mapping.get(n.name)!;
+
       if (prop === "body" || prop === "files") usage.body = true;
       if (prop === "file") usage.file = true;
       if (prop === "params") usage.params = true;
@@ -143,6 +154,15 @@ function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage 
       if (prop === "state") usage.state = true;
       if (prop === "req") usage.req = true;
       if (prop === "url") usage.url = true;
+
+      if (prop === "cookie") usage.cookie = true;
+      if (prop === "server") usage.server = true;
+      if (prop === "set") usage.set = true;
+
+      if (prop === "sendFile") usage.sendFile = true;
+      if (prop === "proxy") usage.proxy = true;
+      if (prop === "forward") usage.forward = true;
+      if (prop === "cache") usage.cache = true;
     }
   });
 
