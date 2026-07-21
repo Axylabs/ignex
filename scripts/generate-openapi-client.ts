@@ -3,9 +3,9 @@ import { mkdirSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const ROUTES_DIR = process.env.ROUTES_DIR || "./src/routes";
-const OPENAPI_OUT = process.env.OPENAPI_OUT || "./dist/openapi.json";
-const CLIENT_OUT = process.env.CLIENT_OUT || "./src/client";
+const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
+const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json";
+const CLIENT_OUT = process.env.CLIENT_OUT || "./packages/app/src/client";
 
 const HTTP_METHODS = new Set([
   "GET",

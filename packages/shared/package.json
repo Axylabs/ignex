@@ -1,0 +1,25 @@
+{
+  "name": "@flux/shared",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+  },
+  "description": "Shared types and constants for Flux.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

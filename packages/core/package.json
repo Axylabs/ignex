@@ -1,0 +1,38 @@
+{
+  "name": "@flux/core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+  },
+  "description": "Flux runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
+ "exports": {
+    ".": "./src/index.ts",
+    "./http": "./src/http.ts",
+    "./config": "./src/config.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@flux/shared": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "fast-querystring": "^1.1.2",
+    "lru-cache": "^11.0.2",
+    "pino": "^9.6.0",
+    "set-cookie-parser": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/set-cookie-parser": "^2.4.10",
+    "typescript": "^7.0.2"
+  }
+}

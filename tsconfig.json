@@ -2,21 +2,54 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ESNext"],
-    "types": ["bun"],
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "bun"
+    ],
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": true,
-    "verbatimModuleSyntax": true,
-    "forceConsistentCasingInFileNames": true,
-    "allowJs": false,
     "skipLibCheck": true,
-    "isolatedModules": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@flux/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@flux/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@flux/core/http": [
+        "packages/core/src/http.ts"
+      ],
+      "@flux/core/*": [
+        "packages/core/src/*"
+      ],
+      "@flux/compiler": [
+        "packages/compiler/src/index.ts"
+      ]
+    }
   },
-  "include": ["src", "test", "builder.ts", "vitest.config.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/app/builder.ts",
+    "packages/app/vitest.config.ts",
+    "packages/app/test",
+    "scripts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/dist",
+    "packages/app/dist"
+  ]
 }
