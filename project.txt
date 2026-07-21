@@ -4121,7 +4121,7 @@ t:CodegenConfig
  602| |        } else {
  603| |          pre.push(`await __validatePart(__schema?.query, __query, "query");`);
  604| |        }
-   ... (419 more lines)
+   ... (429 more lines)
 ---
 
 >packages/compiler/src/phases/linker.ts
@@ -6051,6 +6051,41 @@ t:Readline
  358| |}
 ---
 
+>packages/cli/src/commands/info.ts
+i:node:util|node:path
+l:../utils/config.js
+f:runInfo(args: string[])|a
+---
+   1| |import { parseArgs } from "node:util";
+   2| |import { resolve } from "node:path";
+   3| |import { loadConfig } from "../utils/config.js";
+   5|▼|export async function runInfo(args: string[]): Promise<void> {
+   6| |  const { values, positionals } = parseArgs({
+   7| |    args,
+   8| |    options: {
+   9| |      root: { type: "string" },
+  10| |    },
+  11| |    allowPositionals: true,
+  12| |    strict: false,
+  13| |  });
+  15| |  const root = resolve((values.root as string | undefined) ?? positionals[0] ?? ".");
+  16| |  const config = await loadConfig(root);
+  18| |  console.log(
+  19| |    JSON.stringify(
+  20| |      {
+  21| |        cwd: root,
+  22| |        runtime: process.versions.bun ? "bun" : "node",
+  23| |        node: process.version,
+  24| |        bun: process.versions.bun ?? null,
+  25| |        config,
+  26| |      },
+  27| |      null,
+  28| |      2,
+  29| |    ),
+  30| |  );
+  31| |}
+---
+
 >packages/cli/src/utils/compiler.ts
 i:node:path
 l:./fs.js|./config.js|./logger.js
@@ -6157,41 +6192,6 @@ f:findServerEntry(
  107| |  }
  109| |  return undefined;
  110| |}
----
-
->packages/cli/src/commands/info.ts
-i:node:util|node:path
-l:../utils/config.js
-f:runInfo(args: string[])|a
----
-   1| |import { parseArgs } from "node:util";
-   2| |import { resolve } from "node:path";
-   3| |import { loadConfig } from "../utils/config.js";
-   5|▼|export async function runInfo(args: string[]): Promise<void> {
-   6| |  const { values, positionals } = parseArgs({
-   7| |    args,
-   8| |    options: {
-   9| |      root: { type: "string" },
-  10| |    },
-  11| |    allowPositionals: true,
-  12| |    strict: false,
-  13| |  });
-  15| |  const root = resolve((values.root as string | undefined) ?? positionals[0] ?? ".");
-  16| |  const config = await loadConfig(root);
-  18| |  console.log(
-  19| |    JSON.stringify(
-  20| |      {
-  21| |        cwd: root,
-  22| |        runtime: process.versions.bun ? "bun" : "node",
-  23| |        node: process.version,
-  24| |        bun: process.versions.bun ?? null,
-  25| |        config,
-  26| |      },
-  27| |      null,
-  28| |      2,
-  29| |    ),
-  30| |  );
-  31| |}
 ---
 
 >packages/cli/src/commands/route.ts
