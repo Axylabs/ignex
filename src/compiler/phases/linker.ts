@@ -1,125 +1,203 @@
 /**
- * @fileoverview Phase 5: LINKER
- * Uses esbuild for safe minification and source maps.
+ * Phase 5: LINKER — Bun 1.4 edition.
  *
- * Design:
- * - Pure transform-option factories
- * - No explicit undefined properties
- * - Minimal IO boundary
+ * Important:
+ * - The temporary Bun.build entry MUST live in opts.outDir.
+ * - Generated import paths are relative to opts.outDir.
  */
-import { writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
-import { transformSync, type TransformOptions } from "esbuild";
+
+import {
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  existsSync,
+} from "fs";
+import { join, basename } from "path";
+
 import type { CompilerOptions } from "../types";
 import type { Logger } from "../logger";
 
-const BASE_TRANSFORM: TransformOptions = {
-  loader: "js",
-  target: "esnext",
-  format: "esm",
-};
+const bun: any = (globalThis as any).Bun;
 
-/**
- * Create esbuild options for standalone minification.
- */
-const createMinifyOptions = (): TransformOptions => ({
-  ...BASE_TRANSFORM,
-  minify: true,
-});
-
-/**
- * Create esbuild options for standalone source map emission.
- */
-const createSourceMapOptions = (fileName: string): TransformOptions => ({
-  ...BASE_TRANSFORM,
-  sourcefile: fileName,
-  sourcemap: "external",
-  minify: false,
-});
-
-/**
- * Create linker transform options only when needed.
- *
- * Returning undefined signals:
- * "no transform required, write original code".
- */
-const createLinkOptions = (
-  opts: CompilerOptions,
-): TransformOptions | undefined => {
-  if (!opts.minify && !opts.sourceMap) return undefined;
-
-  const options: TransformOptions = {
-    ...BASE_TRANSFORM,
-    minify: opts.minify,
-    sourcefile: opts.outFile,
-  };
-
-  if (opts.sourceMap) {
-    return {
-      ...options,
-      sourcemap: "external",
-    };
-  }
-
-  return options;
-};
-
-/**
- * Write final output and optional source map.
- */
-const writeLinkedOutput = (
+const writeRaw = (
   outPath: string,
   code: string,
-  map: string | undefined,
-  opts: CompilerOptions,
+  logger: Logger,
+  warning?: string
 ): string => {
-  if (opts.sourceMap && map) {
-    const codeWithMap = `${code}
-//# sourceMappingURL=${opts.outFile}.map`;
-
-    writeFileSync(outPath, codeWithMap);
-    writeFileSync(`${outPath}.map`, map);
-
-    return codeWithMap;
+  if (warning) {
+    logger.warn(warning);
   }
 
   writeFileSync(outPath, code);
-  return code;
+
+  logger.info(
+    `Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`
+  );
+
+  return outPath;
 };
 
-export const minifyCode = (code: string): string =>
-  transformSync(code, createMinifyOptions()).code;
+export const runLinkerAsync = async (
+  code: string,
+  opts: CompilerOptions,
+  logger: Logger
+): Promise<string> => {
+  const start = performance.now();
 
-export const emitSourceMap = (fileName: string, code: string): string =>
-  transformSync(code, createSourceMapOptions(fileName)).map;
+  mkdirSync(opts.outDir, { recursive: true });
 
+  const outPath = join(opts.outDir, opts.outFile);
+
+  if (!bun?.build) {
+    return writeRaw(
+      outPath,
+      code,
+      logger,
+      "Bun.build unavailable. Wrote unminified output."
+    );
+  }
+
+  if (!opts.minify && !opts.sourceMap) {
+    return writeRaw(outPath, code, logger);
+  }
+
+  /**
+   * IMPORTANT:
+   *
+   * This entry file must be inside opts.outDir.
+   *
+   * Correct:
+   *   dist/.__server.js.entry.js
+   *
+   * Wrong:
+   *   dist/.flux-link/__server.js
+   *
+   * Because generated imports are relative to dist/.
+   */
+  const entryPath = join(opts.outDir, `.${opts.outFile}.entry.js`);
+
+  await bun.write(entryPath, code);
+
+  const buildOptions: any = {
+    entrypoints: [entryPath],
+    outdir: opts.outDir,
+    target: "bun",
+    format: "esm",
+    minify: opts.minify,
+    sourcemap: opts.sourceMap ? "external" : "none",
+  };
+
+  let result: any;
+
+  try {
+    result = await bun.build(buildOptions);
+  } catch (err) {
+    rmSync(entryPath, { force: true });
+
+    throw new Error(
+      `Bun.build threw an exception:\n${(err as Error).message}`
+    );
+  }
+
+  if (!result.success) {
+    const message = (result.logs ?? [])
+      .map((log: any) => log?.message ?? String(log))
+      .join("\n");
+
+    rmSync(entryPath, { force: true });
+
+    throw new Error(`Bun.build failed:\n${message}`);
+  }
+
+  const builtPath: string | undefined = result.outputs?.[0]?.path;
+
+  if (builtPath && existsSync(builtPath)) {
+    if (builtPath !== outPath) {
+      renameSync(builtPath, outPath);
+    }
+  } else if (existsSync(entryPath)) {
+    if (entryPath !== outPath) {
+      renameSync(entryPath, outPath);
+    }
+  }
+
+  if (opts.sourceMap) {
+    const mapSource = builtPath
+      ? `${builtPath}.map`
+      : `${entryPath}.map`;
+
+    const mapOut = `${outPath}.map`;
+
+    if (existsSync(mapSource) && mapSource !== mapOut) {
+      renameSync(mapSource, mapOut);
+    }
+
+    if (existsSync(outPath)) {
+      const text = await bun.file(outPath).text();
+
+      const fixed = text.replace(
+        /\/\/# sourceMappingURL=.*$/m,
+        `//# sourceMappingURL=${basename(mapOut)}`
+      );
+
+      await bun.write(outPath, fixed);
+    }
+  }
+
+  if (existsSync(entryPath) && entryPath !== outPath) {
+    rmSync(entryPath, { force: true });
+  }
+
+  const finalCode = existsSync(outPath)
+    ? await bun.file(outPath).text()
+    : code;
+
+  const elapsed = (performance.now() - start).toFixed(2);
+
+  logger.info(
+    `Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`
+  );
+
+  logger.info(`linker completed in ${elapsed}ms`);
+
+  return outPath;
+};
+
+/**
+ * Sync fallback.
+ *
+ * Bun.build is async, so synchronous compile() cannot use it.
+ * Prefer buildAsync() in production.
+ */
 export const runLinker = (
   code: string,
   opts: CompilerOptions,
-  logger: Logger,
+  logger: Logger
 ): string =>
   logger.time("linker", () => {
     mkdirSync(opts.outDir, { recursive: true });
 
     const outPath = join(opts.outDir, opts.outFile);
-    const transformOptions = createLinkOptions(opts);
 
-    if (!transformOptions) {
-      writeFileSync(outPath, code);
-
-      logger.info(
-        `Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`,
-      );
-
-      return outPath;
-    }
-
-    const result = transformSync(code, transformOptions);
-    const finalCode = writeLinkedOutput(outPath, result.code, result.map, opts);
-
-    logger.info(
-      `Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`,
+    return writeRaw(
+      outPath,
+      code,
+      logger,
+      "Sync linker wrote unminified output. Use buildAsync() for Bun.build minification."
     );
-
-    return outPath;
   });
+
+/**
+ * Compatibility stubs.
+ *
+ * The old esbuild linker exported these.
+ * They are no longer used by the Bun.build linker.
+ */
+export const minifyCode = (code: string): string => code;
+
+export const emitSourceMap = (
+  _fileName: string,
+  _code: string
+): string => "";

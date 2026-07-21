@@ -1,3 +1,3 @@
 import { get } from "../core/http";
 
-export default get(() => ({ message: "flux-core zero-runtime API" }));
+export default get(() => "flux-core zero-runtime API" );

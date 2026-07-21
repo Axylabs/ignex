@@ -1,10 +1,7 @@
 /**
- * Flux Compiler Orchestrator — Phase 2
+ * Flux Compiler Orchestrator — Bun 1.4 edition.
  *
- * Adds:
- * - async build pipeline
- * - validator precompilation
- * - serializer precompilation
+ * Async build uses Bun.build linker.
  */
 
 import type {
@@ -21,7 +18,7 @@ import { runDiscovery } from "./phases/discovery";
 import { runAnalysis } from "./phases/analysis";
 import { runOptimization } from "./phases/optimization";
 import { runCodeGen } from "./phases/codegen";
-import { runLinker } from "./phases/linker";
+import { runLinker, runLinkerAsync } from "./phases/linker";
 import { writeArtifacts } from "./phases/artifacts";
 import { precompileValidators } from "./phases/validators";
 import { precompileSerializers } from "./phases/serializers";
@@ -136,6 +133,14 @@ export const runLinkingPhase = (
     return runLinker(code, opts, logger);
   });
 
+export const runLinkingPhaseAsync = async (
+  code: string,
+  opts: CompilerOptions,
+  logger: Logger
+): Promise<string> => {
+  return runLinkerAsync(code, opts, logger);
+};
+
 export class FluxCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
@@ -232,7 +237,7 @@ export class FluxCompiler {
     writeArtifacts(enriched.routes, opts, logger);
 
     const code = runCodegenPhase(enriched, analysis, opts, logger);
-    const outPath = runLinkingPhase(code, opts, logger);
+    const outPath = await runLinkingPhaseAsync(code, opts, logger);
 
     const elapsed = performance.now() - t0;
 

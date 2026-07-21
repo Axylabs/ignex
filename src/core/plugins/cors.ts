@@ -1,9 +1,5 @@
 /**
- * CORS plugin.
- *
- * Hardened:
- * - always varies on Origin
- * - safer credentials handling
+ * CORS plugin — Bun 1.4 hardened edition.
  */
 
 import type { FluxPlugin } from "../plugin";
@@ -32,6 +28,12 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
     preflightContinue = false,
   } = options;
 
+  if (origin === "*" && credentials) {
+    throw new Error(
+      "CORS misconfiguration: origin '*' cannot be used with credentials: true. Use an explicit origin allowlist."
+    );
+  }
+
   const isOriginAllowed = (requestOrigin: string, ctx: FluxContext): boolean => {
     if (origin === "*") return true;
     if (typeof origin === "string") return origin === requestOrigin;
@@ -41,12 +43,14 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
 
   const appendVary = (headers: Headers, value: string): void => {
     const existing = headers.get("vary");
+
     if (!existing) {
       headers.set("vary", value);
       return;
     }
 
     const parts = existing.split(",").map((x) => x.trim().toLowerCase());
+
     if (!parts.includes(value.toLowerCase())) {
       headers.set("vary", `${existing}, ${value}`);
     }
@@ -60,12 +64,12 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
 
     if (isOriginAllowed(requestOrigin, ctx)) {
       headers.set("Access-Control-Allow-Origin", requestOrigin);
+
+      if (credentials) {
+        headers.set("Access-Control-Allow-Credentials", "true");
+      }
     } else if (origin === "*" && !credentials) {
       headers.set("Access-Control-Allow-Origin", "*");
-    }
-
-    if (credentials) {
-      headers.set("Access-Control-Allow-Credentials", "true");
     }
 
     if (exposedHeaders?.length) {
@@ -89,6 +93,7 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
           headers.set("Access-Control-Allow-Headers", allowedHeaders.join(", "));
         } else {
           const reqHeaders = ctx.headers.get("access-control-request-headers");
+
           if (reqHeaders) {
             headers.set("Access-Control-Allow-Headers", reqHeaders);
           }

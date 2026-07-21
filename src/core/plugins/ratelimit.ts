@@ -1,8 +1,7 @@
 /**
- * Rate limit plugin.
+ * Rate limit plugin — Bun 1.4 edition.
  *
- * Hardened:
- * - does not trust x-forwarded-for unless trustProxy is enabled
+ * Uses ctx.ip, which prefers Bun server.requestIP().
  */
 
 import type { FluxPlugin } from "../plugin";
@@ -37,10 +36,13 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
   const defaultKeyGenerator = (ctx: FluxContext): string => {
     if (trustProxy) {
       const xff = ctx.headers.get("x-forwarded-for");
-      if (xff) return xff.split(",")[0]?.trim() || "anonymous";
+
+      if (xff) {
+        return xff.split(",")[0]?.trim() || ctx.ip;
+      }
     }
 
-    return ctx.headers.get("x-real-ip") || "anonymous";
+    return ctx.ip;
   };
 
   const keyGenerator = options.keyGenerator ?? defaultKeyGenerator;
@@ -92,27 +94,26 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
       }
 
       ctx.setState("__ratelimit", entry);
+
       return ctx;
     },
 
     onResponse(ctx, response) {
       const entry = ctx.getState<WindowEntry>("__ratelimit");
 
-      if (entry) {
-        const headers = new Headers(response.headers);
+      if (!entry) return response;
 
-        for (const [k, v] of Object.entries(getHeaders(entry))) {
-          headers.set(k, v);
-        }
+      const headers = new Headers(response.headers);
 
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        });
+      for (const [k, v] of Object.entries(getHeaders(entry))) {
+        headers.set(k, v);
       }
 
-      return response;
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     },
   };
 };

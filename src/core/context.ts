@@ -1,17 +1,18 @@
 /**
- * @fileoverview Flux Context v3.0 — Production-grade request context.
- * Lazy evaluation, zero-allocation fast paths, full Elysia compatibility.
+ * Flux Context — Bun 1.4 edition.
+ *
+ * Optimizations:
+ * - lazy cookie parsing
+ * - lazy state map
+ * - ctx.ip using Bun server.requestIP when available
  */
+
 import * as setCookie from "set-cookie-parser";
 import type { HttpMethod, CookieOptions, ElysiaCookie } from "./types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
 import { sendFile, type SendFileOptions } from "./files";
 import { proxyRequest, forwardRequest, type ProxyOptions } from "./proxy";
 import { HttpResponseCache, type HttpResponseCacheOptions } from "./cache";
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface SetHeaders {
   headers: Record<string, string>;
@@ -41,6 +42,7 @@ export interface FluxContext<
   readonly headers: Headers;
   readonly requestId: string;
   readonly startTime: number;
+  readonly ip: string;
 
   params: P;
   readonly query: Q;
@@ -49,11 +51,9 @@ export interface FluxContext<
 
   state: Map<string | symbol, unknown>;
 
-  // State accessors
   getState<T = unknown>(key: string | symbol): T | undefined;
   setState<T>(key: string | symbol, value: T): void;
 
-  // Response helpers
   json<T>(data: T, init?: ResponseInit): Response;
   text(data: string, init?: ResponseInit): Response;
   html(data: string, init?: ResponseInit): Response;
@@ -62,34 +62,25 @@ export interface FluxContext<
   empty(status?: number): Response;
   status(code: number): Response;
 
-  // File & Proxy
   sendFile(path: string, opts?: SendFileOptions): Promise<Response>;
   proxy(target: string | URL, opts?: ProxyOptions): Promise<Response>;
   forward(target: string | URL, opts?: ProxyOptions): Promise<Response>;
 
-  // Cache
-  cache(factory: () => Promise<Response>, opts?: HttpResponseCacheOptions & { vary?: string[] }): Promise<Response>;
+  cache(
+    factory: () => Promise<Response>,
+    opts?: HttpResponseCacheOptions & { vary?: string[] }
+  ): Promise<Response>;
 
-  // Server reference
   readonly server: any;
 }
 
-/**
- * Convert a cookie value into a string representation.
- */
 const toCookieValue = (value: unknown): string =>
   typeof value === "object" && value !== null
     ? JSON.stringify(value)
     : String(value ?? "");
 
-/**
- * Encode cookie value safely.
- */
 const encodeCookieValue = (value: string): string => encodeURIComponent(value);
 
-/**
- * Decode cookie value with fallback for malformed values.
- */
 const decodeCookieValue = (value: string): string => {
   try {
     return decodeURIComponent(value);
@@ -98,11 +89,8 @@ const decodeCookieValue = (value: string): string => {
   }
 };
 
-/**
- * Normalize SameSite attribute.
- */
 const normalizeSameSite = (
-  sameSite: CookieOptions["sameSite"],
+  sameSite: CookieOptions["sameSite"]
 ): string | undefined => {
   if (sameSite === true) return "Strict";
   if (sameSite === false || sameSite === undefined) return undefined;
@@ -110,13 +98,10 @@ const normalizeSameSite = (
   return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
 };
 
-/**
- * Serialize one cookie pair.
- */
 const serializeCookiePair = (
   name: string,
   value: string,
-  opts: ElysiaCookie,
+  opts: ElysiaCookie
 ): string => {
   const parts = [`${name}=${encodeCookieValue(value)}`];
 
@@ -144,12 +129,12 @@ const serializeCookiePair = (
 };
 
 export const serializeCookie = (
-  cookies: Record<string, ElysiaCookie>,
+  cookies: Record<string, ElysiaCookie>
 ): string | string[] | undefined => {
   const serialized = Object.entries(cookies)
     .filter(([, opts]) => opts?.value != null)
     .map(([name, opts]) =>
-      serializeCookiePair(name, toCookieValue(opts.value), opts),
+      serializeCookiePair(name, toCookieValue(opts.value), opts)
     );
 
   if (serialized.length === 0) return undefined;
@@ -158,7 +143,7 @@ export const serializeCookie = (
 };
 
 export const parseCookieString = (
-  cookieString: string | null,
+  cookieString: string | null
 ): Record<string, string> => {
   if (!cookieString) return {};
 
@@ -178,50 +163,82 @@ export const parseCookieString = (
     }, {});
 };
 
-export const parseSetCookieHeader = (
-  header: string | string[] | null,
-) => {
+export const parseSetCookieHeader = (header: string | string[] | null) => {
   if (!header) return [];
   return setCookie.parse(header);
 };
-
-// ============================================================================
-// Cookie Class
-// ============================================================================
 
 export class Cookie<T = string | undefined> {
   constructor(
     private name: string,
     private jar: Record<string, ElysiaCookie>,
     private initial: Partial<ElysiaCookie> = {}
-  ) { }
+  ) {}
 
-  get value(): T { return (this.jar[this.name]?.value ?? this.initial.value) as T; }
+  get value(): T {
+    return (this.jar[this.name]?.value ?? this.initial.value) as T;
+  }
+
   set value(v: T) {
     const entry = (this.jar[this.name] ??= { ...this.initial });
     entry.value = v;
   }
 
-  get expires() { return this.jar[this.name]?.expires ?? this.initial.expires; }
-  set expires(v: Date | undefined) { this._set("expires", v); }
+  get expires() {
+    return this.jar[this.name]?.expires ?? this.initial.expires;
+  }
 
-  get maxAge() { return this.jar[this.name]?.maxAge ?? this.initial.maxAge; }
-  set maxAge(v: number | undefined) { this._set("maxAge", v); }
+  set expires(v: Date | undefined) {
+    this._set("expires", v);
+  }
 
-  get domain() { return this.jar[this.name]?.domain ?? this.initial.domain; }
-  set domain(v: string | undefined) { this._set("domain", v); }
+  get maxAge() {
+    return this.jar[this.name]?.maxAge ?? this.initial.maxAge;
+  }
 
-  get path() { return this.jar[this.name]?.path ?? this.initial.path; }
-  set path(v: string | undefined) { this._set("path", v); }
+  set maxAge(v: number | undefined) {
+    this._set("maxAge", v);
+  }
 
-  get secure() { return this.jar[this.name]?.secure ?? this.initial.secure; }
-  set secure(v: boolean | undefined) { this._set("secure", v); }
+  get domain() {
+    return this.jar[this.name]?.domain ?? this.initial.domain;
+  }
 
-  get httpOnly() { return this.jar[this.name]?.httpOnly ?? this.initial.httpOnly; }
-  set httpOnly(v: boolean | undefined) { this._set("httpOnly", v); }
+  set domain(v: string | undefined) {
+    this._set("domain", v);
+  }
 
-  get sameSite() { return this.jar[this.name]?.sameSite ?? this.initial.sameSite; }
-  set sameSite(v: true | false | "lax" | "strict" | "none" | undefined) { this._set("sameSite", v); }
+  get path() {
+    return this.jar[this.name]?.path ?? this.initial.path;
+  }
+
+  set path(v: string | undefined) {
+    this._set("path", v);
+  }
+
+  get secure() {
+    return this.jar[this.name]?.secure ?? this.initial.secure;
+  }
+
+  set secure(v: boolean | undefined) {
+    this._set("secure", v);
+  }
+
+  get httpOnly() {
+    return this.jar[this.name]?.httpOnly ?? this.initial.httpOnly;
+  }
+
+  set httpOnly(v: boolean | undefined) {
+    this._set("httpOnly", v);
+  }
+
+  get sameSite() {
+    return this.jar[this.name]?.sameSite ?? this.initial.sameSite;
+  }
+
+  set sameSite(v: true | false | "lax" | "strict" | "none" | undefined) {
+    this._set("sameSite", v);
+  }
 
   update(config: Partial<ElysiaCookie>): this {
     const entry = (this.jar[this.name] ??= { ...this.initial });
@@ -245,34 +262,57 @@ export class Cookie<T = string | undefined> {
   }
 }
 
-// ============================================================================
-// Cookie Jar Factory
-// ============================================================================
-
 export const createCookieJar = (
   set: SetHeaders,
   store: Record<string, ElysiaCookie>,
   initial?: Partial<ElysiaCookie>
 ): Record<string, Cookie> => {
   if (!set.cookie) set.cookie = Object.create(null);
+
   return new Proxy(store, {
     get(_, key: string) {
       return new Cookie(key, set.cookie!, { ...initial, ...store[key] });
-    }
+    },
   }) as Record<string, Cookie>;
 };
 
+export const createLazyCookieJar = (
+  set: SetHeaders,
+  getCookieHeader: () => string | null,
+  initial?: Partial<ElysiaCookie>
+): Record<string, Cookie> => {
+  if (!set.cookie) set.cookie = Object.create(null);
 
+  let parsed: Record<string, string> | undefined;
 
-// ============================================================================
-// Context Factory
-// ============================================================================
+  const ensureParsed = () => {
+    if (!parsed) {
+      parsed = parseCookieString(getCookieHeader());
+    }
+
+    return parsed;
+  };
+
+  const target = Object.create(null);
+
+  return new Proxy(target, {
+    get(_, key: string) {
+      const store = ensureParsed();
+
+      return new Cookie(key, set.cookie!, {
+        ...initial,
+        value: store[key],
+      });
+    },
+  }) as Record<string, Cookie>;
+};
 
 const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
 const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
 const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
 
 let requestIdCounter = 0;
+
 const generateRequestId = (): string => {
   const ts = performance.now().toString(36).replace(".", "");
   const seq = (++requestIdCounter).toString(36);
@@ -289,13 +329,9 @@ type FluxHeadersInit =
 const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
   headers as unknown as ResponseHeadersInit;
 
-/**
- * Merge base headers with optional init headers.
- * Filters undefined header values to satisfy exactOptionalPropertyTypes.
- */
 const mergeHeaders = (
   base: Record<string, string>,
-  init?: FluxHeadersInit,
+  init?: FluxHeadersInit
 ): ResponseHeadersInit => {
   const headers = new Headers(base);
 
@@ -310,7 +346,7 @@ const mergeHeaders = (
       init,
       (value, key) => {
         headers.set(key, value);
-      },
+      }
     );
 
     return asResponseHeaders(headers);
@@ -327,7 +363,7 @@ const mergeHeaders = (
   }
 
   for (const [key, value] of Object.entries(
-    init as Record<string, string | undefined>,
+    init as Record<string, string | undefined>
   )) {
     if (value !== undefined) {
       headers.set(key, value);
@@ -339,7 +375,7 @@ const mergeHeaders = (
 
 const createResponseInit = (
   status: number,
-  headers?: FluxHeadersInit,
+  headers?: FluxHeadersInit
 ): ResponseInit => {
   if (headers === undefined) {
     return { status };
@@ -351,7 +387,11 @@ const createResponseInit = (
   };
 };
 
-const defaultCache = new HttpResponseCache({ max: 1000, ttlMs: 60_000, staleTtlMs: 300_000 });
+const defaultCache = new HttpResponseCache({
+  max: 1000,
+  ttlMs: 60_000,
+  staleTtlMs: 300_000,
+});
 
 export function createContext<P = Record<string, string>>(
   req: Request,
@@ -362,35 +402,73 @@ export function createContext<P = Record<string, string>>(
   let _query: URLSearchParams | undefined = opts.query;
 
   const body = opts.bodyInstance ?? createLazyBody(req, opts.body);
-  const state = new Map<string | symbol, unknown>();
+
+  let state: Map<string | symbol, unknown> | undefined;
+
+  const ensureState = () => {
+    if (!state) {
+      state = new Map<string | symbol, unknown>();
+    }
+
+    return state;
+  };
+
   const set: SetHeaders = { headers: {}, status: 200, ...opts.set };
 
-  const cookieStore = parseCookieString(req.headers.get("cookie"));
-  const cookie = createCookieJar(set, cookieStore as any);
+  const cookie = createLazyCookieJar(set, () => req.headers.get("cookie"));
 
   const ctx: FluxContext<P, URLSearchParams> = {
     req,
-    get url() { return (_url ??= new URL(req.url)); },
+
+    get url() {
+      return (_url ??= new URL(req.url));
+    },
+
     method: req.method as HttpMethod,
-    get path() { return this.url.pathname; },
+
+    get path() {
+      return this.url.pathname;
+    },
+
     route: "",
     headers: req.headers,
     requestId: generateRequestId(),
     startTime: performance.now(),
+
+    get ip(): string {
+      const server = (this as any).server;
+
+      try {
+        const socketIp = server?.requestIP?.(req)?.address;
+        if (socketIp) return socketIp;
+      } catch {
+        // ignore
+      }
+
+      return req.headers.get("x-real-ip") || "anonymous";
+    },
+
     params,
-    get query() { return (_query ??= this.url.searchParams) as URLSearchParams; },
+
+    get query() {
+      return (_query ??= this.url.searchParams) as URLSearchParams;
+    },
+
     body,
     cookie,
-    state,
 
+    get state() {
+      return ensureState();
+    },
 
     getState<T = unknown>(key: string | symbol): T | undefined {
-      return state.get(key) as T | undefined;
+      return ensureState().get(key) as T | undefined;
     },
 
     setState<T>(key: string | symbol, value: T): void {
-      state.set(key, value);
+      ensureState().set(key, value);
     },
+
     json<T>(data: T, init?: ResponseInit): Response {
       const status = init?.status ?? set.status ?? 200;
 
@@ -421,12 +499,14 @@ export function createContext<P = Record<string, string>>(
     stream(stream: ReadableStream, init?: ResponseInit): Response {
       return new Response(
         stream,
-        createResponseInit(init?.status ?? 200, init?.headers),
+        createResponseInit(init?.status ?? 200, init?.headers)
       );
     },
+
     empty(status = 204): Response {
       return new Response(null, { status });
     },
+
     status(code: number): Response {
       return new Response(null, { status: code });
     },
@@ -434,21 +514,26 @@ export function createContext<P = Record<string, string>>(
     sendFile(path: string, sendOpts: SendFileOptions = {}) {
       return sendFile(path, { req, ...sendOpts });
     },
+
     proxy(target: string | URL, proxyOpts: ProxyOptions = {}) {
       return proxyRequest(target, proxyOpts);
     },
+
     forward(target: string | URL, proxyOpts: ProxyOptions = {}) {
       return forwardRequest(req, target, proxyOpts);
     },
+
     cache(factory: () => Promise<Response>, cacheOpts = {}) {
       return defaultCache.getOrSet(req, factory, cacheOpts);
     },
+
     redirect(
       url: string,
-      status: 301 | 302 | 303 | 307 | 308 = 302,
+      status: 301 | 302 | 303 | 307 | 308 = 302
     ): Response {
       return Response.redirect(url, status);
     },
+
     server: null,
   };
 

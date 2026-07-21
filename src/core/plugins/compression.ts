@@ -1,8 +1,7 @@
 /**
- * Compression plugin.
+ * Compression plugin — Bun 1.4 edition.
  *
- * Hardened:
- * - guards against missing CompressionStream
+ * Adds Brotli when available.
  */
 
 import type { FluxPlugin } from "../plugin";
@@ -28,6 +27,19 @@ const shouldCompress = (ct: string): boolean => {
   return false;
 };
 
+let supportsBrotli = false;
+
+try {
+  const CS = (globalThis as any).CompressionStream;
+
+  if (typeof CS !== "undefined") {
+    new CS("br");
+    supportsBrotli = true;
+  }
+} catch {
+  supportsBrotli = false;
+}
+
 export const compression = (options: CompressionOptions = {}): FluxPlugin => {
   const { threshold = 1024, filter = shouldCompress } = options;
 
@@ -38,31 +50,37 @@ export const compression = (options: CompressionOptions = {}): FluxPlugin => {
       if (!response.body) return response;
       if (response.headers.get("content-encoding")) return response;
 
-      const ct = response.headers.get("content-type") || "";
-      if (!filter(ct)) return response;
+      const contentType = response.headers.get("content-type") || "";
+      if (!filter(contentType)) return response;
 
-      const len = Number(response.headers.get("content-length") || "0");
-      if (len && len < threshold) return response;
+      const contentLength = Number(response.headers.get("content-length") || "0");
+      if (contentLength && contentLength < threshold) return response;
 
       const acceptEncoding = ctx.headers.get("accept-encoding") || "";
 
-      const encoding = acceptEncoding.includes("gzip")
-        ? "gzip"
-        : acceptEncoding.includes("deflate")
-          ? "deflate"
-          : null;
+      const encoding =
+        supportsBrotli && acceptEncoding.includes("br")
+          ? "br"
+          : acceptEncoding.includes("gzip")
+            ? "gzip"
+            : acceptEncoding.includes("deflate")
+              ? "deflate"
+              : null;
 
       if (!encoding) return response;
 
-      if (typeof CompressionStream === "undefined") {
+      const CS = (globalThis as any).CompressionStream;
+
+      if (typeof CS === "undefined") {
         return response;
       }
 
       const headers = new Headers(response.headers);
       headers.set("content-encoding", encoding);
       headers.delete("content-length");
+      headers.append("vary", "Accept-Encoding");
 
-      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
+      const compressed = response.body.pipeThrough(new CS(encoding));
 
       return new Response(compressed, {
         status: response.status,

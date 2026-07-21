@@ -62,7 +62,7 @@
         "vitest": "^4.1.10",
       },
       "peerDependencies": {
-        "typescript": "^5.9.3",
+        "typescript": "^7.0.2",
       },
     },
   },

@@ -1,10 +1,9 @@
 /**
  * Build-time route schema loader.
  *
- * Phase 2:
- * - dynamically imports route modules
- * - extracts exported schema
- * - caches module loads
+ * Bun 1.4 edition:
+ * - dynamic import remains native Bun TS import
+ * - structuredClone for schema cloning
  */
 
 import { pathToFileURL } from "node:url";
@@ -23,6 +22,7 @@ export const loadRouteModule = async (
     const mod: any = await import(url);
 
     const handler = mod?.default;
+
     const inlineSchema =
       handler != null && typeof handler === "object" && "schema" in handler
         ? handler.schema
@@ -34,6 +34,7 @@ export const loadRouteModule = async (
     const normalized = schema === undefined ? mod : { ...mod, schema };
 
     moduleCache.set(absPath, normalized);
+
     return normalized;
   } catch {
     moduleCache.set(absPath, undefined);
@@ -50,5 +51,9 @@ export const isStandardSchema = (value: unknown): boolean => {
 };
 
 export const cloneSchema = (value: unknown): any => {
-  return JSON.parse(JSON.stringify(value));
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value));
+  }
 };

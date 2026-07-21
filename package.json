@@ -74,7 +74,7 @@
     "start": "bun dist/__server.js",
     "compile": "bun build dist/__server.js --compile --minify --target=bun --outfile=flux-server",
     "gen:client": "bun scripts/generate-openapi-client.ts",
-    "bench": "oha http://localhost:3000/health",
+    "bench": "bun scripts/benchmark.ts",
     "bench:products": "oha http://localhost:3000/products/123",
     "bench:k6": "k6 run scripts/k6.js",
     "test:vitest": "vitest run",

@@ -1,9 +1,7 @@
 /**
- * Distributed tracing helpers.
+ * Distributed tracing helpers — Bun 1.4 edition.
  *
- * Fixed:
- * - uses crypto.randomUUID()
- * - does not mutate response headers directly
+ * Uses Bun.randomUUIDv7 when available.
  */
 
 export type TraceEvent =
@@ -43,6 +41,7 @@ export const createTraceContext = (requestId: string): TraceContext => {
   return {
     traceId: requestId,
     spans,
+
     startSpan(name, event) {
       const span: TraceSpan = {
         id: `${requestId}-${++traceCounter}`,
@@ -53,8 +52,10 @@ export const createTraceContext = (requestId: string): TraceContext => {
       };
 
       spans.push(span);
+
       return span;
     },
+
     endSpan(span, error = null) {
       span.end = performance.now();
       span.error = error;
@@ -63,9 +64,12 @@ export const createTraceContext = (requestId: string): TraceContext => {
 };
 
 export const startTrace = (req: Request): { traceId: string; start: number } => {
+  const bun: any = (globalThis as any).Bun;
+
   const traceId =
     req.headers.get("x-trace-id") ||
     req.headers.get("x-request-id") ||
+    bun?.randomUUIDv7?.() ||
     crypto.randomUUID();
 
   return { traceId, start: performance.now() };

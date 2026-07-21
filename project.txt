@@ -2,7 +2,7 @@ P|flux-core
 D|This a WIP framework for high perfromance apps so we can achive native like perfromance using typescript.
 N|prod|@clack/prompts:^1.7.0|@hey-api/client-fetch:^0.13.1|@opentelemetry/api:^1.9.1|@opentelemetry/exporter-metrics-otlp-http:^0.220.0|@opentelemetry/exporter-trace-otlp-http:^0.220.0|@opentelemetry/resources:^2.9.0|@opentelemetry/sdk-metrics:^2.9.0|@opentelemetry/sdk-trace-base:^2.9.0|@opentelemetry/semantic-conventions:^1.43.0|@react-email/render:^2.1.0|@scalar/api-reference:^1.63.0|@sentry/bun:^10.67.0|@sinclair/typebox:^0.34.52|@standard-schema/spec:^1.1.0|@upstash/ratelimit:^2.0.8
 N|dev|@biomejs/biome:^2.5.5|@hey-api/openapi-ts:^0.99.0|@types/bun:^1.3.14|@types/set-cookie-parser:^2.4.10|@vitest/ui:^4.1.10|expect-type:^1.4.0|oxlint:^1.74.0|tinybench:^6.0.2|typescript:^7.0.2|vitest:^4.1.10
-S|f=55 n=261 c=16 t=121 e=0
+S|f=58 n=260 c=16 t=118 e=0
 
 G|
 builder.ts>src/compiler/index.ts
@@ -32,193 +32,259 @@ src/core/plugins/compression.ts>src/core/plugin.ts
 src/core/plugins/cors.ts>src/core/context.ts,src/core/plugin.ts
 src/core/plugins/logger.ts>src/core/context.ts,src/core/plugin.ts
 src/core/plugins/ratelimit.ts>src/core/context.ts,src/core/lru.ts,src/core/plugin.ts
-src/core/plugins/security.ts>src/core/plugin.ts
+src/core/plugins/security.ts>src/core/context.ts,src/core/plugin.ts
 src/core/schema.ts>src/core/errors.ts,src/core/types.ts
 src/core/types.ts>src/shared/context-usage.ts
 src/core/ws.ts>src/core/context.ts,src/core/types.ts
 src/routes/files/[name].get.ts>src/core/http.ts,src/core/index.ts
 src/routes/health.get.ts>src/core/http.ts
 src/routes/index.get.ts>src/core/http.ts
+src/routes/openapi.json.get.ts>src/core/http.ts
 src/routes/products/[id].get.ts>src/core/http.ts
 src/routes/products/add.post.ts>src/core/http.ts
 src/routes/upload.post.ts>src/core/http.ts
 
->scripts/apply-flux-patches.mjs
-i:node:fs|../../shared/context-usage
-f:replaceInFile(file, search, replacement, options = {})
+>scripts/benchmark.ts
+f:worker()|a
 ---
-   1| |import { readFileSync, writeFileSync, existsSync } from "node:fs";
-   3|▼|function replaceInFile(file, search, replacement, options = {}){
-   4| |  if (!existsSync(file)) {
-   5| |    console.warn(`Skip missing file: ${file}`);
-   6| |    return;
-   7| |  }
-   9| |  let content = readFileSync(file, "utf8");
-  11| |  if (options.regex) {
-  12| |    if (!search.test(content)) {
-  13| |      console.warn(`Pattern not found in ${file}`);
-  14| |      return;
-  15| |    }
-  17| |    content = content.replace(search, replacement);
-  18| |  } else {
-  19| |    if (!content.includes(search)) {
-  20| |      console.warn(`Text not found in ${file}`);
-  21| |      return;
-  22| |    }
-  24| |    content = content.replace(search, replacement);
-  25| |  }
-  27| |  writeFileSync(file, content);
-  28| |  console.log(`Patched ${file}`);
-  29| |}
-  31| |// ---------------------------------------------------------------------------
-  32| |// Patch AST usage detection
-  33| |// ---------------------------------------------------------------------------
-  35| |replaceInFile(
-  36| |  "src/compiler/utils/ast.ts",
-  37| |  /(import type \{[\s\S]*?\} from "\.\.\/types";)/,
-  38| |  `$1
-  39| |import { EMPTY_USAGE } from "../../shared/context-usage";`,
-  40| |  { regex: true }
-  41| |);
-  43| |replaceInFile(
-  44| |  "src/compiler/utils/ast.ts",
-  45| |  /const CONTEXT_PROPS = new Set\(\[[\s\S]*?\]\);/,
-  46| |  `const CONTEXT_PROPS = new Set([
-  47| |  "body", "params", "query", "file", "files", "headers", "state", "req", "url",
-  48| |  "cookie", "server", "set", "sendFile", "proxy", "forward", "cache",
-  49| |]);`,
-  50| |  { regex: true }
-  51| |);
-  53| |replaceInFile(
-  54| |  "src/compiler/utils/ast.ts",
-  55| |  /function detectUsage\(bodyNode: any, mapping: Map<string, string>\): ContextUsage \{[\s\S]*?\n\}\n/,
-  56| |  `function detectUsage(bodyNode: any, mapping: Map<string, string>): ContextUsage {
-  57| |  const usage: ContextUsage = { ...EMPTY_USAGE };
-  59| |  walk(bodyNode, (n) => {
-  60| |    if (n.type === "MemberExpression" && !n.computed && n.object?.type === "Identifier") {
-  61| |      const root = mapping.get(n.object.name);
-  63| |      if (root === "__root__") {
-  64| |        const prop = n.property.name;
-  66| |        if (prop === "body" || prop === "files") usage.body = true;
-  67| |        if (prop === "file") usage.file = true;
-  68| |        if (prop === "params") usage.params = true;
-  69| |        if (prop === "query") usage.query = true;
-  70| |        if (prop === "headers") usage.headers = true;
-  71| |        if (prop === "state" || prop === "getState" || prop === "setState") usage.state = true;
-  72| |        if (prop === "req") usage.req = true;
-  73| |        if (prop === "url" || prop === "path" || prop === "method") usage.url = true;
-  75| |        if (prop === "cookie") usage.cookie = true;
-  76| |        if (prop === "server") usage.server = true;
-  77| |        if (prop === "set") usage.set = true;
-  79| |        if (prop === "json") usage.json = true;
-  80| |        if (prop === "text") usage.text = true;
-  81| |        if (prop === "html") usage.html = true;
-  82| |        if (prop === "redirect") usage.redirect = true;
-  83| |        if (prop === "stream") usage.stream = true;
-  84| |        if (prop === "empty") usage.empty = true;
-  85| |        if (prop === "status") usage.status = true;
-  87| |        if (prop === "sendFile") usage.sendFile = true;
-  88| |        if (prop === "proxy") usage.proxy = true;
-  89| |        if (prop === "forward") usage.forward = true;
-  90| |        if (prop === "cache") usage.cache = true;
-  91| |      }
-  92| |    }
-  94| |    if (n.type === "Identifier" && mapping.has(n.name)) {
-  95| |      const prop = mapping.get(n.name)!;
-  97| |      if (prop === "body" || prop === "files") usage.body = true;
-  98| |      if (prop === "file") usage.file = true;
-  99| |      if (prop === "params") usage.params = true;
- 100| |      if (prop === "query") usage.query = true;
- 101| |      if (prop === "headers") usage.headers = true;
- 102| |      if (prop === "state") usage.state = true;
- 103| |      if (prop === "req") usage.req = true;
- 104| |      if (prop === "url") usage.url = true;
- 106| |      if (prop === "cookie") usage.cookie = true;
- 107| |      if (prop === "server") usage.server = true;
- 108| |      if (prop === "set") usage.set = true;
- 110| |      if (prop === "sendFile") usage.sendFile = true;
- 111| |      if (prop === "proxy") usage.proxy = true;
- 112| |      if (prop === "forward") usage.forward = true;
- 113| |      if (prop === "cache") usage.cache = true;
- 114| |    }
- 115| |  });
- 117| |  return usage;
- 118| |}
- 119| |`,
- 120| |  { regex: true }
- 121| |);
- 123| |// ---------------------------------------------------------------------------
- 124| |// Patch analysis response inference + route config metadata
- 125| |// ---------------------------------------------------------------------------
- 127| |replaceInFile(
- 128| |  "src/compiler/phases/analysis.ts",
- 129| |  /const responseType = usage\.json[\s\S]*?: inferredResponseType;/,
- 130| |  `const responseType = usage.json
- 131| |    ? "json"
- 132| |    : usage.text
- 133| |      ? "text"
- 134| |      : usage.html
- 135| |        ? "html"
- 136| |        : usage.stream
- 137| |          ? "stream"
- 138| |          : inferredResponseType;`,
- 139| |  { regex: true }
- 140| |);
- 142| |replaceInFile(
- 143| |  "src/compiler/phases/analysis.ts",
- 144| |  `...(cache !== undefined ? { cache } : {}),`,
- 145| |  `...(cache !== undefined ? { cache } : {}),
- 146| |    ...(astParsed.config !== undefined ? { config: astParsed.config } : {}),`
- 147| |);
- 149| |// ---------------------------------------------------------------------------
- 150| |// Patch body limits
- 151| |// ---------------------------------------------------------------------------
- 153| |replaceInFile(
- 154| |  "src/core/body.ts",
- 155| |  /body\.arrayBuffer = \(\) =>\s*use<ArrayBuffer>\([\s\S]*?limits\.maxTextBytes\s*\);/,
- 156| |  `body.arrayBuffer = () =>
- 157| |    use<ArrayBuffer>(
- 158| |      "arrayBuffer",
- 159| |      async () => {
- 160| |        try {
- 161| |          return await req.arrayBuffer();
- 162| |        } catch {
- 163| |          throw new BodyParseError("Invalid binary body", 400);
- 164| |        }
- 165| |      },
- 166| |      limits.maxFileBytes
- 167| |    );`,
- 168| |  { regex: true }
- 169| |);
- 171| |replaceInFile(
- 172| |  "src/core/body.ts",
- 173| |  /body\.blob = \(\) =>\s*use<Blob>\([\s\S]*?limits\.maxTextBytes\s*\);/,
- 174| |  `body.blob = () =>
- 175| |    use<Blob>(
- 176| |      "blob",
- 177| |      async () => {
- 178| |        try {
- 179| |          return await req.blob();
- 180| |        } catch {
- 181| |          throw new BodyParseError("Invalid blob body", 400);
- 182| |        }
- 183| |      },
- 184| |      limits.maxFileBytes
- 185| |    );`,
- 186| |  { regex: true }
- 187| |);
- 189| |// ---------------------------------------------------------------------------
- 190| |// Patch async hook detection
- 191| |// ---------------------------------------------------------------------------
- 193| |replaceInFile(
- 194| |  "src/core/hooks.ts",
- 195| |  /const ASYNC_RE = \/async\|await\|\\\.then\\\(\|Promise\/;[\s\S]*?ASYNC_RE\.test\(fn\.toString\(\)\.slice\(0, 200\)\);/,
- 196| |  `export const isAsyncFn = (fn: Function): boolean =>
- 197| |  fn.constructor.name === "AsyncFunction" ||
- 198| |  fn.constructor.name === "AsyncGeneratorFunction";`,
- 199| |  { regex: true }
- 200| |);
- 202| |console.log("Patch application complete.");
+   1| |#!/usr/bin/env bun
+   3| |const url = process.argv[2] || "http://localhost:3000/health";
+   4| |const durationMs = Number(process.env.DURATION ?? 10) * 1000;
+   5| |const concurrency = Number(process.env.CONCURRENCY ?? 100);
+   7| |let count = 0;
+   8| |let errors = 0;
+  10| |const latencies: number[] = [];
+  12|▼|async function worker() {
+  13| |  const end = Date.now() + durationMs;
+  15| |  while (Date.now() < end) {
+  16| |    const start = performance.now();
+  18| |    try {
+  19| |      const res = await fetch(url);
+  20| |      await res.arrayBuffer();
+  22| |      count++;
+  23| |      latencies.push(performance.now() - start);
+  24| |    } catch {
+  25| |      errors++;
+  26| |    }
+  27| |  }
+  28| |}
+  30| |console.log(`Benchmarking ${url}`);
+  31| |console.log(`concurrency=${concurrency} duration=${durationMs / 1000}s`);
+  33| |await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  35| |latencies.sort((a, b) => a - b);
+  37| |const avg =
+  38| |  latencies.length > 0
+  39| |    ? latencies.reduce((a, b) => a + b, 0) / latencies.length
+  40| |    : 0;
+  42| |const p50 = latencies[Math.floor(latencies.length * 0.5)] ?? 0;
+  43| |const p95 = latencies[Math.floor(latencies.length * 0.95)] ?? 0;
+  44| |const p99 = latencies[Math.floor(latencies.length * 0.99)] ?? 0;
+  46| |console.log("\nSummary:");
+  47| |console.log(`requests: ${count}`);
+  48| |console.log(`errors: ${errors}`);
+  49| |console.log(`requests/sec: ${(count / (durationMs / 1000)).toFixed(2)}`);
+  50| |console.log(`latency avg: ${avg.toFixed(2)}ms`);
+  51| |console.log(`latency p50: ${p50.toFixed(2)}ms`);
+  52| |console.log(`latency p95: ${p95.toFixed(2)}ms`);
+  53| |console.log(`latency p99: ${p99.toFixed(2)}ms`);
+---
+
+>scripts/generate-openapi-client.ts
+i:node:fs|node:path|node:url
+f:parseRouteFile(file: string)
+f:toOpenApiPath(path: string)
+f:isJsonSchema(value: unknown)
+f:schemaToParameters(schema: any, location: "path" | "query")
+f:pickResponseSchema(responseSchema: any)
+f:loadRouteSchema(absPath: string)|a
+f:main()|a
+---
+   1| |#!/usr/bin/env bun
+   2| |import { mkdirSync } from "node:fs";
+   3| |import { basename, dirname, extname, join } from "node:path";
+   4| |import { pathToFileURL } from "node:url";
+   6| |const ROUTES_DIR = process.env.ROUTES_DIR || "./src/routes";
+   7| |const OPENAPI_OUT = process.env.OPENAPI_OUT || "./dist/openapi.json";
+   8| |const CLIENT_OUT = process.env.CLIENT_OUT || "./src/client";
+  10| |const HTTP_METHODS = new Set([
+  11| |  "GET",
+  12| |  "POST",
+  13| |  "PUT",
+  14| |  "PATCH",
+  15| |  "DELETE",
+  16| |  "HEAD",
+  17| |  "OPTIONS",
+  18| |  "ALL",
+  19| |]);
+  21|▼|function parseRouteFile(file: string) {
+  22| |  const ext = extname(file);
+  23| |  const name = basename(file, ext);
+  24| |  const parts = name.split(".");
+  26| |  let method = "GET";
+  27| |  let routeName = name;
+  29| |  const last = parts.at(-1);
+  31| |  if (last && HTTP_METHODS.has(last.toUpperCase())) {
+  32| |    method = last.toUpperCase();
+  33| |    routeName = parts.slice(0, -1).join(".");
+  34| |  }
+  36| |  const dir = dirname(file);
+  38| |  let routePath = `/${join(dir, routeName).replace(/\\/g, "/")}`;
+  40| |  if (routePath.endsWith("/index")) {
+  41| |    routePath = routePath.slice(0, -5) || "/";
+  42| |  }
+  44| |  routePath = routePath
+  45| |    .replace(/\[(\.\.\.[^\]]+)\]/g, (_, raw) => `*${raw.slice(3)}`)
+  46| |    .replace(/\[([^\]]+)\]/g, (_, p) => `:${p}`);
+  48| |  return {
+  49| |    method,
+  50| |    path: routePath,
+  51| |  };
+  52| |}
+  54|▼|function toOpenApiPath(path: string) {
+  55| |  return path
+  56| |    .replace(/:([A-Za-z0-9_]+)/g, "{$1}")
+  57| |    .replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
+  58| |}
+  60|▼|function isJsonSchema(value: unknown): boolean {
+  61| |  return (
+  62| |    typeof value === "object" &&
+  63| |    value !== null &&
+  64| |    !("~standard" in value)
+  65| |  );
+  66| |}
+  68|▼|function schemaToParameters(schema: any, location: "path" | "query") {
+  69| |  if (!isJsonSchema(schema) || !schema.properties) {
+  70| |    return [];
+  71| |  }
+  73| |  const required = new Set<string>(schema.required ?? []);
+  75| |  return Object.entries(schema.properties).map(([name, propSchema]) => ({
+  76| |    name,
+  77| |    in: location,
+  78| |    required: location === "path" ? true : required.has(name),
+  79| |    schema: propSchema,
+  80| |  }));
+  81| |}
+  83|▼|function pickResponseSchema(responseSchema: any) {
+  84| |  if (!responseSchema) return undefined;
+  86| |  if (isJsonSchema(responseSchema)) {
+  87| |    if (
+  88| |      responseSchema.type ||
+  89| |      responseSchema.properties ||
+  90| |      responseSchema.$ref
+  91| |    ) {
+  92| |      return responseSchema;
+  93| |    }
+  94| |  }
+  96| |  return (
+  97| |    responseSchema[200] ??
+  98| |    responseSchema["200"] ??
+  99| |    Object.values(responseSchema)[0]
+ 100| |  );
+ 101| |}
+ 103|▼|async function loadRouteSchema(absPath: string) {
+ 104| |  try {
+ 105| |    const mod: any = await import(pathToFileURL(absPath).href);
+ 107| |    return mod?.schema ?? mod?.default?.schema ?? undefined;
+ 108|!|  } catch (err) {
+ 109| |    console.warn(`[openapi] Skipped ${absPath}: ${(err as Error).message}`);
+ 110| |    return undefined;
+ 111| |  }
+ 112| |}
+ 114|▼|async function main() {
+ 115| |  const glob = new Bun.Glob("**/*.{ts,tsx,js,mjs,jsx}");
+ 117| |  const files: string[] = [];
+ 119| |  for await (const file of glob.scan({
+ 120| |    cwd: ROUTES_DIR,
+ 121| |    onlyFiles: true,
+ 122| |  })) {
+ 123| |    if (file.endsWith(".d.ts")) continue;
+ 124| |    files.push(file);
+ 125| |  }
+ 127| |  const paths: Record<string, Record<string, unknown>> = {};
+ 129| |  for (const file of files) {
+ 130| |    const parsed = parseRouteFile(file);
+ 132| |    if (!parsed || parsed.method === "ALL") continue;
+ 134| |    const abs = join(process.cwd(), ROUTES_DIR, file);
+ 135| |    const schema = await loadRouteSchema(abs);
+ 137| |    const openApiPath = toOpenApiPath(parsed.path);
+ 138| |    const method = parsed.method.toLowerCase();
+ 140| |    const operation: Record<string, unknown> = {
+ 141| |      operationId: `${method}_${openApiPath.replace(/[{}\/]/g, "_")}`,
+ 142| |      responses: {
+ 143| |        200: {
+ 144| |          description: "Successful response",
+ 145| |        },
+ 146| |      },
+ 147| |    };
+ 149| |    const parameters: unknown[] = [];
+ 151| |    if (schema?.params) {
+ 152| |      parameters.push(...schemaToParameters(schema.params, "path"));
+ 153| |    }
+ 155| |    if (schema?.query) {
+ 156| |      parameters.push(...schemaToParameters(schema.query, "query"));
+ 157| |    }
+ 159| |    if (parameters.length) {
+ 160| |      operation.parameters = parameters;
+ 161| |    }
+ 163| |    if (schema?.body && isJsonSchema(schema.body)) {
+ 164| |      operation.requestBody = {
+ 165| |        required: true,
+ 166| |        content: {
+ 167| |          "application/json": {
+ 168| |            schema: schema.body,
+ 169| |          },
+ 170| |        },
+ 171| |      };
+ 172| |    }
+ 174| |    const responseSchema = pickResponseSchema(schema?.response);
+ 176| |    if (responseSchema && isJsonSchema(responseSchema)) {
+ 177| |      operation.responses = {
+ 178| |        200: {
+ 179| |          description: "Successful response",
+ 180| |          content: {
+ 181| |            "application/json": {
+ 182| |              schema: responseSchema,
+ 183| |            },
+ 184| |          },
+ 185| |        },
+ 186| |      };
+ 187| |    }
+ 189| |    paths[openApiPath] ??= {};
+ 190| |    paths[openApiPath][method] = operation;
+ 191| |  }
+ 193| |  const openapi = {
+ 194| |    openapi: "3.1.0",
+ 195| |    info: {
+ 196| |      title: "Flux API",
+ 197| |      version: "1.0.0",
+ 198| |    },
+ 199| |    paths,
+ 200| |  };
+ 202| |  mkdirSync(dirname(OPENAPI_OUT), { recursive: true });
+ 204| |  await Bun.write(OPENAPI_OUT, JSON.stringify(openapi, null, 2));
+ 206| |  console.log(`[openapi] Wrote ${OPENAPI_OUT}`);
+ 208| |  const result = Bun.spawnSync(
+ 209| |    [
+ 210| |      "bunx",
+ 211| |      "@hey-api/openapi-ts@latest",
+ 212| |      "--input",
+ 213| |      OPENAPI_OUT,
+ 214| |      "--output",
+ 215| |      CLIENT_OUT,
+ 216| |      "--client",
+ 217| |      "@hey-api/client-fetch",
+ 218| |    ],
+ 219| |    {
+ 220| |      stdio: ["inherit", "inherit", "inherit"],
+ 221| |    }
+ 222| |  );
+ 224| |  if (result.exitCode !== 0) {
+ 225| |    console.warn("[heyapi] Client generation failed. Check @hey-api/openapi-ts install.");
+ 226| |  } else {
+ 227| |    console.log(`[heyapi] Generated client in ${CLIENT_OUT}`);
+ 228| |  }
+ 229| |}
+ 231| |await main();
 ---
 
 >scripts/update-package.mjs
@@ -446,23 +512,22 @@ f:cloneSchema(value: unknown):any
    1| |/**
    2| | * Build-time route schema loader.
    3| | *
-   4| | * Phase 2:
-   5| | * - dynamically imports route modules
-   6| | * - extracts exported schema
-   7| | * - caches module loads
-   8| | */
-  10| |import { pathToFileURL } from "node:url";
-  12| |const moduleCache = new Map<string, unknown>();
-  14|▼|export const loadRouteModule = async (
-  15| |  absPath: string
-  16| |): Promise<any | undefined> => {
-  17| |  if (moduleCache.has(absPath)) {
-  18| |    return moduleCache.get(absPath);
-  19| |  }
-  21| |  try {
-  22| |    const url = pathToFileURL(absPath).href;
-  23| |    const mod: any = await import(url);
-  25| |    const handler = mod?.default;
+   4| | * Bun 1.4 edition:
+   5| | * - dynamic import remains native Bun TS import
+   6| | * - structuredClone for schema cloning
+   7| | */
+   9| |import { pathToFileURL } from "node:url";
+  11| |const moduleCache = new Map<string, unknown>();
+  13|▼|export const loadRouteModule = async (
+  14| |  absPath: string
+  15| |): Promise<any | undefined> => {
+  16| |  if (moduleCache.has(absPath)) {
+  17| |    return moduleCache.get(absPath);
+  18| |  }
+  20| |  try {
+  21| |    const url = pathToFileURL(absPath).href;
+  22| |    const mod: any = await import(url);
+  24| |    const handler = mod?.default;
   26| |    const inlineSchema =
   27| |      handler != null && typeof handler === "object" && "schema" in handler
   28| |        ? handler.schema
@@ -472,22 +537,26 @@ f:cloneSchema(value: unknown):any
   33| |    const schema = mod?.schema ?? inlineSchema;
   34| |    const normalized = schema === undefined ? mod : { ...mod, schema };
   36| |    moduleCache.set(absPath, normalized);
-  37| |    return normalized;
-  38| |  } catch {
-  39| |    moduleCache.set(absPath, undefined);
-  40| |    return undefined;
-  41| |  }
-  42| |};
-  44|▼|export const isStandardSchema = (value: unknown): boolean => {
-  45| |  return (
-  46| |    typeof value === "object" &&
-  47| |    value !== null &&
-  48| |    "~standard" in value
-  49| |  );
-  50| |};
-  52|▼|export const cloneSchema = (value: unknown): any => {
-  53| |  return JSON.parse(JSON.stringify(value));
-  54| |};
+  38| |    return normalized;
+  39| |  } catch {
+  40| |    moduleCache.set(absPath, undefined);
+  41| |    return undefined;
+  42| |  }
+  43| |};
+  45|▼|export const isStandardSchema = (value: unknown): boolean => {
+  46| |  return (
+  47| |    typeof value === "object" &&
+  48| |    value !== null &&
+  49| |    "~standard" in value
+  50| |  );
+  51| |};
+  53|▼|export const cloneSchema = (value: unknown): any => {
+  54| |  try {
+  55| |    return structuredClone(value);
+  56| |  } catch {
+  57| |    return JSON.parse(JSON.stringify(value));
+  58| |  }
+  59| |};
 ---
 
 >src/compiler/utils/hash.ts
@@ -1195,7 +1264,7 @@ f:createEntry(
   bytes: number,
   ttlMs: number,
   staleTtlMs: number,
-  now: number,
+  now: number
 ):Entry<V>
 c:LRUCache
 t:LRUCacheOptions
@@ -1205,12 +1274,11 @@ t:WriteOptions
    1| |/**
    2| | * Production LRU cache backed by lru-cache.
    3| | *
-   4| | * Design:
-   5| | * - Strict key constraint
-   6| | * - Pure entry factory
-   7| | * - No explicit undefined option properties
-   8| | * - Single-flight getOrSet
-   9| | */
+   4| | * Bun 1.4 edition:
+   5| | * - correct fresh/stale/expire semantics
+   6| | * - single-flight getOrSet
+   7| | * - stale-while-revalidate background revalidation
+   8| | */
   10| |import { LRUCache as LRU } from "lru-cache";
   12|▼|export interface LRUCacheOptions<K extends {}, V> {
   13| |  max?: number;
@@ -1223,134 +1291,141 @@ t:WriteOptions
   21|▼|interface Entry<V> {
   22| |  value: V;
   23| |  bytes: number;
-  24| |  expiresAt: number;
-  25| |  staleAt: number;
-  26| |}
-  28|▼|interface WriteOptions {
-  29| |  ttlMs?: number;
-  30| |  staleTtlMs?: number;
-  31| |  bytes?: number;
-  32| |}
-  34| |/**
-  35| | * Create a cache entry with resolved expiry metadata.
-  36| | */
-  37|▼|const createEntry = <V>(
-  38| |  value: V,
-  39| |  bytes: number,
-  40| |  ttlMs: number,
-  41| |  staleTtlMs: number,
-  42| |  now: number,
-  43| |): Entry<V> => {
-  44| |  const expiresAt = ttlMs > 0 ? now + ttlMs : 0;
-  45| |  const staleAt = staleTtlMs > 0 ? now + staleTtlMs : expiresAt;
-  47| |  return {
-  48| |    value,
-  49| |    bytes,
-  50| |    expiresAt,
-  51| |    staleAt,
-  52| |  };
-  53| |};
-  55|▼|export class LRUCache<K extends {}, V> {
-  56| |  private lru: LRU<K, Entry<V>>;
-  57| |  private inflight = new Map<K, Promise<V>>();
-  59| |  constructor(private readonly opts: LRUCacheOptions<K, V> = {}) {
-  60| |    this.lru = new LRU<K, Entry<V>>({
-  61| |      max: opts.max ?? 1000,
-  62| |      sizeCalculation: (entry) => Math.max(1, entry.bytes),
-  63| |      dispose: (entry, key) => {
-  64| |        opts.onEvict?.(key, entry.value);
-  65| |      },
-  66| |      ...(opts.maxBytes !== undefined ? { maxSize: opts.maxBytes } : {}),
-  67| |    });
-  68| |  }
-  70| |  get size(): number {
-  71| |    return this.lru.size;
-  72| |  }
-  74| |  get byteSize(): number {
-  75| |    return this.lru.calculatedSize;
-  76| |  }
-  78| |  private now(): number {
-  79| |    return Date.now();
-  80| |  }
-  82| |  private alive(entry: Entry<V>, now: number): boolean {
-  83| |    return entry.expiresAt === 0 || entry.expiresAt > now;
-  84| |  }
-  86| |  private fresh(entry: Entry<V>, now: number): boolean {
-  87| |    return entry.staleAt === 0 || entry.staleAt > now;
-  88| |  }
-  90| |  get(key: K, options: { allowStale?: boolean } = {}): V | undefined {
-  91| |    const entry = this.lru.get(key);
-  92| |    if (!entry) return undefined;
-  94| |    const now = this.now();
-  96| |    if (!this.alive(entry, now)) {
-  97| |      this.lru.delete(key);
-  98| |      return undefined;
-  99| |    }
- 101| |    if (!options.allowStale && !this.fresh(entry, now)) {
- 102| |      return undefined;
- 103| |    }
- 105| |    return entry.value;
- 106| |  }
- 108| |  set(key: K, value: V, options: WriteOptions = {}): this {
- 109| |    const ttlMs = options.ttlMs ?? this.opts.ttlMs ?? 0;
- 110| |    const staleTtlMs = options.staleTtlMs ?? this.opts.staleTtlMs ?? 0;
- 111| |    const bytes = options.bytes ?? this.opts.sizeOf?.(value, key) ?? 0;
- 113| |    const maxBytes = this.opts.maxBytes ?? 0;
- 114| |    if (maxBytes > 0 && bytes > maxBytes) return this;
- 116| |    const entry = createEntry(value, bytes, ttlMs, staleTtlMs, this.now());
- 117| |    const lruTtl = Math.max(ttlMs, staleTtlMs);
- 119| |    if (lruTtl > 0) {
- 120| |      this.lru.set(key, entry, { ttl: lruTtl });
- 121| |    } else {
- 122| |      this.lru.set(key, entry);
- 123| |    }
- 125| |    return this;
- 126| |  }
- 128| |  delete(key: K): boolean {
- 129| |    return this.lru.delete(key);
- 130| |  }
- 132| |  clear(): void {
- 133| |    this.lru.clear();
- 134| |    this.inflight.clear();
- 135| |  }
- 137| |  async getOrSet(
- 138| |    key: K,
- 139| |    factory: () => Promise<V> | V,
- 140| |    options: WriteOptions = {},
- 141| |  ): Promise<V> {
- 142| |    const now = this.now();
- 143| |    const entry = this.lru.get(key);
- 145| |    if (entry && this.alive(entry, now)) {
- 146| |      if (!this.fresh(entry, now) && !this.inflight.has(key)) {
- 147| |        const revalidate = Promise.resolve()
- 148| |          .then(factory)
- 149| |          .then((value) => {
- 150| |            this.set(key, value, options);
- 151| |            return value;
- 152| |          })
- 153| |          .catch(() => entry.value)
- 154| |          .finally(() => {
- 155| |            this.inflight.delete(key);
- 156| |          });
- 158| |        this.inflight.set(key, revalidate);
- 159| |      }
- 161| |      return entry.value;
- 162| |    }
- 164| |    const pending = this.inflight.get(key);
- 165| |    if (pending) return pending;
- 167| |    const promise = Promise.resolve()
- 168| |      .then(factory)
- 169| |      .then((value) => {
- 170| |        this.set(key, value, options);
- 171| |        return value;
- 172| |      })
- 173| |      .finally(() => {
- 174| |        this.inflight.delete(key);
- 175| |      });
- 177| |    this.inflight.set(key, promise);
- 178| |    return promise;
- 179| |  }
- 180| |}
+  24| |  freshUntil: number;
+  25| |  staleUntil: number;
+  26| |  expireUntil: number;
+  27| |}
+  29|▼|interface WriteOptions {
+  30| |  ttlMs?: number;
+  31| |  staleTtlMs?: number;
+  32| |  bytes?: number;
+  33| |}
+  35|▼|const createEntry = <V>(
+  36| |  value: V,
+  37| |  bytes: number,
+  38| |  ttlMs: number,
+  39| |  staleTtlMs: number,
+  40| |  now: number
+  41| |): Entry<V> => {
+  42| |  const freshTtl = ttlMs > 0 ? ttlMs : 0;
+  44| |  const staleTtl =
+  45| |    staleTtlMs > 0 ? Math.max(staleTtlMs, ttlMs) : freshTtl;
+  47| |  const freshUntil = freshTtl > 0 ? now + freshTtl : 0;
+  48| |  const staleUntil = staleTtl > 0 ? now + staleTtl : freshUntil;
+  49| |  const expireUntil = staleUntil || freshUntil;
+  51| |  return {
+  52| |    value,
+  53| |    bytes,
+  54| |    freshUntil,
+  55| |    staleUntil,
+  56| |    expireUntil,
+  57| |  };
+  58| |};
+  60|▼|export class LRUCache<K extends {}, V> {
+  61| |  private lru: LRU<K, Entry<V>>;
+  62| |  private inflight = new Map<K, Promise<V>>();
+  64| |  constructor(private readonly opts: LRUCacheOptions<K, V> = {}) {
+  65| |    this.lru = new LRU<K, Entry<V>>({
+  66| |      max: opts.max ?? 1000,
+  67| |      sizeCalculation: (entry) => Math.max(1, entry.bytes),
+  68| |      dispose: (entry, key) => {
+  69| |        opts.onEvict?.(key, entry.value);
+  70| |      },
+  71| |      ...(opts.maxBytes !== undefined ? { maxSize: opts.maxBytes } : {}),
+  72| |    });
+  73| |  }
+  75| |  get size(): number {
+  76| |    return this.lru.size;
+  77| |  }
+  79| |  get byteSize(): number {
+  80| |    return this.lru.calculatedSize;
+  81| |  }
+  83| |  private now(): number {
+  84| |    return Date.now();
+  85| |  }
+  87| |  private alive(entry: Entry<V>, now: number): boolean {
+  88| |    return entry.expireUntil === 0 || entry.expireUntil > now;
+  89| |  }
+  91| |  private fresh(entry: Entry<V>, now: number): boolean {
+  92| |    return entry.freshUntil === 0 || entry.freshUntil > now;
+  93| |  }
+  95| |  get(key: K, options: { allowStale?: boolean } = {}): V | undefined {
+  96| |    const entry = this.lru.get(key);
+  97| |    if (!entry) return undefined;
+  99| |    const now = this.now();
+ 101| |    if (!this.alive(entry, now)) {
+ 102| |      this.lru.delete(key);
+ 103| |      return undefined;
+ 104| |    }
+ 106| |    if (!options.allowStale && !this.fresh(entry, now)) {
+ 107| |      return undefined;
+ 108| |    }
+ 110| |    return entry.value;
+ 111| |  }
+ 113| |  set(key: K, value: V, options: WriteOptions = {}): this {
+ 114| |    const ttlMs = options.ttlMs ?? this.opts.ttlMs ?? 0;
+ 115| |    const staleTtlMs = options.staleTtlMs ?? this.opts.staleTtlMs ?? 0;
+ 116| |    const bytes = options.bytes ?? this.opts.sizeOf?.(value, key) ?? 0;
+ 118| |    const maxBytes = this.opts.maxBytes ?? 0;
+ 119| |    if (maxBytes > 0 && bytes > maxBytes) return this;
+ 121| |    const now = this.now();
+ 122| |    const entry = createEntry(value, bytes, ttlMs, staleTtlMs, now);
+ 124| |    const lruTtl = entry.expireUntil > 0 ? entry.expireUntil - now : 0;
+ 126| |    if (lruTtl > 0) {
+ 127| |      this.lru.set(key, entry, { ttl: lruTtl });
+ 128| |    } else {
+ 129| |      this.lru.set(key, entry);
+ 130| |    }
+ 132| |    return this;
+ 133| |  }
+ 135| |  delete(key: K): boolean {
+ 136| |    return this.lru.delete(key);
+ 137| |  }
+ 139| |  clear(): void {
+ 140| |    this.lru.clear();
+ 141| |    this.inflight.clear();
+ 142| |  }
+ 144| |  async getOrSet(
+ 145| |    key: K,
+ 146| |    factory: () => Promise<V> | V,
+ 147| |    options: WriteOptions = {}
+ 148| |  ): Promise<V> {
+ 149| |    const now = this.now();
+ 150| |    const entry = this.lru.get(key);
+ 152| |    if (entry && this.alive(entry, now)) {
+ 153| |      if (this.fresh(entry, now)) {
+ 154| |        return entry.value;
+ 155| |      }
+ 157| |      if (!this.inflight.has(key)) {
+ 158| |        const revalidate = Promise.resolve()
+ 159| |          .then(factory)
+ 160| |          .then((value) => {
+ 161| |            this.set(key, value, options);
+ 162| |            return value;
+ 163| |          })
+ 164| |          .catch(() => entry.value)
+ 165| |          .finally(() => {
+ 166| |            this.inflight.delete(key);
+ 167| |          });
+ 169| |        this.inflight.set(key, revalidate);
+ 170| |      }
+ 172| |      return entry.value;
+ 173| |    }
+ 175| |    const pending = this.inflight.get(key);
+ 176| |    if (pending) return pending;
+ 178| |    const promise = Promise.resolve()
+ 179| |      .then(factory)
+ 180| |      .then((value) => {
+ 181| |        this.set(key, value, options);
+ 182| |        return value;
+ 183| |      })
+ 184| |      .finally(() => {
+ 185| |        this.inflight.delete(key);
+ 186| |      });
+ 188| |    this.inflight.set(key, promise);
+ 190| |    return promise;
+ 191| |  }
+ 192| |}
 ---
 
 >src/core/proxy.ts
@@ -1637,83 +1712,111 @@ t:TraceSpan
 t:TraceContext
 ---
    1| |/**
-   2| | * Distributed tracing helpers.
+   2| | * Distributed tracing helpers — Bun 1.4 edition.
    3| | *
-   4| | * Fixed:
-   5| | * - uses crypto.randomUUID()
-   6| | * - does not mutate response headers directly
-   7| | */
-   9|▼|export type TraceEvent =
-  10| |  | "request"
-  11| |  | "parse"
-  12| |  | "transform"
-  13| |  | "beforeHandle"
-  14| |  | "handle"
-  15| |  | "afterHandle"
-  16| |  | "mapResponse"
-  17| |  | "afterResponse"
-  18| |  | "error";
-  20|▼|export interface TraceSpan {
-  21| |  id: string;
-  22| |  name: string;
-  23| |  event: TraceEvent;
-  24| |  begin: number;
-  25| |  end?: number;
-  26| |  error?: Error | null;
-  27| |  attributes?: Record<string, unknown>;
-  28| |  children: TraceSpan[];
-  29| |}
-  31|▼|export interface TraceContext {
-  32| |  traceId: string;
-  33| |  spans: TraceSpan[];
-  34| |  startSpan(name: string, event: TraceEvent): TraceSpan;
-  35| |  endSpan(span: TraceSpan, error?: Error | null): void;
-  36| |}
-  38| |let traceCounter = 0;
-  40|▼|export const createTraceContext = (requestId: string): TraceContext => {
-  41| |  const spans: TraceSpan[] = [];
-  43| |  return {
-  44| |    traceId: requestId,
-  45| |    spans,
-  46| |    startSpan(name, event) {
-  47| |      const span: TraceSpan = {
-  48| |        id: `${requestId}-${++traceCounter}`,
-  49| |        name,
-  50| |        event,
-  51| |        begin: performance.now(),
-  52| |        children: [],
-  53| |      };
-  55| |      spans.push(span);
+   4| | * Uses Bun.randomUUIDv7 when available.
+   5| | */
+   7|▼|export type TraceEvent =
+   8| |  | "request"
+   9| |  | "parse"
+  10| |  | "transform"
+  11| |  | "beforeHandle"
+  12| |  | "handle"
+  13| |  | "afterHandle"
+  14| |  | "mapResponse"
+  15| |  | "afterResponse"
+  16| |  | "error";
+  18|▼|export interface TraceSpan {
+  19| |  id: string;
+  20| |  name: string;
+  21| |  event: TraceEvent;
+  22| |  begin: number;
+  23| |  end?: number;
+  24| |  error?: Error | null;
+  25| |  attributes?: Record<string, unknown>;
+  26| |  children: TraceSpan[];
+  27| |}
+  29|▼|export interface TraceContext {
+  30| |  traceId: string;
+  31| |  spans: TraceSpan[];
+  32| |  startSpan(name: string, event: TraceEvent): TraceSpan;
+  33| |  endSpan(span: TraceSpan, error?: Error | null): void;
+  34| |}
+  36| |let traceCounter = 0;
+  38|▼|export const createTraceContext = (requestId: string): TraceContext => {
+  39| |  const spans: TraceSpan[] = [];
+  41| |  return {
+  42| |    traceId: requestId,
+  43| |    spans,
+  45| |    startSpan(name, event) {
+  46| |      const span: TraceSpan = {
+  47| |        id: `${requestId}-${++traceCounter}`,
+  48| |        name,
+  49| |        event,
+  50| |        begin: performance.now(),
+  51| |        children: [],
+  52| |      };
+  54| |      spans.push(span);
   56| |      return span;
   57| |    },
-  58| |    endSpan(span, error = null) {
-  59| |      span.end = performance.now();
-  60| |      span.error = error;
-  61| |    },
-  62| |  };
-  63| |};
-  65| |export const startTrace = (req: Request): { traceId: string; start: number } => {
-  66| |  const traceId =
-  67| |    req.headers.get("x-trace-id") ||
-  68| |    req.headers.get("x-request-id") ||
-  69| |    crypto.randomUUID();
-  71| |  return { traceId, start: performance.now() };
-  72| |};
-  74|▼|export const finishTrace = (
-  75| |  _req: Request,
-  76| |  trace: { traceId: string; start: number },
-  77| |  response: Response
-  78| |): Response => {
-  79| |  const duration = performance.now() - trace.start;
-  81| |  const headers = new Headers(response.headers);
-  82| |  headers.set("x-trace-id", trace.traceId);
-  83| |  headers.set("x-response-time", duration.toFixed(2) + "ms");
-  85| |  return new Response(response.body, {
-  86| |    status: response.status,
-  87| |    statusText: response.statusText,
-  88| |    headers,
-  89| |  });
-  90| |};
+  59| |    endSpan(span, error = null) {
+  60| |      span.end = performance.now();
+  61| |      span.error = error;
+  62| |    },
+  63| |  };
+  64| |};
+  66| |export const startTrace = (req: Request): { traceId: string; start: number } => {
+  67| |  const bun: any = (globalThis as any).Bun;
+  69| |  const traceId =
+  70| |    req.headers.get("x-trace-id") ||
+  71| |    req.headers.get("x-request-id") ||
+  72| |    bun?.randomUUIDv7?.() ||
+  73| |    crypto.randomUUID();
+  75| |  return { traceId, start: performance.now() };
+  76| |};
+  78|▼|export const finishTrace = (
+  79| |  _req: Request,
+  80| |  trace: { traceId: string; start: number },
+  81| |  response: Response
+  82| |): Response => {
+  83| |  const duration = performance.now() - trace.start;
+  85| |  const headers = new Headers(response.headers);
+  86| |  headers.set("x-trace-id", trace.traceId);
+  87| |  headers.set("x-response-time", duration.toFixed(2) + "ms");
+  89| |  return new Response(response.body, {
+  90| |    status: response.status,
+  91| |    statusText: response.statusText,
+  92| |    headers,
+  93| |  });
+  94| |};
+---
+
+>src/routes/reference.get.ts
+---
+   1| |import { get } from "../core/http";
+   3| |export default get(() => {
+   4| |  const html = `<!doctype html>
+   5| |<html>
+   6| |  <head>
+   7| |    <title>Flux API Reference</title>
+   8| |    <meta charset="utf-8" />
+   9| |    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  10| |  </head>
+  11| |  <body>
+  12| |    <script
+  13| |      id="api-reference"
+  14| |      data-url="/openapi.json"
+  15| |    ></script>
+  16| |    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  17| |  </body>
+  18| |</html>`;
+  20| |  return new Response(html, {
+  21| |    headers: {
+  22| |      "content-type": "text/html; charset=utf-8",
+  23| |      "cache-control": "no-store",
+  24| |    },
+  25| |  });
+  26| |});
 ---
 
 >src/shared/context-usage.ts
@@ -3139,57 +3242,33 @@ f:writeArtifacts(
 ---
 
 >src/compiler/phases/codegen.ts
-i:path|${runtimeImport(|${runtimeImport(|${runtimeImport(
-        |${runtimeImport(|${runtimeImport(
+i:path
 l:../types|../logger
 e:generateServer|runCodeGen
 f:getConfig(opts: CompilerOptions):CodegenConfig
-f:normalizeImportPath(p: string):string
+f:toImportPath(absPath: string, opts: CompilerOptions):string
+f:runtimeImport(projectPath: string, opts: CompilerOptions):string
 f:handlerImportName(route: RouteDef):string
 f:methodHandlerName(route: RouteDef):string
 f:finalizeName(route: RouteDef):string
 f:constantBodyVar(route: RouteDef):string
 f:constantInitVar(route: RouteDef):string
 f:hookIdent(name: string):string
-f:hooksChainName(route: RouteDef):string
 f:cacheVar(route: RouteDef):string
 f:coreHandlerName(route: RouteDef, hasCache: boolean):string
 f:validatorImportName(route: RouteDef, kind: string):string
-f:validatorImportPath(route: RouteDef, kind: string):string
 f:serializerImportName(route: RouteDef):string
-f:serializerImportPath(route: RouteDef):string
-f:tryNormalizeConstant(route: RouteDef):string | null
-f:validHookNames(
-  route: RouteDef,
-  hooks: ReadonlyMap<string, HookDef>
-):string[]
 f:routeReplyFn(route: RouteDef):string
-f:needsFullContext(
-  route: RouteDef,
-  mod: ModuleInfo | undefined,
-  cfg: CodegenConfig,
-  hasHooks: boolean
-):boolean
-f:generateHookChain(info: RouteInfo):string
-f:generateFinalizer(info: RouteInfo):string
-f:generateCoreHandler(info: RouteInfo, cfg: CodegenConfig):string
-f:generateCacheWrapper(info: RouteInfo):string | null
-f:escapeRegex(value: string):string
-f:newTrieNode():TrieNode
-f:insertDynamicRoute(
-  root: TrieNode,
-  route: RouteDef,
-  handlerName: string
-):void
-f:emitTrieNode(node: TrieNode):string
+f:tryNormalizeConstant(route: RouteDef):string | null
+f:bunRoutePath(path: string):string
+f:wildcardNames(path: string):string[]
 f:generateServer(
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions
 ):string
-f:toImportPath(absPath: string):string
-f:runtimeImport(projectPath: string):string
+f:generateRouteCode(route: RouteDef):void
 f:runCodeGen(
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
@@ -3198,640 +3277,696 @@ f:runCodeGen(
   logger: Logger
 ):string
 t:CodegenConfig
-t:RouteInfo
-t:DynamicRouteInfo
-t:TrieNode
 ---
    1| |/**
-   2| | * Flux AOT Code Generator — Phase 2
+   2| | * Flux AOT Code Generator — Bun 1.4 native router edition.
    3| | *
-   4| | * Adds:
-   5| | * - precompiled validator wiring
-   6| | * - serializer wiring
-   7| | * - radix-style dynamic router
-   8| | * - compiled hook chains
-   9| | * - route-level cache emission
-  10| | */
-  12| |import { dirname, join, relative } from "path";
-  14| |import type {
-  15| |  RouteDef,
-  16| |  ModuleInfo,
-  17| |  CompilerOptions,
-  18| |  HookDef,
-  19| |} from "../types";
-  21| |import type { Logger } from "../logger";
-  23|▼|interface CodegenConfig {
-  24| |  target: "bun" | "node" | "deno";
-  25| |  tracing: boolean;
-  26| |  lifecycle: boolean;
-  27| |  serviceName: string;
-  28| |  exposeErrorDetails: boolean;
-  29| |  specializeContext: boolean;
-  30| |  reusePort: boolean;
-  31| |  router: string;
-  32| |  inlineHooks: boolean;
-  33| |  routeCache: boolean;
-  34| |}
-  36|▼|interface RouteInfo {
-  37| |  route: RouteDef;
-  38| |  mod?: ModuleInfo;
-  39| |  constantJson: string | null;
-  40| |  hookNames: string[];
-  41| |  hasHooks: boolean;
-  42| |  needsFull: boolean;
-  43| |  needsBody: boolean;
-  44| |  minimalBody: boolean;
-  45| |  minimalSendFile: boolean;
-  47| |  hasBodyValidator: boolean;
-  48| |  hasQueryValidator: boolean;
-  49| |  hasParamsValidator: boolean;
-  50| |  hasHeadersValidator: boolean;
-  52| |  hasSerializer: boolean;
-  53| |  cacheConfig?: {
-  54| |    ttlMs?: number;
-  55| |    staleTtlMs?: number;
-  56| |    vary?: string[];
-  57| |  };
-  58| |}
-  60|▼|interface DynamicRouteInfo {
-  61| |  method: string;
-  62| |  regexLiteral: string;
-  63| |  paramNames: string[];
-  64| |  handlerName: string;
-  65| |  segmentCount: number;
-  66| |  hasWildcard: boolean;
-  67| |  path: string;
-  68| |}
-  70|▼|interface TrieNode {
-  71| |  static: Map<string, TrieNode>;
-  72| |  param?: { name: string; node: TrieNode };
-  73| |  wildcard?: { name: string; node: TrieNode };
-  74| |  handlers: Map<string, string>;
-  75| |}
-  77|▼|const getConfig = (opts: CompilerOptions): CodegenConfig => ({
-  78| |  target: opts.target,
-  79| |  tracing: opts.enableTracing ?? false,
-  80| |  lifecycle: opts.enableLifecycle ?? true,
-  81| |  serviceName: opts.serviceName ?? "flux",
-  82| |  exposeErrorDetails: opts.exposeErrorDetails ?? false,
-  83| |  specializeContext: opts.specializeContext ?? true,
-  84| |  reusePort: opts.reusePort ?? false,
-  85| |  router: opts.router ?? "auto",
-  86| |  inlineHooks: opts.inlineHooks ?? true,
-  87| |  routeCache: opts.routeCache ?? true,
-  88| |});
-  90|▼|const normalizeImportPath = (p: string): string => {
-  91| |  let s = p.replace(/\\/g, "/").replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
-  92| |  if (!s.startsWith(".")) s = "./" + s;
-  93| |  return s;
-  94| |};
-  96|▼|const handlerImportName = (route: RouteDef): string =>
-  97| |  `handler_${route.handlerRef}`;
-  99|▼|const methodHandlerName = (route: RouteDef): string =>
- 100| |  `${route.method}_${route.handlerRef}`;
- 102|▼|const finalizeName = (route: RouteDef): string =>
- 103| |  `finalize_${route.handlerRef}`;
- 105|▼|const constantBodyVar = (route: RouteDef): string =>
- 106| |  `BODY_${route.handlerRef}`;
- 108|▼|const constantInitVar = (route: RouteDef): string =>
- 109| |  `INIT_${route.handlerRef}`;
- 111|▼|const hookIdent = (name: string): string =>
- 112| |  `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
- 114|▼|const hooksChainName = (route: RouteDef): string =>
- 115| |  `hooks_${route.handlerRef}`;
- 117|▼|const cacheVar = (route: RouteDef): string =>
- 118| |  `CACHE_${route.handlerRef}`;
- 120|▼|const coreHandlerName = (route: RouteDef, hasCache: boolean): string =>
- 121| |  hasCache ? `core_${route.handlerRef}` : methodHandlerName(route);
- 123|▼|const validatorImportName = (route: RouteDef, kind: string): string =>
- 124| |  `validate_${route.handlerRef}_${kind}`;
- 126|▼|const validatorImportPath = (route: RouteDef, kind: string): string =>
- 127| |  `./validators/${route.handlerRef}.${kind}.cjs`;
- 129|▼|const serializerImportName = (route: RouteDef): string =>
- 130| |  `serialize_${route.handlerRef}`;
- 132|▼|const serializerImportPath = (route: RouteDef): string =>
- 133| |  `./serializers/${route.handlerRef}.200.mjs`;
- 135|▼|const tryNormalizeConstant = (route: RouteDef): string | null => {
- 136| |  if (!route.isConstantResponse || !route.constantResponse) return null;
- 137| |  if (route.hooks.length > 0) return null;
- 138| |  if (route.hasValidation) return null;
- 140| |  if (route.validators && Object.keys(route.validators).length > 0) {
- 141| |    return null;
- 142| |  }
- 144| |  try {
- 145| |    JSON.parse(route.constantResponse);
- 146| |    return route.constantResponse;
- 147| |  } catch {
- 148| |    return null;
- 149| |  }
- 150| |};
- 152|▼|const validHookNames = (
- 153| |  route: RouteDef,
- 154| |  hooks: ReadonlyMap<string, HookDef>
- 155| |): string[] => route.hooks.filter((name) => hooks.has(name));
- 157|▼|const routeReplyFn = (route: RouteDef): string => {
- 158| |  if (route.responseType === "text") return "textReply";
- 159| |  if (route.responseType === "html") return "htmlReply";
- 160| |  if (route.responseType === "stream") return "streamReply";
- 161| |  return "jsonReply";
- 162| |};
- 164| |const FORCE_FULL_TOKENS = [
- 165| |  "ctx.cookie",
- 166| |  "ctx.server",
- 167| |  "ctx.set",
- 168| |  "ctx.proxy",
- 169| |  "ctx.forward",
- 170| |  "ctx.cache",
- 171| |];
- 173|▼|const needsFullContext = (
- 174| |  route: RouteDef,
- 175| |  mod: ModuleInfo | undefined,
- 176| |  cfg: CodegenConfig,
- 177| |  hasHooks: boolean
- 178| |): boolean => {
- 179| |  if (!cfg.specializeContext) return true;
- 180| |  if (hasHooks) return true;
- 182| |  if (
- 183| |    route.usage.cookie ||
- 184| |    route.usage.set ||
- 185| |    route.usage.proxy ||
- 186| |    route.usage.forward ||
- 187| |    route.usage.cache
- 188| |  ) {
- 189| |    return true;
- 190| |  }
- 192| |  if (mod && FORCE_FULL_TOKENS.some((token) => mod.content.includes(token))) {
- 193| |    return true;
- 194| |  }
- 196| |  return false;
- 197| |};
- 199| |const getCacheConfig = (
- 200| |  route: RouteDef,
- 201| |  cfg: CodegenConfig
- 202| |):
- 203| |  | {
- 204| |    ttlMs?: number;
- 205| |    staleTtlMs?: number;
- 206| |    vary?: string[];
- 207| |  }
- 208| |  | undefined => {
- 209| |  if (!cfg.routeCache) return undefined;
- 210| |  if (route.method !== "GET" && route.method !== "HEAD") return undefined;
- 212| |  const cache = route.cache;
- 213| |  if (!cache) return undefined;
- 215| |  const out: {
- 216| |    ttlMs?: number;
- 217| |    staleTtlMs?: number;
- 218| |    vary?: string[];
- 219| |  } = {};
- 221| |  if (typeof cache.maxAge === "number") {
- 222| |    out.ttlMs = cache.maxAge * 1000;
- 223| |  }
- 225| |  if (typeof cache.swr === "number") {
- 226| |    out.staleTtlMs = cache.swr * 1000;
- 227| |  }
- 229| |  if (Array.isArray(cache.vary)) {
- 230| |    out.vary = [...cache.vary];
- 231| |  }
- 233| |  return Object.keys(out).length > 0 ? out : undefined;
- 234| |};
- 236|▼|const generateHookChain = (info: RouteInfo): string => {
- 237| |  const route = info.route;
- 239| |  const calls = info.hookNames
- 240| |    .map((name) => {
- 241| |      const ident = hookIdent(name);
- 243| |      return `  r = await ${ident}(ctx);
- 244| |  if (r instanceof Response) return r;
- 245| |  if (r && typeof r === "object" && r.ok === false && r.response instanceof Response) {
- 246| |    return r.response;
- 247| |  }`;
- 248| |    })
- 249| |    .join("\n\n");
- 251| |  return `async function ${hooksChainName(route)}(ctx) {
- 252| |  let r;
- 254| |${calls}
- 256| |  return null;
- 257| |}`;
- 258| |};
- 260|▼|const generateFinalizer = (info: RouteInfo): string => {
- 261| |  const route = info.route;
- 263| |  if (info.hasSerializer) {
- 264| |    return `function ${finalizeName(route)}(result) {
- 265| |  if (result instanceof Response) return result;
- 266| |  return new Response(${serializerImportName(route)}(result), INIT_SER_${route.handlerRef});
- 267| |}`;
- 268| |  }
- 270| |  const reply = routeReplyFn(route);
- 272| |  return `function ${finalizeName(route)}(result) {
- 273| |  if (result instanceof Response) return result;
- 274| |  return ${reply}(result);
- 275| |}`;
- 276| |};
- 278|▼|const generateCoreHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
- 279| |  const route = info.route;
- 280| |  const name = coreHandlerName(route, !!info.cacheConfig);
- 282| |  if (info.constantJson !== null) {
- 283| |    return `function ${name}(req, params, url, server) {
+   4| | * Emits Bun.serve({ routes }) instead of custom regex/trie runtime matching.
+   5| | */
+   7| |import { join, relative } from "path";
+   9| |import type {
+  10| |  RouteDef,
+  11| |  ModuleInfo,
+  12| |  CompilerOptions,
+  13| |  HookDef,
+  14| |} from "../types";
+  16| |import type { Logger } from "../logger";
+  18|▼|interface CodegenConfig {
+  19| |  target: "bun" | "node" | "deno";
+  20| |  tracing: boolean;
+  21| |  lifecycle: boolean;
+  22| |  serviceName: string;
+  23| |  exposeErrorDetails: boolean;
+  24| |  specializeContext: boolean;
+  25| |  reusePort: boolean;
+  26| |  router: string;
+  27| |  inlineHooks: boolean;
+  28| |  routeCache: boolean;
+  29| |}
+  31|▼|const getConfig = (opts: CompilerOptions): CodegenConfig => ({
+  32| |  target: opts.target,
+  33| |  tracing: opts.enableTracing ?? false,
+  34| |  lifecycle: opts.enableLifecycle ?? true,
+  35| |  serviceName: opts.serviceName ?? "flux",
+  36| |  exposeErrorDetails: opts.exposeErrorDetails ?? false,
+  37| |  specializeContext: opts.specializeContext ?? true,
+  38| |  reusePort: opts.reusePort ?? false,
+  39| |  router: opts.router ?? "bun-native",
+  40| |  inlineHooks: opts.inlineHooks ?? true,
+  41| |  routeCache: opts.routeCache ?? true,
+  42| |});
+  44|▼|const toImportPath = (absPath: string, opts: CompilerOptions): string => {
+  45| |  let rel = relative(opts.outDir, absPath)
+  46| |    .replace(/\\/g, "/")
+  47| |    .replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
+  49| |  if (!rel.startsWith(".")) rel = "./" + rel;
+  51| |  return rel;
+  52| |};
+  54|▼|const runtimeImport = (projectPath: string, opts: CompilerOptions): string =>
+  55| |  toImportPath(join(process.cwd(), projectPath), opts);
+  57|▼|const handlerImportName = (route: RouteDef): string =>
+  58| |  `handler_${route.handlerRef}`;
+  60|▼|const methodHandlerName = (route: RouteDef): string =>
+  61| |  `${route.method}_${route.handlerRef}`;
+  63|▼|const finalizeName = (route: RouteDef): string =>
+  64| |  `finalize_${route.handlerRef}`;
+  66|▼|const constantBodyVar = (route: RouteDef): string =>
+  67| |  `BODY_${route.handlerRef}`;
+  69|▼|const constantInitVar = (route: RouteDef): string =>
+  70| |  `INIT_${route.handlerRef}`;
+  72|▼|const hookIdent = (name: string): string =>
+  73| |  `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+  75|▼|const cacheVar = (route: RouteDef): string =>
+  76| |  `CACHE_${route.handlerRef}`;
+  78|▼|const coreHandlerName = (route: RouteDef, hasCache: boolean): string =>
+  79| |  hasCache ? `core_${route.handlerRef}` : methodHandlerName(route);
+  81|▼|const validatorImportName = (route: RouteDef, kind: string): string =>
+  82| |  `validate_${route.handlerRef}_${kind}`;
+  84|▼|const serializerImportName = (route: RouteDef): string =>
+  85| |  `serialize_${route.handlerRef}`;
+  87|▼|const routeReplyFn = (route: RouteDef): string => {
+  88| |  if (route.responseType === "text") return "textReply";
+  89| |  if (route.responseType === "html") return "htmlReply";
+  90| |  if (route.responseType === "stream") return "streamReply";
+  91| |  return "jsonReply";
+  92| |};
+  94|▼|const tryNormalizeConstant = (route: RouteDef): string | null => {
+  95| |  if (!route.isConstantResponse || !route.constantResponse) return null;
+  96| |  if (route.hooks.length > 0) return null;
+  97| |  if (route.hasValidation) return null;
+  99| |  if (route.validators && Object.keys(route.validators).length > 0) {
+ 100| |    return null;
+ 101| |  }
+ 103| |  try {
+ 104| |    JSON.parse(route.constantResponse);
+ 105| |    return route.constantResponse;
+ 106| |  } catch {
+ 107| |    return null;
+ 108| |  }
+ 109| |};
+ 111| |const getCacheConfig = (
+ 112| |  route: RouteDef,
+ 113| |  cfg: CodegenConfig
+ 114| |):
+ 115| |  | {
+ 116| |      ttlMs?: number;
+ 117| |      staleTtlMs?: number;
+ 118| |      vary?: string[];
+ 119| |    }
+ 120| |  | undefined => {
+ 121| |  if (!cfg.routeCache) return undefined;
+ 122| |  if (route.method !== "GET" && route.method !== "HEAD") return undefined;
+ 124| |  const cache = route.cache;
+ 125| |  if (!cache) return undefined;
+ 127| |  const out: {
+ 128| |    ttlMs?: number;
+ 129| |    staleTtlMs?: number;
+ 130| |    vary?: string[];
+ 131| |  } = {};
+ 133| |  if (typeof cache.maxAge === "number") {
+ 134| |    out.ttlMs = cache.maxAge * 1000;
+ 135| |  }
+ 137| |  if (typeof cache.swr === "number") {
+ 138| |    out.staleTtlMs = cache.swr * 1000;
+ 139| |  }
+ 141| |  if (Array.isArray(cache.vary)) {
+ 142| |    out.vary = [...cache.vary];
+ 143| |  }
+ 145| |  return Object.keys(out).length > 0 ? out : undefined;
+ 146| |};
+ 148|▼|const bunRoutePath = (path: string): string =>
+ 149| |  path.replace(/\*([A-Za-z0-9_]+)/g, "*");
+ 151|▼|const wildcardNames = (path: string): string[] =>
+ 152| |  Array.from(path.matchAll(/\*([A-Za-z0-9_]+)/g)).map((m) => m[1] as string);
+ 154| |const FORCE_FULL_TOKENS = [
+ 155| |  "ctx.cookie",
+ 156| |  "ctx.server",
+ 157| |  "ctx.set",
+ 158| |  "ctx.proxy",
+ 159| |  "ctx.forward",
+ 160| |  "ctx.cache",
+ 161| |];
+ 163|▼|export const generateServer = (
+ 164| |  routes: readonly RouteDef[],
+ 165| |  modules: readonly ModuleInfo[],
+ 166| |  hooks: ReadonlyMap<string, HookDef>,
+ 167| |  opts: CompilerOptions
+ 168| |): string => {
+ 169| |  const cfg = getConfig(opts);
+ 171| |  const imports = new Set<string>();
+ 172| |  const header: string[] = [];
+ 173| |  const cacheDecls: string[] = [];
+ 174| |  const functions: string[] = [];
+ 176| |  const corePath = runtimeImport("src/core/index.ts", opts);
+ 178| |  imports.add(
+ 179| |    `import { createContext, createLazyBody, parseQueryFromURL, errorToResponse, sendFile, HttpResponseCache, ValidationError } from ${JSON.stringify(
+ 180| |      corePath
+ 181| |    )};`
+ 182| |  );
+ 184| |  for (const route of routes) {
+ 185| |    const mod = modules[route.moduleIdx];
+ 187| |    if (mod) {
+ 188| |      imports.add(
+ 189| |        `import ${handlerImportName(route)} from ${JSON.stringify(
+ 190| |          toImportPath(mod.path, opts)
+ 191| |        )};`
+ 192| |      );
+ 193| |    }
+ 195| |    if (route.validators) {
+ 196| |      const kinds = ["body", "query", "params", "headers"] as const;
+ 198| |      for (const kind of kinds) {
+ 199| |        if (route.validators[kind]) {
+ 200| |          imports.add(
+ 201| |            `import ${validatorImportName(
+ 202| |              route,
+ 203| |              kind
+ 204| |            )} from "./validators/${route.handlerRef}.${kind}.cjs";`
+ 205| |          );
+ 206| |        }
+ 207| |      }
+ 208| |    }
+ 210| |    if (route.serializers?.json) {
+ 211| |      imports.add(
+ 212| |        `import ${serializerImportName(
+ 213| |          route
+ 214| |        )} from "./serializers/${route.handlerRef}.200.mjs";`
+ 215| |      );
+ 216| |    }
+ 218| |    for (const hookName of route.hooks) {
+ 219| |      const hook = hooks.get(hookName);
+ 221| |      if (hook) {
+ 222| |        imports.add(
+ 223| |          `import ${hookIdent(hookName)} from ${JSON.stringify(
+ 224| |            toImportPath(join(process.cwd(), hook.source), opts)
+ 225| |          )};`
+ 226| |        );
+ 227| |      }
+ 228| |    }
+ 229| |  }
+ 231| |  header.push(`const EMPTY_PARAMS = Object.freeze({});`);
+ 233| |  header.push(`const BODY_LIMITS = Object.freeze({
+ 234| |  maxJsonBytes: ${opts.maxJsonBytes ?? 2 * 1024 * 1024},
+ 235| |  maxTextBytes: ${opts.maxTextBytes ?? 2 * 1024 * 1024},
+ 236| |  maxFormBytes: ${opts.maxFormBytes ?? 2 * 1024 * 1024},
+ 237| |  maxFileBytes: ${opts.maxFileBytes ?? 20 * 1024 * 1024},
+ 238| |});`);
+ 240| |  header.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails ? "true" : "false"};`);
+ 242| |  header.push(`const jsonReply = (data, init) => Response.json(data, init);`);
+ 244| |  header.push(`const textReply = (data, init) =>
+ 245| |  new Response(
+ 246| |    String(data),
+ 247| |    init
+ 248| |      ? { ...init, headers: { "content-type": "text/plain; charset=utf-8", ...init.headers } }
+ 249| |      : { headers: { "content-type": "text/plain; charset=utf-8" } }
+ 250| |  );`);
+ 252| |  header.push(`const htmlReply = (data, init) =>
+ 253| |  new Response(
+ 254| |    String(data),
+ 255| |    init
+ 256| |      ? { ...init, headers: { "content-type": "text/html; charset=utf-8", ...init.headers } }
+ 257| |      : { headers: { "content-type": "text/html; charset=utf-8" } }
+ 258| |  );`);
+ 260| |  header.push(`const streamReply = (stream, init) => new Response(stream, init);`);
+ 262| |  header.push(`const emptyReply = (status = 204) => new Response(null, { status });`);
+ 264| |  header.push(`const redirectReply = (url, status = 302) => Response.redirect(url, status);`);
+ 266| |  header.push(`const statusReply = (code) => new Response(null, { status: code });`);
+ 268| |  header.push(`const validationError = (errors, on) =>
+ 269| |  new ValidationError("Validation failed", errors, on);`);
+ 271|▼|  const generateRouteCode = (route: RouteDef): void => {
+ 272| |    const mod = modules[route.moduleIdx];
+ 273| |    const constantJson = tryNormalizeConstant(route);
+ 275| |    if (constantJson !== null) {
+ 276| |      functions.push(`const ${constantBodyVar(route)} = ${constantJson};`);
+ 278| |      functions.push(`const ${constantInitVar(route)} = Object.freeze({
+ 279| |  status: 200,
+ 280| |  headers: { "content-type": "application/json; charset=utf-8" },
+ 281| |});`);
+ 283| |      functions.push(`function ${methodHandlerName(route)}(req, params, server) {
  284| |  return new Response(${constantBodyVar(route)}, ${constantInitVar(route)});
- 285| |}`;
- 286| |  }
- 288| |  const pre: string[] = [];
- 289| |  let callExpr = "";
- 291| |  if (info.needsFull) {
- 292| |    const ctxOpts: string[] = [];
- 294| |    if (info.needsBody) {
- 295| |      ctxOpts.push("body: BODY_LIMITS");
- 296| |    }
- 298| |    const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
- 300| |    pre.push(
- 301| |      `const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`
- 302| |    );
- 304| |    if (route.usage.server) {
- 305| |      pre.push("ctx.server = server;");
- 306| |    }
- 308| |    if (info.hasHooks) {
- 309| |      pre.push(
- 310| |        `const halted = await ${hooksChainName(route)}(ctx);`
- 311| |      );
- 312| |      pre.push("if (halted) return halted;");
- 313| |    }
- 315| |    if (info.hasParamsValidator) {
- 316| |      pre.push(
- 317| |        `if (!${validatorImportName(route, "params")}(ctx.params)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
- 318| |      );
- 319| |    }
- 321| |    if (info.hasQueryValidator) {
- 322| |      pre.push(
- 323| |        `const __query = parseQuery(ctx.url.search.startsWith("?") ? ctx.url.search.slice(1) : "");`
- 324| |      );
- 325| |      pre.push(
- 326| |        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
- 327| |      );
- 328| |    }
- 330| |    if (info.hasHeadersValidator) {
- 331| |      pre.push(
- 332| |        `const __headers = Object.fromEntries(ctx.headers.entries());`
- 333| |      );
- 334| |      pre.push(
- 335| |        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
- 336| |      );
- 337| |    }
- 339| |    if (info.hasBodyValidator) {
- 340| |      pre.push(`const __body = await ctx.body.json();`);
- 341| |      pre.push(
- 342| |        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
- 343| |      );
- 344| |    }
- 346| |    callExpr = `${handlerImportName(route)}(ctx)`;
- 347| |  } else {
- 348| |    if (route.usage.query || info.hasQueryValidator) {
- 349| |      pre.push("const query = url.searchParams;");
- 350| |    }
- 352| |    if (info.minimalBody) {
- 353| |      pre.push("const body = createLazyBody(req, BODY_LIMITS);");
- 354| |    }
- 356| |    if (route.usage.state) {
- 357| |      pre.push("const state = new Map();");
- 358| |    }
- 360| |    if (info.hasParamsValidator) {
- 361| |      pre.push(
- 362| |        `if (!${validatorImportName(route, "params")}(params ?? EMPTY_PARAMS)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
- 363| |      );
- 364| |    }
- 366| |    if (info.hasQueryValidator) {
- 367| |      pre.push(
- 368| |        `const __query = parseQuery(url.search.startsWith("?") ? url.search.slice(1) : "");`
- 369| |      );
- 370| |      pre.push(
- 371| |        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
- 372| |      );
- 373| |    }
- 375| |    if (info.hasHeadersValidator) {
- 376| |      pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
- 377| |      pre.push(
- 378| |        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
- 379| |      );
- 380| |    }
- 382| |    let bodyProp = "body";
- 384| |    if (info.hasBodyValidator && info.minimalBody) {
- 385| |      pre.push(`const __body = await body.json();`);
- 386| |      pre.push(
- 387| |        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
- 388| |      );
- 389| |      pre.push(`const validatedBody = Object.create(body);`);
- 390| |      pre.push(`validatedBody.json = async () => __body;`);
- 391| |      bodyProp = "validatedBody";
- 392| |    }
- 394| |    const props: string[] = [];
- 396| |    if (route.usage.params) {
- 397| |      props.push("params: params ?? EMPTY_PARAMS");
- 398| |    }
- 400| |    if (info.minimalBody) {
- 401| |      props.push(`body: ${bodyProp}`);
- 402| |    }
- 404| |    if (route.usage.query) {
- 405| |      props.push("query");
- 406| |    }
- 408| |    if (route.usage.headers) {
- 409| |      props.push("headers: req.headers");
- 410| |    }
- 412| |    if (route.usage.req) {
- 413| |      props.push("req");
- 414| |    }
- 416| |    if (route.usage.url) {
- 417| |      props.push("url");
- 418| |    }
- 420| |    if (route.usage.server) {
- 421| |      props.push("server");
- 422| |    }
- 424| |    if (route.usage.state) {
- 425| |      props.push("state");
- 426| |      props.push("getState: (key) => state.get(key)");
- 427| |      props.push("setState: (key, value) => { state.set(key, value); }");
- 428| |    }
- 430| |    if (route.usage.json) {
- 431| |      props.push("json: jsonReply");
- 432| |    }
- 434| |    if (route.usage.text) {
- 435| |      props.push("text: textReply");
- 436| |    }
- 438| |    if (route.usage.html) {
- 439| |      props.push("html: htmlReply");
- 440| |    }
- 442| |    if (route.usage.stream) {
- 443| |      props.push("stream: streamReply");
- 444| |    }
- 446| |    if (route.usage.redirect) {
- 447| |      props.push("redirect: redirectReply");
- 448| |    }
- 450| |    if (route.usage.empty) {
- 451| |      props.push("empty: emptyReply");
- 452| |    }
- 454| |    if (route.usage.status) {
- 455| |      props.push("status: (code) => new Response(null, { status: code })");
- 456| |    }
- 458| |    if (info.minimalSendFile) {
- 459| |      props.push("sendFile: (path, opts) => coreSendFile(path, { req, ...opts })");
- 460| |    }
- 462| |    callExpr =
- 463| |      props.length === 0
- 464| |        ? `${handlerImportName(route)}({})`
- 465| |        : `${handlerImportName(route)}({ ${props.join(", ")} })`;
- 466| |  }
- 468| |  const isAsync =
- 469| |    route.isAsync ||
- 470| |    info.hasHooks ||
- 471| |    info.needsFull ||
- 472| |    info.minimalBody ||
- 473| |    info.hasBodyValidator ||
- 474| |    !!info.cacheConfig ||
- 475| |    route.usage.state;
- 477| |  if (isAsync) {
- 478| |    return `async function ${name}(req, params, url, server) {
- 479| |  try {
- 480| |    ${pre.join("\n    ")}
- 481| |    const result = await ${callExpr};
- 482| |    return ${finalizeName(route)}(result);
- 483| |  } catch (err) {
- 484| |    return errorResponse(err);
- 485| |  }
- 486| |}`;
- 487| |  }
- 489| |  return `function ${name}(req, params, url, server) {
- 490| |  try {
- 491| |    ${pre.join("\n    ")}
- 492| |    const result = ${callExpr};
- 493| |    if (result instanceof Response) return result;
- 494| |    if (result && typeof result.then === "function") {
- 495| |      return result
- 496| |        .then((v) => ${finalizeName(route)}(v))
- 497| |        .catch((err) => errorResponse(err));
- 498| |    }
- 499| |    return ${finalizeName(route)}(result);
- 500| |  } catch (err) {
- 501| |    return errorResponse(err);
- 502| |  }
- 503| |}`;
- 504| |};
- 506|▼|const generateCacheWrapper = (info: RouteInfo): string | null => {
- 507| |  if (!info.cacheConfig) return null;
- 509| |  const route = info.route;
- 510| |  const opts = JSON.stringify(info.cacheConfig);
- 512| |  return `function ${methodHandlerName(route)}(req, params, url, server) {
- 513| |  return ${cacheVar(route)}.getOrSet(req, () => ${coreHandlerName(route, true)}(req, params, url, server), ${opts});
- 514| |}`;
- 515| |};
- 517|▼|const escapeRegex = (value: string): string =>
- 518| |  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
- 520| |const routePattern = (
- 521| |  path: string
- 522| |): { regexLiteral: string; paramNames: string[] } => {
- 523| |  const paramNames: string[] = [];
- 524| |  const segments = path.split("/").filter(Boolean);
- 526| |  const pattern = segments
- 527| |    .map((seg) => {
- 528| |      if (seg.startsWith(":")) {
- 529| |        paramNames.push(seg.slice(1));
- 530| |        return "([^/]+)";
- 531| |      }
- 533| |      if (seg.startsWith("*")) {
- 534| |        paramNames.push(seg.slice(1));
- 535| |        return "(.*)";
- 536| |      }
- 538| |      return escapeRegex(seg);
- 539| |    })
- 540| |    .join("/");
- 542| |  const source = segments.length === 0 ? "^/$" : `^/${pattern}$`;
- 543| |  const regexLiteral = `/${source.replace(/\//g, "\\/")}/`;
- 545| |  return { regexLiteral, paramNames };
- 546| |};
- 548|▼|const newTrieNode = (): TrieNode => ({
- 549| |  static: new Map(),
- 550| |  handlers: new Map(),
- 551| |});
- 553|▼|const insertDynamicRoute = (
- 554| |  root: TrieNode,
- 555| |  route: RouteDef,
- 556| |  handlerName: string
- 557| |): void => {
- 558| |  let node = root;
- 560| |  const segments = route.path.split("/").filter(Boolean);
- 562| |  for (const seg of segments) {
- 563| |    if (seg.startsWith(":")) {
- 564| |      const name = seg.slice(1);
- 566| |      if (!node.param) {
- 567| |        node.param = { name, node: newTrieNode() };
- 568| |      }
- 570| |      node = node.param.node;
- 571| |      continue;
- 572| |    }
- 574| |    if (seg.startsWith("*")) {
- 575| |      const name = seg.slice(1);
- 577| |      if (!node.wildcard) {
- 578| |        node.wildcard = { name, node: newTrieNode() };
- 579| |      }
- 581| |      node = node.wildcard.node;
- 582| |      continue;
- 583| |    }
- 585| |    if (!node.static.has(seg)) {
- 586| |      node.static.set(seg, newTrieNode());
- 587| |    }
- 589| |    node = node.static.get(seg)!;
- 590| |  }
- 592| |  node.handlers.set(route.method, handlerName);
- 593| |};
- 595|▼|const emitTrieNode = (node: TrieNode): string => {
- 596| |  const staticEntries = Array.from(node.static.entries()).map(
- 597| |    ([seg, child]) => `${JSON.stringify(seg)}: ${emitTrieNode(child)}`
- 598| |  );
- 600| |  const param = node.param
- 601| |    ? `{ name: ${JSON.stringify(node.param.name)}, node: ${emitTrieNode(node.param.node)} }`
- 602| |    : "null";
- 604| |  const wildcard = node.wildcard
- 605| |    ? `{ name: ${JSON.stringify(node.wildcard.name)}, node: ${emitTrieNode(node.wildcard.node)} }`
- 606| |    : "null";
- 608| |  const handlerEntries = Array.from(node.handlers.entries()).map(
- 609| |    ([method, handler]) => `${JSON.stringify(method)}: ${handler}`
- 610| |  );
- 612| |  return `{ s: { ${staticEntries.join(", ")} }, p: ${param}, w: ${wildcard}, h: { ${handlerEntries.join(", ")} } }`;
- 613| |};
- 615|▼|export const generateServer = (
- 616| |  routes: readonly RouteDef[],
- 617| |  modules: readonly ModuleInfo[],
- 618| |  hooks: ReadonlyMap<string, HookDef>,
- 619| |  opts: CompilerOptions
- 620| |): string => {
- 621| |  const cfg = getConfig(opts);
-   ... (612 more lines)
+ 285| |}`);
+ 287| |      return;
+ 288| |    }
+ 290| |    const hasHooks = route.hooks.length > 0;
+ 292| |    const needsFull =
+ 293| |      !cfg.specializeContext ||
+ 294| |      hasHooks ||
+ 295| |      route.usage.cookie ||
+ 296| |      route.usage.set ||
+ 297| |      route.usage.proxy ||
+ 298| |      route.usage.forward ||
+ 299| |      route.usage.cache ||
+ 300| |      (mod ? FORCE_FULL_TOKENS.some((token) => mod.content.includes(token)) : false);
+ 302| |    const hasBodyValidator = !!route.validators?.body;
+ 303| |    const hasQueryValidator = !!route.validators?.query;
+ 304| |    const hasParamsValidator = !!route.validators?.params;
+ 305| |    const hasHeadersValidator = !!route.validators?.headers;
+ 307| |    const serializer = route.serializers?.json;
+ 309| |    const cacheConfig = getCacheConfig(route, cfg);
+ 310| |    const coreName = coreHandlerName(route, !!cacheConfig);
+ 312| |    const finalizerCode = `function ${finalizeName(route)}(result) {
+ 313| |  if (result instanceof Response) return result;
+ 314| |  if (result === undefined) return new Response(null, { status: 204 });
+ 315| |  ${
+ 316| |    serializer
+ 317| |      ? `return new Response(${serializer}(result), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });`
+ 318| |      : `return ${routeReplyFn(route)}(result);`
+ 319| |  }
+ 320| |}`;
+ 322| |    const pre: string[] = [];
+ 323| |    let callExpr = "";
+ 325| |    if (needsFull) {
+ 326| |      pre.push(`let ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS });`);
+ 327| |      pre.push(`ctx.server = server;`);
+ 329| |      for (const hookName of route.hooks) {
+ 330| |        if (!hooks.has(hookName)) continue;
+ 332| |        pre.push(`{
+ 333| |  const r = await ${hookIdent(hookName)}(ctx);
+ 334| |  if (r instanceof Response) return r;
+ 335| |  if (r && typeof r === "object") {
+ 336| |    if (r.ok === false && r.response instanceof Response) return r.response;
+ 337| |    if (r.ctx) ctx = r.ctx;
+ 338| |  }
+ 339| |}`);
+ 340| |      }
+ 342| |      if (hasParamsValidator) {
+ 343| |        pre.push(`if (!${validatorImportName(route, "params")}(ctx.params)) {
+ 344| |  throw validationError(${validatorImportName(route, "params")}.errors ?? {}, "params");
+ 345| |}`);
+ 346| |      }
+ 348| |      if (hasQueryValidator) {
+ 349| |        pre.push(`const __query = parseQueryFromURL(req.url);`);
+ 350| |        pre.push(`if (!${validatorImportName(route, "query")}(__query)) {
+ 351| |  throw validationError(${validatorImportName(route, "query")}.errors ?? {}, "query");
+ 352| |}`);
+ 353| |      }
+ 355| |      if (hasHeadersValidator) {
+ 356| |        pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
+ 357| |        pre.push(`if (!${validatorImportName(route, "headers")}(__headers)) {
+ 358| |  throw validationError(${validatorImportName(route, "headers")}.errors ?? {}, "headers");
+ 359| |}`);
+ 360| |      }
+ 362| |      if (hasBodyValidator) {
+ 363| |        pre.push(`const __body = await ctx.body.json();`);
+ 364| |        pre.push(`if (!${validatorImportName(route, "body")}(__body)) {
+ 365| |  throw validationError(${validatorImportName(route, "body")}.errors ?? {}, "body");
+ 366| |}`);
+ 367| |        pre.push(`ctx.body.json = async () => __body;`);
+ 368| |      }
+ 370| |      callExpr = `${handlerImportName(route)}(ctx)`;
+ 371| |    } else {
+ 372| |      pre.push(`const __params = params ?? EMPTY_PARAMS;`);
+ 374| |      if (hasParamsValidator) {
+ 375| |        pre.push(`if (!${validatorImportName(route, "params")}(__params)) {
+ 376| |  throw validationError(${validatorImportName(route, "params")}.errors ?? {}, "params");
+ 377| |}`);
+ 378| |      }
+ 380| |      const needUrl =
+ 381| |        route.usage.url || (route.usage.query && !hasQueryValidator);
+ 383| |      if (needUrl) {
+ 384| |        pre.push(`const url = new URL(req.url);`);
+ 385| |      }
+ 387| |      if (route.usage.query || hasQueryValidator) {
+ 388| |        if (hasQueryValidator) {
+ 389| |          pre.push(`const query = parseQueryFromURL(req.url);`);
+ 390| |          pre.push(`if (!${validatorImportName(route, "query")}(query)) {
+ 391| |  throw validationError(${validatorImportName(route, "query")}.errors ?? {}, "query");
+ 392| |}`);
+ 393| |        } else {
+ 394| |          pre.push(`const query = url.searchParams;`);
+ 395| |        }
+ 396| |      }
+ 398| |      if (route.usage.headers || hasHeadersValidator) {
+ 399| |        if (hasHeadersValidator) {
+ 400| |          pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
+ 401| |          pre.push(`if (!${validatorImportName(route, "headers")}(__headers)) {
+ 402| |  throw validationError(${validatorImportName(route, "headers")}.errors ?? {}, "headers");
+ 403| |}`);
+ 404| |        }
+ 405| |      }
+ 407| |      if (route.usage.body || hasBodyValidator) {
+ 408| |        pre.push(`let body = createLazyBody(req, BODY_LIMITS);`);
+ 410| |        if (hasBodyValidator) {
+ 411| |          pre.push(`const __body = await body.json();`);
+ 412| |          pre.push(`if (!${validatorImportName(route, "body")}(__body)) {
+ 413| |  throw validationError(${validatorImportName(route, "body")}.errors ?? {}, "body");
+ 414| |}`);
+ 415| |          pre.push(`body.json = async () => __body;`);
+ 416| |        }
+ 417| |      }
+ 419| |      if (route.usage.state) {
+ 420| |        pre.push(`const state = new Map();`);
+ 421| |      }
+ 423| |      const props: string[] = [];
+ 425| |      if (route.usage.params || hasParamsValidator) {
+ 426| |        props.push(`params: __params`);
+ 427| |      }
+ 429| |      if (route.usage.body || hasBodyValidator) {
+ 430| |        props.push(`body`);
+ 431| |      }
+ 433| |      if (route.usage.query || hasQueryValidator) {
+ 434| |        props.push(`query`);
+ 435| |      }
+ 437| |      if (route.usage.headers || hasHeadersValidator) {
+ 438| |        props.push(`headers: req.headers`);
+ 439| |      }
+ 441| |      if (route.usage.req) {
+ 442| |        props.push(`req`);
+ 443| |      }
+ 445| |      if (route.usage.url) {
+ 446| |        props.push(`url`);
+ 447| |      }
+ 449| |      if (route.usage.server) {
+ 450| |        props.push(`server`);
+ 451| |      }
+ 453| |      if (route.usage.state) {
+ 454| |        props.push(`state`);
+ 455| |        props.push(`getState: (key) => state.get(key)`);
+ 456| |        props.push(`setState: (key, value) => { state.set(key, value); }`);
+ 457| |      }
+ 459| |      if (route.usage.json) props.push(`json: jsonReply`);
+ 460| |      if (route.usage.text) props.push(`text: textReply`);
+ 461| |      if (route.usage.html) props.push(`html: htmlReply`);
+ 462| |      if (route.usage.stream) props.push(`stream: streamReply`);
+ 463| |      if (route.usage.redirect) props.push(`redirect: redirectReply`);
+ 464| |      if (route.usage.empty) props.push(`empty: emptyReply`);
+ 465| |      if (route.usage.status) props.push(`status: statusReply`);
+ 467| |      if (route.usage.sendFile) {
+ 468| |        props.push(`sendFile: (path, opts) => sendFile(path, { req, ...opts })`);
+ 469| |      }
+ 471| |      callExpr =
+ 472| |        props.length === 0
+ 473| |          ? `${handlerImportName(route)}({})`
+ 474| |          : `${handlerImportName(route)}({ ${props.join(", ")} })`;
+ 475| |    }
+ 477| |    const coreFn = `async function ${coreName}(req, params, server) {
+ 478| |  try {
+ 479| |    ${pre.join("\n    ")}
+ 480| |    const result = await ${callExpr};
+ 481| |    return ${finalizeName(route)}(result);
+ 482| |  } catch (err) {
+ 483| |    return errorToResponse(err, EXPOSE_ERRORS);
+ 484| |  }
+ 485| |}`;
+ 487| |    functions.push(finalizerCode);
+ 489| |    if (cacheConfig) {
+ 490| |      cacheDecls.push(`const ${cacheVar(route)} = new HttpResponseCache(${JSON.stringify({
+ 491| |        max: 1000,
+ 492| |        ...cacheConfig,
+ 493| |      })});`);
+ 495| |      functions.push(`function ${methodHandlerName(route)}(req, params, server) {
+ 496| |  return ${cacheVar(route)}.getOrSet(req, () => ${coreName}(req, params, server), ${JSON.stringify(
+ 497| |        cacheConfig
+ 498| |      )});
+ 499| |}`);
+ 500| |    } else {
+ 501| |      functions.push(coreFn);
+ 502| |    }
+ 503| |  };
+ 505| |  for (const route of routes) {
+ 506| |    generateRouteCode(route);
+ 507| |  }
+ 509| |  const byPath = new Map<string, RouteDef[]>();
+ 511| |  for (const route of routes) {
+ 512| |    const existing = byPath.get(route.path);
+ 514| |    if (existing) {
+ 515| |      existing.push(route);
+ 516| |    } else {
+ 517| |      byPath.set(route.path, [route]);
+ 518| |    }
+ 519| |  }
+ 521| |  const routeEntries: string[] = [];
+ 523| |  for (const [path, defs] of byPath.entries()) {
+ 524| |    const cases: string[] = [];
+ 526| |    let defaultCase = `return methodNotAllowed();`;
+ 528| |    for (const def of defs) {
+ 529| |      const handler = methodHandlerName(def);
+ 530| |      const wildcards = wildcardNames(def.path);
+ 532| |      const paramsExpr =
+ 533| |        wildcards.length > 0
+ 534| |          ? `{ ...__params, ${wildcards
+ 535| |              .map(
+ 536| |                (name) =>
+ 537| |                  `...(__params["*"] !== undefined ? { ${JSON.stringify(
+ 538| |                    name
+ 539| |                  )}: __params["*"] } : {})`
+ 540| |              )
+ 541| |              .join(", ")} }`
+ 542| |          : `__params`;
+ 544| |      if (def.method === "ALL") {
+ 545| |        defaultCase = `return ${handler}(req, ${paramsExpr}, __server);`;
+ 546| |      } else {
+ 547| |        cases.push(
+ 548| |          `case ${JSON.stringify(
+ 549| |            def.method
+ 550| |          )}: return ${handler}(req, ${paramsExpr}, __server);`
+ 551| |        );
+ 552| |      }
+ 553| |    }
+ 555| |    routeEntries.push(`  ${JSON.stringify(bunRoutePath(path))}: (req, params) => {
+ 556| |    const __params = params ?? req.params ?? EMPTY_PARAMS;
+ 558| |    switch (req.method) {
+ 559| |      ${cases.join("\n      ")}
+ 560| |      default: ${defaultCase}
+ 561| |    }
+ 562| |  }`);
+ 563| |  }
+ 565| |  const routesObject = `const ROUTES = {
+ 566| |${routeEntries.join(",\n")}
+ 567| |};`;
+ 569| |  const server = `let __server = null;
+ 571| |const notFound = () =>
+ 572| |  new Response(
+ 573| |    JSON.stringify({ error: "Not Found", status: 404, code: "NOT_FOUND" }),
+ 574| |    {
+ 575| |      status: 404,
+ 576| |      headers: { "content-type": "application/json" },
+ 577| |    }
+ 578| |  );
+ 580| |const methodNotAllowed = () =>
+ 581| |  new Response(
+ 582| |    JSON.stringify({ error: "Method Not Allowed", status: 405, code: "METHOD_NOT_ALLOWED" }),
+ 583| |    {
+ 584| |      status: 405,
+ 585| |      headers: { "content-type": "application/json" },
+ 586| |    }
+ 587| |  );
+ 589| |__server = Bun.serve({
+ 590| |  port: Number(process.env.PORT ?? 3000),
+ 591| |  reusePort: ${cfg.reusePort ? "true" : "false"},
+ 592| |  routes: ROUTES,
+ 593| |  fetch: () => notFound(),
+ 594| |});
+ 596| |console.log("flux server listening on http://localhost:" + __server.port);`;
+ 598| |  return [
+ 599| |    Array.from(imports).join("\n"),
+ 600| |    header.join("\n\n"),
+ 601| |    cacheDecls.join("\n\n"),
+ 602| |    functions.join("\n\n"),
+ 603| |    routesObject,
+ 604| |    server,
+ 605| |  ]
+ 606| |    .filter(Boolean)
+ 607| |    .join("\n\n");
+ 608| |};
+ 610|▼|export const runCodeGen = (
+ 611| |  routes: readonly RouteDef[],
+ 612| |  modules: readonly ModuleInfo[],
+ 613| |  hooks: ReadonlyMap<string, HookDef>,
+ 614| |  opts: CompilerOptions,
+ 615| |  logger: Logger
+ 616| |): string =>
+ 617| |  logger.time("codegen", () => generateServer(routes, modules, hooks, opts));
 ---
 
 >src/compiler/phases/linker.ts
-i:fs|path|esbuild
+i:fs|path
 l:../types|../logger
-e:minifyCode|emitSourceMap|runLinker
-f:createMinifyOptions():TransformOptions
-f:createSourceMapOptions(fileName: string):TransformOptions
-f:createLinkOptions(
-  opts: CompilerOptions,
-):TransformOptions | undefined
-f:writeLinkedOutput(
+e:runLinkerAsync|runLinker|minifyCode|emitSourceMap
+f:writeRaw(
   outPath: string,
   code: string,
-  map: string | undefined,
-  opts: CompilerOptions,
+  logger: Logger,
+  warning?: string
 ):string
-f:minifyCode(code: string):string
-f:emitSourceMap(fileName: string, code: string):string
+f:runLinkerAsync(
+  code: string,
+  opts: CompilerOptions,
+  logger: Logger
+):Promise<string>|a
 f:runLinker(
   code: string,
   opts: CompilerOptions,
-  logger: Logger,
+  logger: Logger
+):string
+f:minifyCode(code: string):string
+f:emitSourceMap(
+  _fileName: string,
+  _code: string
 ):string
 ---
    1| |/**
-   2| | * @fileoverview Phase 5: LINKER
-   3| | * Uses esbuild for safe minification and source maps.
-   4| | *
-   5| | * Design:
-   6| | * - Pure transform-option factories
-   7| | * - No explicit undefined properties
-   8| | * - Minimal IO boundary
-   9| | */
-  10| |import { writeFileSync, mkdirSync } from "fs";
-  11| |import { join } from "path";
-  12| |import { transformSync, type TransformOptions } from "esbuild";
-  13| |import type { CompilerOptions } from "../types";
-  14| |import type { Logger } from "../logger";
-  16| |const BASE_TRANSFORM: TransformOptions = {
-  17| |  loader: "js",
-  18| |  target: "esnext",
-  19| |  format: "esm",
-  20| |};
-  22| |/**
-  23| | * Create esbuild options for standalone minification.
-  24| | */
-  25|▼|const createMinifyOptions = (): TransformOptions => ({
-  26| |  ...BASE_TRANSFORM,
-  27| |  minify: true,
-  28| |});
-  30| |/**
-  31| | * Create esbuild options for standalone source map emission.
-  32| | */
-  33|▼|const createSourceMapOptions = (fileName: string): TransformOptions => ({
-  34| |  ...BASE_TRANSFORM,
-  35| |  sourcefile: fileName,
-  36| |  sourcemap: "external",
-  37| |  minify: false,
-  38| |});
-  40| |/**
-  41| | * Create linker transform options only when needed.
-  42| | *
-  43| | * Returning undefined signals:
-  44| | * "no transform required, write original code".
-  45| | */
-  46|▼|const createLinkOptions = (
-  47| |  opts: CompilerOptions,
-  48| |): TransformOptions | undefined => {
-  49| |  if (!opts.minify && !opts.sourceMap) return undefined;
-  51| |  const options: TransformOptions = {
-  52| |    ...BASE_TRANSFORM,
-  53| |    minify: opts.minify,
-  54| |    sourcefile: opts.outFile,
-  55| |  };
-  57| |  if (opts.sourceMap) {
-  58| |    return {
-  59| |      ...options,
-  60| |      sourcemap: "external",
-  61| |    };
-  62| |  }
-  64| |  return options;
-  65| |};
-  67| |/**
-  68| | * Write final output and optional source map.
-  69| | */
-  70|▼|const writeLinkedOutput = (
-  71| |  outPath: string,
-  72| |  code: string,
-  73| |  map: string | undefined,
-  74| |  opts: CompilerOptions,
-  75| |): string => {
-  76| |  if (opts.sourceMap && map) {
-  77| |    const codeWithMap = `${code}
-  78| |//# sourceMappingURL=${opts.outFile}.map`;
-  80| |    writeFileSync(outPath, codeWithMap);
-  81| |    writeFileSync(`${outPath}.map`, map);
-  83| |    return codeWithMap;
-  84| |  }
-  86| |  writeFileSync(outPath, code);
-  87| |  return code;
-  88| |};
-  90|▼|export const minifyCode = (code: string): string =>
-  91| |  transformSync(code, createMinifyOptions()).code;
-  93|▼|export const emitSourceMap = (fileName: string, code: string): string =>
-  94| |  transformSync(code, createSourceMapOptions(fileName)).map;
-  96|▼|export const runLinker = (
-  97| |  code: string,
-  98| |  opts: CompilerOptions,
-  99| |  logger: Logger,
- 100| |): string =>
- 101| |  logger.time("linker", () => {
- 102| |    mkdirSync(opts.outDir, { recursive: true });
- 104| |    const outPath = join(opts.outDir, opts.outFile);
- 105| |    const transformOptions = createLinkOptions(opts);
- 107| |    if (!transformOptions) {
- 108| |      writeFileSync(outPath, code);
- 110| |      logger.info(
- 111| |        `Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`,
- 112| |      );
- 114| |      return outPath;
- 115| |    }
- 117| |    const result = transformSync(code, transformOptions);
- 118| |    const finalCode = writeLinkedOutput(outPath, result.code, result.map, opts);
- 120| |    logger.info(
- 121| |      `Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`,
- 122| |    );
- 124| |    return outPath;
- 125| |  });
+   2| | * Phase 5: LINKER — Bun 1.4 edition.
+   3| | *
+   4| | * Important:
+   5| | * - The temporary Bun.build entry MUST live in opts.outDir.
+   6| | * - Generated import paths are relative to opts.outDir.
+   7| | */
+   9| |import {
+  10| |  writeFileSync,
+  11| |  mkdirSync,
+  12| |  renameSync,
+  13| |  rmSync,
+  14| |  existsSync,
+  15| |} from "fs";
+  16| |import { join, basename } from "path";
+  18| |import type { CompilerOptions } from "../types";
+  19| |import type { Logger } from "../logger";
+  21| |const bun: any = (globalThis as any).Bun;
+  23|▼|const writeRaw = (
+  24| |  outPath: string,
+  25| |  code: string,
+  26| |  logger: Logger,
+  27| |  warning?: string
+  28| |): string => {
+  29| |  if (warning) {
+  30| |    logger.warn(warning);
+  31| |  }
+  33| |  writeFileSync(outPath, code);
+  35| |  logger.info(
+  36| |    `Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`
+  37| |  );
+  39| |  return outPath;
+  40| |};
+  42|▼|export const runLinkerAsync = async (
+  43| |  code: string,
+  44| |  opts: CompilerOptions,
+  45| |  logger: Logger
+  46| |): Promise<string> => {
+  47| |  const start = performance.now();
+  49| |  mkdirSync(opts.outDir, { recursive: true });
+  51| |  const outPath = join(opts.outDir, opts.outFile);
+  53| |  if (!bun?.build) {
+  54| |    return writeRaw(
+  55| |      outPath,
+  56| |      code,
+  57| |      logger,
+  58| |      "Bun.build unavailable. Wrote unminified output."
+  59| |    );
+  60| |  }
+  62| |  if (!opts.minify && !opts.sourceMap) {
+  63| |    return writeRaw(outPath, code, logger);
+  64| |  }
+  66| |  /**
+  67| |   * IMPORTANT:
+  68| |   *
+  69| |   * This entry file must be inside opts.outDir.
+  70| |   *
+  71| |   * Correct:
+  72| |   *   dist/.__server.js.entry.js
+  73| |   *
+  74| |   * Wrong:
+  75| |   *   dist/.flux-link/__server.js
+  76| |   *
+  77| |   * Because generated imports are relative to dist/.
+  78| |   */
+  79| |  const entryPath = join(opts.outDir, `.${opts.outFile}.entry.js`);
+  81| |  await bun.write(entryPath, code);
+  83| |  const buildOptions: any = {
+  84| |    entrypoints: [entryPath],
+  85| |    outdir: opts.outDir,
+  86| |    target: "bun",
+  87| |    format: "esm",
+  88| |    minify: opts.minify,
+  89| |    sourcemap: opts.sourceMap ? "external" : "none",
+  90| |  };
+  92| |  let result: any;
+  94| |  try {
+  95| |    result = await bun.build(buildOptions);
+  96|!|  } catch (err) {
+  97| |    rmSync(entryPath, { force: true });
+  99|!|    throw new Error(
+ 100| |      `Bun.build threw an exception:\n${(err as Error).message}`
+ 101| |    );
+ 102| |  }
+ 104| |  if (!result.success) {
+ 105| |    const message = (result.logs ?? [])
+ 106| |      .map((log: any) => log?.message ?? String(log))
+ 107| |      .join("\n");
+ 109| |    rmSync(entryPath, { force: true });
+ 111|!|    throw new Error(`Bun.build failed:\n${message}`);
+ 112| |  }
+ 114| |  const builtPath: string | undefined = result.outputs?.[0]?.path;
+ 116| |  if (builtPath && existsSync(builtPath)) {
+ 117| |    if (builtPath !== outPath) {
+ 118| |      renameSync(builtPath, outPath);
+ 119| |    }
+ 120| |  } else if (existsSync(entryPath)) {
+ 121| |    if (entryPath !== outPath) {
+ 122| |      renameSync(entryPath, outPath);
+ 123| |    }
+ 124| |  }
+ 126| |  if (opts.sourceMap) {
+ 127| |    const mapSource = builtPath
+ 128| |      ? `${builtPath}.map`
+ 129| |      : `${entryPath}.map`;
+ 131| |    const mapOut = `${outPath}.map`;
+ 133| |    if (existsSync(mapSource) && mapSource !== mapOut) {
+ 134| |      renameSync(mapSource, mapOut);
+ 135| |    }
+ 137| |    if (existsSync(outPath)) {
+ 138| |      const text = await bun.file(outPath).text();
+ 140| |      const fixed = text.replace(
+ 141| |        /\/\/# sourceMappingURL=.*$/m,
+ 142| |        `//# sourceMappingURL=${basename(mapOut)}`
+ 143| |      );
+ 145| |      await bun.write(outPath, fixed);
+ 146| |    }
+ 147| |  }
+ 149| |  if (existsSync(entryPath) && entryPath !== outPath) {
+ 150| |    rmSync(entryPath, { force: true });
+ 151| |  }
+ 153| |  const finalCode = existsSync(outPath)
+ 154| |    ? await bun.file(outPath).text()
+ 155| |    : code;
+ 157| |  const elapsed = (performance.now() - start).toFixed(2);
+ 159| |  logger.info(
+ 160| |    `Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`
+ 161| |  );
+ 163| |  logger.info(`linker completed in ${elapsed}ms`);
+ 165| |  return outPath;
+ 166| |};
+ 168| |/**
+ 169| | * Sync fallback.
+ 170| | *
+ 171| | * Bun.build is async, so synchronous compile() cannot use it.
+ 172| | * Prefer buildAsync() in production.
+ 173| | */
+ 174|▼|export const runLinker = (
+ 175| |  code: string,
+ 176| |  opts: CompilerOptions,
+ 177| |  logger: Logger
+ 178| |): string =>
+ 179| |  logger.time("linker", () => {
+ 180| |    mkdirSync(opts.outDir, { recursive: true });
+ 182| |    const outPath = join(opts.outDir, opts.outFile);
+ 184| |    return writeRaw(
+ 185| |      outPath,
+ 186| |      code,
+ 187| |      logger,
+ 188| |      "Sync linker wrote unminified output. Use buildAsync() for Bun.build minification."
+ 189| |    );
+ 190| |  });
+ 192| |/**
+ 193| | * Compatibility stubs.
+ 194| | *
+ 195| | * The old esbuild linker exported these.
+ 196| | * They are no longer used by the Bun.build linker.
+ 197| | */
+ 198|▼|export const minifyCode = (code: string): string => code;
+ 200|▼|export const emitSourceMap = (
+ 201| |  _fileName: string,
+ 202| |  _code: string
+ 203| |): string => "";
 ---
 
 >src/compiler/phases/serializers.ts
@@ -4784,131 +4919,142 @@ f:validateAsync(
    1| |/**
    2| | * Runtime schema validation.
    3| | *
-   4| | * Supports:
+   4| | * Bun 1.4 edition:
    5| | * - TypeBox / JSON Schema via Ajv
    6| | * - Standard Schema v1 via async validation
-   7| | */
-   9| |import Ajv, { type ErrorObject } from "ajv";
-  10| |import addFormats from "ajv-formats";
-  11| |import type { AnySchema, StandardSchemaV1 } from "./types";
-  12| |import { ValidationError } from "./errors";
-  14| |const ajv = new Ajv({
-  15| |  allErrors: true,
-  16| |  strict: false,
-  17| |  coerceTypes: true,
-  18| |  removeAdditional: true,
-  19| |  useDefaults: true,
-  20| |});
-  22| |addFormats(ajv);
-  24|▼|function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
-  25| |  return typeof schema === "object" && schema !== null && "~standard" in schema;
-  26| |}
-  28|▼|function toErrorRecord(
-  29| |  errors: ErrorObject[] | null | undefined,
-  30| |  on: string
-  31| |): Record<string, string[]> {
-  32| |  const out: Record<string, string[]> = {};
-  34| |  for (const e of errors ?? []) {
-  35| |    const path =
-  36| |      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
-  37| |      (e.params as any)?.missingProperty ||
-  38| |      on;
-  40| |    out[path] ??= [];
-  41| |    out[path].push(e.message ?? "Invalid value");
-  42| |  }
-  44| |  return out;
-  45| |}
-  47|▼|export function compileValidator<T = unknown>(
-  48| |  schema: AnySchema,
-  49| |  on: string = "input"
-  50| |) {
-  51| |  if (isStandardSchema(schema)) {
-  52| |    return (_input: unknown): T => {
-  53|!|      throw new Error(
-  54| |        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
-  55| |      );
-  56| |    };
-  57| |  }
-  59| |  const validate = ajv.compile(schema as object);
-  61| |  return (input: unknown): T => {
-  62| |    if (!validate(input)) {
-  63|!|      throw new ValidationError(
-  64| |        "Validation failed",
-  65| |        toErrorRecord(validate.errors, on),
-  66| |        on
-  67| |      );
-  68| |    }
-  70| |    return input as T;
-  71| |  };
-  72| |}
-  74|▼|export function validateOrThrow<T = unknown>(
-  75| |  schema: AnySchema,
-  76| |  input: unknown,
-  77| |  on: string = "input"
-  78| |): T {
-  79| |  return compileValidator<T>(schema, on)(input);
-  80| |}
-  82|▼|export async function validateAsync<T = unknown>(
-  83| |  schema: AnySchema,
-  84| |  input: unknown,
-  85| |  on: string = "input"
-  86| |): Promise<T> {
-  87| |  if (isStandardSchema(schema)) {
-  88| |    const result = await schema["~standard"].validate(input);
-  90| |    if ("issues" in result) {
-  91| |      const errors: Record<string, string[]> = {};
-  93| |      for (const issue of result.issues) {
-  94| |        const path = issue.path?.join(".") || on;
-  95| |        errors[path] ??= [];
-  96| |        errors[path].push(issue.message);
-  97| |      }
-  99|!|      throw new ValidationError("Validation failed", errors, on);
- 100| |    }
- 102| |    return result.value as T;
- 103| |  }
- 105| |  return compileValidator<T>(schema, on)(input);
- 106| |}
+   7| | * - compiled validator cache
+   8| | */
+  10| |import Ajv, { type ErrorObject } from "ajv";
+  11| |import addFormats from "ajv-formats";
+  12| |import type { AnySchema, StandardSchemaV1 } from "./types";
+  13| |import { ValidationError } from "./errors";
+  15| |const ajv = new Ajv({
+  16| |  allErrors: true,
+  17| |  strict: false,
+  18| |  coerceTypes: true,
+  19| |  removeAdditional: true,
+  20| |  useDefaults: true,
+  21| |});
+  23| |addFormats(ajv);
+  25| |const compiledCache = new WeakMap<object, (input: unknown) => unknown>();
+  27|▼|function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
+  28| |  return typeof schema === "object" && schema !== null && "~standard" in schema;
+  29| |}
+  31|▼|function toErrorRecord(
+  32| |  errors: ErrorObject[] | null | undefined,
+  33| |  on: string
+  34| |): Record<string, string[]> {
+  35| |  const out: Record<string, string[]> = {};
+  37| |  for (const e of errors ?? []) {
+  38| |    const path =
+  39| |      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
+  40| |      (e.params as any)?.missingProperty ||
+  41| |      on;
+  43| |    out[path] ??= [];
+  44| |    out[path].push(e.message ?? "Invalid value");
+  45| |  }
+  47| |  return out;
+  48| |}
+  50|▼|export function compileValidator<T = unknown>(
+  51| |  schema: AnySchema,
+  52| |  on: string = "input"
+  53| |) {
+  54| |  if (isStandardSchema(schema)) {
+  55| |    return (_input: unknown): T => {
+  56|!|      throw new Error(
+  57| |        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
+  58| |      );
+  59| |    };
+  60| |  }
+  62| |  const schemaKey = schema as object;
+  64| |  let validator = compiledCache.get(schemaKey);
+  66| |  if (!validator) {
+  67| |    const validate = ajv.compile(schema as object);
+  69| |    validator = (input: unknown): unknown => {
+  70| |      if (!validate(input)) {
+  71|!|        throw new ValidationError(
+  72| |          "Validation failed",
+  73| |          toErrorRecord(validate.errors, on),
+  74| |          on
+  75| |        );
+  76| |      }
+  78| |      return input;
+  79| |    };
+  81| |    compiledCache.set(schemaKey, validator);
+  82| |  }
+  84| |  return validator as (input: unknown) => T;
+  85| |}
+  87|▼|export function validateOrThrow<T = unknown>(
+  88| |  schema: AnySchema,
+  89| |  input: unknown,
+  90| |  on: string = "input"
+  91| |): T {
+  92| |  return compileValidator<T>(schema, on)(input);
+  93| |}
+  95|▼|export async function validateAsync<T = unknown>(
+  96| |  schema: AnySchema,
+  97| |  input: unknown,
+  98| |  on: string = "input"
+  99| |): Promise<T> {
+ 100| |  if (isStandardSchema(schema)) {
+ 101| |    const result = await schema["~standard"].validate(input);
+ 103| |    if ("issues" in result) {
+ 104| |      const errors: Record<string, string[]> = {};
+ 106| |      for (const issue of result.issues) {
+ 107| |        const path = issue.path?.join(".") || on;
+ 108| |        errors[path] ??= [];
+ 109| |        errors[path].push(issue.message);
+ 110| |      }
+ 112|!|      throw new ValidationError("Validation failed", errors, on);
+ 113| |    }
+ 115| |    return result.value as T;
+ 116| |  }
+ 118| |  return compileValidator<T>(schema, on)(input);
+ 119| |}
 ---
 
 >src/core/context.ts
 i:set-cookie-parser
 l:./types|./body|./files|./proxy|./cache
-e:SetHeaders|ContextOptions|FluxContext|serializeCookie|parseCookieString|parseSetCookieHeader|Cookie|createCookieJar|createContext
+e:SetHeaders|ContextOptions|FluxContext|serializeCookie|parseCookieString|parseSetCookieHeader|Cookie|createCookieJar|createLazyCookieJar|createContext
 f:toCookieValue(value: unknown):string
 f:encodeCookieValue(value: string):string
 f:decodeCookieValue(value: string):string
 f:normalizeSameSite(
-  sameSite: CookieOptions["sameSite"],
+  sameSite: CookieOptions["sameSite"]
 ):string | undefined
 f:serializeCookiePair(
   name: string,
   value: string,
-  opts: ElysiaCookie,
+  opts: ElysiaCookie
 ):string
 f:serializeCookie(
-  cookies: Record<string, ElysiaCookie>,
+  cookies: Record<string, ElysiaCookie>
 ):string | string[] | undefined
 f:parseCookieString(
-  cookieString: string | null,
+  cookieString: string | null
 ):Record<string, string>
-f:parseSetCookieHeader(
-  header: string | string[] | null,
-)
+f:parseSetCookieHeader(header: string | string[] | null)
 f:createCookieJar(
   set: SetHeaders,
   store: Record<string, ElysiaCookie>,
   initial?: Partial<ElysiaCookie>
 ):Record<string, Cookie>
+f:createLazyCookieJar(
+  set: SetHeaders,
+  getCookieHeader: ()
+f:ensureParsed()
 f:generateRequestId():string
 f:asResponseHeaders(headers: Headers):ResponseHeadersInit
 f:mergeHeaders(
   base: Record<string, string>,
-  init?: FluxHeadersInit,
+  init?: FluxHeadersInit
 ):ResponseHeadersInit
 f:createResponseInit(
   status: number,
-  headers?: FluxHeadersInit,
+  headers?: FluxHeadersInit
 ):ResponseInit
+f:ensureState()
 c:Cookie
 t:SetHeaders
 t:ContextOptions
@@ -4917,53 +5063,53 @@ t:ResponseHeadersInit
 t:FluxHeadersInit
 ---
    1| |/**
-   2| | * @fileoverview Flux Context v3.0 — Production-grade request context.
-   3| | * Lazy evaluation, zero-allocation fast paths, full Elysia compatibility.
-   4| | */
-   5| |import * as setCookie from "set-cookie-parser";
-   6| |import type { HttpMethod, CookieOptions, ElysiaCookie } from "./types";
-   7| |import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
-   8| |import { sendFile, type SendFileOptions } from "./files";
-   9| |import { proxyRequest, forwardRequest, type ProxyOptions } from "./proxy";
-  10| |import { HttpResponseCache, type HttpResponseCacheOptions } from "./cache";
-  12| |// ============================================================================
-  13| |// Types
-  14| |// ============================================================================
-  16|▼|export interface SetHeaders {
-  17| |  headers: Record<string, string>;
-  18| |  status?: number;
-  19| |  redirect?: string;
-  20| |  cookie?: Record<string, ElysiaCookie>;
-  21| |}
-  23|▼|export interface ContextOptions {
-  24| |  query?: URLSearchParams;
-  25| |  body?: LazyBodyOptions;
-  26| |  bodyInstance?: LazyBody;
-  27| |  params?: Record<string, string>;
-  28| |  set?: Partial<SetHeaders>;
-  29| |}
-  31|▼|export interface FluxContext<
-  32| |  P = Record<string, string>,
-  33| |  Q = URLSearchParams,
-  34| |  B = unknown
-  35| |> {
-  36| |  readonly req: Request;
-  37| |  readonly url: URL;
-  38| |  readonly method: HttpMethod;
-  39| |  readonly path: string;
-  40| |  readonly route: string;
-  41| |  readonly headers: Headers;
-  42| |  readonly requestId: string;
-  43| |  readonly startTime: number;
-  45| |  params: P;
-  46| |  readonly query: Q;
-  47| |  body: LazyBody;
-  48| |  cookie: Record<string, Cookie<string | undefined>>;
-  50| |  state: Map<string | symbol, unknown>;
-  52| |  // State accessors
-  53| |  getState<T = unknown>(key: string | symbol): T | undefined;
-  54| |  setState<T>(key: string | symbol, value: T): void;
-  56| |  // Response helpers
+   2| | * Flux Context — Bun 1.4 edition.
+   3| | *
+   4| | * Optimizations:
+   5| | * - lazy cookie parsing
+   6| | * - lazy state map
+   7| | * - ctx.ip using Bun server.requestIP when available
+   8| | */
+  10| |import * as setCookie from "set-cookie-parser";
+  11| |import type { HttpMethod, CookieOptions, ElysiaCookie } from "./types";
+  12| |import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
+  13| |import { sendFile, type SendFileOptions } from "./files";
+  14| |import { proxyRequest, forwardRequest, type ProxyOptions } from "./proxy";
+  15| |import { HttpResponseCache, type HttpResponseCacheOptions } from "./cache";
+  17|▼|export interface SetHeaders {
+  18| |  headers: Record<string, string>;
+  19| |  status?: number;
+  20| |  redirect?: string;
+  21| |  cookie?: Record<string, ElysiaCookie>;
+  22| |}
+  24|▼|export interface ContextOptions {
+  25| |  query?: URLSearchParams;
+  26| |  body?: LazyBodyOptions;
+  27| |  bodyInstance?: LazyBody;
+  28| |  params?: Record<string, string>;
+  29| |  set?: Partial<SetHeaders>;
+  30| |}
+  32|▼|export interface FluxContext<
+  33| |  P = Record<string, string>,
+  34| |  Q = URLSearchParams,
+  35| |  B = unknown
+  36| |> {
+  37| |  readonly req: Request;
+  38| |  readonly url: URL;
+  39| |  readonly method: HttpMethod;
+  40| |  readonly path: string;
+  41| |  readonly route: string;
+  42| |  readonly headers: Headers;
+  43| |  readonly requestId: string;
+  44| |  readonly startTime: number;
+  45| |  readonly ip: string;
+  47| |  params: P;
+  48| |  readonly query: Q;
+  49| |  body: LazyBody;
+  50| |  cookie: Record<string, Cookie<string | undefined>>;
+  52| |  state: Map<string | symbol, unknown>;
+  54| |  getState<T = unknown>(key: string | symbol): T | undefined;
+  55| |  setState<T>(key: string | symbol, value: T): void;
   57| |  json<T>(data: T, init?: ResponseInit): Response;
   58| |  text(data: string, init?: ResponseInit): Response;
   59| |  html(data: string, init?: ResponseInit): Response;
@@ -4971,323 +5117,374 @@ t:FluxHeadersInit
   61| |  stream(stream: ReadableStream, init?: ResponseInit): Response;
   62| |  empty(status?: number): Response;
   63| |  status(code: number): Response;
-  65| |  // File & Proxy
-  66| |  sendFile(path: string, opts?: SendFileOptions): Promise<Response>;
-  67|→|  proxy(target: string | URL, opts?: ProxyOptions): Promise<Response>;
-  68| |  forward(target: string | URL, opts?: ProxyOptions): Promise<Response>;
-  70| |  // Cache
-  71|→|  cache(factory: () => Promise<Response>, opts?: HttpResponseCacheOptions & { vary?: string[] }): Promise<Response>;
-  73| |  // Server reference
+  65| |  sendFile(path: string, opts?: SendFileOptions): Promise<Response>;
+  66|→|  proxy(target: string | URL, opts?: ProxyOptions): Promise<Response>;
+  67| |  forward(target: string | URL, opts?: ProxyOptions): Promise<Response>;
+  69|→|  cache(
+  70| |    factory: () => Promise<Response>,
+  71| |    opts?: HttpResponseCacheOptions & { vary?: string[] }
+  72| |  ): Promise<Response>;
   74| |  readonly server: any;
   75| |}
-  77| |/**
-  78| | * Convert a cookie value into a string representation.
-  79| | */
-  80|▼|const toCookieValue = (value: unknown): string =>
-  81| |  typeof value === "object" && value !== null
-  82| |    ? JSON.stringify(value)
-  83| |    : String(value ?? "");
-  85| |/**
-  86| | * Encode cookie value safely.
-  87| | */
-  88|▼|const encodeCookieValue = (value: string): string => encodeURIComponent(value);
-  90| |/**
-  91| | * Decode cookie value with fallback for malformed values.
-  92| | */
-  93|▼|const decodeCookieValue = (value: string): string => {
-  94| |  try {
-  95| |    return decodeURIComponent(value);
-  96| |  } catch {
-  97| |    return value;
-  98| |  }
+  77|▼|const toCookieValue = (value: unknown): string =>
+  78| |  typeof value === "object" && value !== null
+  79| |    ? JSON.stringify(value)
+  80| |    : String(value ?? "");
+  82|▼|const encodeCookieValue = (value: string): string => encodeURIComponent(value);
+  84|▼|const decodeCookieValue = (value: string): string => {
+  85| |  try {
+  86| |    return decodeURIComponent(value);
+  87| |  } catch {
+  88| |    return value;
+  89| |  }
+  90| |};
+  92|▼|const normalizeSameSite = (
+  93| |  sameSite: CookieOptions["sameSite"]
+  94| |): string | undefined => {
+  95| |  if (sameSite === true) return "Strict";
+  96| |  if (sameSite === false || sameSite === undefined) return undefined;
+  98| |  return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
   99| |};
- 101| |/**
- 102| | * Normalize SameSite attribute.
- 103| | */
- 104|▼|const normalizeSameSite = (
- 105| |  sameSite: CookieOptions["sameSite"],
- 106| |): string | undefined => {
- 107| |  if (sameSite === true) return "Strict";
- 108| |  if (sameSite === false || sameSite === undefined) return undefined;
- 110| |  return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
- 111| |};
- 113| |/**
- 114| | * Serialize one cookie pair.
- 115| | */
- 116|▼|const serializeCookiePair = (
- 117| |  name: string,
- 118| |  value: string,
- 119| |  opts: ElysiaCookie,
- 120| |): string => {
- 121| |  const parts = [`${name}=${encodeCookieValue(value)}`];
- 123| |  if (opts.domain) parts.push(`Domain=${opts.domain}`);
- 124| |  if (opts.path) parts.push(`Path=${opts.path}`);
- 126| |  if (opts.expires instanceof Date) {
- 127| |    parts.push(`Expires=${opts.expires.toUTCString()}`);
- 128| |  }
- 130| |  if (opts.maxAge != null) {
- 131| |    parts.push(`Max-Age=${Math.floor(opts.maxAge)}`);
- 132| |  }
- 134| |  if (opts.httpOnly) parts.push("HttpOnly");
- 135| |  if (opts.secure) parts.push("Secure");
- 137| |  const sameSite = normalizeSameSite(opts.sameSite);
- 138| |  if (sameSite) parts.push(`SameSite=${sameSite}`);
- 140| |  if (opts.priority) parts.push(`Priority=${opts.priority}`);
- 141| |  if (opts.partitioned) parts.push("Partitioned");
- 143| |  return parts.join("; ");
- 144| |};
- 146|▼|export const serializeCookie = (
- 147| |  cookies: Record<string, ElysiaCookie>,
- 148| |): string | string[] | undefined => {
- 149| |  const serialized = Object.entries(cookies)
- 150| |    .filter(([, opts]) => opts?.value != null)
- 151| |    .map(([name, opts]) =>
- 152| |      serializeCookiePair(name, toCookieValue(opts.value), opts),
- 153| |    );
- 155| |  if (serialized.length === 0) return undefined;
- 157| |  return serialized.length === 1 ? serialized[0] : serialized;
- 158| |};
- 160|▼|export const parseCookieString = (
- 161| |  cookieString: string | null,
- 162| |): Record<string, string> => {
- 163| |  if (!cookieString) return {};
- 165| |  return cookieString
- 166| |    .split(";")
- 167| |    .reduce<Record<string, string>>((acc, segment) => {
- 168| |      const eq = segment.indexOf("=");
- 169| |      if (eq === -1) return acc;
- 171| |      const key = segment.slice(0, eq).trim();
- 172| |      if (!key) return acc;
- 174| |      const value = segment.slice(eq + 1).trim();
- 175| |      acc[key] = decodeCookieValue(value);
- 177| |      return acc;
- 178| |    }, {});
- 179| |};
- 181|▼|export const parseSetCookieHeader = (
- 182| |  header: string | string[] | null,
- 183| |) => {
- 184| |  if (!header) return [];
- 185| |  return setCookie.parse(header);
- 186| |};
- 188| |// ============================================================================
- 189| |// Cookie Class
- 190| |// ============================================================================
- 192|▼|export class Cookie<T = string | undefined> {
- 193| |  constructor(
- 194| |    private name: string,
- 195| |    private jar: Record<string, ElysiaCookie>,
- 196| |    private initial: Partial<ElysiaCookie> = {}
- 197| |  ) { }
- 199| |  get value(): T { return (this.jar[this.name]?.value ?? this.initial.value) as T; }
- 200| |  set value(v: T) {
- 201| |    const entry = (this.jar[this.name] ??= { ...this.initial });
- 202| |    entry.value = v;
- 203| |  }
- 205| |  get expires() { return this.jar[this.name]?.expires ?? this.initial.expires; }
- 206| |  set expires(v: Date | undefined) { this._set("expires", v); }
- 208| |  get maxAge() { return this.jar[this.name]?.maxAge ?? this.initial.maxAge; }
- 209| |  set maxAge(v: number | undefined) { this._set("maxAge", v); }
- 211| |  get domain() { return this.jar[this.name]?.domain ?? this.initial.domain; }
- 212| |  set domain(v: string | undefined) { this._set("domain", v); }
- 214| |  get path() { return this.jar[this.name]?.path ?? this.initial.path; }
- 215| |  set path(v: string | undefined) { this._set("path", v); }
- 217| |  get secure() { return this.jar[this.name]?.secure ?? this.initial.secure; }
- 218| |  set secure(v: boolean | undefined) { this._set("secure", v); }
- 220| |  get httpOnly() { return this.jar[this.name]?.httpOnly ?? this.initial.httpOnly; }
- 221| |  set httpOnly(v: boolean | undefined) { this._set("httpOnly", v); }
- 223| |  get sameSite() { return this.jar[this.name]?.sameSite ?? this.initial.sameSite; }
- 224| |  set sameSite(v: true | false | "lax" | "strict" | "none" | undefined) { this._set("sameSite", v); }
- 226| |  update(config: Partial<ElysiaCookie>): this {
- 227| |    const entry = (this.jar[this.name] ??= { ...this.initial });
- 228| |    Object.assign(entry, config);
- 229| |    return this;
- 230| |  }
- 232| |  remove(): this {
- 233| |    this.update({ expires: new Date(0), maxAge: 0, value: "" });
- 234| |    return this;
- 235| |  }
- 237| |  toString(): string {
- 238| |    const v = this.value;
- 239| |    return typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
- 240| |  }
- 242| |  private _set(key: string, value: unknown) {
- 243| |    const entry = (this.jar[this.name] ??= { ...this.initial });
- 244| |    (entry as Record<string, unknown>)[key] = value;
- 245| |  }
- 246| |}
- 248| |// ============================================================================
- 249| |// Cookie Jar Factory
- 250| |// ============================================================================
- 252|▼|export const createCookieJar = (
- 253| |  set: SetHeaders,
- 254| |  store: Record<string, ElysiaCookie>,
- 255| |  initial?: Partial<ElysiaCookie>
- 256| |): Record<string, Cookie> => {
- 257| |  if (!set.cookie) set.cookie = Object.create(null);
- 258| |  return new Proxy(store, {
- 259| |    get(_, key: string) {
- 260| |      return new Cookie(key, set.cookie!, { ...initial, ...store[key] });
- 261| |    }
- 262| |  }) as Record<string, Cookie>;
- 263| |};
- 267| |// ============================================================================
- 268| |// Context Factory
- 269| |// ============================================================================
- 271| |const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
- 272| |const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
- 273| |const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
- 275| |let requestIdCounter = 0;
- 276|▼|const generateRequestId = (): string => {
- 277| |  const ts = performance.now().toString(36).replace(".", "");
- 278| |  const seq = (++requestIdCounter).toString(36);
- 279| |  return `${ts}-${seq}`;
- 280| |};
- 282|▼|type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
- 284|▼|type FluxHeadersInit =
- 285| |  | ResponseHeadersInit
- 286| |  | Record<string, string | undefined>
- 287| |  | Array<[string, string | undefined]>;
- 289|▼|const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
- 290| |  headers as unknown as ResponseHeadersInit;
- 292| |/**
- 293| | * Merge base headers with optional init headers.
- 294| | * Filters undefined header values to satisfy exactOptionalPropertyTypes.
- 295| | */
- 296|▼|const mergeHeaders = (
- 297| |  base: Record<string, string>,
- 298| |  init?: FluxHeadersInit,
- 299| |): ResponseHeadersInit => {
- 300| |  const headers = new Headers(base);
- 302| |  if (init === undefined) {
- 303| |    return asResponseHeaders(headers);
- 304| |  }
- 306| |  const forEachFn = (init as { forEach?: unknown }).forEach;
- 308| |  if (!Array.isArray(init) && typeof forEachFn === "function") {
- 309| |    (forEachFn as (cb: (value: string, key: string) => void) => void).call(
- 310| |      init,
- 311| |      (value, key) => {
- 312| |        headers.set(key, value);
- 313| |      },
- 314| |    );
- 316| |    return asResponseHeaders(headers);
- 317| |  }
- 319| |  if (Array.isArray(init)) {
- 320| |    for (const [key, value] of init as Array<[string, string | undefined]>) {
- 321| |      if (value !== undefined) {
- 322| |        headers.set(key, value);
- 323| |      }
- 324| |    }
- 326| |    return asResponseHeaders(headers);
- 327| |  }
- 329| |  for (const [key, value] of Object.entries(
- 330| |    init as Record<string, string | undefined>,
- 331| |  )) {
- 332| |    if (value !== undefined) {
- 333| |      headers.set(key, value);
- 334| |    }
- 335| |  }
- 337| |  return asResponseHeaders(headers);
- 338| |};
- 340|▼|const createResponseInit = (
- 341| |  status: number,
- 342| |  headers?: FluxHeadersInit,
- 343| |): ResponseInit => {
- 344| |  if (headers === undefined) {
- 345| |    return { status };
- 346| |  }
- 348| |  return {
- 349| |    status,
- 350| |    headers: mergeHeaders({}, headers),
- 351| |  };
- 352| |};
- 354| |const defaultCache = new HttpResponseCache({ max: 1000, ttlMs: 60_000, staleTtlMs: 300_000 });
- 356| |export function createContext<P = Record<string, string>>(
- 357| |  req: Request,
- 358| |  params: P,
- 359| |  opts: ContextOptions = {}
- 360| |): FluxContext<P, URLSearchParams> {
- 361| |  let _url: URL | undefined;
- 362| |  let _query: URLSearchParams | undefined = opts.query;
- 364| |  const body = opts.bodyInstance ?? createLazyBody(req, opts.body);
- 365| |  const state = new Map<string | symbol, unknown>();
- 366| |  const set: SetHeaders = { headers: {}, status: 200, ...opts.set };
- 368| |  const cookieStore = parseCookieString(req.headers.get("cookie"));
- 369| |  const cookie = createCookieJar(set, cookieStore as any);
- 371| |  const ctx: FluxContext<P, URLSearchParams> = {
- 372| |    req,
- 373| |    get url() { return (_url ??= new URL(req.url)); },
- 374| |    method: req.method as HttpMethod,
- 375| |    get path() { return this.url.pathname; },
- 376| |    route: "",
- 377| |    headers: req.headers,
- 378| |    requestId: generateRequestId(),
- 379| |    startTime: performance.now(),
- 380| |    params,
- 381| |    get query() { return (_query ??= this.url.searchParams) as URLSearchParams; },
- 382| |    body,
- 383| |    cookie,
- 384| |    state,
- 387| |    getState<T = unknown>(key: string | symbol): T | undefined {
- 388| |      return state.get(key) as T | undefined;
- 389| |    },
- 391| |    setState<T>(key: string | symbol, value: T): void {
- 392| |      state.set(key, value);
- 393| |    },
- 394| |    json<T>(data: T, init?: ResponseInit): Response {
- 395| |      const status = init?.status ?? set.status ?? 200;
- 397| |      return Response.json(data, {
- 398| |        status,
- 399| |        headers: mergeHeaders(HDR_JSON, init?.headers),
- 400| |      });
- 401| |    },
- 403| |    text(data: string, init?: ResponseInit): Response {
- 404| |      const status = init?.status ?? set.status ?? 200;
- 406| |      return new Response(data, {
- 407| |        status,
- 408| |        headers: mergeHeaders(HDR_TEXT, init?.headers),
- 409| |      });
- 410| |    },
- 412| |    html(data: string, init?: ResponseInit): Response {
- 413| |      const status = init?.status ?? set.status ?? 200;
- 415| |      return new Response(data, {
- 416| |        status,
- 417| |        headers: mergeHeaders(HDR_HTML, init?.headers),
- 418| |      });
- 419| |    },
- 421| |    stream(stream: ReadableStream, init?: ResponseInit): Response {
- 422| |      return new Response(
- 423| |        stream,
- 424| |        createResponseInit(init?.status ?? 200, init?.headers),
- 425| |      );
- 426| |    },
- 427| |    empty(status = 204): Response {
- 428| |      return new Response(null, { status });
- 429| |    },
- 430| |    status(code: number): Response {
- 431| |      return new Response(null, { status: code });
- 432| |    },
- 434| |    sendFile(path: string, sendOpts: SendFileOptions = {}) {
- 435| |      return sendFile(path, { req, ...sendOpts });
- 436| |    },
- 437|→|    proxy(target: string | URL, proxyOpts: ProxyOptions = {}) {
- 438| |      return proxyRequest(target, proxyOpts);
- 439| |    },
- 440| |    forward(target: string | URL, proxyOpts: ProxyOptions = {}) {
- 441| |      return forwardRequest(req, target, proxyOpts);
- 442| |    },
- 443|→|    cache(factory: () => Promise<Response>, cacheOpts = {}) {
- 444| |      return defaultCache.getOrSet(req, factory, cacheOpts);
- 445| |    },
- 446| |    redirect(
- 447| |      url: string,
- 448| |      status: 301 | 302 | 303 | 307 | 308 = 302,
- 449| |    ): Response {
- 450| |      return Response.redirect(url, status);
- 451| |    },
- 452| |    server: null,
- 453| |  };
- 455| |  return ctx;
- 456| |}
+ 101|▼|const serializeCookiePair = (
+ 102| |  name: string,
+ 103| |  value: string,
+ 104| |  opts: ElysiaCookie
+ 105| |): string => {
+ 106| |  const parts = [`${name}=${encodeCookieValue(value)}`];
+ 108| |  if (opts.domain) parts.push(`Domain=${opts.domain}`);
+ 109| |  if (opts.path) parts.push(`Path=${opts.path}`);
+ 111| |  if (opts.expires instanceof Date) {
+ 112| |    parts.push(`Expires=${opts.expires.toUTCString()}`);
+ 113| |  }
+ 115| |  if (opts.maxAge != null) {
+ 116| |    parts.push(`Max-Age=${Math.floor(opts.maxAge)}`);
+ 117| |  }
+ 119| |  if (opts.httpOnly) parts.push("HttpOnly");
+ 120| |  if (opts.secure) parts.push("Secure");
+ 122| |  const sameSite = normalizeSameSite(opts.sameSite);
+ 123| |  if (sameSite) parts.push(`SameSite=${sameSite}`);
+ 125| |  if (opts.priority) parts.push(`Priority=${opts.priority}`);
+ 126| |  if (opts.partitioned) parts.push("Partitioned");
+ 128| |  return parts.join("; ");
+ 129| |};
+ 131|▼|export const serializeCookie = (
+ 132| |  cookies: Record<string, ElysiaCookie>
+ 133| |): string | string[] | undefined => {
+ 134| |  const serialized = Object.entries(cookies)
+ 135| |    .filter(([, opts]) => opts?.value != null)
+ 136| |    .map(([name, opts]) =>
+ 137| |      serializeCookiePair(name, toCookieValue(opts.value), opts)
+ 138| |    );
+ 140| |  if (serialized.length === 0) return undefined;
+ 142| |  return serialized.length === 1 ? serialized[0] : serialized;
+ 143| |};
+ 145|▼|export const parseCookieString = (
+ 146| |  cookieString: string | null
+ 147| |): Record<string, string> => {
+ 148| |  if (!cookieString) return {};
+ 150| |  return cookieString
+ 151| |    .split(";")
+ 152| |    .reduce<Record<string, string>>((acc, segment) => {
+ 153| |      const eq = segment.indexOf("=");
+ 154| |      if (eq === -1) return acc;
+ 156| |      const key = segment.slice(0, eq).trim();
+ 157| |      if (!key) return acc;
+ 159| |      const value = segment.slice(eq + 1).trim();
+ 160| |      acc[key] = decodeCookieValue(value);
+ 162| |      return acc;
+ 163| |    }, {});
+ 164| |};
+ 166|▼|export const parseSetCookieHeader = (header: string | string[] | null) => {
+ 167| |  if (!header) return [];
+ 168| |  return setCookie.parse(header);
+ 169| |};
+ 171|▼|export class Cookie<T = string | undefined> {
+ 172| |  constructor(
+ 173| |    private name: string,
+ 174| |    private jar: Record<string, ElysiaCookie>,
+ 175| |    private initial: Partial<ElysiaCookie> = {}
+ 176| |  ) {}
+ 178| |  get value(): T {
+ 179| |    return (this.jar[this.name]?.value ?? this.initial.value) as T;
+ 180| |  }
+ 182| |  set value(v: T) {
+ 183| |    const entry = (this.jar[this.name] ??= { ...this.initial });
+ 184| |    entry.value = v;
+ 185| |  }
+ 187| |  get expires() {
+ 188| |    return this.jar[this.name]?.expires ?? this.initial.expires;
+ 189| |  }
+ 191| |  set expires(v: Date | undefined) {
+ 192| |    this._set("expires", v);
+ 193| |  }
+ 195| |  get maxAge() {
+ 196| |    return this.jar[this.name]?.maxAge ?? this.initial.maxAge;
+ 197| |  }
+ 199| |  set maxAge(v: number | undefined) {
+ 200| |    this._set("maxAge", v);
+ 201| |  }
+ 203| |  get domain() {
+ 204| |    return this.jar[this.name]?.domain ?? this.initial.domain;
+ 205| |  }
+ 207| |  set domain(v: string | undefined) {
+ 208| |    this._set("domain", v);
+ 209| |  }
+ 211| |  get path() {
+ 212| |    return this.jar[this.name]?.path ?? this.initial.path;
+ 213| |  }
+ 215| |  set path(v: string | undefined) {
+ 216| |    this._set("path", v);
+ 217| |  }
+ 219| |  get secure() {
+ 220| |    return this.jar[this.name]?.secure ?? this.initial.secure;
+ 221| |  }
+ 223| |  set secure(v: boolean | undefined) {
+ 224| |    this._set("secure", v);
+ 225| |  }
+ 227| |  get httpOnly() {
+ 228| |    return this.jar[this.name]?.httpOnly ?? this.initial.httpOnly;
+ 229| |  }
+ 231| |  set httpOnly(v: boolean | undefined) {
+ 232| |    this._set("httpOnly", v);
+ 233| |  }
+ 235| |  get sameSite() {
+ 236| |    return this.jar[this.name]?.sameSite ?? this.initial.sameSite;
+ 237| |  }
+ 239| |  set sameSite(v: true | false | "lax" | "strict" | "none" | undefined) {
+ 240| |    this._set("sameSite", v);
+ 241| |  }
+ 243| |  update(config: Partial<ElysiaCookie>): this {
+ 244| |    const entry = (this.jar[this.name] ??= { ...this.initial });
+ 245| |    Object.assign(entry, config);
+ 246| |    return this;
+ 247| |  }
+ 249| |  remove(): this {
+ 250| |    this.update({ expires: new Date(0), maxAge: 0, value: "" });
+ 251| |    return this;
+ 252| |  }
+ 254| |  toString(): string {
+ 255| |    const v = this.value;
+ 256| |    return typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
+ 257| |  }
+ 259| |  private _set(key: string, value: unknown) {
+ 260| |    const entry = (this.jar[this.name] ??= { ...this.initial });
+ 261| |    (entry as Record<string, unknown>)[key] = value;
+ 262| |  }
+ 263| |}
+ 265|▼|export const createCookieJar = (
+ 266| |  set: SetHeaders,
+ 267| |  store: Record<string, ElysiaCookie>,
+ 268| |  initial?: Partial<ElysiaCookie>
+ 269| |): Record<string, Cookie> => {
+ 270| |  if (!set.cookie) set.cookie = Object.create(null);
+ 272| |  return new Proxy(store, {
+ 273| |    get(_, key: string) {
+ 274| |      return new Cookie(key, set.cookie!, { ...initial, ...store[key] });
+ 275| |    },
+ 276| |  }) as Record<string, Cookie>;
+ 277| |};
+ 279|▼|export const createLazyCookieJar = (
+ 280| |  set: SetHeaders,
+ 281| |  getCookieHeader: () => string | null,
+ 282| |  initial?: Partial<ElysiaCookie>
+ 283| |): Record<string, Cookie> => {
+ 284| |  if (!set.cookie) set.cookie = Object.create(null);
+ 286| |  let parsed: Record<string, string> | undefined;
+ 288|▼|  const ensureParsed = () => {
+ 289| |    if (!parsed) {
+ 290| |      parsed = parseCookieString(getCookieHeader());
+ 291| |    }
+ 293| |    return parsed;
+ 294| |  };
+ 296| |  const target = Object.create(null);
+ 298| |  return new Proxy(target, {
+ 299| |    get(_, key: string) {
+ 300| |      const store = ensureParsed();
+ 302| |      return new Cookie(key, set.cookie!, {
+ 303| |        ...initial,
+ 304| |        value: store[key],
+ 305| |      });
+ 306| |    },
+ 307| |  }) as Record<string, Cookie>;
+ 308| |};
+ 310| |const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
+ 311| |const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
+ 312| |const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
+ 314| |let requestIdCounter = 0;
+ 316|▼|const generateRequestId = (): string => {
+ 317| |  const ts = performance.now().toString(36).replace(".", "");
+ 318| |  const seq = (++requestIdCounter).toString(36);
+ 319| |  return `${ts}-${seq}`;
+ 320| |};
+ 322|▼|type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
+ 324|▼|type FluxHeadersInit =
+ 325| |  | ResponseHeadersInit
+ 326| |  | Record<string, string | undefined>
+ 327| |  | Array<[string, string | undefined]>;
+ 329|▼|const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
+ 330| |  headers as unknown as ResponseHeadersInit;
+ 332|▼|const mergeHeaders = (
+ 333| |  base: Record<string, string>,
+ 334| |  init?: FluxHeadersInit
+ 335| |): ResponseHeadersInit => {
+ 336| |  const headers = new Headers(base);
+ 338| |  if (init === undefined) {
+ 339| |    return asResponseHeaders(headers);
+ 340| |  }
+ 342| |  const forEachFn = (init as { forEach?: unknown }).forEach;
+ 344| |  if (!Array.isArray(init) && typeof forEachFn === "function") {
+ 345| |    (forEachFn as (cb: (value: string, key: string) => void) => void).call(
+ 346| |      init,
+ 347| |      (value, key) => {
+ 348| |        headers.set(key, value);
+ 349| |      }
+ 350| |    );
+ 352| |    return asResponseHeaders(headers);
+ 353| |  }
+ 355| |  if (Array.isArray(init)) {
+ 356| |    for (const [key, value] of init as Array<[string, string | undefined]>) {
+ 357| |      if (value !== undefined) {
+ 358| |        headers.set(key, value);
+ 359| |      }
+ 360| |    }
+ 362| |    return asResponseHeaders(headers);
+ 363| |  }
+ 365| |  for (const [key, value] of Object.entries(
+ 366| |    init as Record<string, string | undefined>
+ 367| |  )) {
+ 368| |    if (value !== undefined) {
+ 369| |      headers.set(key, value);
+ 370| |    }
+ 371| |  }
+ 373| |  return asResponseHeaders(headers);
+ 374| |};
+ 376|▼|const createResponseInit = (
+ 377| |  status: number,
+ 378| |  headers?: FluxHeadersInit
+ 379| |): ResponseInit => {
+ 380| |  if (headers === undefined) {
+ 381| |    return { status };
+ 382| |  }
+ 384| |  return {
+ 385| |    status,
+ 386| |    headers: mergeHeaders({}, headers),
+ 387| |  };
+ 388| |};
+ 390| |const defaultCache = new HttpResponseCache({
+ 391| |  max: 1000,
+ 392| |  ttlMs: 60_000,
+ 393| |  staleTtlMs: 300_000,
+ 394| |});
+ 396| |export function createContext<P = Record<string, string>>(
+ 397| |  req: Request,
+ 398| |  params: P,
+ 399| |  opts: ContextOptions = {}
+ 400| |): FluxContext<P, URLSearchParams> {
+ 401| |  let _url: URL | undefined;
+ 402| |  let _query: URLSearchParams | undefined = opts.query;
+ 404| |  const body = opts.bodyInstance ?? createLazyBody(req, opts.body);
+ 406| |  let state: Map<string | symbol, unknown> | undefined;
+ 408|▼|  const ensureState = () => {
+ 409| |    if (!state) {
+ 410| |      state = new Map<string | symbol, unknown>();
+ 411| |    }
+ 413| |    return state;
+ 414| |  };
+ 416| |  const set: SetHeaders = { headers: {}, status: 200, ...opts.set };
+ 418| |  const cookie = createLazyCookieJar(set, () => req.headers.get("cookie"));
+ 420| |  const ctx: FluxContext<P, URLSearchParams> = {
+ 421| |    req,
+ 423| |    get url() {
+ 424| |      return (_url ??= new URL(req.url));
+ 425| |    },
+ 427| |    method: req.method as HttpMethod,
+ 429| |    get path() {
+ 430| |      return this.url.pathname;
+ 431| |    },
+ 433| |    route: "",
+ 434| |    headers: req.headers,
+ 435| |    requestId: generateRequestId(),
+ 436| |    startTime: performance.now(),
+ 438| |    get ip(): string {
+ 439| |      const server = (this as any).server;
+ 441| |      try {
+ 442| |        const socketIp = server?.requestIP?.(req)?.address;
+ 443| |        if (socketIp) return socketIp;
+ 444| |      } catch {
+ 445| |        // ignore
+ 446| |      }
+ 448| |      return req.headers.get("x-real-ip") || "anonymous";
+ 449| |    },
+ 451| |    params,
+ 453| |    get query() {
+ 454| |      return (_query ??= this.url.searchParams) as URLSearchParams;
+ 455| |    },
+ 457| |    body,
+ 458| |    cookie,
+ 460| |    get state() {
+ 461| |      return ensureState();
+ 462| |    },
+ 464| |    getState<T = unknown>(key: string | symbol): T | undefined {
+ 465| |      return ensureState().get(key) as T | undefined;
+ 466| |    },
+ 468| |    setState<T>(key: string | symbol, value: T): void {
+ 469| |      ensureState().set(key, value);
+ 470| |    },
+ 472| |    json<T>(data: T, init?: ResponseInit): Response {
+ 473| |      const status = init?.status ?? set.status ?? 200;
+ 475| |      return Response.json(data, {
+ 476| |        status,
+ 477| |        headers: mergeHeaders(HDR_JSON, init?.headers),
+ 478| |      });
+ 479| |    },
+ 481| |    text(data: string, init?: ResponseInit): Response {
+ 482| |      const status = init?.status ?? set.status ?? 200;
+ 484| |      return new Response(data, {
+ 485| |        status,
+ 486| |        headers: mergeHeaders(HDR_TEXT, init?.headers),
+ 487| |      });
+ 488| |    },
+ 490| |    html(data: string, init?: ResponseInit): Response {
+ 491| |      const status = init?.status ?? set.status ?? 200;
+ 493| |      return new Response(data, {
+ 494| |        status,
+ 495| |        headers: mergeHeaders(HDR_HTML, init?.headers),
+ 496| |      });
+ 497| |    },
+ 499| |    stream(stream: ReadableStream, init?: ResponseInit): Response {
+ 500| |      return new Response(
+ 501| |        stream,
+ 502| |        createResponseInit(init?.status ?? 200, init?.headers)
+ 503| |      );
+ 504| |    },
+ 506| |    empty(status = 204): Response {
+ 507| |      return new Response(null, { status });
+ 508| |    },
+ 510| |    status(code: number): Response {
+ 511| |      return new Response(null, { status: code });
+ 512| |    },
+ 514| |    sendFile(path: string, sendOpts: SendFileOptions = {}) {
+ 515| |      return sendFile(path, { req, ...sendOpts });
+ 516| |    },
+ 518|→|    proxy(target: string | URL, proxyOpts: ProxyOptions = {}) {
+ 519| |      return proxyRequest(target, proxyOpts);
+ 520| |    },
+ 522| |    forward(target: string | URL, proxyOpts: ProxyOptions = {}) {
+ 523| |      return forwardRequest(req, target, proxyOpts);
+ 524| |    },
+ 526|→|    cache(factory: () => Promise<Response>, cacheOpts = {}) {
+ 527| |      return defaultCache.getOrSet(req, factory, cacheOpts);
+ 528| |    },
+ 530| |    redirect(
+ 531| |      url: string,
+ 532| |      status: 301 | 302 | 303 | 307 | 308 = 302
+ 533| |    ): Response {
+ 534| |      return Response.redirect(url, status);
+ 535| |    },
+ 537| |    server: null,
+ 538| |  };
+ 540| |  return ctx;
+ 541| |}
 ---
 
 >src/compiler/phases/discovery.ts
@@ -6680,7 +6877,7 @@ l:../core/http
 l:../core/http
 ---
    1| |import { get } from "../core/http";
-   3| |export default get(() => ({ message: "flux-core zero-runtime API" }));
+   3| |export default get(() => "flux-core zero-runtime API" );
 ---
 
 >src/routes/upload.post.ts
@@ -6706,6 +6903,21 @@ l:../core/http
   23| |    path: `/files/${storedName}`,
   24| |  });
   25| |});
+---
+
+>src/routes/openapi.json.get.ts
+l:../core/http
+---
+   1| |import { get } from "../core/http";
+   3| |export default get(async () => {
+   4| |  const file = Bun.file("dist/openapi.json");
+   6| |  return new Response(file, {
+   7| |    headers: {
+   8| |      "content-type": "application/json; charset=utf-8",
+   9| |      "cache-control": "no-store",
+  10| |    },
+  11| |  });
+  12| |});
 ---
 
 >src/routes/files/[name].get.ts
@@ -6764,7 +6976,7 @@ l:../../core/http
 >src/compiler/index.ts
 i:defu
 l:./types|./logger|./types|./phases/discovery|./phases/analysis|./phases/optimization|./phases/codegen|./phases/linker|./phases/artifacts|./phases/validators|./phases/serializers|./logger|./validate
-e:mergeOptions|createCompilationResult|runDiscoveryPhase|runAnalysisPhase|runOptimizationPhase|runCodegenPhase|runLinkingPhase|FluxCompiler|build|DEFAULT_OPTS
+e:mergeOptions|createCompilationResult|runDiscoveryPhase|runAnalysisPhase|runOptimizationPhase|runCodegenPhase|runLinkingPhase|runLinkingPhaseAsync|FluxCompiler|build|DEFAULT_OPTS
 f:build(opts?: Partial<CompilerOptions>)
 f:buildAsync(
   opts?: Partial<CompilerOptions>
@@ -6802,221 +7014,230 @@ f:runLinkingPhase(
   opts: CompilerOptions,
   logger: Logger
 ):string
+f:runLinkingPhaseAsync(
+  code: string,
+  opts: CompilerOptions,
+  logger: Logger
+):Promise<string>|a
 c:FluxCompiler
 ---
    1| |/**
-   2| | * Flux Compiler Orchestrator — Phase 2
+   2| | * Flux Compiler Orchestrator — Bun 1.4 edition.
    3| | *
-   4| | * Adds:
-   5| | * - async build pipeline
-   6| | * - validator precompilation
-   7| | * - serializer precompilation
-   8| | */
-  10| |import type {
-  11| |  CompilerOptions,
-  12| |  CompiledRoute,
-  13| |  DiscoveryResult,
-  14| |  AnalysisResult,
-  15| |  OptimizationResult,
-  16| |} from "./types";
-  18| |import type { Logger } from "./logger";
-  19| |import { DEFAULT_OPTS } from "./types";
-  20| |import { runDiscovery } from "./phases/discovery";
-  21| |import { runAnalysis } from "./phases/analysis";
-  22| |import { runOptimization } from "./phases/optimization";
-  23| |import { runCodeGen } from "./phases/codegen";
-  24| |import { runLinker } from "./phases/linker";
-  25| |import { writeArtifacts } from "./phases/artifacts";
-  26| |import { precompileValidators } from "./phases/validators";
-  27| |import { precompileSerializers } from "./phases/serializers";
-  28| |import { consoleLogger } from "./logger";
-  29| |import { validateOptions } from "./validate";
-  30| |import { defu } from "defu";
-  32| |export { DEFAULT_OPTS };
-  33| |export type { CompilerOptions, CompiledRoute };
-  35|▼|export const mergeOptions = (
-  36| |  opts: Partial<CompilerOptions>
-  37|→|): CompilerOptions => defu(opts, DEFAULT_OPTS) as CompilerOptions;
-  39|▼|export const createCompilationResult = (
-  40| |  optimized: OptimizationResult,
-  41| |  analysis: AnalysisResult,
-  42| |  elapsedMs: number
-  43| |): CompiledRoute => ({
-  44| |  staticRoutes: optimized.routes.filter((r) => r.isStatic),
-  45| |  dynamicRoutes: optimized.routes.filter((r) => r.isDynamic),
-  46| |  modules: analysis.modules,
-  47| |  meta: {
-  48| |    inlinedHandlers: optimized.meta.inlined,
-  49| |    deduplicatedHandlers: optimized.meta.deduplicated,
-  50| |    eliminatedRoutes: optimized.meta.eliminated,
-  51| |    totalCompileTime: elapsedMs,
-  52| |  },
-  53| |});
-  55|▼|export const runDiscoveryPhase = (
-  56| |  opts: CompilerOptions,
-  57| |  logger: Logger
-  58| |): DiscoveryResult =>
-  59| |  logger.time("discovery", () => {
-  60| |    const result = runDiscovery(opts, logger);
-  62| |    logger.info("discovery complete", {
-  63| |      files: result.files.length,
-  64| |      modules: result.modules.length,
-  65| |    });
-  67| |    return result;
-  68| |  });
-  70|▼|export const runAnalysisPhase = (
-  71| |  discovery: DiscoveryResult,
-  72| |  opts: CompilerOptions,
-  73| |  logger: Logger
-  74| |): AnalysisResult =>
-  75| |  logger.time("analysis", () => {
-  76| |    const result = runAnalysis(discovery, opts, logger);
-  78| |    logger.info("analysis complete", {
-  79| |      routes: result.routes.length,
-  80| |      hooks: result.hooks.size,
-  81| |    });
-  83| |    return result;
-  84| |  });
-  86|▼|export const runOptimizationPhase = (
-  87| |  analysis: AnalysisResult,
-  88| |  opts: CompilerOptions,
-  89| |  logger: Logger
-  90| |): OptimizationResult =>
-  91| |  logger.time("optimization", () => {
-  92| |    const result = runOptimization(
-  93| |      analysis.routes,
-  94| |      analysis.modules,
-  95| |      opts,
-  96| |      logger
-  97| |    );
-  99| |    logger.info("optimization complete", {
- 100| |      inlined: result.meta.inlined,
- 101| |      deduplicated: result.meta.deduplicated,
- 102| |      eliminated: result.meta.eliminated,
- 103| |    });
- 105| |    return result;
- 106| |  });
- 108|▼|export const runCodegenPhase = (
- 109| |  optimized: OptimizationResult,
- 110| |  analysis: AnalysisResult,
- 111| |  opts: CompilerOptions,
- 112| |  logger: Logger
- 113| |): string =>
- 114| |  logger.time("codegen", () => {
- 115| |    const code = runCodeGen(
- 116| |      optimized.routes,
- 117| |      analysis.modules,
- 118| |      analysis.hooks,
- 119| |      opts,
- 120| |      logger
- 121| |    );
- 123| |    logger.info("codegen complete", {
- 124| |      lines: code.split("\n").length,
- 125| |    });
- 127| |    return code;
- 128| |  });
- 130|▼|export const runLinkingPhase = (
- 131| |  code: string,
- 132| |  opts: CompilerOptions,
- 133| |  logger: Logger
- 134| |): string =>
- 135| |  logger.time("linker", () => {
- 136| |    return runLinker(code, opts, logger);
- 137| |  });
- 139|▼|export class FluxCompiler {
- 140| |  constructor(private readonly input: Partial<CompilerOptions> = {}) {}
- 142| |  compile(): CompiledRoute {
- 143| |    const validated = validateOptions(this.input);
- 145| |    if (!validated.ok) {
- 146|!|      throw new Error(
- 147| |        `Compiler options invalid:\n${validated.error.join("\n")}`
- 148| |      );
- 149| |    }
- 151| |    const opts = validated.value;
- 152| |    const logger = consoleLogger();
- 153| |    const t0 = performance.now();
- 155| |    if (opts.precompileValidators || opts.precompileSerializers) {
- 156| |      logger.warn(
- 157| |        "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation."
- 158| |      );
- 159| |    }
- 161| |    logger.info("flux compiler started", {
- 162| |      target: opts.target,
- 163| |      optimizationLevel: opts.optimizationLevel,
- 164| |      routesDir: opts.routesDir,
- 165| |      outDir: opts.outDir,
- 166| |    });
- 168| |    const discovery = runDiscoveryPhase(opts, logger);
- 169| |    const analysis = runAnalysisPhase(discovery, opts, logger);
- 170| |    const optimized = runOptimizationPhase(analysis, opts, logger);
- 172| |    writeArtifacts(optimized.routes, opts, logger);
- 174| |    const code = runCodegenPhase(optimized, analysis, opts, logger);
- 175| |    const outPath = runLinkingPhase(code, opts, logger);
- 177| |    const elapsed = performance.now() - t0;
- 179| |    logger.info("build complete", {
- 180| |      elapsedMs: Number(elapsed.toFixed(2)),
- 181| |      outPath,
- 182| |    });
- 184| |    return createCompilationResult(optimized, analysis, elapsed);
- 185| |  }
- 187| |  async compileAsync(): Promise<CompiledRoute> {
- 188| |    const validated = validateOptions(this.input);
- 190| |    if (!validated.ok) {
- 191|!|      throw new Error(
- 192| |        `Compiler options invalid:\n${validated.error.join("\n")}`
- 193| |      );
- 194| |    }
- 196| |    const opts = validated.value;
- 197| |    const logger = consoleLogger();
- 198| |    const t0 = performance.now();
- 200| |    logger.info("flux compiler started (async)", {
- 201| |      target: opts.target,
- 202| |      optimizationLevel: opts.optimizationLevel,
- 203| |      routesDir: opts.routesDir,
- 204| |      outDir: opts.outDir,
- 205| |    });
- 207| |    const discovery = runDiscoveryPhase(opts, logger);
- 208| |    const analysis = runAnalysisPhase(discovery, opts, logger);
- 209| |    const optimized = runOptimizationPhase(analysis, opts, logger);
- 211| |    let routes = optimized.routes;
- 213| |    routes = await precompileValidators(
- 214| |      routes,
- 215| |      analysis.modules,
- 216| |      opts,
- 217| |      logger
- 218| |    );
- 220| |    routes = await precompileSerializers(
- 221| |      routes,
- 222| |      analysis.modules,
- 223| |      opts,
- 224| |      logger
- 225| |    );
- 227| |    const enriched: OptimizationResult = {
- 228| |      routes,
- 229| |      meta: optimized.meta,
- 230| |    };
- 232| |    writeArtifacts(enriched.routes, opts, logger);
- 234| |    const code = runCodegenPhase(enriched, analysis, opts, logger);
- 235| |    const outPath = runLinkingPhase(code, opts, logger);
- 237| |    const elapsed = performance.now() - t0;
- 239| |    logger.info("build complete", {
- 240| |      elapsedMs: Number(elapsed.toFixed(2)),
- 241| |      outPath,
- 242| |    });
- 244| |    return createCompilationResult(enriched, analysis, elapsed);
- 245| |  }
- 246| |}
- 248|▼|export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
- 249| |  return new FluxCompiler(opts).compile();
- 250| |}
- 252|▼|export async function buildAsync(
- 253| |  opts?: Partial<CompilerOptions>
- 254| |): Promise<CompiledRoute> {
- 255| |  return new FluxCompiler(opts).compileAsync();
- 256| |}
- 258| |if (import.meta.main) {
- 259| |  await buildAsync();
- 260| |}
+   4| | * Async build uses Bun.build linker.
+   5| | */
+   7| |import type {
+   8| |  CompilerOptions,
+   9| |  CompiledRoute,
+  10| |  DiscoveryResult,
+  11| |  AnalysisResult,
+  12| |  OptimizationResult,
+  13| |} from "./types";
+  15| |import type { Logger } from "./logger";
+  16| |import { DEFAULT_OPTS } from "./types";
+  17| |import { runDiscovery } from "./phases/discovery";
+  18| |import { runAnalysis } from "./phases/analysis";
+  19| |import { runOptimization } from "./phases/optimization";
+  20| |import { runCodeGen } from "./phases/codegen";
+  21| |import { runLinker, runLinkerAsync } from "./phases/linker";
+  22| |import { writeArtifacts } from "./phases/artifacts";
+  23| |import { precompileValidators } from "./phases/validators";
+  24| |import { precompileSerializers } from "./phases/serializers";
+  25| |import { consoleLogger } from "./logger";
+  26| |import { validateOptions } from "./validate";
+  27| |import { defu } from "defu";
+  29| |export { DEFAULT_OPTS };
+  30| |export type { CompilerOptions, CompiledRoute };
+  32|▼|export const mergeOptions = (
+  33| |  opts: Partial<CompilerOptions>
+  34|→|): CompilerOptions => defu(opts, DEFAULT_OPTS) as CompilerOptions;
+  36|▼|export const createCompilationResult = (
+  37| |  optimized: OptimizationResult,
+  38| |  analysis: AnalysisResult,
+  39| |  elapsedMs: number
+  40| |): CompiledRoute => ({
+  41| |  staticRoutes: optimized.routes.filter((r) => r.isStatic),
+  42| |  dynamicRoutes: optimized.routes.filter((r) => r.isDynamic),
+  43| |  modules: analysis.modules,
+  44| |  meta: {
+  45| |    inlinedHandlers: optimized.meta.inlined,
+  46| |    deduplicatedHandlers: optimized.meta.deduplicated,
+  47| |    eliminatedRoutes: optimized.meta.eliminated,
+  48| |    totalCompileTime: elapsedMs,
+  49| |  },
+  50| |});
+  52|▼|export const runDiscoveryPhase = (
+  53| |  opts: CompilerOptions,
+  54| |  logger: Logger
+  55| |): DiscoveryResult =>
+  56| |  logger.time("discovery", () => {
+  57| |    const result = runDiscovery(opts, logger);
+  59| |    logger.info("discovery complete", {
+  60| |      files: result.files.length,
+  61| |      modules: result.modules.length,
+  62| |    });
+  64| |    return result;
+  65| |  });
+  67|▼|export const runAnalysisPhase = (
+  68| |  discovery: DiscoveryResult,
+  69| |  opts: CompilerOptions,
+  70| |  logger: Logger
+  71| |): AnalysisResult =>
+  72| |  logger.time("analysis", () => {
+  73| |    const result = runAnalysis(discovery, opts, logger);
+  75| |    logger.info("analysis complete", {
+  76| |      routes: result.routes.length,
+  77| |      hooks: result.hooks.size,
+  78| |    });
+  80| |    return result;
+  81| |  });
+  83|▼|export const runOptimizationPhase = (
+  84| |  analysis: AnalysisResult,
+  85| |  opts: CompilerOptions,
+  86| |  logger: Logger
+  87| |): OptimizationResult =>
+  88| |  logger.time("optimization", () => {
+  89| |    const result = runOptimization(
+  90| |      analysis.routes,
+  91| |      analysis.modules,
+  92| |      opts,
+  93| |      logger
+  94| |    );
+  96| |    logger.info("optimization complete", {
+  97| |      inlined: result.meta.inlined,
+  98| |      deduplicated: result.meta.deduplicated,
+  99| |      eliminated: result.meta.eliminated,
+ 100| |    });
+ 102| |    return result;
+ 103| |  });
+ 105|▼|export const runCodegenPhase = (
+ 106| |  optimized: OptimizationResult,
+ 107| |  analysis: AnalysisResult,
+ 108| |  opts: CompilerOptions,
+ 109| |  logger: Logger
+ 110| |): string =>
+ 111| |  logger.time("codegen", () => {
+ 112| |    const code = runCodeGen(
+ 113| |      optimized.routes,
+ 114| |      analysis.modules,
+ 115| |      analysis.hooks,
+ 116| |      opts,
+ 117| |      logger
+ 118| |    );
+ 120| |    logger.info("codegen complete", {
+ 121| |      lines: code.split("\n").length,
+ 122| |    });
+ 124| |    return code;
+ 125| |  });
+ 127|▼|export const runLinkingPhase = (
+ 128| |  code: string,
+ 129| |  opts: CompilerOptions,
+ 130| |  logger: Logger
+ 131| |): string =>
+ 132| |  logger.time("linker", () => {
+ 133| |    return runLinker(code, opts, logger);
+ 134| |  });
+ 136|▼|export const runLinkingPhaseAsync = async (
+ 137| |  code: string,
+ 138| |  opts: CompilerOptions,
+ 139| |  logger: Logger
+ 140| |): Promise<string> => {
+ 141| |  return runLinkerAsync(code, opts, logger);
+ 142| |};
+ 144|▼|export class FluxCompiler {
+ 145| |  constructor(private readonly input: Partial<CompilerOptions> = {}) {}
+ 147| |  compile(): CompiledRoute {
+ 148| |    const validated = validateOptions(this.input);
+ 150| |    if (!validated.ok) {
+ 151|!|      throw new Error(
+ 152| |        `Compiler options invalid:\n${validated.error.join("\n")}`
+ 153| |      );
+ 154| |    }
+ 156| |    const opts = validated.value;
+ 157| |    const logger = consoleLogger();
+ 158| |    const t0 = performance.now();
+ 160| |    if (opts.precompileValidators || opts.precompileSerializers) {
+ 161| |      logger.warn(
+ 162| |        "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation."
+ 163| |      );
+ 164| |    }
+ 166| |    logger.info("flux compiler started", {
+ 167| |      target: opts.target,
+ 168| |      optimizationLevel: opts.optimizationLevel,
+ 169| |      routesDir: opts.routesDir,
+ 170| |      outDir: opts.outDir,
+ 171| |    });
+ 173| |    const discovery = runDiscoveryPhase(opts, logger);
+ 174| |    const analysis = runAnalysisPhase(discovery, opts, logger);
+ 175| |    const optimized = runOptimizationPhase(analysis, opts, logger);
+ 177| |    writeArtifacts(optimized.routes, opts, logger);
+ 179| |    const code = runCodegenPhase(optimized, analysis, opts, logger);
+ 180| |    const outPath = runLinkingPhase(code, opts, logger);
+ 182| |    const elapsed = performance.now() - t0;
+ 184| |    logger.info("build complete", {
+ 185| |      elapsedMs: Number(elapsed.toFixed(2)),
+ 186| |      outPath,
+ 187| |    });
+ 189| |    return createCompilationResult(optimized, analysis, elapsed);
+ 190| |  }
+ 192| |  async compileAsync(): Promise<CompiledRoute> {
+ 193| |    const validated = validateOptions(this.input);
+ 195| |    if (!validated.ok) {
+ 196|!|      throw new Error(
+ 197| |        `Compiler options invalid:\n${validated.error.join("\n")}`
+ 198| |      );
+ 199| |    }
+ 201| |    const opts = validated.value;
+ 202| |    const logger = consoleLogger();
+ 203| |    const t0 = performance.now();
+ 205| |    logger.info("flux compiler started (async)", {
+ 206| |      target: opts.target,
+ 207| |      optimizationLevel: opts.optimizationLevel,
+ 208| |      routesDir: opts.routesDir,
+ 209| |      outDir: opts.outDir,
+ 210| |    });
+ 212| |    const discovery = runDiscoveryPhase(opts, logger);
+ 213| |    const analysis = runAnalysisPhase(discovery, opts, logger);
+ 214| |    const optimized = runOptimizationPhase(analysis, opts, logger);
+ 216| |    let routes = optimized.routes;
+ 218| |    routes = await precompileValidators(
+ 219| |      routes,
+ 220| |      analysis.modules,
+ 221| |      opts,
+ 222| |      logger
+ 223| |    );
+ 225| |    routes = await precompileSerializers(
+ 226| |      routes,
+ 227| |      analysis.modules,
+ 228| |      opts,
+ 229| |      logger
+ 230| |    );
+ 232| |    const enriched: OptimizationResult = {
+ 233| |      routes,
+ 234| |      meta: optimized.meta,
+ 235| |    };
+ 237| |    writeArtifacts(enriched.routes, opts, logger);
+ 239| |    const code = runCodegenPhase(enriched, analysis, opts, logger);
+ 240| |    const outPath = await runLinkingPhaseAsync(code, opts, logger);
+ 242| |    const elapsed = performance.now() - t0;
+ 244| |    logger.info("build complete", {
+ 245| |      elapsedMs: Number(elapsed.toFixed(2)),
+ 246| |      outPath,
+ 247| |    });
+ 249| |    return createCompilationResult(enriched, analysis, elapsed);
+ 250| |  }
+ 251| |}
+ 253|▼|export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
+ 254| |  return new FluxCompiler(opts).compile();
+ 255| |}
+ 257|▼|export async function buildAsync(
+ 258| |  opts?: Partial<CompilerOptions>
+ 259| |): Promise<CompiledRoute> {
+ 260| |  return new FluxCompiler(opts).compileAsync();
+ 261| |}
+ 263| |if (import.meta.main) {
+ 264| |  await buildAsync();
+ 265| |}
 ---
 
 >src/core/plugins/compression.ts
@@ -7027,62 +7248,76 @@ f:compression(options: CompressionOptions = {}):FluxPlugin
 t:CompressionOptions
 ---
    1| |/**
-   2| | * Compression plugin.
+   2| | * Compression plugin — Bun 1.4 edition.
    3| | *
-   4| | * Hardened:
-   5| | * - guards against missing CompressionStream
-   6| | */
-   8| |import type { FluxPlugin } from "../plugin";
-  10|▼|export interface CompressionOptions {
-  11| |  threshold?: number;
-  12| |  filter?: (contentType: string) => boolean;
-  13| |}
-  15| |const COMPRESSIBLE = new Set([
-  16| |  "text/",
-  17| |  "application/json",
-  18| |  "application/javascript",
-  19| |  "application/xml",
-  20| |  "image/svg+xml",
-  21| |]);
-  23|▼|const shouldCompress = (ct: string): boolean => {
-  24| |  for (const prefix of COMPRESSIBLE) {
-  25| |    if (ct.startsWith(prefix)) return true;
-  26| |  }
-  28| |  return false;
-  29| |};
-  31|▼|export const compression = (options: CompressionOptions = {}): FluxPlugin => {
-  32| |  const { threshold = 1024, filter = shouldCompress } = options;
-  34| |  return {
-  35| |    name: "compression",
-  37| |    onResponse(ctx, response) {
-  38| |      if (!response.body) return response;
-  39| |      if (response.headers.get("content-encoding")) return response;
-  41| |      const ct = response.headers.get("content-type") || "";
-  42| |      if (!filter(ct)) return response;
-  44| |      const len = Number(response.headers.get("content-length") || "0");
-  45| |      if (len && len < threshold) return response;
-  47| |      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
-  49| |      const encoding = acceptEncoding.includes("gzip")
-  50| |        ? "gzip"
-  51| |        : acceptEncoding.includes("deflate")
-  52| |          ? "deflate"
-  53| |          : null;
-  55| |      if (!encoding) return response;
-  57| |      if (typeof CompressionStream === "undefined") {
-  58| |        return response;
-  59| |      }
-  61| |      const headers = new Headers(response.headers);
-  62| |      headers.set("content-encoding", encoding);
-  63| |      headers.delete("content-length");
-  65| |      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
-  67| |      return new Response(compressed, {
-  68| |        status: response.status,
-  69| |        statusText: response.statusText,
-  70| |        headers,
-  71| |      });
-  72| |    },
-  73| |  };
-  74| |};
+   4| | * Adds Brotli when available.
+   5| | */
+   7| |import type { FluxPlugin } from "../plugin";
+   9|▼|export interface CompressionOptions {
+  10| |  threshold?: number;
+  11| |  filter?: (contentType: string) => boolean;
+  12| |}
+  14| |const COMPRESSIBLE = new Set([
+  15| |  "text/",
+  16| |  "application/json",
+  17| |  "application/javascript",
+  18| |  "application/xml",
+  19| |  "image/svg+xml",
+  20| |]);
+  22|▼|const shouldCompress = (ct: string): boolean => {
+  23| |  for (const prefix of COMPRESSIBLE) {
+  24| |    if (ct.startsWith(prefix)) return true;
+  25| |  }
+  27| |  return false;
+  28| |};
+  30| |let supportsBrotli = false;
+  32| |try {
+  33| |  const CS = (globalThis as any).CompressionStream;
+  35| |  if (typeof CS !== "undefined") {
+  36| |    new CS("br");
+  37| |    supportsBrotli = true;
+  38| |  }
+  39| |} catch {
+  40| |  supportsBrotli = false;
+  41| |}
+  43|▼|export const compression = (options: CompressionOptions = {}): FluxPlugin => {
+  44| |  const { threshold = 1024, filter = shouldCompress } = options;
+  46| |  return {
+  47| |    name: "compression",
+  49| |    onResponse(ctx, response) {
+  50| |      if (!response.body) return response;
+  51| |      if (response.headers.get("content-encoding")) return response;
+  53| |      const contentType = response.headers.get("content-type") || "";
+  54| |      if (!filter(contentType)) return response;
+  56| |      const contentLength = Number(response.headers.get("content-length") || "0");
+  57| |      if (contentLength && contentLength < threshold) return response;
+  59| |      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
+  61| |      const encoding =
+  62| |        supportsBrotli && acceptEncoding.includes("br")
+  63| |          ? "br"
+  64| |          : acceptEncoding.includes("gzip")
+  65| |            ? "gzip"
+  66| |            : acceptEncoding.includes("deflate")
+  67| |              ? "deflate"
+  68| |              : null;
+  70| |      if (!encoding) return response;
+  72| |      const CS = (globalThis as any).CompressionStream;
+  74| |      if (typeof CS === "undefined") {
+  75| |        return response;
+  76| |      }
+  78| |      const headers = new Headers(response.headers);
+  79| |      headers.set("content-encoding", encoding);
+  80| |      headers.delete("content-length");
+  81| |      headers.append("vary", "Accept-Encoding");
+  83| |      const compressed = response.body.pipeThrough(new CS(encoding));
+  85| |      return new Response(compressed, {
+  86| |        status: response.status,
+  87| |        statusText: response.statusText,
+  88| |        headers,
+  89| |      });
+  90| |    },
+  91| |  };
+  92| |};
 ---
 
 >src/core/plugins/cors.ts
@@ -7095,100 +7330,101 @@ f:setCorsHeaders(ctx: FluxContext, headers: Headers):void
 t:CorsOptions
 ---
    1| |/**
-   2| | * CORS plugin.
-   3| | *
-   4| | * Hardened:
-   5| | * - always varies on Origin
-   6| | * - safer credentials handling
-   7| | */
-   9| |import type { FluxPlugin } from "../plugin";
-  10| |import type { FluxContext } from "../context";
-  12|▼|export interface CorsOptions {
-  13| |  origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
-  14| |  methods?: string[];
-  15| |  allowedHeaders?: string[];
-  16| |  exposedHeaders?: string[];
-  17| |  credentials?: boolean;
-  18| |  maxAge?: number;
-  19| |  preflightContinue?: boolean;
-  20| |}
-  22| |const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
-  24|▼|export const cors = (options: CorsOptions = {}): FluxPlugin => {
-  25| |  const {
-  26| |    origin = "*",
-  27| |    methods = DEFAULT_METHODS,
-  28| |    allowedHeaders,
-  29| |    exposedHeaders,
-  30| |    credentials = false,
-  31| |    maxAge = 86400,
-  32| |    preflightContinue = false,
-  33| |  } = options;
-  35|▼|  const isOriginAllowed = (requestOrigin: string, ctx: FluxContext): boolean => {
-  36| |    if (origin === "*") return true;
-  37| |    if (typeof origin === "string") return origin === requestOrigin;
-  38| |    if (Array.isArray(origin)) return origin.includes(requestOrigin);
-  39| |    return origin(requestOrigin, ctx);
-  40| |  };
-  42|▼|  const appendVary = (headers: Headers, value: string): void => {
-  43| |    const existing = headers.get("vary");
-  44| |    if (!existing) {
-  45| |      headers.set("vary", value);
-  46| |      return;
-  47| |    }
-  49| |    const parts = existing.split(",").map((x) => x.trim().toLowerCase());
-  50| |    if (!parts.includes(value.toLowerCase())) {
-  51| |      headers.set("vary", `${existing}, ${value}`);
-  52| |    }
-  53| |  };
-  55|▼|  const setCorsHeaders = (ctx: FluxContext, headers: Headers): void => {
-  56| |    appendVary(headers, "Origin");
-  58| |    const requestOrigin = ctx.headers.get("origin") || "";
-  59| |    if (!requestOrigin) return;
-  61| |    if (isOriginAllowed(requestOrigin, ctx)) {
-  62| |      headers.set("Access-Control-Allow-Origin", requestOrigin);
-  63| |    } else if (origin === "*" && !credentials) {
-  64| |      headers.set("Access-Control-Allow-Origin", "*");
-  65| |    }
-  67| |    if (credentials) {
-  68| |      headers.set("Access-Control-Allow-Credentials", "true");
-  69| |    }
-  71| |    if (exposedHeaders?.length) {
-  72| |      headers.set("Access-Control-Expose-Headers", exposedHeaders.join(", "));
+   2| | * CORS plugin — Bun 1.4 hardened edition.
+   3| | */
+   5| |import type { FluxPlugin } from "../plugin";
+   6| |import type { FluxContext } from "../context";
+   8|▼|export interface CorsOptions {
+   9| |  origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
+  10| |  methods?: string[];
+  11| |  allowedHeaders?: string[];
+  12| |  exposedHeaders?: string[];
+  13| |  credentials?: boolean;
+  14| |  maxAge?: number;
+  15| |  preflightContinue?: boolean;
+  16| |}
+  18| |const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
+  20|▼|export const cors = (options: CorsOptions = {}): FluxPlugin => {
+  21| |  const {
+  22| |    origin = "*",
+  23| |    methods = DEFAULT_METHODS,
+  24| |    allowedHeaders,
+  25| |    exposedHeaders,
+  26| |    credentials = false,
+  27| |    maxAge = 86400,
+  28| |    preflightContinue = false,
+  29| |  } = options;
+  31| |  if (origin === "*" && credentials) {
+  32|!|    throw new Error(
+  33| |      "CORS misconfiguration: origin '*' cannot be used with credentials: true. Use an explicit origin allowlist."
+  34| |    );
+  35| |  }
+  37|▼|  const isOriginAllowed = (requestOrigin: string, ctx: FluxContext): boolean => {
+  38| |    if (origin === "*") return true;
+  39| |    if (typeof origin === "string") return origin === requestOrigin;
+  40| |    if (Array.isArray(origin)) return origin.includes(requestOrigin);
+  41| |    return origin(requestOrigin, ctx);
+  42| |  };
+  44|▼|  const appendVary = (headers: Headers, value: string): void => {
+  45| |    const existing = headers.get("vary");
+  47| |    if (!existing) {
+  48| |      headers.set("vary", value);
+  49| |      return;
+  50| |    }
+  52| |    const parts = existing.split(",").map((x) => x.trim().toLowerCase());
+  54| |    if (!parts.includes(value.toLowerCase())) {
+  55| |      headers.set("vary", `${existing}, ${value}`);
+  56| |    }
+  57| |  };
+  59|▼|  const setCorsHeaders = (ctx: FluxContext, headers: Headers): void => {
+  60| |    appendVary(headers, "Origin");
+  62| |    const requestOrigin = ctx.headers.get("origin") || "";
+  63| |    if (!requestOrigin) return;
+  65| |    if (isOriginAllowed(requestOrigin, ctx)) {
+  66| |      headers.set("Access-Control-Allow-Origin", requestOrigin);
+  68| |      if (credentials) {
+  69| |        headers.set("Access-Control-Allow-Credentials", "true");
+  70| |      }
+  71| |    } else if (origin === "*" && !credentials) {
+  72| |      headers.set("Access-Control-Allow-Origin", "*");
   73| |    }
-  74| |  };
-  76| |  return {
-  77| |    name: "cors",
-  79| |    onRequest(ctx) {
-  80| |      if (!ctx.headers.get("origin")) return ctx;
-  82| |      if (ctx.method === "OPTIONS") {
-  83| |        const headers = new Headers();
-  85| |        setCorsHeaders(ctx, headers);
-  86| |        headers.set("Access-Control-Allow-Methods", methods.join(", "));
-  88| |        if (allowedHeaders?.length) {
-  89| |          headers.set("Access-Control-Allow-Headers", allowedHeaders.join(", "));
-  90| |        } else {
-  91| |          const reqHeaders = ctx.headers.get("access-control-request-headers");
-  92| |          if (reqHeaders) {
-  93| |            headers.set("Access-Control-Allow-Headers", reqHeaders);
-  94| |          }
-  95| |        }
-  97| |        headers.set("Access-Control-Max-Age", String(maxAge));
-  99| |        if (preflightContinue) return ctx;
- 101| |        return new Response(null, { status: 204, headers });
- 102| |      }
- 104| |      return ctx;
- 105| |    },
- 107| |    onResponse(ctx, response) {
- 108| |      const headers = new Headers(response.headers);
- 109| |      setCorsHeaders(ctx, headers);
- 111| |      return new Response(response.body, {
- 112| |        status: response.status,
- 113| |        statusText: response.statusText,
- 114| |        headers,
- 115| |      });
- 116| |    },
- 117| |  };
- 118| |};
+  75| |    if (exposedHeaders?.length) {
+  76| |      headers.set("Access-Control-Expose-Headers", exposedHeaders.join(", "));
+  77| |    }
+  78| |  };
+  80| |  return {
+  81| |    name: "cors",
+  83| |    onRequest(ctx) {
+  84| |      if (!ctx.headers.get("origin")) return ctx;
+  86| |      if (ctx.method === "OPTIONS") {
+  87| |        const headers = new Headers();
+  89| |        setCorsHeaders(ctx, headers);
+  90| |        headers.set("Access-Control-Allow-Methods", methods.join(", "));
+  92| |        if (allowedHeaders?.length) {
+  93| |          headers.set("Access-Control-Allow-Headers", allowedHeaders.join(", "));
+  94| |        } else {
+  95| |          const reqHeaders = ctx.headers.get("access-control-request-headers");
+  97| |          if (reqHeaders) {
+  98| |            headers.set("Access-Control-Allow-Headers", reqHeaders);
+  99| |          }
+ 100| |        }
+ 102| |        headers.set("Access-Control-Max-Age", String(maxAge));
+ 104| |        if (preflightContinue) return ctx;
+ 106| |        return new Response(null, { status: 204, headers });
+ 107| |      }
+ 109| |      return ctx;
+ 110| |    },
+ 112| |    onResponse(ctx, response) {
+ 113| |      const headers = new Headers(response.headers);
+ 114| |      setCorsHeaders(ctx, headers);
+ 116| |      return new Response(response.body, {
+ 117| |        status: response.status,
+ 118| |        statusText: response.statusText,
+ 119| |        headers,
+ 120| |      });
+ 121| |    },
+ 122| |  };
+ 123| |};
 ---
 
 >src/core/plugins/logger.ts
@@ -7276,115 +7512,115 @@ t:RateLimitOptions
 t:WindowEntry
 ---
    1| |/**
-   2| | * Rate limit plugin.
+   2| | * Rate limit plugin — Bun 1.4 edition.
    3| | *
-   4| | * Hardened:
-   5| | * - does not trust x-forwarded-for unless trustProxy is enabled
-   6| | */
-   8| |import type { FluxPlugin } from "../plugin";
-   9| |import type { FluxContext } from "../context";
-  10| |import { LRUCache } from "../lru";
-  12|▼|export interface RateLimitOptions {
-  13| |  windowMs?: number;
-  14| |  maxRequests?: number;
-  15| |  storeMax?: number;
-  16| |  trustProxy?: boolean;
-  17| |  keyGenerator?: (ctx: FluxContext) => string;
-  18| |  skip?: (ctx: FluxContext) => boolean;
-  19| |  message?: string;
-  20| |}
-  22|▼|interface WindowEntry {
-  23| |  count: number;
-  24| |  resetTime: number;
-  25| |}
-  27|▼|export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
-  28| |  const {
-  29| |    windowMs = 60_000,
-  30| |    maxRequests = 100,
-  31| |    storeMax = 10_000,
-  32| |    trustProxy = false,
-  33| |    skip,
-  34| |    message = "Too many requests",
-  35| |  } = options;
-  37|▼|  const defaultKeyGenerator = (ctx: FluxContext): string => {
-  38| |    if (trustProxy) {
-  39| |      const xff = ctx.headers.get("x-forwarded-for");
-  40| |      if (xff) return xff.split(",")[0]?.trim() || "anonymous";
-  41| |    }
-  43| |    return ctx.headers.get("x-real-ip") || "anonymous";
-  44| |  };
-  46| |  const keyGenerator = options.keyGenerator ?? defaultKeyGenerator;
-  48| |  const store = new LRUCache<string, WindowEntry>({
-  49| |    max: storeMax,
-  50| |    ttlMs: windowMs,
-  51| |  });
-  53|▼|  const getHeaders = (entry: WindowEntry): Record<string, string> => ({
-  54| |    "X-RateLimit-Limit": String(maxRequests),
-  55| |    "X-RateLimit-Remaining": String(Math.max(0, maxRequests - entry.count)),
-  56| |    "X-RateLimit-Reset": String(Math.ceil(entry.resetTime / 1000)),
-  57| |  });
-  59| |  return {
-  60| |    name: "rateLimit",
-  62| |    onRequest(ctx) {
-  63| |      if (skip?.(ctx)) return ctx;
-  65| |      const key = keyGenerator(ctx);
-  66| |      const now = Date.now();
-  68| |      let entry = store.get(key);
-  70| |      if (!entry || entry.resetTime <= now) {
-  71| |        entry = { count: 0, resetTime: now + windowMs };
-  72| |        store.set(key, entry, { ttlMs: windowMs });
-  73| |      }
-  75| |      entry.count++;
-  77| |      store.set(key, entry, {
-  78| |        ttlMs: Math.max(0, entry.resetTime - now),
-  79| |      });
-  81| |      if (entry.count > maxRequests) {
-  82| |        return Response.json(
-  83| |          { error: message },
-  84| |          {
-  85| |            status: 429,
-  86| |            headers: {
-  87| |              "content-type": "application/json",
-  88| |              ...getHeaders(entry),
-  89| |            },
-  90| |          }
-  91| |        );
-  92| |      }
-  94| |      ctx.setState("__ratelimit", entry);
-  95| |      return ctx;
-  96| |    },
-  98| |    onResponse(ctx, response) {
-  99| |      const entry = ctx.getState<WindowEntry>("__ratelimit");
- 101| |      if (entry) {
- 102| |        const headers = new Headers(response.headers);
- 104| |        for (const [k, v] of Object.entries(getHeaders(entry))) {
- 105| |          headers.set(k, v);
- 106| |        }
- 108| |        return new Response(response.body, {
- 109| |          status: response.status,
- 110| |          statusText: response.statusText,
- 111| |          headers,
- 112| |        });
- 113| |      }
- 115| |      return response;
- 116| |    },
- 117| |  };
- 118| |};
+   4| | * Uses ctx.ip, which prefers Bun server.requestIP().
+   5| | */
+   7| |import type { FluxPlugin } from "../plugin";
+   8| |import type { FluxContext } from "../context";
+   9| |import { LRUCache } from "../lru";
+  11|▼|export interface RateLimitOptions {
+  12| |  windowMs?: number;
+  13| |  maxRequests?: number;
+  14| |  storeMax?: number;
+  15| |  trustProxy?: boolean;
+  16| |  keyGenerator?: (ctx: FluxContext) => string;
+  17| |  skip?: (ctx: FluxContext) => boolean;
+  18| |  message?: string;
+  19| |}
+  21|▼|interface WindowEntry {
+  22| |  count: number;
+  23| |  resetTime: number;
+  24| |}
+  26|▼|export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
+  27| |  const {
+  28| |    windowMs = 60_000,
+  29| |    maxRequests = 100,
+  30| |    storeMax = 10_000,
+  31| |    trustProxy = false,
+  32| |    skip,
+  33| |    message = "Too many requests",
+  34| |  } = options;
+  36|▼|  const defaultKeyGenerator = (ctx: FluxContext): string => {
+  37| |    if (trustProxy) {
+  38| |      const xff = ctx.headers.get("x-forwarded-for");
+  40| |      if (xff) {
+  41| |        return xff.split(",")[0]?.trim() || ctx.ip;
+  42| |      }
+  43| |    }
+  45| |    return ctx.ip;
+  46| |  };
+  48| |  const keyGenerator = options.keyGenerator ?? defaultKeyGenerator;
+  50| |  const store = new LRUCache<string, WindowEntry>({
+  51| |    max: storeMax,
+  52| |    ttlMs: windowMs,
+  53| |  });
+  55|▼|  const getHeaders = (entry: WindowEntry): Record<string, string> => ({
+  56| |    "X-RateLimit-Limit": String(maxRequests),
+  57| |    "X-RateLimit-Remaining": String(Math.max(0, maxRequests - entry.count)),
+  58| |    "X-RateLimit-Reset": String(Math.ceil(entry.resetTime / 1000)),
+  59| |  });
+  61| |  return {
+  62| |    name: "rateLimit",
+  64| |    onRequest(ctx) {
+  65| |      if (skip?.(ctx)) return ctx;
+  67| |      const key = keyGenerator(ctx);
+  68| |      const now = Date.now();
+  70| |      let entry = store.get(key);
+  72| |      if (!entry || entry.resetTime <= now) {
+  73| |        entry = { count: 0, resetTime: now + windowMs };
+  74| |        store.set(key, entry, { ttlMs: windowMs });
+  75| |      }
+  77| |      entry.count++;
+  79| |      store.set(key, entry, {
+  80| |        ttlMs: Math.max(0, entry.resetTime - now),
+  81| |      });
+  83| |      if (entry.count > maxRequests) {
+  84| |        return Response.json(
+  85| |          { error: message },
+  86| |          {
+  87| |            status: 429,
+  88| |            headers: {
+  89| |              "content-type": "application/json",
+  90| |              ...getHeaders(entry),
+  91| |            },
+  92| |          }
+  93| |        );
+  94| |      }
+  96| |      ctx.setState("__ratelimit", entry);
+  98| |      return ctx;
+  99| |    },
+ 101| |    onResponse(ctx, response) {
+ 102| |      const entry = ctx.getState<WindowEntry>("__ratelimit");
+ 104| |      if (!entry) return response;
+ 106| |      const headers = new Headers(response.headers);
+ 108| |      for (const [k, v] of Object.entries(getHeaders(entry))) {
+ 109| |        headers.set(k, v);
+ 110| |      }
+ 112| |      return new Response(response.body, {
+ 113| |        status: response.status,
+ 114| |        statusText: response.statusText,
+ 115| |        headers,
+ 116| |      });
+ 117| |    },
+ 118| |  };
+ 119| |};
 ---
 
 >src/core/plugins/security.ts
-l:../plugin
+l:../plugin|../context
 e:SecurityOptions|security
+f:isHttpsRequest(ctx: FluxContext):boolean
 f:security(options: SecurityOptions = {}):FluxPlugin
 t:SecurityOptions
 ---
    1| |/**
-   2| | * Security Headers Plugin
+   2| | * Security headers plugin — Bun 1.4 edition.
    3| | *
-   4| | * Fixed:
-   5| | * - no direct mutation of response headers
-   6| | */
-   8| |import type { FluxPlugin } from "../plugin";
+   4| | * HSTS only on HTTPS requests.
+   5| | */
+   7| |import type { FluxPlugin } from "../plugin";
+   8| |import type { FluxContext } from "../context";
   10|▼|export interface SecurityOptions {
   11| |  contentSecurityPolicy?: string | false;
   12| |  crossOriginEmbedderPolicy?: string | false;
@@ -7410,44 +7646,68 @@ t:SecurityOptions
   33| |  referrerPolicy: "no-referrer",
   34| |  xssFilter: true,
   35| |};
-  37|▼|export const security = (options: SecurityOptions = {}): FluxPlugin => {
-  38| |  const opts = { ...DEFAULTS, ...options };
-  40| |  return {
-  41| |    name: "security",
-  42| |    onResponse(_ctx, response) {
-  43| |      const headers = new Headers(response.headers);
-  45| |      if (opts.contentSecurityPolicy)
-  46| |        headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
-  48| |      if (opts.crossOriginEmbedderPolicy)
-  49| |        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
-  51| |      if (opts.crossOriginOpenerPolicy)
-  52| |        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
-  54| |      if (opts.crossOriginResourcePolicy)
-  55| |        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
-  57| |      if (opts.frameguard)
-  58| |        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
-  60| |      if (opts.hidePoweredBy)
-  61| |        headers.delete("X-Powered-By");
-  63| |      if (opts.hsts) {
-  64| |        let val = `max-age=${opts.hsts.maxAge ?? 15552000}`;
-  65| |        if (opts.hsts.includeSubDomains) val += "; includeSubDomains";
-  66| |        if (opts.hsts.preload) val += "; preload";
-  67| |        headers.set("Strict-Transport-Security", val);
-  68| |      }
-  70| |      if (opts.noSniff)
-  71| |        headers.set("X-Content-Type-Options", "nosniff");
-  73| |      if (opts.referrerPolicy)
-  74| |        headers.set("Referrer-Policy", opts.referrerPolicy);
-  76| |      if (opts.xssFilter)
-  77| |        headers.set("X-XSS-Protection", "0");
-  79| |      return new Response(response.body, {
-  80| |        status: response.status,
-  81| |        statusText: response.statusText,
-  82| |        headers,
-  83| |      });
-  84| |    },
-  85| |  };
-  86| |};
+  37|▼|const isHttpsRequest = (ctx: FluxContext): boolean => {
+  38| |  const forwardedProto = ctx.headers.get("x-forwarded-proto");
+  40| |  if (forwardedProto && forwardedProto.toLowerCase().includes("https")) {
+  41| |    return true;
+  42| |  }
+  44| |  try {
+  45| |    return ctx.url.protocol === "https:";
+  46| |  } catch {
+  47| |    return false;
+  48| |  }
+  49| |};
+  51|▼|export const security = (options: SecurityOptions = {}): FluxPlugin => {
+  52| |  const opts = { ...DEFAULTS, ...options };
+  54| |  return {
+  55| |    name: "security",
+  57| |    onResponse(ctx, response) {
+  58| |      const headers = new Headers(response.headers);
+  60| |      if (opts.contentSecurityPolicy) {
+  61| |        headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
+  62| |      }
+  64| |      if (opts.crossOriginEmbedderPolicy) {
+  65| |        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
+  66| |      }
+  68| |      if (opts.crossOriginOpenerPolicy) {
+  69| |        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
+  70| |      }
+  72| |      if (opts.crossOriginResourcePolicy) {
+  73| |        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
+  74| |      }
+  76| |      if (opts.frameguard) {
+  77| |        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
+  78| |      }
+  80| |      if (opts.hidePoweredBy) {
+  81| |        headers.delete("X-Powered-By");
+  82| |      }
+  84| |      if (opts.hsts && isHttpsRequest(ctx)) {
+  85| |        let value = `max-age=${opts.hsts.maxAge ?? 15552000}`;
+  87| |        if (opts.hsts.includeSubDomains) {
+  88| |          value += "; includeSubDomains";
+  89| |        }
+  91| |        if (opts.hsts.preload) {
+  92| |          value += "; preload";
+  93| |        }
+  95| |        headers.set("Strict-Transport-Security", value);
+  96| |      }
+  98| |      if (opts.noSniff) {
+  99| |        headers.set("X-Content-Type-Options", "nosniff");
+ 100| |      }
+ 102| |      if (opts.referrerPolicy) {
+ 103| |        headers.set("Referrer-Policy", opts.referrerPolicy);
+ 104| |      }
+ 106| |      if (opts.xssFilter) {
+ 107| |        headers.set("X-XSS-Protection", "0");
+ 108| |      }
+ 110| |      return new Response(response.body, {
+ 111| |        status: response.status,
+ 112| |        statusText: response.statusText,
+ 113| |        headers,
+ 114| |      });
+ 115| |    },
+ 116| |  };
+ 117| |};
 ---
 
 >builder.ts

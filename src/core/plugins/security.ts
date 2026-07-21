@@ -1,11 +1,11 @@
 /**
- * Security Headers Plugin
+ * Security headers plugin — Bun 1.4 edition.
  *
- * Fixed:
- * - no direct mutation of response headers
+ * HSTS only on HTTPS requests.
  */
 
 import type { FluxPlugin } from "../plugin";
+import type { FluxContext } from "../context";
 
 export interface SecurityOptions {
   contentSecurityPolicy?: string | false;
@@ -34,47 +34,78 @@ const DEFAULTS: SecurityOptions = {
   xssFilter: true,
 };
 
+const isHttpsRequest = (ctx: FluxContext): boolean => {
+  const forwardedProto = ctx.headers.get("x-forwarded-proto");
+
+  if (forwardedProto && forwardedProto.toLowerCase().includes("https")) {
+    return true;
+  }
+
+  try {
+    return ctx.url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export const security = (options: SecurityOptions = {}): FluxPlugin => {
   const opts = { ...DEFAULTS, ...options };
 
   return {
     name: "security",
-    onResponse(_ctx, response) {
+
+    onResponse(ctx, response) {
       const headers = new Headers(response.headers);
 
-      if (opts.contentSecurityPolicy)
+      if (opts.contentSecurityPolicy) {
         headers.set("Content-Security-Policy", opts.contentSecurityPolicy);
-
-      if (opts.crossOriginEmbedderPolicy)
-        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
-
-      if (opts.crossOriginOpenerPolicy)
-        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
-
-      if (opts.crossOriginResourcePolicy)
-        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
-
-      if (opts.frameguard)
-        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
-
-      if (opts.hidePoweredBy)
-        headers.delete("X-Powered-By");
-
-      if (opts.hsts) {
-        let val = `max-age=${opts.hsts.maxAge ?? 15552000}`;
-        if (opts.hsts.includeSubDomains) val += "; includeSubDomains";
-        if (opts.hsts.preload) val += "; preload";
-        headers.set("Strict-Transport-Security", val);
       }
 
-      if (opts.noSniff)
+      if (opts.crossOriginEmbedderPolicy) {
+        headers.set("Cross-Origin-Embedder-Policy", opts.crossOriginEmbedderPolicy);
+      }
+
+      if (opts.crossOriginOpenerPolicy) {
+        headers.set("Cross-Origin-Opener-Policy", opts.crossOriginOpenerPolicy);
+      }
+
+      if (opts.crossOriginResourcePolicy) {
+        headers.set("Cross-Origin-Resource-Policy", opts.crossOriginResourcePolicy);
+      }
+
+      if (opts.frameguard) {
+        headers.set("X-Frame-Options", opts.frameguard.action.toUpperCase());
+      }
+
+      if (opts.hidePoweredBy) {
+        headers.delete("X-Powered-By");
+      }
+
+      if (opts.hsts && isHttpsRequest(ctx)) {
+        let value = `max-age=${opts.hsts.maxAge ?? 15552000}`;
+
+        if (opts.hsts.includeSubDomains) {
+          value += "; includeSubDomains";
+        }
+
+        if (opts.hsts.preload) {
+          value += "; preload";
+        }
+
+        headers.set("Strict-Transport-Security", value);
+      }
+
+      if (opts.noSniff) {
         headers.set("X-Content-Type-Options", "nosniff");
+      }
 
-      if (opts.referrerPolicy)
+      if (opts.referrerPolicy) {
         headers.set("Referrer-Policy", opts.referrerPolicy);
+      }
 
-      if (opts.xssFilter)
+      if (opts.xssFilter) {
         headers.set("X-XSS-Protection", "0");
+      }
 
       return new Response(response.body, {
         status: response.status,

@@ -1,9 +1,10 @@
 /**
  * Runtime schema validation.
  *
- * Supports:
+ * Bun 1.4 edition:
  * - TypeBox / JSON Schema via Ajv
  * - Standard Schema v1 via async validation
+ * - compiled validator cache
  */
 
 import Ajv, { type ErrorObject } from "ajv";
@@ -20,6 +21,8 @@ const ajv = new Ajv({
 });
 
 addFormats(ajv);
+
+const compiledCache = new WeakMap<object, (input: unknown) => unknown>();
 
 function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
   return typeof schema === "object" && schema !== null && "~standard" in schema;
@@ -56,19 +59,29 @@ export function compileValidator<T = unknown>(
     };
   }
 
-  const validate = ajv.compile(schema as object);
+  const schemaKey = schema as object;
 
-  return (input: unknown): T => {
-    if (!validate(input)) {
-      throw new ValidationError(
-        "Validation failed",
-        toErrorRecord(validate.errors, on),
-        on
-      );
-    }
+  let validator = compiledCache.get(schemaKey);
 
-    return input as T;
-  };
+  if (!validator) {
+    const validate = ajv.compile(schema as object);
+
+    validator = (input: unknown): unknown => {
+      if (!validate(input)) {
+        throw new ValidationError(
+          "Validation failed",
+          toErrorRecord(validate.errors, on),
+          on
+        );
+      }
+
+      return input;
+    };
+
+    compiledCache.set(schemaKey, validator);
+  }
+
+  return validator as (input: unknown) => T;
 }
 
 export function validateOrThrow<T = unknown>(

@@ -1,12 +1,12 @@
 /**
  * Production LRU cache backed by lru-cache.
  *
- * Design:
- * - Strict key constraint
- * - Pure entry factory
- * - No explicit undefined option properties
- * - Single-flight getOrSet
+ * Bun 1.4 edition:
+ * - correct fresh/stale/expire semantics
+ * - single-flight getOrSet
+ * - stale-while-revalidate background revalidation
  */
+
 import { LRUCache as LRU } from "lru-cache";
 
 export interface LRUCacheOptions<K extends {}, V> {
@@ -21,8 +21,9 @@ export interface LRUCacheOptions<K extends {}, V> {
 interface Entry<V> {
   value: V;
   bytes: number;
-  expiresAt: number;
-  staleAt: number;
+  freshUntil: number;
+  staleUntil: number;
+  expireUntil: number;
 }
 
 interface WriteOptions {
@@ -31,24 +32,28 @@ interface WriteOptions {
   bytes?: number;
 }
 
-/**
- * Create a cache entry with resolved expiry metadata.
- */
 const createEntry = <V>(
   value: V,
   bytes: number,
   ttlMs: number,
   staleTtlMs: number,
-  now: number,
+  now: number
 ): Entry<V> => {
-  const expiresAt = ttlMs > 0 ? now + ttlMs : 0;
-  const staleAt = staleTtlMs > 0 ? now + staleTtlMs : expiresAt;
+  const freshTtl = ttlMs > 0 ? ttlMs : 0;
+
+  const staleTtl =
+    staleTtlMs > 0 ? Math.max(staleTtlMs, ttlMs) : freshTtl;
+
+  const freshUntil = freshTtl > 0 ? now + freshTtl : 0;
+  const staleUntil = staleTtl > 0 ? now + staleTtl : freshUntil;
+  const expireUntil = staleUntil || freshUntil;
 
   return {
     value,
     bytes,
-    expiresAt,
-    staleAt,
+    freshUntil,
+    staleUntil,
+    expireUntil,
   };
 };
 
@@ -80,11 +85,11 @@ export class LRUCache<K extends {}, V> {
   }
 
   private alive(entry: Entry<V>, now: number): boolean {
-    return entry.expiresAt === 0 || entry.expiresAt > now;
+    return entry.expireUntil === 0 || entry.expireUntil > now;
   }
 
   private fresh(entry: Entry<V>, now: number): boolean {
-    return entry.staleAt === 0 || entry.staleAt > now;
+    return entry.freshUntil === 0 || entry.freshUntil > now;
   }
 
   get(key: K, options: { allowStale?: boolean } = {}): V | undefined {
@@ -113,8 +118,10 @@ export class LRUCache<K extends {}, V> {
     const maxBytes = this.opts.maxBytes ?? 0;
     if (maxBytes > 0 && bytes > maxBytes) return this;
 
-    const entry = createEntry(value, bytes, ttlMs, staleTtlMs, this.now());
-    const lruTtl = Math.max(ttlMs, staleTtlMs);
+    const now = this.now();
+    const entry = createEntry(value, bytes, ttlMs, staleTtlMs, now);
+
+    const lruTtl = entry.expireUntil > 0 ? entry.expireUntil - now : 0;
 
     if (lruTtl > 0) {
       this.lru.set(key, entry, { ttl: lruTtl });
@@ -137,13 +144,17 @@ export class LRUCache<K extends {}, V> {
   async getOrSet(
     key: K,
     factory: () => Promise<V> | V,
-    options: WriteOptions = {},
+    options: WriteOptions = {}
   ): Promise<V> {
     const now = this.now();
     const entry = this.lru.get(key);
 
     if (entry && this.alive(entry, now)) {
-      if (!this.fresh(entry, now) && !this.inflight.has(key)) {
+      if (this.fresh(entry, now)) {
+        return entry.value;
+      }
+
+      if (!this.inflight.has(key)) {
         const revalidate = Promise.resolve()
           .then(factory)
           .then((value) => {
@@ -175,6 +186,7 @@ export class LRUCache<K extends {}, V> {
       });
 
     this.inflight.set(key, promise);
+
     return promise;
   }
 }
