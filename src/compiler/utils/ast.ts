@@ -364,6 +364,26 @@ export function hasSchemaExportAST(ast: any): boolean {
       }
     }
     if (n.type === "ExportSpecifier" && n.local?.name === "schema") found = true;
+
+    // Schema-first HTTP: export default get(handler, { ... })
+    if (
+      n.type === "ExportDefaultDeclaration" &&
+      n.declaration?.type === "CallExpression" &&
+      n.declaration.callee?.type === "Identifier" &&
+      HTTP_WRAPPERS.has(n.declaration.callee.name)
+    ) {
+      const args = n.declaration.arguments || [];
+      const schemaArg = args[1];
+
+      if (
+        schemaArg &&
+        schemaArg.type !== "Literal" &&
+        schemaArg.type !== "StringLiteral" &&
+        schemaArg.type !== "TemplateLiteral"
+      ) {
+        found = true;
+      }
+    }
   });
   return found;
 }

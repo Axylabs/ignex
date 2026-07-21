@@ -1,22 +1,23 @@
 /**
- * Flux AOT Code Generator
+ * Flux AOT Code Generator — Phase 2
  *
- * Goals:
- * - prebake constant responses
- * - emit static route map
- * - emit sorted dynamic matcher
- * - specialize context per route
- * - tree-shake helpers
- * - avoid unnecessary runtime allocation
+ * Adds:
+ * - precompiled validator wiring
+ * - serializer wiring
+ * - radix-style dynamic router
+ * - compiled hook chains
+ * - route-level cache emission
  */
 
 import { dirname, join, relative } from "path";
+
 import type {
   RouteDef,
   ModuleInfo,
   CompilerOptions,
   HookDef,
 } from "../types";
+
 import type { Logger } from "../logger";
 
 interface CodegenConfig {
@@ -27,6 +28,9 @@ interface CodegenConfig {
   exposeErrorDetails: boolean;
   specializeContext: boolean;
   reusePort: boolean;
+  router: string;
+  inlineHooks: boolean;
+  routeCache: boolean;
 }
 
 interface RouteInfo {
@@ -39,6 +43,18 @@ interface RouteInfo {
   needsBody: boolean;
   minimalBody: boolean;
   minimalSendFile: boolean;
+
+  hasBodyValidator: boolean;
+  hasQueryValidator: boolean;
+  hasParamsValidator: boolean;
+  hasHeadersValidator: boolean;
+
+  hasSerializer: boolean;
+  cacheConfig?: {
+    ttlMs?: number;
+    staleTtlMs?: number;
+    vary?: string[];
+  };
 }
 
 interface DynamicRouteInfo {
@@ -51,6 +67,13 @@ interface DynamicRouteInfo {
   path: string;
 }
 
+interface TrieNode {
+  static: Map<string, TrieNode>;
+  param?: { name: string; node: TrieNode };
+  wildcard?: { name: string; node: TrieNode };
+  handlers: Map<string, string>;
+}
+
 const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   target: opts.target,
   tracing: opts.enableTracing ?? false,
@@ -59,6 +82,9 @@ const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   exposeErrorDetails: opts.exposeErrorDetails ?? false,
   specializeContext: opts.specializeContext ?? true,
   reusePort: opts.reusePort ?? false,
+  router: opts.router ?? "auto",
+  inlineHooks: opts.inlineHooks ?? true,
+  routeCache: opts.routeCache ?? true,
 });
 
 const normalizeImportPath = (p: string): string => {
@@ -67,18 +93,53 @@ const normalizeImportPath = (p: string): string => {
   return s;
 };
 
-const handlerImportName = (route: RouteDef): string => `handler_${route.handlerRef}`;
-const methodHandlerName = (route: RouteDef): string => `${route.method}_${route.handlerRef}`;
-const finalizeName = (route: RouteDef): string => `finalize_${route.handlerRef}`;
-const constantBodyVar = (route: RouteDef): string => `BODY_${route.handlerRef}`;
-const constantInitVar = (route: RouteDef): string => `INIT_${route.handlerRef}`;
+const handlerImportName = (route: RouteDef): string =>
+  `handler_${route.handlerRef}`;
+
+const methodHandlerName = (route: RouteDef): string =>
+  `${route.method}_${route.handlerRef}`;
+
+const finalizeName = (route: RouteDef): string =>
+  `finalize_${route.handlerRef}`;
+
+const constantBodyVar = (route: RouteDef): string =>
+  `BODY_${route.handlerRef}`;
+
+const constantInitVar = (route: RouteDef): string =>
+  `INIT_${route.handlerRef}`;
 
 const hookIdent = (name: string): string =>
   `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
 
+const hooksChainName = (route: RouteDef): string =>
+  `hooks_${route.handlerRef}`;
+
+const cacheVar = (route: RouteDef): string =>
+  `CACHE_${route.handlerRef}`;
+
+const coreHandlerName = (route: RouteDef, hasCache: boolean): string =>
+  hasCache ? `core_${route.handlerRef}` : methodHandlerName(route);
+
+const validatorImportName = (route: RouteDef, kind: string): string =>
+  `validate_${route.handlerRef}_${kind}`;
+
+const validatorImportPath = (route: RouteDef, kind: string): string =>
+  `./validators/${route.handlerRef}.${kind}.cjs`;
+
+const serializerImportName = (route: RouteDef): string =>
+  `serialize_${route.handlerRef}`;
+
+const serializerImportPath = (route: RouteDef): string =>
+  `./serializers/${route.handlerRef}.200.mjs`;
+
 const tryNormalizeConstant = (route: RouteDef): string | null => {
   if (!route.isConstantResponse || !route.constantResponse) return null;
   if (route.hooks.length > 0) return null;
+  if (route.hasValidation) return null;
+
+  if (route.validators && Object.keys(route.validators).length > 0) {
+    return null;
+  }
 
   try {
     JSON.parse(route.constantResponse);
@@ -135,7 +196,77 @@ const needsFullContext = (
   return false;
 };
 
-const generateFinalizer = (route: RouteDef): string => {
+const getCacheConfig = (
+  route: RouteDef,
+  cfg: CodegenConfig
+):
+  | {
+    ttlMs?: number;
+    staleTtlMs?: number;
+    vary?: string[];
+  }
+  | undefined => {
+  if (!cfg.routeCache) return undefined;
+  if (route.method !== "GET" && route.method !== "HEAD") return undefined;
+
+  const cache = route.cache;
+  if (!cache) return undefined;
+
+  const out: {
+    ttlMs?: number;
+    staleTtlMs?: number;
+    vary?: string[];
+  } = {};
+
+  if (typeof cache.maxAge === "number") {
+    out.ttlMs = cache.maxAge * 1000;
+  }
+
+  if (typeof cache.swr === "number") {
+    out.staleTtlMs = cache.swr * 1000;
+  }
+
+  if (Array.isArray(cache.vary)) {
+    out.vary = [...cache.vary];
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
+const generateHookChain = (info: RouteInfo): string => {
+  const route = info.route;
+
+  const calls = info.hookNames
+    .map((name) => {
+      const ident = hookIdent(name);
+
+      return `  r = await ${ident}(ctx);
+  if (r instanceof Response) return r;
+  if (r && typeof r === "object" && r.ok === false && r.response instanceof Response) {
+    return r.response;
+  }`;
+    })
+    .join("\n\n");
+
+  return `async function ${hooksChainName(route)}(ctx) {
+  let r;
+
+${calls}
+
+  return null;
+}`;
+};
+
+const generateFinalizer = (info: RouteInfo): string => {
+  const route = info.route;
+
+  if (info.hasSerializer) {
+    return `function ${finalizeName(route)}(result) {
+  if (result instanceof Response) return result;
+  return new Response(${serializerImportName(route)}(result), INIT_SER_${route.handlerRef});
+}`;
+  }
+
   const reply = routeReplyFn(route);
 
   return `function ${finalizeName(route)}(result) {
@@ -144,9 +275,9 @@ const generateFinalizer = (route: RouteDef): string => {
 }`;
 };
 
-const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
+const generateCoreHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
   const route = info.route;
-  const name = methodHandlerName(route);
+  const name = coreHandlerName(route, !!info.cacheConfig);
 
   if (info.constantJson !== null) {
     return `function ${name}(req, params, url, server) {
@@ -166,7 +297,9 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
 
     const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
 
-    pre.push(`const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`);
+    pre.push(
+      `const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`
+    );
 
     if (route.usage.server) {
       pre.push("ctx.server = server;");
@@ -174,16 +307,45 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
 
     if (info.hasHooks) {
       pre.push(
-        `const halted = await runHooks([${info.hookNames
-          .map(hookIdent)
-          .join(", ")}], ctx);`
+        `const halted = await ${hooksChainName(route)}(ctx);`
       );
       pre.push("if (halted) return halted;");
     }
 
+    if (info.hasParamsValidator) {
+      pre.push(
+        `if (!${validatorImportName(route, "params")}(ctx.params)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
+      );
+    }
+
+    if (info.hasQueryValidator) {
+      pre.push(
+        `const __query = parseQuery(ctx.url.search.startsWith("?") ? ctx.url.search.slice(1) : "");`
+      );
+      pre.push(
+        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
+      );
+    }
+
+    if (info.hasHeadersValidator) {
+      pre.push(
+        `const __headers = Object.fromEntries(ctx.headers.entries());`
+      );
+      pre.push(
+        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
+      );
+    }
+
+    if (info.hasBodyValidator) {
+      pre.push(`const __body = await ctx.body.json();`);
+      pre.push(
+        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
+      );
+    }
+
     callExpr = `${handlerImportName(route)}(ctx)`;
   } else {
-    if (route.usage.query) {
+    if (route.usage.query || info.hasQueryValidator) {
       pre.push("const query = url.searchParams;");
     }
 
@@ -195,6 +357,40 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
       pre.push("const state = new Map();");
     }
 
+    if (info.hasParamsValidator) {
+      pre.push(
+        `if (!${validatorImportName(route, "params")}(params ?? EMPTY_PARAMS)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
+      );
+    }
+
+    if (info.hasQueryValidator) {
+      pre.push(
+        `const __query = parseQuery(url.search.startsWith("?") ? url.search.slice(1) : "");`
+      );
+      pre.push(
+        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
+      );
+    }
+
+    if (info.hasHeadersValidator) {
+      pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
+      pre.push(
+        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
+      );
+    }
+
+    let bodyProp = "body";
+
+    if (info.hasBodyValidator && info.minimalBody) {
+      pre.push(`const __body = await body.json();`);
+      pre.push(
+        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
+      );
+      pre.push(`const validatedBody = Object.create(body);`);
+      pre.push(`validatedBody.json = async () => __body;`);
+      bodyProp = "validatedBody";
+    }
+
     const props: string[] = [];
 
     if (route.usage.params) {
@@ -202,7 +398,7 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
     }
 
     if (info.minimalBody) {
-      props.push("body");
+      props.push(`body: ${bodyProp}`);
     }
 
     if (route.usage.query) {
@@ -274,6 +470,8 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
     info.hasHooks ||
     info.needsFull ||
     info.minimalBody ||
+    info.hasBodyValidator ||
+    !!info.cacheConfig ||
     route.usage.state;
 
   if (isAsync) {
@@ -302,6 +500,17 @@ const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
   } catch (err) {
     return errorResponse(err);
   }
+}`;
+};
+
+const generateCacheWrapper = (info: RouteInfo): string | null => {
+  if (!info.cacheConfig) return null;
+
+  const route = info.route;
+  const opts = JSON.stringify(info.cacheConfig);
+
+  return `function ${methodHandlerName(route)}(req, params, url, server) {
+  return ${cacheVar(route)}.getOrSet(req, () => ${coreHandlerName(route, true)}(req, params, url, server), ${opts});
 }`;
 };
 
@@ -336,6 +545,73 @@ const routePattern = (
   return { regexLiteral, paramNames };
 };
 
+const newTrieNode = (): TrieNode => ({
+  static: new Map(),
+  handlers: new Map(),
+});
+
+const insertDynamicRoute = (
+  root: TrieNode,
+  route: RouteDef,
+  handlerName: string
+): void => {
+  let node = root;
+
+  const segments = route.path.split("/").filter(Boolean);
+
+  for (const seg of segments) {
+    if (seg.startsWith(":")) {
+      const name = seg.slice(1);
+
+      if (!node.param) {
+        node.param = { name, node: newTrieNode() };
+      }
+
+      node = node.param.node;
+      continue;
+    }
+
+    if (seg.startsWith("*")) {
+      const name = seg.slice(1);
+
+      if (!node.wildcard) {
+        node.wildcard = { name, node: newTrieNode() };
+      }
+
+      node = node.wildcard.node;
+      continue;
+    }
+
+    if (!node.static.has(seg)) {
+      node.static.set(seg, newTrieNode());
+    }
+
+    node = node.static.get(seg)!;
+  }
+
+  node.handlers.set(route.method, handlerName);
+};
+
+const emitTrieNode = (node: TrieNode): string => {
+  const staticEntries = Array.from(node.static.entries()).map(
+    ([seg, child]) => `${JSON.stringify(seg)}: ${emitTrieNode(child)}`
+  );
+
+  const param = node.param
+    ? `{ name: ${JSON.stringify(node.param.name)}, node: ${emitTrieNode(node.param.node)} }`
+    : "null";
+
+  const wildcard = node.wildcard
+    ? `{ name: ${JSON.stringify(node.wildcard.name)}, node: ${emitTrieNode(node.wildcard.node)} }`
+    : "null";
+
+  const handlerEntries = Array.from(node.handlers.entries()).map(
+    ([method, handler]) => `${JSON.stringify(method)}: ${handler}`
+  );
+
+  return `{ s: { ${staticEntries.join(", ")} }, p: ${param}, w: ${wildcard}, h: { ${handlerEntries.join(", ")} } }`;
+};
+
 export const generateServer = (
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
@@ -364,10 +640,24 @@ export const generateServer = (
     const constantJson = tryNormalizeConstant(route);
     const hookNames = validHookNames(route, hooks);
     const hasHooks = cfg.lifecycle && hookNames.length > 0;
+
+    const validators = route.validators ?? {};
+
+    const hasBodyValidator = !!validators.body;
+    const hasQueryValidator = !!validators.query;
+    const hasParamsValidator = !!validators.params;
+    const hasHeadersValidator = !!validators.headers;
+
+    const needsBody =
+      route.usage.body || route.usage.file || hasBodyValidator;
+
     const needsFull = needsFullContext(route, mod, cfg, hasHooks);
-    const needsBody = route.usage.body || route.usage.file;
+
     const minimalBody = needsBody && !needsFull;
     const minimalSendFile = route.usage.sendFile && !needsFull;
+
+    const hasSerializer = !!route.serializers?.json;
+    const cacheConfig = getCacheConfig(route, cfg);
 
     return {
       route,
@@ -379,6 +669,12 @@ export const generateServer = (
       needsBody,
       minimalBody,
       minimalSendFile,
+      hasBodyValidator,
+      hasQueryValidator,
+      hasParamsValidator,
+      hasHeadersValidator,
+      hasSerializer,
+      cacheConfig,
     };
   });
 
@@ -389,6 +685,18 @@ export const generateServer = (
   const anyLazyBody = nonConstantInfos.some((x) => x.minimalBody);
   const anySendFile = nonConstantInfos.some((x) => x.minimalSendFile);
   const anyHooks = cfg.lifecycle && nonConstantInfos.some((x) => x.hasHooks);
+  const anyCache = nonConstantInfos.some((x) => !!x.cacheConfig);
+
+  const anyValidators = nonConstantInfos.some(
+    (x) =>
+      x.hasBodyValidator ||
+      x.hasQueryValidator ||
+      x.hasParamsValidator ||
+      x.hasHeadersValidator
+  );
+
+  const anyQueryValidator = nonConstantInfos.some((x) => x.hasQueryValidator);
+  const anySerializers = nonConstantInfos.some((x) => x.hasSerializer);
 
   const anyJson = anyNonConstant;
   const anyText = nonConstantInfos.some(
@@ -430,14 +738,54 @@ export const generateServer = (
 
   const hookImports = anyHooks
     ? Array.from(hooks.values())
-        .map((h) => {
-          const abs = join(process.cwd(), h.source);
-          return `import { default as ${hookIdent(
-            h.name
-          )} } from "${toImportPath(abs)}";`;
-        })
-        .join("\n")
+      .map((h) => {
+        const abs = join(process.cwd(), h.source);
+        return `import { default as ${hookIdent(
+          h.name
+        )} } from "${toImportPath(abs)}";`;
+      })
+      .join("\n")
     : "";
+
+  const validatorImports = nonConstantInfos
+    .flatMap((info) => {
+      const route = info.route;
+      const imports: string[] = [];
+
+      if (info.hasBodyValidator) {
+        imports.push(
+          `import ${validatorImportName(route, "body")} from "${validatorImportPath(route, "body")}";`
+        );
+      }
+
+      if (info.hasQueryValidator) {
+        imports.push(
+          `import ${validatorImportName(route, "query")} from "${validatorImportPath(route, "query")}";`
+        );
+      }
+
+      if (info.hasParamsValidator) {
+        imports.push(
+          `import ${validatorImportName(route, "params")} from "${validatorImportPath(route, "params")}";`
+        );
+      }
+
+      if (info.hasHeadersValidator) {
+        imports.push(
+          `import ${validatorImportName(route, "headers")} from "${validatorImportPath(route, "headers")}";`
+        );
+      }
+
+      return imports;
+    })
+    .join("\n");
+
+  const serializerImports = nonConstantInfos
+    .filter((info) => info.hasSerializer)
+    .map((info) => {
+      return `import ${serializerImportName(info.route)} from "${serializerImportPath(info.route)}";`;
+    })
+    .join("\n");
 
   const coreImports: string[] = [];
 
@@ -458,6 +806,18 @@ export const generateServer = (
       `import { sendFile as coreSendFile } from "${runtimeImport(
         "src/core/files.ts"
       )}";`
+    );
+  }
+
+  if (anyCache) {
+    coreImports.push(
+      `import { HttpResponseCache } from "${runtimeImport("src/core/cache.ts")}";`
+    );
+  }
+
+  if (anyQueryValidator) {
+    coreImports.push(
+      `import { parseQuery } from "${runtimeImport("src/core/query.ts")}";`
     );
   }
 
@@ -490,9 +850,30 @@ export const generateServer = (
         info.constantJson
       )};`
     );
+
     constants.push(
       `const ${constantInitVar(info.route)} = { status: 200, headers: HDR_JSON };`
     );
+  }
+
+  for (const info of nonConstantInfos) {
+    if (info.hasSerializer) {
+      constants.push(
+        `const INIT_SER_${info.route.handlerRef} = { status: 200, headers: HDR_JSON };`
+      );
+    }
+
+    if (info.cacheConfig) {
+      const cacheOpts = JSON.stringify({
+        max: 1000,
+        ttlMs: info.cacheConfig.ttlMs ?? 60_000,
+        staleTtlMs: info.cacheConfig.staleTtlMs ?? 0,
+      });
+
+      constants.push(
+        `const ${cacheVar(info.route)} = new HttpResponseCache(${cacheOpts});`
+      );
+    }
   }
 
   const helpers: string[] = [];
@@ -510,6 +891,16 @@ export const generateServer = (
 
   return Response.json({ error: message, status }, { status });
 }`);
+
+  if (anyValidators) {
+    helpers.push(`function validationError(errors, on) {
+  const err = new Error("Validation failed");
+  err.status = 422;
+  err.errors = errors;
+  err.on = on;
+  return err;
+}`);
+  }
 
   if (anyJson) {
     helpers.push(`function jsonReply(data, init) {
@@ -590,37 +981,26 @@ function htmlReply(data, init) {
 }`);
   }
 
-  if (anyHooks) {
-    helpers.push(`async function runHooks(hooks, ctx) {
-  for (const hook of hooks) {
-    const result = await hook(ctx);
-
-    if (result instanceof Response) return result;
-
-    if (
-      result &&
-      typeof result === "object" &&
-      result.ok === false &&
-      result.response instanceof Response
-    ) {
-      return result.response;
-    }
-  }
-
-  return null;
-}`);
-  }
-
-  const finalizers = nonConstantInfos
-    .map((info) => generateFinalizer(info.route))
+  const hookChainFunctions = nonConstantInfos
+    .filter((info) => info.hasHooks)
+    .map((info) => generateHookChain(info))
     .join("\n\n");
 
-  const handlers = routeInfos
-    .map((info) => generateMethodHandler(info, cfg))
+  const finalizers = nonConstantInfos
+    .map((info) => generateFinalizer(info))
+    .join("\n\n");
+
+  const coreHandlers = routeInfos
+    .map((info) => generateCoreHandler(info, cfg))
+    .join("\n\n");
+
+  const cacheWrappers = nonConstantInfos
+    .map((info) => generateCacheWrapper(info))
+    .filter(Boolean)
     .join("\n\n");
 
   const staticEntries: string[] = [];
-  const dynamicEntries: DynamicRouteInfo[] = [];
+  const dynamicInfos: DynamicRouteInfo[] = [];
 
   for (const info of routeInfos) {
     const handlerName = methodHandlerName(info.route);
@@ -634,7 +1014,7 @@ function htmlReply(data, init) {
 
     const pattern = routePattern(info.route.path);
 
-    dynamicEntries.push({
+    dynamicInfos.push({
       method: info.route.method,
       regexLiteral: pattern.regexLiteral,
       paramNames: pattern.paramNames,
@@ -645,7 +1025,7 @@ function htmlReply(data, init) {
     });
   }
 
-  dynamicEntries.sort((a, b) => {
+  dynamicInfos.sort((a, b) => {
     if (a.hasWildcard !== b.hasWildcard) {
       return a.hasWildcard ? 1 : -1;
     }
@@ -661,18 +1041,111 @@ function htmlReply(data, init) {
 ${staticEntries.join(",\n")}
 ]);`;
 
-  const dynamicRoutes = `const dynamicRoutes = [
-${dynamicEntries
-  .map(
-    (entry) => `  {
+  const dynamicCount = dynamicInfos.length;
+
+  const useRouterRadix =
+    cfg.router === "radix" ||
+    (cfg.router === "auto" && dynamicCount > 30);
+
+  let dynamicRouterData = "";
+  let dynamicMatcher = "";
+
+  if (useRouterRadix) {
+    const root = newTrieNode();
+
+    for (const info of routeInfos) {
+      if (!info.route.isDynamic) continue;
+
+      insertDynamicRoute(
+        root,
+        info.route,
+        methodHandlerName(info.route)
+      );
+    }
+
+    dynamicRouterData = `const dynamicTrie = ${emitTrieNode(root)};`;
+
+    dynamicMatcher = `function matchDynamic(method, path) {
+  const parts = path === "/" ? [] : path.split("/").slice(1);
+  const params = {};
+
+  function walk(node, idx) {
+    if (idx === parts.length) {
+      const handler = node.h[method] ?? node.h.ALL;
+      if (handler) return { handler, params };
+      return null;
+    }
+
+    const part = parts[idx];
+
+    const staticNode = node.s[part];
+    if (staticNode) {
+      const res = walk(staticNode, idx + 1);
+      if (res) return res;
+    }
+
+    if (node.p) {
+      const prev = params[node.p.name];
+      params[node.p.name] = decodeParam(part);
+
+      const res = walk(node.p.node, idx + 1);
+      if (res) return res;
+
+      if (prev === undefined) delete params[node.p.name];
+      else params[node.p.name] = prev;
+    }
+
+    if (node.w) {
+      const prev = params[node.w.name];
+      params[node.w.name] = parts.slice(idx).map(decodeParam).join("/");
+
+      const handler = node.w.node.h[method] ?? node.w.node.h.ALL;
+      if (handler) return { handler, params };
+
+      if (prev === undefined) delete params[node.w.name];
+      else params[node.w.name] = prev;
+    }
+
+    return null;
+  }
+
+  return walk(dynamicTrie, 0);
+}`;
+  } else {
+    const dynamicRoutes = `const dynamicRoutes = [
+${dynamicInfos
+        .map(
+          (entry) => `  {
     method: ${JSON.stringify(entry.method)},
     pattern: ${entry.regexLiteral},
     paramNames: ${JSON.stringify(entry.paramNames)},
     handler: ${entry.handlerName},
   },`
-  )
-  .join("\n")}
+        )
+        .join("\n")}
 ];`;
+
+    dynamicRouterData = dynamicRoutes;
+
+    dynamicMatcher = `function matchDynamic(method, path) {
+  for (const route of dynamicRoutes) {
+    if (route.method !== method && route.method !== "ALL") continue;
+
+    const match = route.pattern.exec(path);
+    if (!match) continue;
+
+    const params = {};
+
+    for (let i = 0; i < route.paramNames.length; i++) {
+      params[route.paramNames[i]] = decodeParam(match[i + 1] ?? "");
+    }
+
+    return { handler: route.handler, params };
+  }
+
+  return null;
+}`;
+  }
 
   const router = `function decodeParam(value) {
   try {
@@ -681,6 +1154,8 @@ ${dynamicEntries
     return value;
   }
 }
+
+${dynamicMatcher}
 
 function routerFetch(req, server) {
   const url = new URL(req.url);
@@ -701,19 +1176,10 @@ function routerFetch(req, server) {
     return handler(req, EMPTY_PARAMS, url, server);
   }
 
-  for (const route of dynamicRoutes) {
-    if (route.method !== method && route.method !== "ALL") continue;
+  const match = matchDynamic(method, path);
 
-    const match = route.pattern.exec(path);
-    if (!match) continue;
-
-    const params = {};
-
-    for (let i = 0; i < route.paramNames.length; i++) {
-      params[route.paramNames[i]] = decodeParam(match[i + 1] ?? "");
-    }
-
-    return route.handler(req, params, url, server);
+  if (match) {
+    return match.handler(req, match.params, url, server);
   }
 
   return notFound();
@@ -724,27 +1190,31 @@ function routerFetch(req, server) {
       ? `if (import.meta.main) {
   const port = Number(process.env.PORT || 3000);
 
-  Bun.serve({
+  const server = Bun.serve({
     port,
     fetch: routerFetch,
     reusePort: ${cfg.reusePort},
   });
 
-  console.log(${JSON.stringify(cfg.serviceName)} + " listening on :" + port);
+  console.log(${JSON.stringify(cfg.serviceName)} + " listening on " + server.url);
 }`
       : `// Node/Deno target: export fetch handler only.`;
 
   return [
     handlerImports,
     hookImports,
+    validatorImports,
+    serializerImports,
     coreImports.join("\n"),
     missingStubs,
     constants.join("\n"),
     helpers.join("\n\n"),
+    hookChainFunctions,
     finalizers,
-    handlers,
+    coreHandlers,
+    cacheWrappers,
     staticRoutes,
-    dynamicRoutes,
+    dynamicRouterData,
     router,
     serverBootstrap,
     `export { routerFetch as fetch };`,

@@ -1,6 +1,6 @@
-import { build } from "./src/compiler/index";
+import { buildAsync } from "./src/compiler/index";
 
-build({
+await buildAsync({
   routesDir: "./src/routes",
   outDir: "./dist",
   outFile: "__server.js",
@@ -24,4 +24,7 @@ build({
   inlineHooks: true,
   treeshakeRuntime: true,
   routeCache: true,
+
+  precompileValidators: true,
+  precompileSerializers: true,
 });

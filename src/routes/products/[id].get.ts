@@ -1,3 +1,4 @@
+import { Type } from "@sinclair/typebox";
 import { get } from "../../core/http";
 
 export default get(async (ctx) => {
@@ -6,4 +7,9 @@ export default get(async (ctx) => {
       id: ctx.params.id,
     },
   });
-});
+}, {
+  params: Type.Object({
+    id: Type.String()
+  })
+}
+);

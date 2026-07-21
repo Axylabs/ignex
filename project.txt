@@ -1,18 +1,20 @@
 P|flux-core
 D|This a WIP framework for high perfromance apps so we can achive native like perfromance using typescript.
-N|prod|@sinclair/typebox:^0.34.52|ajv:^8.20.0|ajv-formats:^3.0.1|defu:^6.1.7|esbuild:^0.28.1|fast-querystring:^1.1.2|lru-cache:^11.5.2|oxc-parser:^0.140.0|pino:^9.0.0|set-cookie-parser:^2.7.0
+N|prod|@sinclair/typebox:^0.34.52|ajv:^8.20.0|ajv-formats:^3.0.1|defu:^6.1.7|esbuild:^0.28.1|fast-json-stringify:^7.0.1|fast-querystring:^1.1.2|lru-cache:^11.5.2|oxc-parser:^0.140.0|pino:^9.0.0|set-cookie-parser:^2.7.0
 N|dev|@biomejs/biome:^2.5.4|@types/bun:^1.3.14|@types/set-cookie-parser:^2.4.10|typescript:^5.9.0|vitest:^4.1.10
-S|f=53 n=230 c=16 t=104 e=0
+S|f=55 n=261 c=16 t=121 e=0
 
 G|
 builder.ts>src/compiler/index.ts
-src/compiler/index.ts>src/compiler/logger.ts,src/compiler/phases/analysis.ts,src/compiler/phases/artifacts.ts,src/compiler/phases/codegen.ts,src/compiler/phases/discovery.ts,src/compiler/phases/linker.ts,src/compiler/phases/optimization.ts,src/compiler/types.ts,src/compiler/validate.ts
+src/compiler/index.ts>src/compiler/logger.ts,src/compiler/phases/analysis.ts,src/compiler/phases/artifacts.ts,src/compiler/phases/codegen.ts,src/compiler/phases/discovery.ts,src/compiler/phases/linker.ts,src/compiler/phases/optimization.ts,src/compiler/phases/serializers.ts,src/compiler/phases/validators.ts,src/compiler/types.ts,src/compiler/validate.ts
 src/compiler/phases/analysis.ts>src/compiler/logger.ts,src/compiler/phases/discovery.ts,src/compiler/types.ts,src/compiler/utils/ast.ts,src/compiler/utils/hash.ts
 src/compiler/phases/artifacts.ts>src/compiler/logger.ts,src/compiler/types.ts
 src/compiler/phases/codegen.ts>src/compiler/logger.ts,src/compiler/types.ts
 src/compiler/phases/discovery.ts>src/compiler/fp.ts,src/compiler/logger.ts,src/compiler/types.ts,src/compiler/utils/ast.ts
 src/compiler/phases/linker.ts>src/compiler/logger.ts,src/compiler/types.ts
 src/compiler/phases/optimization.ts>src/compiler/logger.ts,src/compiler/types.ts,src/compiler/utils/ast.ts
+src/compiler/phases/serializers.ts>src/compiler/logger.ts,src/compiler/phases/schema-loader.ts,src/compiler/types.ts
+src/compiler/phases/validators.ts>src/compiler/logger.ts,src/compiler/phases/schema-loader.ts,src/compiler/types.ts
 src/compiler/types.ts>src/shared/context-usage.ts
 src/compiler/utils/ast.ts>src/compiler/types.ts,src/shared/context-usage.ts
 src/compiler/validate.ts>src/compiler/fp.ts,src/compiler/types.ts
@@ -22,7 +24,7 @@ src/core/derive.ts>src/core/context.ts,src/core/types.ts
 src/core/files.ts>src/core/cache.ts,src/core/errors.ts
 src/core/guard.ts>src/core/hooks.ts,src/core/types.ts
 src/core/hooks.ts>src/core/context.ts,src/core/types.ts
-src/core/http.ts>src/core/context.ts,src/core/types.ts
+src/core/http.ts>src/core/body.ts,src/core/context.ts,src/core/types.ts
 src/core/macro.ts>src/core/context.ts,src/core/types.ts
 src/core/openapi.ts>src/core/types.ts
 src/core/plugin.ts>src/core/context.ts,src/core/hooks.ts
@@ -40,512 +42,6 @@ src/routes/index.get.ts>src/core/http.ts
 src/routes/products/[id].get.ts>src/core/http.ts
 src/routes/products/add.post.ts>src/core/http.ts
 src/routes/upload.post.ts>src/core/http.ts
-
->fix.sh
-i:*|*|*/|import|=|bun|bun|bun
----
-   1| |#!/usr/bin/env bash
-   2| |set -euo pipefail
-   4| |# ============================================================================
-   5| |# Flux AOT Upgrade + Restructure Script
-   6| |# ============================================================================
-   8| |echo "Starting Flux AOT upgrade..."
-  10| |if ! command -v bun >/dev/null 2>&1; then
-  11| |  echo "Error: bun is required."
-  12| |  exit 1
-  13| |fi
-  15| |BACKUP_DIR=".flux-aot-backup-$(date +%Y%m%d-%H%M%S)"
-  16| |echo "Backing up current project to ${BACKUP_DIR}"
-  17| |mkdir -p "${BACKUP_DIR}"
-  19| |if [[ -d src ]]; then
-  20| |  cp -r src "${BACKUP_DIR}/src"
-  21| |fi
-  23| |if [[ -f builder.ts ]]; then
-  24| |  cp builder.ts "${BACKUP_DIR}/builder.ts"
-  25| |fi
-  27| |if [[ -f package.json ]]; then
-  28| |  cp package.json "${BACKUP_DIR}/package.json"
-  29| |fi
-  31| |if [[ -f tsconfig.json ]]; then
-  32| |  cp tsconfig.json "${BACKUP_DIR}/tsconfig.json"
-  33| |fi
-  35| |mkdir -p src/shared
-  36| |mkdir -p src/compiler/runtime
-  37| |mkdir -p scripts/patches
-  39| |# ============================================================================
-  40| |# Shared ContextUsage
-  41| |# ============================================================================
-  43| |cat > src/shared/context-usage.ts <<'EOF'
-  44| |/**
-  45| | * Shared context usage flags used by both compiler and runtime.
-  46| | *
-  47| | * This removes duplicated ContextUsage definitions between:
-  48| | * - src/compiler/types.ts
-  49| | * - src/core/types.ts
-  50| | */
-  52| |export interface ContextUsage {
-  53| |  body: boolean;
-  54| |  params: boolean;
-  55| |  query: boolean;
-  56| |  file: boolean;
-  57| |  headers: boolean;
-  58| |  state: boolean;
-  60| |  json: boolean;
-  61| |  text: boolean;
-  62| |  html: boolean;
-  63| |  redirect: boolean;
-  64| |  stream: boolean;
-  65| |  empty: boolean;
-  66| |  status: boolean;
-  68| |  req: boolean;
-  69| |  url: boolean;
-  71| |  cookie: boolean;
-  72| |  server: boolean;
-  73| |  set: boolean;
-  75| |  sendFile: boolean;
-  76| |  proxy: boolean;
-  77| |  forward: boolean;
-  78| |  cache: boolean;
-  79| |}
-  81| |export const EMPTY_USAGE: ContextUsage = Object.freeze({
-  82| |  body: false,
-  83| |  params: false,
-  84| |  query: false,
-  85| |  file: false,
-  86| |  headers: false,
-  87| |  state: false,
-  89| |  json: false,
-  90| |  text: false,
-  91| |  html: false,
-  92| |  redirect: false,
-  93| |  stream: false,
-  94| |  empty: false,
-  95| |  status: false,
-  97| |  req: false,
-  98| |  url: false,
- 100| |  cookie: false,
- 101| |  server: false,
- 102| |  set: false,
- 104| |  sendFile: false,
- 105| |  proxy: false,
- 106| |  forward: false,
- 107| |  cache: false,
- 108| |});
- 110| |export const FULL_USAGE: ContextUsage = Object.freeze({
- 111| |  body: true,
- 112| |  params: true,
- 113| |  query: true,
- 114| |  file: true,
- 115| |  headers: true,
- 116| |  state: true,
- 118| |  json: true,
- 119| |  text: true,
- 120| |  html: true,
- 121| |  redirect: true,
- 122| |  stream: true,
- 123| |  empty: true,
- 124| |  status: true,
- 126| |  req: true,
- 127| |  url: true,
- 129| |  cookie: true,
- 130| |  server: true,
- 131| |  set: true,
- 133| |  sendFile: true,
- 134| |  proxy: true,
- 135| |  forward: true,
- 136| |  cache: true,
- 137| |});
- 138| |EOF
- 140| |# ============================================================================
- 141| |# New compiler types
- 142| |# ============================================================================
- 144| |cat > src/compiler/types.ts <<'EOF'
- 145| |/**
- 146| | * Flux Compiler Type System
- 147| | *
- 148| | * AOT upgrade:
- 149| | * - unified ContextUsage from shared
- 150| | * - added advanced compiler options
- 151| | * - added route metadata for future validators/serializers/OpenAPI
- 152| | */
- 154| |import type { ContextUsage } from "../shared/context-usage";
- 155| |import { EMPTY_USAGE, FULL_USAGE } from "../shared/context-usage";
- 157| |export type { ContextUsage };
- 158| |export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
- 159| |export const FULL_CONTEXT_USAGE = FULL_USAGE;
- 161| |export const HTTP_METHODS = [
- 162| |  "GET",
- 163| |  "POST",
- 164| |  "PUT",
- 165| |  "PATCH",
- 166| |  "DELETE",
- 167| |  "HEAD",
- 168| |  "OPTIONS",
- 169| |  "ALL",
- 170| |] as const;
- 172| |export type HttpMethod = (typeof HTTP_METHODS)[number];
- 174| |export type RouterMode =
- 175| |  | "auto"
- 176| |  | "static-map"
- 177| |  | "radix"
- 178| |  | "bun-native";
- 180| |export interface CompilerOptions {
- 181| |  readonly routesDir: string;
- 182| |  readonly outDir: string;
- 183| |  readonly outFile: string;
- 184| |  readonly target: "bun" | "node" | "deno";
- 186| |  readonly optimizationLevel: 0 | 1 | 2 | 3;
- 187| |  readonly inlineThreshold: number;
- 188| |  readonly enableHandlerDeduplication: boolean;
- 189| |  readonly sourceMap: boolean;
- 190| |  readonly minify: boolean;
- 192| |  readonly hooksDir?: string;
- 194| |  readonly enableTracing?: boolean;
- 195| |  readonly enableAccessLog?: boolean;
- 196| |  readonly enableTraceHeaders?: boolean;
- 197| |  readonly enableLifecycle?: boolean;
- 198| |  readonly enableStrictMethods?: boolean;
- 199| |  readonly enableFastBodyParsing?: boolean;
- 201| |  readonly serviceName?: string;
- 202| |  readonly requestIdHeader?: string;
- 203| |  readonly exposeErrorDetails?: boolean;
- 205| |  readonly maxJsonBytes?: number;
- 206| |  readonly maxTextBytes?: number;
- 207| |  readonly maxFormBytes?: number;
- 208| |  readonly maxFileBytes?: number;
- 210| |  readonly cluster?: number | "auto";
- 211| |  readonly reusePort?: boolean;
- 213| |  // Advanced AOT options
- 214| |  readonly router?: RouterMode;
- 215| |  readonly generateTypes?: boolean;
- 216| |  readonly generateOpenAPI?: boolean;
- 217| |  readonly generateClient?: boolean;
- 219| |  readonly precompileValidators?: boolean;
- 220| |  readonly precompileSerializers?: boolean;
- 222| |  readonly hoistConstants?: boolean;
- 223| |  readonly specializeContext?: boolean;
- 224| |  readonly inlineHooks?: boolean;
- 225| |  readonly treeshakeRuntime?: boolean;
- 226| |  readonly routeCache?: boolean;
- 228| |  readonly maxInlineBytes?: number;
- 229| |}
- 231| |export interface RouteCacheConfig {
- 232| |  readonly maxAge?: number;
- 233| |  readonly swr?: number;
- 234| |  readonly immutable?: boolean;
- 235| |  readonly vary?: readonly string[];
- 236| |}
- 238| |export const createDefaultOptions = (): CompilerOptions => ({
- 239| |  routesDir: process.env.ROUTES_DIR || "./src/routes",
- 240| |  outDir: process.env.OUT_DIR || "./dist",
- 241| |  outFile: "__server.js",
- 242| |  target: "bun",
- 244| |  optimizationLevel: 3,
- 245| |  inlineThreshold: 50,
- 246| |  enableHandlerDeduplication: true,
- 247| |  sourceMap: false,
- 248| |  minify: false,
- 250| |  enableTracing: true,
- 251| |  enableAccessLog: true,
- 252| |  enableTraceHeaders: true,
- 253| |  enableLifecycle: true,
- 254| |  enableStrictMethods: true,
- 255| |  enableFastBodyParsing: false,
- 257| |  serviceName: "flux",
- 258| |  requestIdHeader: "x-request-id",
- 259| |  exposeErrorDetails: process.env.NODE_ENV !== "production",
- 261| |  router: "auto",
- 262| |  generateTypes: true,
- 263| |  generateOpenAPI: true,
- 264| |  generateClient: true,
- 266| |  precompileValidators: false,
- 267| |  precompileSerializers: false,
- 269| |  hoistConstants: true,
- 270| |  specializeContext: true,
- 271| |  inlineHooks: true,
- 272| |  treeshakeRuntime: true,
- 273| |  routeCache: true,
- 275| |  maxInlineBytes: 2048,
- 276| |});
- 278| |export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
- 280| |export interface Position {
- 281| |  readonly line: number;
- 282| |  readonly column: number;
- 283| |}
- 285| |export type SymbolKind =
- 286| |  | "function"
- 287| |  | "class"
- 288| |  | "const"
- 289| |  | "let"
- 290| |  | "var"
- 291| |  | "type"
- 292| |  | "interface";
- 294| |export interface SymbolInfo {
- 295| |  readonly name: string;
- 296| |  readonly kind: SymbolKind;
- 297| |  readonly pos: Position;
- 298| |  readonly isAsync: boolean;
- 299| |  readonly isDefaultExport: boolean;
- 300| |  readonly params: readonly string[];
- 301| |  readonly returnType?: string;
- 302| |  readonly decorators: readonly string[];
- 303| |  readonly calls: readonly string[];
- 304| |  readonly calledBy: readonly string[];
- 305| |  readonly size: number;
- 306| |  readonly hotness: number;
- 307| |}
- 309| |export interface ImportInfo {
- 310| |  readonly source: string;
- 311| |  readonly names: readonly string[];
- 312| |  readonly defaultName?: string;
- 313| |  readonly namespaceName?: string;
- 314| |}
- 316| |export interface ExportInfo {
- 317| |  readonly name: string;
- 318| |  readonly kind: "default" | "named" | "namespace";
- 319| |  readonly symbolRef?: string;
- 320| |}
- 322| |export interface ModuleInfo {
- 323| |  readonly path: string;
- 324| |  readonly relPath: string;
- 325| |  readonly content: string;
- 326| |  readonly imports: readonly ImportInfo[];
- 327| |  readonly exports: readonly ExportInfo[];
- 328| |  readonly symbols: readonly SymbolInfo[];
- 329| |  readonly hasDefaultExport: boolean;
- 330| |  readonly schemaExport?: string;
- 331| |  readonly configExport?: string;
- 332| |  readonly callGraph: ReadonlyMap<string, ReadonlySet<string>>;
- 333| |  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
- 334| |}
- 336| |export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
- 338| |export interface RouteValidators {
- 339| |  readonly body?: string;
- 340| |  readonly query?: string;
- 341| |  readonly params?: string;
- 342| |  readonly headers?: string;
- 343| |  readonly cookie?: string;
- 344| |}
- 346| |export interface RouteSerializers {
- 347| |  readonly json?: string;
- 348| |}
- 350| |export interface RouteDef {
- 351| |  readonly method: HttpMethod;
- 352| |  readonly cache?: RouteCacheConfig;
- 353| |  readonly path: string;
- 354| |  readonly file: string;
- 355| |  readonly moduleIdx: number;
- 356| |  readonly handlerRef: string;
- 357| |  readonly schemaRef: string | null;
- 358| |  readonly paramNames: readonly string[];
- 359| |  readonly isDynamic: boolean;
- 360| |  readonly isStatic: boolean;
- 361| |  readonly segmentCount: number;
- 362| |  readonly signatureHash: number;
- 363| |  readonly handlerSize: number;
- 364| |  readonly isAsync: boolean;
- 365| |  readonly shouldInline: boolean;
- 366| |  readonly responseType: ResponseType;
- 367| |  readonly hasValidation: boolean;
- 368| |  readonly hotnessScore: number;
- 369| |  readonly dedupGroup?: string;
- 370| |  readonly hooks: readonly string[];
- 371| |  readonly isConstantResponse: boolean;
- 372| |  readonly constantResponse?: string;
- 373| |  readonly usage: ContextUsage;
- 375| |  // New optional AOT metadata
- 376| |  readonly config?: Record<string, unknown>;
- 377| |  readonly validators?: RouteValidators;
- 378| |  readonly serializers?: RouteSerializers;
- 379| |  readonly statusCodes?: readonly number[];
- 380| |  readonly contentType?: string;
- 381| |  readonly openapi?: Record<string, unknown>;
- 382| |}
- 384| |export interface HookDef {
- 385| |  readonly name: string;
- 386| |  readonly source: string;
- 387| |  readonly moduleIdx: number;
- 388| |  readonly isAsync: boolean;
- 389| |}
- 391| |export type { Logger } from "./logger";
- 393| |export interface DiscoveryResult {
- 394| |  readonly files: readonly string[];
- 395| |  readonly modules: readonly ModuleInfo[];
- 396| |}
- 398| |export interface AnalysisResult {
- 399| |  readonly routes: readonly RouteDef[];
- 400| |  readonly modules: readonly ModuleInfo[];
- 401| |  readonly hooks: ReadonlyMap<string, HookDef>;
- 402| |}
- 404| |export interface OptimizationMeta {
- 405| |  readonly inlined: number;
- 406| |  readonly deduplicated: number;
- 407| |  readonly eliminated: number;
- 408| |}
- 410| |export interface OptimizationResult {
- 411| |  readonly routes: readonly RouteDef[];
- 412| |  readonly meta: OptimizationMeta;
- 413| |}
- 415| |export interface CompilationMeta {
- 416| |  readonly inlinedHandlers: number;
- 417| |  readonly deduplicatedHandlers: number;
- 418| |  readonly eliminatedRoutes: number;
- 419| |  readonly totalCompileTime: number;
- 420| |}
- 422| |export interface CompiledRoute {
- 423| |  readonly staticRoutes: readonly RouteDef[];
- 424| |  readonly dynamicRoutes: readonly RouteDef[];
- 425| |  readonly modules: readonly ModuleInfo[];
- 426| |  readonly meta: CompilationMeta;
- 427| |}
- 428| |EOF
- 430| |# ============================================================================
- 431| |# New compiler options validation
- 432| |# ============================================================================
- 434| |cat > src/compiler/validate.ts <<'EOF'
- 435| |/**
- 436| | * Compiler options validation.
- 437| | *
- 438| | * Updated for AOT compiler options.
- 439| | */
- 441| |import { Type, type Static } from "@sinclair/typebox";
- 442| |import Ajv from "ajv";
- 443| |import type { CompilerOptions } from "./types";
- 444| |import { DEFAULT_OPTS } from "./types";
- 445| |import type { Result } from "./fp";
- 446| |import { ok, err } from "./fp";
- 448| |const CompilerOptionsSchema = Type.Object(
- 449| |  {
- 450| |    routesDir: Type.String({ minLength: 1 }),
- 451| |    outDir: Type.String({ minLength: 1 }),
- 452| |    outFile: Type.String({ minLength: 1 }),
- 454| |    target: Type.Union([
- 455| |      Type.Literal("bun"),
- 456| |      Type.Literal("node"),
- 457| |      Type.Literal("deno"),
- 458| |    ]),
- 460| |    optimizationLevel: Type.Union([
- 461| |      Type.Literal(0),
- 462| |      Type.Literal(1),
- 463| |      Type.Literal(2),
- 464| |      Type.Literal(3),
- 465| |    ]),
- 467| |    inlineThreshold: Type.Number({ minimum: 0, maximum: 1000 }),
- 468| |    enableHandlerDeduplication: Type.Boolean(),
- 469| |    sourceMap: Type.Boolean(),
- 470| |    minify: Type.Boolean(),
- 472| |    hooksDir: Type.Optional(Type.String({ minLength: 1 })),
- 474| |    enableTracing: Type.Optional(Type.Boolean()),
- 475| |    enableAccessLog: Type.Optional(Type.Boolean()),
- 476| |    enableTraceHeaders: Type.Optional(Type.Boolean()),
- 477| |    enableLifecycle: Type.Optional(Type.Boolean()),
- 478| |    enableStrictMethods: Type.Optional(Type.Boolean()),
- 479| |    enableFastBodyParsing: Type.Optional(Type.Boolean()),
- 481| |    serviceName: Type.Optional(Type.String({ minLength: 1 })),
- 482| |    requestIdHeader: Type.Optional(Type.String({ minLength: 1 })),
- 483| |    exposeErrorDetails: Type.Optional(Type.Boolean()),
- 485| |    maxJsonBytes: Type.Optional(Type.Integer({ minimum: 0 })),
- 486| |    maxTextBytes: Type.Optional(Type.Integer({ minimum: 0 })),
- 487| |    maxFormBytes: Type.Optional(Type.Integer({ minimum: 0 })),
- 488| |    maxFileBytes: Type.Optional(Type.Integer({ minimum: 0 })),
- 490| |    cluster: Type.Optional(
- 491| |      Type.Union([Type.Integer({ minimum: 1 }), Type.Literal("auto")])
- 492| |    ),
- 494| |    reusePort: Type.Optional(Type.Boolean()),
- 496| |    router: Type.Optional(
- 497| |      Type.Union([
- 498| |        Type.Literal("auto"),
- 499| |        Type.Literal("static-map"),
- 500| |        Type.Literal("radix"),
- 501| |        Type.Literal("bun-native"),
- 502| |      ])
- 503| |    ),
- 505| |    generateTypes: Type.Optional(Type.Boolean()),
- 506| |    generateOpenAPI: Type.Optional(Type.Boolean()),
- 507| |    generateClient: Type.Optional(Type.Boolean()),
- 509| |    precompileValidators: Type.Optional(Type.Boolean()),
- 510| |    precompileSerializers: Type.Optional(Type.Boolean()),
- 512| |    hoistConstants: Type.Optional(Type.Boolean()),
- 513| |    specializeContext: Type.Optional(Type.Boolean()),
- 514| |    inlineHooks: Type.Optional(Type.Boolean()),
- 515| |    treeshakeRuntime: Type.Optional(Type.Boolean()),
- 516| |    routeCache: Type.Optional(Type.Boolean()),
- 518| |    maxInlineBytes: Type.Optional(Type.Integer({ minimum: 0 })),
- 519| |  },
- 520| |  { additionalProperties: false }
- 521| |);
- 523| |export type ValidatedCompilerOptions = Static<typeof CompilerOptionsSchema>;
- 525| |const ajv = new Ajv({
- 526| |  allErrors: true,
- 527| |  strict: false,
- 528| |  useDefaults: true,
- 529| |  coerceTypes: false,
- 530| |});
- 532| |const validate = ajv.compile(CompilerOptionsSchema);
- 534| |export const validateOptions = (
- 535| |  input: Partial<CompilerOptions>
- 536| |): Result<CompilerOptions, string[]> => {
- 537| |  const data = { ...DEFAULT_OPTS, ...input };
- 539| |  if (validate(data)) {
- 540| |    return ok(data as CompilerOptions);
- 541| |  }
- 543| |  const errors = (validate.errors ?? []).map((e) => {
- 544| |    const path =
- 545| |      e.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
- 546| |      (e.params as any)?.missingProperty ||
- 547| |      "options";
- 549| |    return `${path}: ${e.message}`;
- 550| |  });
- 552| |  return err(errors);
- 553| |};
- 554| |EOF
- 556| |# ============================================================================
- 557| |# Artifacts phase: types, OpenAPI, client, manifest
- 558| |# ============================================================================
- 560| |cat > src/compiler/phases/artifacts.ts <<'EOF'
- 561| |/**
- 562| | * AOT artifact generation:
- 563| | * - routes.d.ts
- 564| | * - openapi.json
- 565| | * - client.d.ts
- 566| | * - manifest.json
- 567| | */
- 569| |import { mkdirSync, writeFileSync } from "fs";
- 570| |import { join } from "path";
- 571| |import type { RouteDef, CompilerOptions } from "../types";
- 572| |import type { Logger } from "../logger";
- 574| |const tsParamType = (paramNames: readonly string[]): string => {
- 575| |  if (paramNames.length === 0) return "Record<string, never>";
- 577| |  const lines = paramNames.map((name) => `    ${name}: string;`);
- 578| |  return `{
- 579| |${lines.join("\n")}
- 580| |  }`;
- 581| |};
- 583| |export const generateRouteTypes = (routes: readonly RouteDef[]): string => {
- 584| |  const lines: string[] = [];
- 586| |  lines.push("// Auto-generated by Flux AOT compiler.");
- 587| |  lines.push("// Do not edit manually.");
- 588| |  lines.push("");
- 589| |  lines.push("export interface FluxRoutes {");
- 591| |  for (const route of routes) {
- 592| |    const method = route.method.toLowerCase();
- 594| |    lines.push(`  ${JSON.stringify(route.path)}: {`);
- 595| |    lines.push(`    ${method}: {`);
- 597| |    if (route.paramNames.length > 0) {
- 598| |      lines.push(`      params: ${tsParamType(route.paramNames)};`);
- 599| |    }
- 601| |    if (route.usage.query) {
- 602| |      lines.push("      query: Record<string, string | string[]>;");
- 603| |    }
- 605| |    if (route.usage.body) {
- 606| |      lines.push("      body: unknown;");
- 607| |    }
- 609| |    lines.push("      response: unknown;");
- 611| |    lines.push("    };");
- 612| |    lines.push("  };");
- 613| |  }
-   ... (1828 more lines)
----
 
 >scripts/apply-flux-patches.mjs
 i:node:fs|../../shared/context-usage
@@ -936,6 +432,62 @@ t:Logger
   67| |    return result;
   68| |  },
   69| |});
+---
+
+>src/compiler/phases/schema-loader.ts
+i:node:url
+e:loadRouteModule|isStandardSchema|cloneSchema
+f:loadRouteModule(
+  absPath: string
+):Promise<any | undefined>|a
+f:isStandardSchema(value: unknown):boolean
+f:cloneSchema(value: unknown):any
+---
+   1| |/**
+   2| | * Build-time route schema loader.
+   3| | *
+   4| | * Phase 2:
+   5| | * - dynamically imports route modules
+   6| | * - extracts exported schema
+   7| | * - caches module loads
+   8| | */
+  10| |import { pathToFileURL } from "node:url";
+  12| |const moduleCache = new Map<string, unknown>();
+  14|▼|export const loadRouteModule = async (
+  15| |  absPath: string
+  16| |): Promise<any | undefined> => {
+  17| |  if (moduleCache.has(absPath)) {
+  18| |    return moduleCache.get(absPath);
+  19| |  }
+  21| |  try {
+  22| |    const url = pathToFileURL(absPath).href;
+  23| |    const mod: any = await import(url);
+  25| |    const handler = mod?.default;
+  26| |    const inlineSchema =
+  27| |      handler != null && typeof handler === "object" && "schema" in handler
+  28| |        ? handler.schema
+  29| |        : typeof handler === "function" && "schema" in handler
+  30| |          ? handler.schema
+  31| |          : undefined;
+  33| |    const schema = mod?.schema ?? inlineSchema;
+  34| |    const normalized = schema === undefined ? mod : { ...mod, schema };
+  36| |    moduleCache.set(absPath, normalized);
+  37| |    return normalized;
+  38| |  } catch {
+  39| |    moduleCache.set(absPath, undefined);
+  40| |    return undefined;
+  41| |  }
+  42| |};
+  44|▼|export const isStandardSchema = (value: unknown): boolean => {
+  45| |  return (
+  46| |    typeof value === "object" &&
+  47| |    value !== null &&
+  48| |    "~standard" in value
+  49| |  );
+  50| |};
+  52|▼|export const cloneSchema = (value: unknown): any => {
+  53| |  return JSON.parse(JSON.stringify(value));
+  54| |};
 ---
 
 >src/compiler/utils/hash.ts
@@ -3965,192 +3517,192 @@ t:ParseResult
  364| |      }
  365| |    }
  366| |    if (n.type === "ExportSpecifier" && n.local?.name === "schema") found = true;
- 367| |  });
- 368| |  return found;
- 369| |}
- 371|▼|export function hasConfigExportAST(ast: any): boolean {
- 372| |  let found = false;
- 373| |  walk(ast, (n) => {
- 374| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
- 375| |      for (const d of n.declaration.declarations || []) {
- 376| |        if (d.id?.name === "config") found = true;
- 377| |      }
- 378| |    }
- 379| |    if (n.type === "ExportSpecifier" && n.local?.name === "config") found = true;
- 380| |  });
- 381| |  return found;
- 382| |}
- 384| |// ---------------------------------------------------------------------------
- 385| |// Purity Analysis (AST-based)
- 386| |// ---------------------------------------------------------------------------
- 388| |const IMPURE_GLOBALS = new Set([
- 389| |  "fetch", "Date", "Math", "console", "process", "crypto",
- 390| |  "setTimeout", "setInterval", "clearTimeout", "clearInterval",
- 391| |  "Promise", "Map", "Set", "WeakMap", "WeakSet",
- 392| |]);
- 394| |const IMPURE_CALLS = new Set([
- 395| |  "Math.random", "Date.now", "crypto.randomUUID", "crypto.getRandomValues",
- 396| |  "console.log", "console.warn", "console.error", "fetch",
- 397| |]);
- 399|▼|export function isPureBodyAST(ast: any): boolean {
- 400| |  let impure = false;
- 401| |  walk(ast, (n) => {
- 402| |    if (impure) return;
- 403| |    // new Date(), new Map(), etc.
- 404| |    if (n.type === "NewExpression" && n.callee?.type === "Identifier" && IMPURE_GLOBALS.has(n.callee.name)) {
- 405| |      impure = true;
- 406| |    }
- 407| |    // fetch(), Math.random(), etc.
- 408| |    if (n.type === "CallExpression") {
- 409| |      const callee = n.callee;
- 410| |      if (callee.type === "Identifier" && IMPURE_GLOBALS.has(callee.name)) {
- 411| |        impure = true;
- 412| |      }
- 413| |      if (callee.type === "MemberExpression") {
- 414| |        const chain = flattenMember(callee);
- 415| |        if (chain && IMPURE_CALLS.has(chain)) impure = true;
- 416| |      }
- 417| |    }
- 418| |    // await
- 419| |    if (n.type === "AwaitExpression") {
- 420| |      // Conservative: any await is impure (could be DB, fetch, etc.)
- 421| |      impure = true;
- 422| |    }
- 423| |  });
- 424| |  return !impure;
- 425| |}
- 427|▼|function flattenMember(node: any): string | null {
- 428| |  if (node.type === "Identifier") return node.name;
- 429| |  if (node.type === "MemberExpression" && !node.computed) {
- 430| |    const obj = flattenMember(node.object);
- 431| |    const prop = node.property?.name;
- 432| |    if (obj && prop) return `${obj}.${prop}`;
- 433| |  }
- 434| |  return null;
- 435| |}
- 437| |// ---------------------------------------------------------------------------
- 438| |// Response-Type Inference (AST-based)
- 439| |// ---------------------------------------------------------------------------
- 441|▼|export function inferResponseTypeAST(ast: any): "json" | "text" | "html" | "stream" | "unknown" {
- 442| |  let type: "json" | "text" | "html" | "stream" | "unknown" = "unknown";
- 443| |  walk(ast, (n) => {
- 444| |    if (n.type === "CallExpression" && n.callee?.type === "MemberExpression") {
- 445| |      const chain = flattenMember(n.callee);
- 446| |      if (chain === "ctx.json") type = "json";
- 447| |      if (chain === "ctx.text") type = "text";
- 448| |      if (chain === "ctx.html") type = "html";
- 449| |      if (chain === "ctx.stream") type = "stream";
- 450| |    }
- 451| |    // Heuristic: return "string" or template literal → text
- 452| |    if (n.type === "ReturnStatement" && n.argument?.type === "Literal" && typeof n.argument.value === "string") {
- 453| |      if (type === "unknown") type = "text";
- 454| |    }
- 455| |  });
- 456| |  return type;
- 457| |}
+ 368| |    // Schema-first HTTP: export default get(handler, { ... })
+ 369| |    if (
+ 370| |      n.type === "ExportDefaultDeclaration" &&
+ 371| |      n.declaration?.type === "CallExpression" &&
+ 372| |      n.declaration.callee?.type === "Identifier" &&
+ 373| |      HTTP_WRAPPERS.has(n.declaration.callee.name)
+ 374| |    ) {
+ 375| |      const args = n.declaration.arguments || [];
+ 376| |      const schemaArg = args[1];
+ 378| |      if (
+ 379| |        schemaArg &&
+ 380| |        schemaArg.type !== "Literal" &&
+ 381| |        schemaArg.type !== "StringLiteral" &&
+ 382| |        schemaArg.type !== "TemplateLiteral"
+ 383| |      ) {
+ 384| |        found = true;
+ 385| |      }
+ 386| |    }
+ 387| |  });
+ 388| |  return found;
+ 389| |}
+ 391|▼|export function hasConfigExportAST(ast: any): boolean {
+ 392| |  let found = false;
+ 393| |  walk(ast, (n) => {
+ 394| |    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
+ 395| |      for (const d of n.declaration.declarations || []) {
+ 396| |        if (d.id?.name === "config") found = true;
+ 397| |      }
+ 398| |    }
+ 399| |    if (n.type === "ExportSpecifier" && n.local?.name === "config") found = true;
+ 400| |  });
+ 401| |  return found;
+ 402| |}
+ 404| |// ---------------------------------------------------------------------------
+ 405| |// Purity Analysis (AST-based)
+ 406| |// ---------------------------------------------------------------------------
+ 408| |const IMPURE_GLOBALS = new Set([
+ 409| |  "fetch", "Date", "Math", "console", "process", "crypto",
+ 410| |  "setTimeout", "setInterval", "clearTimeout", "clearInterval",
+ 411| |  "Promise", "Map", "Set", "WeakMap", "WeakSet",
+ 412| |]);
+ 414| |const IMPURE_CALLS = new Set([
+ 415| |  "Math.random", "Date.now", "crypto.randomUUID", "crypto.getRandomValues",
+ 416| |  "console.log", "console.warn", "console.error", "fetch",
+ 417| |]);
+ 419|▼|export function isPureBodyAST(ast: any): boolean {
+ 420| |  let impure = false;
+ 421| |  walk(ast, (n) => {
+ 422| |    if (impure) return;
+ 423| |    // new Date(), new Map(), etc.
+ 424| |    if (n.type === "NewExpression" && n.callee?.type === "Identifier" && IMPURE_GLOBALS.has(n.callee.name)) {
+ 425| |      impure = true;
+ 426| |    }
+ 427| |    // fetch(), Math.random(), etc.
+ 428| |    if (n.type === "CallExpression") {
+ 429| |      const callee = n.callee;
+ 430| |      if (callee.type === "Identifier" && IMPURE_GLOBALS.has(callee.name)) {
+ 431| |        impure = true;
+ 432| |      }
+ 433| |      if (callee.type === "MemberExpression") {
+ 434| |        const chain = flattenMember(callee);
+ 435| |        if (chain && IMPURE_CALLS.has(chain)) impure = true;
+ 436| |      }
+ 437| |    }
+ 438| |    // await
+ 439| |    if (n.type === "AwaitExpression") {
+ 440| |      // Conservative: any await is impure (could be DB, fetch, etc.)
+ 441| |      impure = true;
+ 442| |    }
+ 443| |  });
+ 444| |  return !impure;
+ 445| |}
+ 447|▼|function flattenMember(node: any): string | null {
+ 448| |  if (node.type === "Identifier") return node.name;
+ 449| |  if (node.type === "MemberExpression" && !node.computed) {
+ 450| |    const obj = flattenMember(node.object);
+ 451| |    const prop = node.property?.name;
+ 452| |    if (obj && prop) return `${obj}.${prop}`;
+ 453| |  }
+ 454| |  return null;
+ 455| |}
+ 457| |// ---------------------------------------------------------------------------
+ 458| |// Response-Type Inference (AST-based)
  459| |// ---------------------------------------------------------------------------
- 460| |// Main Parse Entry
- 461| |// ---------------------------------------------------------------------------
- 463|▼|export interface ParseResult {
- 464| |  readonly ast: any;
- 465| |  readonly imports: ImportInfo[];
- 466| |  readonly exports: ExportInfo[];
- 467| |  readonly symbols: SymbolInfo[];
- 468| |  readonly hasDefaultExport: boolean;
- 469| |  readonly schemaExport: boolean;
- 470| |  readonly configExport: boolean;
- 471| |  readonly handler: ExtractedHandler | null;
- 472| |  readonly config?: any;
- 473| |}
- 475| |// ---------------------------------------------------------------------------
- 476| |// AST Parser Bridge
- 477| |// ---------------------------------------------------------------------------
- 479|▼|function normalizeAst(result: any): any {
- 480| |  if (!result) {
- 481| |    return { type: "Program", body: [] };
- 482| |  }
- 484| |  if (result.errors && result.errors.length > 0) {
- 485|!|    throw new Error(result.errors[0]?.message ?? "AST parse error");
- 486| |  }
- 488| |  const ast = result.program ?? result.ast ?? result.root ?? result;
- 490| |  if (!ast.type) ast.type = "Program";
- 491| |  if (!Array.isArray(ast.body)) ast.body = [];
- 493| |  return ast;
- 494| |}
- 496|▼|function tryOxcParser(source: string): any | undefined {
- 497| |  const mod = oxcParser as any;
- 498| |  const parseSync = mod.parseSync ?? mod.default?.parseSync;
- 500| |  if (typeof parseSync !== "function") return undefined;
- 502| |  const attempts = [
- 503| |    () =>
- 504| |      parseSync("flux.ts", source, {
- 505| |        sourceType: "module",
- 506| |        target: "esnext",
- 507| |      }),
- 508| |    () =>
- 509| |      parseSync(source, {
- 510| |        sourceType: "module",
- 511| |        target: "esnext",
- 512| |      }),
- 513| |  ];
- 515| |  for (const attempt of attempts) {
- 516| |    try {
- 517| |      const result = attempt();
- 519| |      if (result && typeof result.then === "function") continue;
- 520| |      if (result?.errors?.length) continue;
- 522| |      const program = result?.program ?? result?.ast ?? result;
- 524| |      if (program?.type || Array.isArray(program?.body)) {
- 525| |        return program;
- 526| |      }
- 527| |    } catch {
- 528| |      // try next shape
- 529| |    }
- 530| |  }
- 532| |  return undefined;
- 533| |}
- 535|▼|function parseToAst(source: string): any {
- 536| |  const oxc = tryOxcParser(source);
- 537| |  if (oxc) return normalizeAst(oxc);
- 539| |  const B: any = Bun;
- 541| |  const parsers: Array<() => any> = [
- 542| |    () =>
- 543| |      typeof B.parse === "function"
- 544| |        ? B.parse(source, {
- 545| |            loader: "ts",
- 546| |            target: "bun",
- 547| |            ranges: true,
- 548| |            loc: true,
- 549| |          })
- 550| |        : undefined,
- 552| |    () =>
- 553| |      typeof B.parseSync === "function"
- 554| |        ? B.parseSync(source, {
- 555| |            loader: "ts",
- 556| |            target: "bun",
- 557| |            ranges: true,
- 558| |            loc: true,
- 559| |          })
- 560| |        : undefined,
- 562| |    () => {
- 563| |      const transpiler = B.Transpiler
- 564| |        ? new B.Transpiler({ loader: "ts", target: "bun" })
- 565| |        : undefined;
- 567| |      return transpiler && typeof transpiler.parse === "function"
- 568| |        ? transpiler.parse(source, { ranges: true, loc: true })
- 569| |        : undefined;
- 570| |    },
- 572| |    () => {
- 573| |      const transpiler = B.Transpiler
- 574| |        ? new B.Transpiler({ loader: "ts", target: "bun" })
- 575| |        : undefined;
- 577| |      return transpiler && typeof transpiler.parseSync === "function"
- 578| |        ? transpiler.parseSync(source, { ranges: true, loc: true })
- 579| |        : undefined;
- 580| |    },
- 581| |  ];
- 583| |  for (const parser of parsers) {
- 584| |    try {
-   ... (88 more lines)
+ 461|▼|export function inferResponseTypeAST(ast: any): "json" | "text" | "html" | "stream" | "unknown" {
+ 462| |  let type: "json" | "text" | "html" | "stream" | "unknown" = "unknown";
+ 463| |  walk(ast, (n) => {
+ 464| |    if (n.type === "CallExpression" && n.callee?.type === "MemberExpression") {
+ 465| |      const chain = flattenMember(n.callee);
+ 466| |      if (chain === "ctx.json") type = "json";
+ 467| |      if (chain === "ctx.text") type = "text";
+ 468| |      if (chain === "ctx.html") type = "html";
+ 469| |      if (chain === "ctx.stream") type = "stream";
+ 470| |    }
+ 471| |    // Heuristic: return "string" or template literal → text
+ 472| |    if (n.type === "ReturnStatement" && n.argument?.type === "Literal" && typeof n.argument.value === "string") {
+ 473| |      if (type === "unknown") type = "text";
+ 474| |    }
+ 475| |  });
+ 476| |  return type;
+ 477| |}
+ 479| |// ---------------------------------------------------------------------------
+ 480| |// Main Parse Entry
+ 481| |// ---------------------------------------------------------------------------
+ 483|▼|export interface ParseResult {
+ 484| |  readonly ast: any;
+ 485| |  readonly imports: ImportInfo[];
+ 486| |  readonly exports: ExportInfo[];
+ 487| |  readonly symbols: SymbolInfo[];
+ 488| |  readonly hasDefaultExport: boolean;
+ 489| |  readonly schemaExport: boolean;
+ 490| |  readonly configExport: boolean;
+ 491| |  readonly handler: ExtractedHandler | null;
+ 492| |  readonly config?: any;
+ 493| |}
+ 495| |// ---------------------------------------------------------------------------
+ 496| |// AST Parser Bridge
+ 497| |// ---------------------------------------------------------------------------
+ 499|▼|function normalizeAst(result: any): any {
+ 500| |  if (!result) {
+ 501| |    return { type: "Program", body: [] };
+ 502| |  }
+ 504| |  if (result.errors && result.errors.length > 0) {
+ 505|!|    throw new Error(result.errors[0]?.message ?? "AST parse error");
+ 506| |  }
+ 508| |  const ast = result.program ?? result.ast ?? result.root ?? result;
+ 510| |  if (!ast.type) ast.type = "Program";
+ 511| |  if (!Array.isArray(ast.body)) ast.body = [];
+ 513| |  return ast;
+ 514| |}
+ 516|▼|function tryOxcParser(source: string): any | undefined {
+ 517| |  const mod = oxcParser as any;
+ 518| |  const parseSync = mod.parseSync ?? mod.default?.parseSync;
+ 520| |  if (typeof parseSync !== "function") return undefined;
+ 522| |  const attempts = [
+ 523| |    () =>
+ 524| |      parseSync("flux.ts", source, {
+ 525| |        sourceType: "module",
+ 526| |        target: "esnext",
+ 527| |      }),
+ 528| |    () =>
+ 529| |      parseSync(source, {
+ 530| |        sourceType: "module",
+ 531| |        target: "esnext",
+ 532| |      }),
+ 533| |  ];
+ 535| |  for (const attempt of attempts) {
+ 536| |    try {
+ 537| |      const result = attempt();
+ 539| |      if (result && typeof result.then === "function") continue;
+ 540| |      if (result?.errors?.length) continue;
+ 542| |      const program = result?.program ?? result?.ast ?? result;
+ 544| |      if (program?.type || Array.isArray(program?.body)) {
+ 545| |        return program;
+ 546| |      }
+ 547| |    } catch {
+ 548| |      // try next shape
+ 549| |    }
+ 550| |  }
+ 552| |  return undefined;
+ 553| |}
+ 555|▼|function parseToAst(source: string): any {
+ 556| |  const oxc = tryOxcParser(source);
+ 557| |  if (oxc) return normalizeAst(oxc);
+ 559| |  const B: any = Bun;
+ 561| |  const parsers: Array<() => any> = [
+ 562| |    () =>
+ 563| |      typeof B.parse === "function"
+ 564| |        ? B.parse(source, {
+ 565| |            loader: "ts",
+ 566| |            target: "bun",
+ 567| |            ranges: true,
+ 568| |            loc: true,
+ 569| |          })
+ 570| |        : undefined,
+ 572| |    () =>
+ 573| |      typeof B.parseSync === "function"
+ 574| |        ? B.parseSync(source, {
+ 575| |            loader: "ts",
+ 576| |            target: "bun",
+ 577| |            ranges: true,
+ 578| |            loc: true,
+ 579| |          })
+ 580| |        : undefined,
+ 582| |    () => {
+   ... (110 more lines)
 ---
 
 >src/compiler/phases/artifacts.ts
@@ -4337,7 +3889,7 @@ f:writeArtifacts(
 
 >src/compiler/phases/codegen.ts
 i:path|${runtimeImport(|${runtimeImport(|${runtimeImport(
-        
+        |${runtimeImport(|${runtimeImport(
 l:../types|../logger
 e:generateServer|runCodeGen
 f:getConfig(opts: CompilerOptions):CodegenConfig
@@ -4348,6 +3900,13 @@ f:finalizeName(route: RouteDef):string
 f:constantBodyVar(route: RouteDef):string
 f:constantInitVar(route: RouteDef):string
 f:hookIdent(name: string):string
+f:hooksChainName(route: RouteDef):string
+f:cacheVar(route: RouteDef):string
+f:coreHandlerName(route: RouteDef, hasCache: boolean):string
+f:validatorImportName(route: RouteDef, kind: string):string
+f:validatorImportPath(route: RouteDef, kind: string):string
+f:serializerImportName(route: RouteDef):string
+f:serializerImportPath(route: RouteDef):string
 f:tryNormalizeConstant(route: RouteDef):string | null
 f:validHookNames(
   route: RouteDef,
@@ -4360,9 +3919,18 @@ f:needsFullContext(
   cfg: CodegenConfig,
   hasHooks: boolean
 ):boolean
-f:generateFinalizer(route: RouteDef):string
-f:generateMethodHandler(info: RouteInfo, cfg: CodegenConfig):string
+f:generateHookChain(info: RouteInfo):string
+f:generateFinalizer(info: RouteInfo):string
+f:generateCoreHandler(info: RouteInfo, cfg: CodegenConfig):string
+f:generateCacheWrapper(info: RouteInfo):string | null
 f:escapeRegex(value: string):string
+f:newTrieNode():TrieNode
+f:insertDynamicRoute(
+  root: TrieNode,
+  route: RouteDef,
+  handlerName: string
+):void
+f:emitTrieNode(node: TrieNode):string
 f:generateServer(
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
@@ -4381,508 +3949,509 @@ f:runCodeGen(
 t:CodegenConfig
 t:RouteInfo
 t:DynamicRouteInfo
+t:TrieNode
 ---
    1| |/**
-   2| | * Flux AOT Code Generator
+   2| | * Flux AOT Code Generator — Phase 2
    3| | *
-   4| | * Goals:
-   5| | * - prebake constant responses
-   6| | * - emit static route map
-   7| | * - emit sorted dynamic matcher
-   8| | * - specialize context per route
-   9| | * - tree-shake helpers
-  10| | * - avoid unnecessary runtime allocation
-  11| | */
-  13| |import { dirname, join, relative } from "path";
+   4| | * Adds:
+   5| | * - precompiled validator wiring
+   6| | * - serializer wiring
+   7| | * - radix-style dynamic router
+   8| | * - compiled hook chains
+   9| | * - route-level cache emission
+  10| | */
+  12| |import { dirname, join, relative } from "path";
   14| |import type {
   15| |  RouteDef,
   16| |  ModuleInfo,
   17| |  CompilerOptions,
   18| |  HookDef,
   19| |} from "../types";
-  20| |import type { Logger } from "../logger";
-  22|▼|interface CodegenConfig {
-  23| |  target: "bun" | "node" | "deno";
-  24| |  tracing: boolean;
-  25| |  lifecycle: boolean;
-  26| |  serviceName: string;
-  27| |  exposeErrorDetails: boolean;
-  28| |  specializeContext: boolean;
-  29| |  reusePort: boolean;
-  30| |}
-  32|▼|interface RouteInfo {
-  33| |  route: RouteDef;
-  34| |  mod?: ModuleInfo;
-  35| |  constantJson: string | null;
-  36| |  hookNames: string[];
-  37| |  hasHooks: boolean;
-  38| |  needsFull: boolean;
-  39| |  needsBody: boolean;
-  40| |  minimalBody: boolean;
-  41| |  minimalSendFile: boolean;
-  42| |}
-  44|▼|interface DynamicRouteInfo {
-  45| |  method: string;
-  46| |  regexLiteral: string;
-  47| |  paramNames: string[];
-  48| |  handlerName: string;
-  49| |  segmentCount: number;
-  50| |  hasWildcard: boolean;
-  51| |  path: string;
-  52| |}
-  54|▼|const getConfig = (opts: CompilerOptions): CodegenConfig => ({
-  55| |  target: opts.target,
-  56| |  tracing: opts.enableTracing ?? false,
-  57| |  lifecycle: opts.enableLifecycle ?? true,
-  58| |  serviceName: opts.serviceName ?? "flux",
-  59| |  exposeErrorDetails: opts.exposeErrorDetails ?? false,
-  60| |  specializeContext: opts.specializeContext ?? true,
-  61| |  reusePort: opts.reusePort ?? false,
-  62| |});
-  64|▼|const normalizeImportPath = (p: string): string => {
-  65| |  let s = p.replace(/\\/g, "/").replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
-  66| |  if (!s.startsWith(".")) s = "./" + s;
-  67| |  return s;
-  68| |};
-  70|▼|const handlerImportName = (route: RouteDef): string => `handler_${route.handlerRef}`;
-  71|▼|const methodHandlerName = (route: RouteDef): string => `${route.method}_${route.handlerRef}`;
-  72|▼|const finalizeName = (route: RouteDef): string => `finalize_${route.handlerRef}`;
-  73|▼|const constantBodyVar = (route: RouteDef): string => `BODY_${route.handlerRef}`;
-  74|▼|const constantInitVar = (route: RouteDef): string => `INIT_${route.handlerRef}`;
-  76|▼|const hookIdent = (name: string): string =>
-  77| |  `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
-  79|▼|const tryNormalizeConstant = (route: RouteDef): string | null => {
-  80| |  if (!route.isConstantResponse || !route.constantResponse) return null;
-  81| |  if (route.hooks.length > 0) return null;
-  83| |  try {
-  84| |    JSON.parse(route.constantResponse);
-  85| |    return route.constantResponse;
-  86| |  } catch {
-  87| |    return null;
-  88| |  }
-  89| |};
-  91|▼|const validHookNames = (
-  92| |  route: RouteDef,
-  93| |  hooks: ReadonlyMap<string, HookDef>
-  94| |): string[] => route.hooks.filter((name) => hooks.has(name));
-  96|▼|const routeReplyFn = (route: RouteDef): string => {
-  97| |  if (route.responseType === "text") return "textReply";
-  98| |  if (route.responseType === "html") return "htmlReply";
-  99| |  if (route.responseType === "stream") return "streamReply";
- 100| |  return "jsonReply";
- 101| |};
- 103| |const FORCE_FULL_TOKENS = [
- 104| |  "ctx.cookie",
- 105| |  "ctx.server",
- 106| |  "ctx.set",
- 107| |  "ctx.proxy",
- 108| |  "ctx.forward",
- 109| |  "ctx.cache",
- 110| |];
- 112|▼|const needsFullContext = (
- 113| |  route: RouteDef,
- 114| |  mod: ModuleInfo | undefined,
- 115| |  cfg: CodegenConfig,
- 116| |  hasHooks: boolean
- 117| |): boolean => {
- 118| |  if (!cfg.specializeContext) return true;
- 119| |  if (hasHooks) return true;
- 121| |  if (
- 122| |    route.usage.cookie ||
- 123| |    route.usage.set ||
- 124| |    route.usage.proxy ||
- 125| |    route.usage.forward ||
- 126| |    route.usage.cache
- 127| |  ) {
- 128| |    return true;
- 129| |  }
- 131| |  if (mod && FORCE_FULL_TOKENS.some((token) => mod.content.includes(token))) {
- 132| |    return true;
- 133| |  }
- 135| |  return false;
- 136| |};
- 138|▼|const generateFinalizer = (route: RouteDef): string => {
- 139| |  const reply = routeReplyFn(route);
- 141| |  return `function ${finalizeName(route)}(result) {
- 142| |  if (result instanceof Response) return result;
- 143| |  return ${reply}(result);
- 144| |}`;
- 145| |};
- 147|▼|const generateMethodHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
- 148| |  const route = info.route;
- 149| |  const name = methodHandlerName(route);
- 151| |  if (info.constantJson !== null) {
- 152| |    return `function ${name}(req, params, url, server) {
- 153| |  return new Response(${constantBodyVar(route)}, ${constantInitVar(route)});
- 154| |}`;
- 155| |  }
- 157| |  const pre: string[] = [];
- 158| |  let callExpr = "";
- 160| |  if (info.needsFull) {
- 161| |    const ctxOpts: string[] = [];
- 163| |    if (info.needsBody) {
- 164| |      ctxOpts.push("body: BODY_LIMITS");
- 165| |    }
- 167| |    const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
- 169| |    pre.push(`const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`);
- 171| |    if (route.usage.server) {
- 172| |      pre.push("ctx.server = server;");
- 173| |    }
- 175| |    if (info.hasHooks) {
- 176| |      pre.push(
- 177| |        `const halted = await runHooks([${info.hookNames
- 178| |          .map(hookIdent)
- 179| |          .join(", ")}], ctx);`
- 180| |      );
- 181| |      pre.push("if (halted) return halted;");
- 182| |    }
- 184| |    callExpr = `${handlerImportName(route)}(ctx)`;
- 185| |  } else {
- 186| |    if (route.usage.query) {
- 187| |      pre.push("const query = url.searchParams;");
- 188| |    }
- 190| |    if (info.minimalBody) {
- 191| |      pre.push("const body = createLazyBody(req, BODY_LIMITS);");
- 192| |    }
- 194| |    if (route.usage.state) {
- 195| |      pre.push("const state = new Map();");
- 196| |    }
- 198| |    const props: string[] = [];
- 200| |    if (route.usage.params) {
- 201| |      props.push("params: params ?? EMPTY_PARAMS");
- 202| |    }
- 204| |    if (info.minimalBody) {
- 205| |      props.push("body");
- 206| |    }
- 208| |    if (route.usage.query) {
- 209| |      props.push("query");
- 210| |    }
- 212| |    if (route.usage.headers) {
- 213| |      props.push("headers: req.headers");
- 214| |    }
- 216| |    if (route.usage.req) {
- 217| |      props.push("req");
- 218| |    }
- 220| |    if (route.usage.url) {
- 221| |      props.push("url");
- 222| |    }
- 224| |    if (route.usage.server) {
- 225| |      props.push("server");
- 226| |    }
- 228| |    if (route.usage.state) {
- 229| |      props.push("state");
- 230| |      props.push("getState: (key) => state.get(key)");
- 231| |      props.push("setState: (key, value) => { state.set(key, value); }");
- 232| |    }
- 234| |    if (route.usage.json) {
- 235| |      props.push("json: jsonReply");
- 236| |    }
- 238| |    if (route.usage.text) {
- 239| |      props.push("text: textReply");
- 240| |    }
- 242| |    if (route.usage.html) {
- 243| |      props.push("html: htmlReply");
- 244| |    }
- 246| |    if (route.usage.stream) {
- 247| |      props.push("stream: streamReply");
- 248| |    }
- 250| |    if (route.usage.redirect) {
- 251| |      props.push("redirect: redirectReply");
- 252| |    }
- 254| |    if (route.usage.empty) {
- 255| |      props.push("empty: emptyReply");
- 256| |    }
- 258| |    if (route.usage.status) {
- 259| |      props.push("status: (code) => new Response(null, { status: code })");
- 260| |    }
- 262| |    if (info.minimalSendFile) {
- 263| |      props.push("sendFile: (path, opts) => coreSendFile(path, { req, ...opts })");
- 264| |    }
- 266| |    callExpr =
- 267| |      props.length === 0
- 268| |        ? `${handlerImportName(route)}({})`
- 269| |        : `${handlerImportName(route)}({ ${props.join(", ")} })`;
- 270| |  }
- 272| |  const isAsync =
- 273| |    route.isAsync ||
- 274| |    info.hasHooks ||
- 275| |    info.needsFull ||
- 276| |    info.minimalBody ||
- 277| |    route.usage.state;
- 279| |  if (isAsync) {
- 280| |    return `async function ${name}(req, params, url, server) {
- 281| |  try {
- 282| |    ${pre.join("\n    ")}
- 283| |    const result = await ${callExpr};
- 284| |    return ${finalizeName(route)}(result);
- 285| |  } catch (err) {
- 286| |    return errorResponse(err);
- 287| |  }
- 288| |}`;
- 289| |  }
- 291| |  return `function ${name}(req, params, url, server) {
- 292| |  try {
- 293| |    ${pre.join("\n    ")}
- 294| |    const result = ${callExpr};
- 295| |    if (result instanceof Response) return result;
- 296| |    if (result && typeof result.then === "function") {
- 297| |      return result
- 298| |        .then((v) => ${finalizeName(route)}(v))
- 299| |        .catch((err) => errorResponse(err));
- 300| |    }
- 301| |    return ${finalizeName(route)}(result);
- 302| |  } catch (err) {
- 303| |    return errorResponse(err);
- 304| |  }
- 305| |}`;
- 306| |};
- 308|▼|const escapeRegex = (value: string): string =>
- 309| |  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
- 311| |const routePattern = (
- 312| |  path: string
- 313| |): { regexLiteral: string; paramNames: string[] } => {
- 314| |  const paramNames: string[] = [];
- 315| |  const segments = path.split("/").filter(Boolean);
- 317| |  const pattern = segments
- 318| |    .map((seg) => {
- 319| |      if (seg.startsWith(":")) {
- 320| |        paramNames.push(seg.slice(1));
- 321| |        return "([^/]+)";
- 322| |      }
- 324| |      if (seg.startsWith("*")) {
- 325| |        paramNames.push(seg.slice(1));
- 326| |        return "(.*)";
- 327| |      }
- 329| |      return escapeRegex(seg);
- 330| |    })
- 331| |    .join("/");
- 333| |  const source = segments.length === 0 ? "^/$" : `^/${pattern}$`;
- 334| |  const regexLiteral = `/${source.replace(/\//g, "\\/")}/`;
- 336| |  return { regexLiteral, paramNames };
- 337| |};
- 339|▼|export const generateServer = (
- 340| |  routes: readonly RouteDef[],
- 341| |  modules: readonly ModuleInfo[],
- 342| |  hooks: ReadonlyMap<string, HookDef>,
- 343| |  opts: CompilerOptions
- 344| |): string => {
- 345| |  const cfg = getConfig(opts);
- 347| |  const BODY_LIMITS = JSON.stringify({
- 348| |    maxJsonBytes: opts.maxJsonBytes ?? 2 * 1024 * 1024,
- 349| |    maxTextBytes: opts.maxTextBytes ?? 2 * 1024 * 1024,
- 350| |    maxFormBytes: opts.maxFormBytes ?? 2 * 1024 * 1024,
- 351| |    maxFileBytes: opts.maxFileBytes ?? 20 * 1024 * 1024,
- 352| |  });
- 354| |  const fromDir = dirname(join(process.cwd(), opts.outDir, opts.outFile));
- 356|▼|  const toImportPath = (absPath: string): string =>
- 357| |    normalizeImportPath(relative(fromDir, absPath));
- 359|▼|  const runtimeImport = (projectPath: string): string =>
- 360| |    toImportPath(join(process.cwd(), projectPath));
- 362| |  const routeInfos: RouteInfo[] = routes.map((route) => {
- 363| |    const mod = modules[route.moduleIdx];
- 364| |    const constantJson = tryNormalizeConstant(route);
- 365| |    const hookNames = validHookNames(route, hooks);
- 366| |    const hasHooks = cfg.lifecycle && hookNames.length > 0;
- 367| |    const needsFull = needsFullContext(route, mod, cfg, hasHooks);
- 368| |    const needsBody = route.usage.body || route.usage.file;
- 369| |    const minimalBody = needsBody && !needsFull;
- 370| |    const minimalSendFile = route.usage.sendFile && !needsFull;
- 372| |    return {
- 373| |      route,
- 374| |      mod,
- 375| |      constantJson,
- 376| |      hookNames,
- 377| |      hasHooks,
- 378| |      needsFull,
- 379| |      needsBody,
- 380| |      minimalBody,
- 381| |      minimalSendFile,
- 382| |    };
- 383| |  });
- 385| |  const nonConstantInfos = routeInfos.filter((x) => x.constantJson === null);
- 387| |  const anyNonConstant = nonConstantInfos.length > 0;
- 388| |  const anyFullContext = nonConstantInfos.some((x) => x.needsFull);
- 389| |  const anyLazyBody = nonConstantInfos.some((x) => x.minimalBody);
- 390| |  const anySendFile = nonConstantInfos.some((x) => x.minimalSendFile);
- 391| |  const anyHooks = cfg.lifecycle && nonConstantInfos.some((x) => x.hasHooks);
- 393| |  const anyJson = anyNonConstant;
- 394| |  const anyText = nonConstantInfos.some(
- 395| |    (x) => x.route.usage.text || x.route.responseType === "text"
- 396| |  );
- 397| |  const anyHtml = nonConstantInfos.some(
- 398| |    (x) => x.route.usage.html || x.route.responseType === "html"
- 399| |  );
- 400| |  const anyStream = nonConstantInfos.some(
- 401| |    (x) => x.route.usage.stream || x.route.responseType === "stream"
- 402| |  );
- 403| |  const anyRedirect = nonConstantInfos.some((x) => x.route.usage.redirect);
- 404| |  const anyEmpty = nonConstantInfos.some(
- 405| |    (x) => x.route.usage.empty || x.route.usage.status
- 406| |  );
- 408| |  const handlerImports = Array.from(
- 409| |    new Set(
- 410| |      nonConstantInfos
- 411| |        .map((info) => {
- 412| |          if (!info.mod) return "";
- 414| |          return `import { default as ${handlerImportName(
- 415| |            info.route
- 416| |          )} } from "${toImportPath(info.mod.path)}";`;
- 417| |        })
- 418| |        .filter(Boolean)
- 419| |    )
- 420| |  ).join("\n");
- 422| |  const missingStubs = nonConstantInfos
- 423| |    .filter((info) => !info.mod)
- 424| |    .map((info) => {
- 425| |      return `function ${handlerImportName(info.route)}() {
- 426| |  throw new Error(${JSON.stringify(`Missing module for ${info.route.file}`)});
- 427| |}`;
- 428| |    })
- 429| |    .join("\n");
- 431| |  const hookImports = anyHooks
- 432| |    ? Array.from(hooks.values())
- 433| |        .map((h) => {
- 434| |          const abs = join(process.cwd(), h.source);
- 435| |          return `import { default as ${hookIdent(
- 436| |            h.name
- 437| |          )} } from "${toImportPath(abs)}";`;
- 438| |        })
- 439| |        .join("\n")
- 440| |    : "";
- 442| |  const coreImports: string[] = [];
- 444| |  if (anyFullContext) {
- 445| |    coreImports.push(
- 446| |      `import { createContext } from "${runtimeImport("src/core/context.ts")}";`
- 447| |    );
- 448| |  }
- 450| |  if (anyLazyBody) {
- 451| |    coreImports.push(
- 452| |      `import { createLazyBody } from "${runtimeImport("src/core/body.ts")}";`
- 453| |    );
- 454| |  }
- 456| |  if (anySendFile) {
- 457| |    coreImports.push(
- 458| |      `import { sendFile as coreSendFile } from "${runtimeImport(
- 459| |        "src/core/files.ts"
- 460| |      )}";`
- 461| |    );
- 462| |  }
- 464| |  const constants: string[] = [];
- 466| |  constants.push(`const HDR_JSON = { "content-type": "application/json; charset=utf-8" };`);
- 467| |  constants.push(`const JSON_INIT = { headers: HDR_JSON };`);
- 468| |  constants.push(`const BODY_LIMITS = ${BODY_LIMITS};`);
- 469| |  constants.push(`const EMPTY_PARAMS = Object.freeze({});`);
- 470| |  constants.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails};`);
- 471| |  constants.push(`const NOT_FOUND_BODY = '{"error":"Not Found"}';`);
- 472| |  constants.push(`const NOT_FOUND_INIT = { status: 404, headers: HDR_JSON };`);
- 473| |  constants.push(`const STATUS_TEXT = {
- 474| |  400: "Bad Request",
- 475| |  401: "Unauthorized",
- 476| |  403: "Forbidden",
- 477| |  404: "Not Found",
- 478| |  405: "Method Not Allowed",
- 479| |  409: "Conflict",
- 480| |  422: "Unprocessable Entity",
- 481| |  429: "Too Many Requests",
- 482| |  500: "Internal Server Error",
- 483| |};`);
- 485| |  for (const info of routeInfos) {
- 486| |    if (info.constantJson === null) continue;
- 488| |    constants.push(
- 489| |      `const ${constantBodyVar(info.route)} = ${JSON.stringify(
- 490| |        info.constantJson
- 491| |      )};`
- 492| |    );
- 493| |    constants.push(
- 494| |      `const ${constantInitVar(info.route)} = { status: 200, headers: HDR_JSON };`
- 495| |    );
- 496| |  }
- 498| |  const helpers: string[] = [];
- 500| |  helpers.push(`function notFound() {
- 501| |  return new Response(NOT_FOUND_BODY, NOT_FOUND_INIT);
- 502| |}`);
- 504| |  helpers.push(`function errorResponse(err) {
- 505| |  const status = err && typeof err.status === "number" ? err.status : 500;
- 506| |  const message =
- 507| |    EXPOSE_ERRORS && err instanceof Error
- 508| |      ? err.message
- 509| |      : STATUS_TEXT[status] || "Error";
- 511| |  return Response.json({ error: message, status }, { status });
- 512| |}`);
- 514| |  if (anyJson) {
- 515| |    helpers.push(`function jsonReply(data, init) {
- 516| |  if (!init) return Response.json(data, JSON_INIT);
- 518| |  const headers = new Headers(HDR_JSON);
- 520| |  if (init.headers) {
- 521| |    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
- 522| |  }
- 524| |  return Response.json(data, {
- 525| |    status: init.status ?? 200,
- 526| |    headers,
- 527| |  });
- 528| |}`);
- 529| |  }
- 531| |  if (anyText) {
- 532| |    helpers.push(`const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
- 533| |const TEXT_INIT = { headers: HDR_TEXT };
- 535| |function textReply(data, init) {
- 536| |  const body = typeof data === "string" ? data : JSON.stringify(data);
- 538| |  if (!init) return new Response(body, TEXT_INIT);
- 540| |  const headers = new Headers(HDR_TEXT);
- 542| |  if (init.headers) {
- 543| |    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
- 544| |  }
- 546| |  return new Response(body, {
- 547| |    status: init.status ?? 200,
- 548| |    headers,
- 549| |  });
- 550| |}`);
- 551| |  }
- 553| |  if (anyHtml) {
- 554| |    helpers.push(`const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
- 555| |const HTML_INIT = { headers: HDR_HTML };
- 557| |function htmlReply(data, init) {
- 558| |  const body = typeof data === "string" ? data : JSON.stringify(data);
- 560| |  if (!init) return new Response(body, HTML_INIT);
- 562| |  const headers = new Headers(HDR_HTML);
- 564| |  if (init.headers) {
- 565| |    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
- 566| |  }
- 568| |  return new Response(body, {
- 569| |    status: init.status ?? 200,
- 570| |    headers,
- 571| |  });
- 572| |}`);
- 573| |  }
- 575| |  if (anyStream) {
- 576| |    helpers.push(`function streamReply(stream, init) {
- 577| |  return new Response(stream, init);
- 578| |}`);
- 579| |  }
- 581| |  if (anyRedirect) {
- 582| |    helpers.push(`function redirectReply(location, status = 302) {
- 583| |  return Response.redirect(location, status);
- 584| |}`);
- 585| |  }
- 587| |  if (anyEmpty) {
- 588| |    helpers.push(`function emptyReply(status = 204) {
- 589| |  return new Response(null, { status });
- 590| |}`);
- 591| |  }
- 593| |  if (anyHooks) {
- 594| |    helpers.push(`async function runHooks(hooks, ctx) {
- 595| |  for (const hook of hooks) {
- 596| |    const result = await hook(ctx);
- 598| |    if (result instanceof Response) return result;
- 600| |    if (
- 601| |      result &&
- 602| |      typeof result === "object" &&
- 603| |      result.ok === false &&
- 604| |      result.response instanceof Response
- 605| |    ) {
- 606| |      return result.response;
- 607| |    }
-   ... (157 more lines)
+  21| |import type { Logger } from "../logger";
+  23|▼|interface CodegenConfig {
+  24| |  target: "bun" | "node" | "deno";
+  25| |  tracing: boolean;
+  26| |  lifecycle: boolean;
+  27| |  serviceName: string;
+  28| |  exposeErrorDetails: boolean;
+  29| |  specializeContext: boolean;
+  30| |  reusePort: boolean;
+  31| |  router: string;
+  32| |  inlineHooks: boolean;
+  33| |  routeCache: boolean;
+  34| |}
+  36|▼|interface RouteInfo {
+  37| |  route: RouteDef;
+  38| |  mod?: ModuleInfo;
+  39| |  constantJson: string | null;
+  40| |  hookNames: string[];
+  41| |  hasHooks: boolean;
+  42| |  needsFull: boolean;
+  43| |  needsBody: boolean;
+  44| |  minimalBody: boolean;
+  45| |  minimalSendFile: boolean;
+  47| |  hasBodyValidator: boolean;
+  48| |  hasQueryValidator: boolean;
+  49| |  hasParamsValidator: boolean;
+  50| |  hasHeadersValidator: boolean;
+  52| |  hasSerializer: boolean;
+  53| |  cacheConfig?: {
+  54| |    ttlMs?: number;
+  55| |    staleTtlMs?: number;
+  56| |    vary?: string[];
+  57| |  };
+  58| |}
+  60|▼|interface DynamicRouteInfo {
+  61| |  method: string;
+  62| |  regexLiteral: string;
+  63| |  paramNames: string[];
+  64| |  handlerName: string;
+  65| |  segmentCount: number;
+  66| |  hasWildcard: boolean;
+  67| |  path: string;
+  68| |}
+  70|▼|interface TrieNode {
+  71| |  static: Map<string, TrieNode>;
+  72| |  param?: { name: string; node: TrieNode };
+  73| |  wildcard?: { name: string; node: TrieNode };
+  74| |  handlers: Map<string, string>;
+  75| |}
+  77|▼|const getConfig = (opts: CompilerOptions): CodegenConfig => ({
+  78| |  target: opts.target,
+  79| |  tracing: opts.enableTracing ?? false,
+  80| |  lifecycle: opts.enableLifecycle ?? true,
+  81| |  serviceName: opts.serviceName ?? "flux",
+  82| |  exposeErrorDetails: opts.exposeErrorDetails ?? false,
+  83| |  specializeContext: opts.specializeContext ?? true,
+  84| |  reusePort: opts.reusePort ?? false,
+  85| |  router: opts.router ?? "auto",
+  86| |  inlineHooks: opts.inlineHooks ?? true,
+  87| |  routeCache: opts.routeCache ?? true,
+  88| |});
+  90|▼|const normalizeImportPath = (p: string): string => {
+  91| |  let s = p.replace(/\\/g, "/").replace(/\.(ts|tsx|js|mjs|jsx)$/, "");
+  92| |  if (!s.startsWith(".")) s = "./" + s;
+  93| |  return s;
+  94| |};
+  96|▼|const handlerImportName = (route: RouteDef): string =>
+  97| |  `handler_${route.handlerRef}`;
+  99|▼|const methodHandlerName = (route: RouteDef): string =>
+ 100| |  `${route.method}_${route.handlerRef}`;
+ 102|▼|const finalizeName = (route: RouteDef): string =>
+ 103| |  `finalize_${route.handlerRef}`;
+ 105|▼|const constantBodyVar = (route: RouteDef): string =>
+ 106| |  `BODY_${route.handlerRef}`;
+ 108|▼|const constantInitVar = (route: RouteDef): string =>
+ 109| |  `INIT_${route.handlerRef}`;
+ 111|▼|const hookIdent = (name: string): string =>
+ 112| |  `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+ 114|▼|const hooksChainName = (route: RouteDef): string =>
+ 115| |  `hooks_${route.handlerRef}`;
+ 117|▼|const cacheVar = (route: RouteDef): string =>
+ 118| |  `CACHE_${route.handlerRef}`;
+ 120|▼|const coreHandlerName = (route: RouteDef, hasCache: boolean): string =>
+ 121| |  hasCache ? `core_${route.handlerRef}` : methodHandlerName(route);
+ 123|▼|const validatorImportName = (route: RouteDef, kind: string): string =>
+ 124| |  `validate_${route.handlerRef}_${kind}`;
+ 126|▼|const validatorImportPath = (route: RouteDef, kind: string): string =>
+ 127| |  `./validators/${route.handlerRef}.${kind}.cjs`;
+ 129|▼|const serializerImportName = (route: RouteDef): string =>
+ 130| |  `serialize_${route.handlerRef}`;
+ 132|▼|const serializerImportPath = (route: RouteDef): string =>
+ 133| |  `./serializers/${route.handlerRef}.200.mjs`;
+ 135|▼|const tryNormalizeConstant = (route: RouteDef): string | null => {
+ 136| |  if (!route.isConstantResponse || !route.constantResponse) return null;
+ 137| |  if (route.hooks.length > 0) return null;
+ 138| |  if (route.hasValidation) return null;
+ 140| |  if (route.validators && Object.keys(route.validators).length > 0) {
+ 141| |    return null;
+ 142| |  }
+ 144| |  try {
+ 145| |    JSON.parse(route.constantResponse);
+ 146| |    return route.constantResponse;
+ 147| |  } catch {
+ 148| |    return null;
+ 149| |  }
+ 150| |};
+ 152|▼|const validHookNames = (
+ 153| |  route: RouteDef,
+ 154| |  hooks: ReadonlyMap<string, HookDef>
+ 155| |): string[] => route.hooks.filter((name) => hooks.has(name));
+ 157|▼|const routeReplyFn = (route: RouteDef): string => {
+ 158| |  if (route.responseType === "text") return "textReply";
+ 159| |  if (route.responseType === "html") return "htmlReply";
+ 160| |  if (route.responseType === "stream") return "streamReply";
+ 161| |  return "jsonReply";
+ 162| |};
+ 164| |const FORCE_FULL_TOKENS = [
+ 165| |  "ctx.cookie",
+ 166| |  "ctx.server",
+ 167| |  "ctx.set",
+ 168| |  "ctx.proxy",
+ 169| |  "ctx.forward",
+ 170| |  "ctx.cache",
+ 171| |];
+ 173|▼|const needsFullContext = (
+ 174| |  route: RouteDef,
+ 175| |  mod: ModuleInfo | undefined,
+ 176| |  cfg: CodegenConfig,
+ 177| |  hasHooks: boolean
+ 178| |): boolean => {
+ 179| |  if (!cfg.specializeContext) return true;
+ 180| |  if (hasHooks) return true;
+ 182| |  if (
+ 183| |    route.usage.cookie ||
+ 184| |    route.usage.set ||
+ 185| |    route.usage.proxy ||
+ 186| |    route.usage.forward ||
+ 187| |    route.usage.cache
+ 188| |  ) {
+ 189| |    return true;
+ 190| |  }
+ 192| |  if (mod && FORCE_FULL_TOKENS.some((token) => mod.content.includes(token))) {
+ 193| |    return true;
+ 194| |  }
+ 196| |  return false;
+ 197| |};
+ 199| |const getCacheConfig = (
+ 200| |  route: RouteDef,
+ 201| |  cfg: CodegenConfig
+ 202| |):
+ 203| |  | {
+ 204| |    ttlMs?: number;
+ 205| |    staleTtlMs?: number;
+ 206| |    vary?: string[];
+ 207| |  }
+ 208| |  | undefined => {
+ 209| |  if (!cfg.routeCache) return undefined;
+ 210| |  if (route.method !== "GET" && route.method !== "HEAD") return undefined;
+ 212| |  const cache = route.cache;
+ 213| |  if (!cache) return undefined;
+ 215| |  const out: {
+ 216| |    ttlMs?: number;
+ 217| |    staleTtlMs?: number;
+ 218| |    vary?: string[];
+ 219| |  } = {};
+ 221| |  if (typeof cache.maxAge === "number") {
+ 222| |    out.ttlMs = cache.maxAge * 1000;
+ 223| |  }
+ 225| |  if (typeof cache.swr === "number") {
+ 226| |    out.staleTtlMs = cache.swr * 1000;
+ 227| |  }
+ 229| |  if (Array.isArray(cache.vary)) {
+ 230| |    out.vary = [...cache.vary];
+ 231| |  }
+ 233| |  return Object.keys(out).length > 0 ? out : undefined;
+ 234| |};
+ 236|▼|const generateHookChain = (info: RouteInfo): string => {
+ 237| |  const route = info.route;
+ 239| |  const calls = info.hookNames
+ 240| |    .map((name) => {
+ 241| |      const ident = hookIdent(name);
+ 243| |      return `  r = await ${ident}(ctx);
+ 244| |  if (r instanceof Response) return r;
+ 245| |  if (r && typeof r === "object" && r.ok === false && r.response instanceof Response) {
+ 246| |    return r.response;
+ 247| |  }`;
+ 248| |    })
+ 249| |    .join("\n\n");
+ 251| |  return `async function ${hooksChainName(route)}(ctx) {
+ 252| |  let r;
+ 254| |${calls}
+ 256| |  return null;
+ 257| |}`;
+ 258| |};
+ 260|▼|const generateFinalizer = (info: RouteInfo): string => {
+ 261| |  const route = info.route;
+ 263| |  if (info.hasSerializer) {
+ 264| |    return `function ${finalizeName(route)}(result) {
+ 265| |  if (result instanceof Response) return result;
+ 266| |  return new Response(${serializerImportName(route)}(result), INIT_SER_${route.handlerRef});
+ 267| |}`;
+ 268| |  }
+ 270| |  const reply = routeReplyFn(route);
+ 272| |  return `function ${finalizeName(route)}(result) {
+ 273| |  if (result instanceof Response) return result;
+ 274| |  return ${reply}(result);
+ 275| |}`;
+ 276| |};
+ 278|▼|const generateCoreHandler = (info: RouteInfo, cfg: CodegenConfig): string => {
+ 279| |  const route = info.route;
+ 280| |  const name = coreHandlerName(route, !!info.cacheConfig);
+ 282| |  if (info.constantJson !== null) {
+ 283| |    return `function ${name}(req, params, url, server) {
+ 284| |  return new Response(${constantBodyVar(route)}, ${constantInitVar(route)});
+ 285| |}`;
+ 286| |  }
+ 288| |  const pre: string[] = [];
+ 289| |  let callExpr = "";
+ 291| |  if (info.needsFull) {
+ 292| |    const ctxOpts: string[] = [];
+ 294| |    if (info.needsBody) {
+ 295| |      ctxOpts.push("body: BODY_LIMITS");
+ 296| |    }
+ 298| |    const ctxOptsExpr = ctxOpts.length > 0 ? `, { ${ctxOpts.join(", ")} }` : "";
+ 300| |    pre.push(
+ 301| |      `const ctx = createContext(req, params ?? EMPTY_PARAMS${ctxOptsExpr});`
+ 302| |    );
+ 304| |    if (route.usage.server) {
+ 305| |      pre.push("ctx.server = server;");
+ 306| |    }
+ 308| |    if (info.hasHooks) {
+ 309| |      pre.push(
+ 310| |        `const halted = await ${hooksChainName(route)}(ctx);`
+ 311| |      );
+ 312| |      pre.push("if (halted) return halted;");
+ 313| |    }
+ 315| |    if (info.hasParamsValidator) {
+ 316| |      pre.push(
+ 317| |        `if (!${validatorImportName(route, "params")}(ctx.params)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
+ 318| |      );
+ 319| |    }
+ 321| |    if (info.hasQueryValidator) {
+ 322| |      pre.push(
+ 323| |        `const __query = parseQuery(ctx.url.search.startsWith("?") ? ctx.url.search.slice(1) : "");`
+ 324| |      );
+ 325| |      pre.push(
+ 326| |        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
+ 327| |      );
+ 328| |    }
+ 330| |    if (info.hasHeadersValidator) {
+ 331| |      pre.push(
+ 332| |        `const __headers = Object.fromEntries(ctx.headers.entries());`
+ 333| |      );
+ 334| |      pre.push(
+ 335| |        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
+ 336| |      );
+ 337| |    }
+ 339| |    if (info.hasBodyValidator) {
+ 340| |      pre.push(`const __body = await ctx.body.json();`);
+ 341| |      pre.push(
+ 342| |        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
+ 343| |      );
+ 344| |    }
+ 346| |    callExpr = `${handlerImportName(route)}(ctx)`;
+ 347| |  } else {
+ 348| |    if (route.usage.query || info.hasQueryValidator) {
+ 349| |      pre.push("const query = url.searchParams;");
+ 350| |    }
+ 352| |    if (info.minimalBody) {
+ 353| |      pre.push("const body = createLazyBody(req, BODY_LIMITS);");
+ 354| |    }
+ 356| |    if (route.usage.state) {
+ 357| |      pre.push("const state = new Map();");
+ 358| |    }
+ 360| |    if (info.hasParamsValidator) {
+ 361| |      pre.push(
+ 362| |        `if (!${validatorImportName(route, "params")}(params ?? EMPTY_PARAMS)) throw validationError(${validatorImportName(route, "params")}.errors, "params");`
+ 363| |      );
+ 364| |    }
+ 366| |    if (info.hasQueryValidator) {
+ 367| |      pre.push(
+ 368| |        `const __query = parseQuery(url.search.startsWith("?") ? url.search.slice(1) : "");`
+ 369| |      );
+ 370| |      pre.push(
+ 371| |        `if (!${validatorImportName(route, "query")}(__query)) throw validationError(${validatorImportName(route, "query")}.errors, "query");`
+ 372| |      );
+ 373| |    }
+ 375| |    if (info.hasHeadersValidator) {
+ 376| |      pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
+ 377| |      pre.push(
+ 378| |        `if (!${validatorImportName(route, "headers")}(__headers)) throw validationError(${validatorImportName(route, "headers")}.errors, "headers");`
+ 379| |      );
+ 380| |    }
+ 382| |    let bodyProp = "body";
+ 384| |    if (info.hasBodyValidator && info.minimalBody) {
+ 385| |      pre.push(`const __body = await body.json();`);
+ 386| |      pre.push(
+ 387| |        `if (!${validatorImportName(route, "body")}(__body)) throw validationError(${validatorImportName(route, "body")}.errors, "body");`
+ 388| |      );
+ 389| |      pre.push(`const validatedBody = Object.create(body);`);
+ 390| |      pre.push(`validatedBody.json = async () => __body;`);
+ 391| |      bodyProp = "validatedBody";
+ 392| |    }
+ 394| |    const props: string[] = [];
+ 396| |    if (route.usage.params) {
+ 397| |      props.push("params: params ?? EMPTY_PARAMS");
+ 398| |    }
+ 400| |    if (info.minimalBody) {
+ 401| |      props.push(`body: ${bodyProp}`);
+ 402| |    }
+ 404| |    if (route.usage.query) {
+ 405| |      props.push("query");
+ 406| |    }
+ 408| |    if (route.usage.headers) {
+ 409| |      props.push("headers: req.headers");
+ 410| |    }
+ 412| |    if (route.usage.req) {
+ 413| |      props.push("req");
+ 414| |    }
+ 416| |    if (route.usage.url) {
+ 417| |      props.push("url");
+ 418| |    }
+ 420| |    if (route.usage.server) {
+ 421| |      props.push("server");
+ 422| |    }
+ 424| |    if (route.usage.state) {
+ 425| |      props.push("state");
+ 426| |      props.push("getState: (key) => state.get(key)");
+ 427| |      props.push("setState: (key, value) => { state.set(key, value); }");
+ 428| |    }
+ 430| |    if (route.usage.json) {
+ 431| |      props.push("json: jsonReply");
+ 432| |    }
+ 434| |    if (route.usage.text) {
+ 435| |      props.push("text: textReply");
+ 436| |    }
+ 438| |    if (route.usage.html) {
+ 439| |      props.push("html: htmlReply");
+ 440| |    }
+ 442| |    if (route.usage.stream) {
+ 443| |      props.push("stream: streamReply");
+ 444| |    }
+ 446| |    if (route.usage.redirect) {
+ 447| |      props.push("redirect: redirectReply");
+ 448| |    }
+ 450| |    if (route.usage.empty) {
+ 451| |      props.push("empty: emptyReply");
+ 452| |    }
+ 454| |    if (route.usage.status) {
+ 455| |      props.push("status: (code) => new Response(null, { status: code })");
+ 456| |    }
+ 458| |    if (info.minimalSendFile) {
+ 459| |      props.push("sendFile: (path, opts) => coreSendFile(path, { req, ...opts })");
+ 460| |    }
+ 462| |    callExpr =
+ 463| |      props.length === 0
+ 464| |        ? `${handlerImportName(route)}({})`
+ 465| |        : `${handlerImportName(route)}({ ${props.join(", ")} })`;
+ 466| |  }
+ 468| |  const isAsync =
+ 469| |    route.isAsync ||
+ 470| |    info.hasHooks ||
+ 471| |    info.needsFull ||
+ 472| |    info.minimalBody ||
+ 473| |    info.hasBodyValidator ||
+ 474| |    !!info.cacheConfig ||
+ 475| |    route.usage.state;
+ 477| |  if (isAsync) {
+ 478| |    return `async function ${name}(req, params, url, server) {
+ 479| |  try {
+ 480| |    ${pre.join("\n    ")}
+ 481| |    const result = await ${callExpr};
+ 482| |    return ${finalizeName(route)}(result);
+ 483| |  } catch (err) {
+ 484| |    return errorResponse(err);
+ 485| |  }
+ 486| |}`;
+ 487| |  }
+ 489| |  return `function ${name}(req, params, url, server) {
+ 490| |  try {
+ 491| |    ${pre.join("\n    ")}
+ 492| |    const result = ${callExpr};
+ 493| |    if (result instanceof Response) return result;
+ 494| |    if (result && typeof result.then === "function") {
+ 495| |      return result
+ 496| |        .then((v) => ${finalizeName(route)}(v))
+ 497| |        .catch((err) => errorResponse(err));
+ 498| |    }
+ 499| |    return ${finalizeName(route)}(result);
+ 500| |  } catch (err) {
+ 501| |    return errorResponse(err);
+ 502| |  }
+ 503| |}`;
+ 504| |};
+ 506|▼|const generateCacheWrapper = (info: RouteInfo): string | null => {
+ 507| |  if (!info.cacheConfig) return null;
+ 509| |  const route = info.route;
+ 510| |  const opts = JSON.stringify(info.cacheConfig);
+ 512| |  return `function ${methodHandlerName(route)}(req, params, url, server) {
+ 513| |  return ${cacheVar(route)}.getOrSet(req, () => ${coreHandlerName(route, true)}(req, params, url, server), ${opts});
+ 514| |}`;
+ 515| |};
+ 517|▼|const escapeRegex = (value: string): string =>
+ 518| |  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+ 520| |const routePattern = (
+ 521| |  path: string
+ 522| |): { regexLiteral: string; paramNames: string[] } => {
+ 523| |  const paramNames: string[] = [];
+ 524| |  const segments = path.split("/").filter(Boolean);
+ 526| |  const pattern = segments
+ 527| |    .map((seg) => {
+ 528| |      if (seg.startsWith(":")) {
+ 529| |        paramNames.push(seg.slice(1));
+ 530| |        return "([^/]+)";
+ 531| |      }
+ 533| |      if (seg.startsWith("*")) {
+ 534| |        paramNames.push(seg.slice(1));
+ 535| |        return "(.*)";
+ 536| |      }
+ 538| |      return escapeRegex(seg);
+ 539| |    })
+ 540| |    .join("/");
+ 542| |  const source = segments.length === 0 ? "^/$" : `^/${pattern}$`;
+ 543| |  const regexLiteral = `/${source.replace(/\//g, "\\/")}/`;
+ 545| |  return { regexLiteral, paramNames };
+ 546| |};
+ 548|▼|const newTrieNode = (): TrieNode => ({
+ 549| |  static: new Map(),
+ 550| |  handlers: new Map(),
+ 551| |});
+ 553|▼|const insertDynamicRoute = (
+ 554| |  root: TrieNode,
+ 555| |  route: RouteDef,
+ 556| |  handlerName: string
+ 557| |): void => {
+ 558| |  let node = root;
+ 560| |  const segments = route.path.split("/").filter(Boolean);
+ 562| |  for (const seg of segments) {
+ 563| |    if (seg.startsWith(":")) {
+ 564| |      const name = seg.slice(1);
+ 566| |      if (!node.param) {
+ 567| |        node.param = { name, node: newTrieNode() };
+ 568| |      }
+ 570| |      node = node.param.node;
+ 571| |      continue;
+ 572| |    }
+ 574| |    if (seg.startsWith("*")) {
+ 575| |      const name = seg.slice(1);
+ 577| |      if (!node.wildcard) {
+ 578| |        node.wildcard = { name, node: newTrieNode() };
+ 579| |      }
+ 581| |      node = node.wildcard.node;
+ 582| |      continue;
+ 583| |    }
+ 585| |    if (!node.static.has(seg)) {
+ 586| |      node.static.set(seg, newTrieNode());
+ 587| |    }
+ 589| |    node = node.static.get(seg)!;
+ 590| |  }
+ 592| |  node.handlers.set(route.method, handlerName);
+ 593| |};
+ 595|▼|const emitTrieNode = (node: TrieNode): string => {
+ 596| |  const staticEntries = Array.from(node.static.entries()).map(
+ 597| |    ([seg, child]) => `${JSON.stringify(seg)}: ${emitTrieNode(child)}`
+ 598| |  );
+ 600| |  const param = node.param
+ 601| |    ? `{ name: ${JSON.stringify(node.param.name)}, node: ${emitTrieNode(node.param.node)} }`
+ 602| |    : "null";
+ 604| |  const wildcard = node.wildcard
+ 605| |    ? `{ name: ${JSON.stringify(node.wildcard.name)}, node: ${emitTrieNode(node.wildcard.node)} }`
+ 606| |    : "null";
+ 608| |  const handlerEntries = Array.from(node.handlers.entries()).map(
+ 609| |    ([method, handler]) => `${JSON.stringify(method)}: ${handler}`
+ 610| |  );
+ 612| |  return `{ s: { ${staticEntries.join(", ")} }, p: ${param}, w: ${wildcard}, h: { ${handlerEntries.join(", ")} } }`;
+ 613| |};
+ 615|▼|export const generateServer = (
+ 616| |  routes: readonly RouteDef[],
+ 617| |  modules: readonly ModuleInfo[],
+ 618| |  hooks: ReadonlyMap<string, HookDef>,
+ 619| |  opts: CompilerOptions
+ 620| |): string => {
+ 621| |  const cfg = getConfig(opts);
+   ... (612 more lines)
 ---
 
 >src/compiler/phases/linker.ts
@@ -5012,6 +4581,293 @@ f:runLinker(
  122| |    );
  124| |    return outPath;
  125| |  });
+---
+
+>src/compiler/phases/validators.ts
+i:fs|path|ajv|ajv-formats
+l:../types|../logger|./schema-loader
+e:precompileValidators
+f:validatorImportName(
+  route: RouteDef,
+  kind: ValidatorKind
+):string
+f:validatorFileName(
+  route: RouteDef,
+  kind: ValidatorKind
+):string
+f:precompileValidators(
+  routes: readonly RouteDef[],
+  modules: readonly ModuleInfo[],
+  opts: CompilerOptions,
+  logger: Logger
+):Promise<readonly RouteDef[]>|a
+f:compileSchemaPart(schemaPart: unknown):string | null
+t:ValidatorKind
+---
+   1| |/**
+   2| | * Phase 2: Validator Precompilation
+   3| | *
+   4| | * Emits Ajv standalone validators for route schemas.
+   5| | */
+   7| |import { mkdirSync, writeFileSync } from "fs";
+   8| |import { join } from "path";
+   9| |import Ajv from "ajv";
+  10| |import addFormats from "ajv-formats";
+  12| |import type {
+  13| |  RouteDef,
+  14| |  ModuleInfo,
+  15| |  CompilerOptions,
+  16| |} from "../types";
+  18| |import type { Logger } from "../logger";
+  19| |import {
+  20| |  loadRouteModule,
+  21| |  isStandardSchema,
+  22| |  cloneSchema,
+  23| |} from "./schema-loader";
+  25| |const VALIDATOR_KINDS = ["body", "query", "params", "headers"] as const;
+  27|▼|type ValidatorKind = (typeof VALIDATOR_KINDS)[number];
+  29|▼|const validatorImportName = (
+  30| |  route: RouteDef,
+  31| |  kind: ValidatorKind
+  32| |): string => `validate_${route.handlerRef}_${kind}`;
+  34|▼|const validatorFileName = (
+  35| |  route: RouteDef,
+  36| |  kind: ValidatorKind
+  37| |): string => `${route.handlerRef}.${kind}.cjs`;
+  39|▼|export const precompileValidators = async (
+  40| |  routes: readonly RouteDef[],
+  41| |  modules: readonly ModuleInfo[],
+  42| |  opts: CompilerOptions,
+  43| |  logger: Logger
+  44| |): Promise<readonly RouteDef[]> => {
+  45| |  if (!opts.precompileValidators) {
+  46| |    return routes;
+  47| |  }
+  49| |  const validatorsDir = join(opts.outDir, "validators");
+  50| |  mkdirSync(validatorsDir, { recursive: true });
+  52| |  let standaloneCode: any;
+  54| |  try {
+  55| |    const standaloneModule: any = await import("ajv/dist/standalone/index.js");
+  56| |    standaloneCode = standaloneModule.default ?? standaloneModule;
+  57| |  } catch {
+  58| |    logger.warn(
+  59| |      "Ajv standalone unavailable. Validator precompilation will be skipped."
+  60| |    );
+  61| |    return routes;
+  62| |  }
+  64| |  const ajv = new Ajv({
+  65| |    allErrors: true,
+  66| |    strict: false,
+  67| |    coerceTypes: true,
+  68| |    removeAdditional: true,
+  69| |    useDefaults: true,
+  70| |    code: {
+  71| |      source: true,
+  72| |      esm: false,
+  73| |    },
+  74| |  });
+  76| |  addFormats(ajv);
+  78|▼|  const compileSchemaPart = (schemaPart: unknown): string | null => {
+  79| |    if (!schemaPart || typeof schemaPart !== "object") {
+  80| |      return null;
+  81| |    }
+  83| |    if (isStandardSchema(schemaPart)) {
+  84| |      return null;
+  85| |    }
+  87| |    let cloned: any;
+  89| |    try {
+  90| |      cloned = cloneSchema(schemaPart);
+  91| |    } catch {
+  92| |      return null;
+  93| |    }
+  95| |    if (!cloned || typeof cloned !== "object") {
+  96| |      return null;
+  97| |    }
+  99| |    if (cloned.noValidate === true) {
+ 100| |      return null;
+ 101| |    }
+ 103| |    delete cloned.$id;
+ 105| |    try {
+ 106| |      const validate = ajv.compile(cloned);
+ 107| |      const code = standaloneCode(ajv, validate);
+ 109| |      return `${code}
+ 110| |try {
+ 111| |  if (typeof module !== "undefined" && module.exports && typeof module.exports === "function") {
+ 112| |    module.exports.default = module.exports;
+ 113| |  }
+ 114| |} catch {}
+ 115| |`;
+ 116| |    } catch {
+ 117| |      return null;
+ 118| |    }
+ 119| |  };
+ 121| |  const nextRoutes: RouteDef[] = [];
+ 123| |  for (const route of routes) {
+ 124| |    if (!route.hasValidation) {
+ 125| |      nextRoutes.push(route);
+ 126| |      continue;
+ 127| |    }
+ 129| |    const mod = modules[route.moduleIdx];
+ 131| |    if (!mod || !mod.schemaExport) {
+ 132| |      nextRoutes.push(route);
+ 133| |      continue;
+ 134| |    }
+ 136| |    const routeModule = await loadRouteModule(mod.path);
+ 137| |    const schema = routeModule?.schema;
+ 139| |    if (!schema || typeof schema !== "object") {
+ 140| |      nextRoutes.push(route);
+ 141| |      continue;
+ 142| |    }
+ 144| |    const validators: Record<string, string> = {};
+ 146| |    for (const kind of VALIDATOR_KINDS) {
+ 147| |      const schemaPart = schema[kind];
+ 149| |      if (!schemaPart) {
+ 150| |        continue;
+ 151| |      }
+ 153| |      const code = compileSchemaPart(schemaPart);
+ 155| |      if (!code) {
+ 156| |        continue;
+ 157| |      }
+ 159| |      const file = validatorFileName(route, kind);
+ 160| |      writeFileSync(join(validatorsDir, file), code);
+ 162| |      validators[kind] = validatorImportName(route, kind);
+ 163| |    }
+ 165| |    if (Object.keys(validators).length === 0) {
+ 166| |      nextRoutes.push(route);
+ 167| |      continue;
+ 168| |    }
+ 170| |    nextRoutes.push({
+ 171| |      ...route,
+ 172| |      validators: validators as any,
+ 173| |    });
+ 175| |    logger.info(`Precompiled validators for ${route.method} ${route.path}`);
+ 176| |  }
+ 178| |  return nextRoutes;
+ 179| |};
+---
+
+>src/compiler/phases/serializers.ts
+i:fs|path|fast-json-stringify
+l:../types|../logger|./schema-loader
+e:precompileSerializers
+f:serializerImportName(route: RouteDef):string
+f:serializerFileName(route: RouteDef):string
+f:pickResponseSchema(responseSchema: any):any
+f:precompileSerializers(
+  routes: readonly RouteDef[],
+  modules: readonly ModuleInfo[],
+  opts: CompilerOptions,
+  logger: Logger
+):Promise<readonly RouteDef[]>|a
+---
+   1| |/**
+   2| | * Phase 2: Serializer Precompilation
+   3| | *
+   4| | * Emits specialized JSON serializers for route response schemas.
+   5| | */
+   7| |import { mkdirSync, writeFileSync } from "fs";
+   8| |import { join } from "path";
+  10| |import type {
+  11| |  RouteDef,
+  12| |  ModuleInfo,
+  13| |  CompilerOptions,
+  14| |} from "../types";
+  16| |import type { Logger } from "../logger";
+  17| |import {
+  18| |  loadRouteModule,
+  19| |  isStandardSchema,
+  20| |  cloneSchema,
+  21| |} from "./schema-loader";
+  23|▼|const serializerImportName = (route: RouteDef): string =>
+  24| |  `serialize_${route.handlerRef}`;
+  26|▼|const serializerFileName = (route: RouteDef): string =>
+  27| |  `${route.handlerRef}.200.mjs`;
+  29|▼|const pickResponseSchema = (responseSchema: any): any => {
+  30| |  if (!responseSchema || typeof responseSchema !== "object") {
+  31| |    return undefined;
+  32| |  }
+  34| |  if (isStandardSchema(responseSchema)) {
+  35| |    return undefined;
+  36| |  }
+  38| |  if ("type" in responseSchema) {
+  39| |    return responseSchema;
+  40| |  }
+  42| |  return responseSchema[200] ?? responseSchema["200"] ?? responseSchema;
+  43| |};
+  45|▼|export const precompileSerializers = async (
+  46| |  routes: readonly RouteDef[],
+  47| |  modules: readonly ModuleInfo[],
+  48| |  opts: CompilerOptions,
+  49| |  logger: Logger
+  50| |): Promise<readonly RouteDef[]> => {
+  51| |  if (!opts.precompileSerializers) {
+  52| |    return routes;
+  53| |  }
+  55| |  let fastJson: any;
+  57| |  try {
+  58| |    const mod: any = await import("fast-json-stringify");
+  59| |    fastJson = mod.default ?? mod;
+  60| |  } catch {
+  61| |    logger.warn(
+  62| |      "fast-json-stringify unavailable. Serializer precompilation will be skipped."
+  63| |    );
+  64| |    return routes;
+  65| |  }
+  67| |  const serializersDir = join(opts.outDir, "serializers");
+  68| |  mkdirSync(serializersDir, { recursive: true });
+  70| |  const nextRoutes: RouteDef[] = [];
+  72| |  for (const route of routes) {
+  73| |    const isJsonRoute =
+  74| |      route.responseType === "json" || route.usage.json === true;
+  76| |    if (!isJsonRoute) {
+  77| |      nextRoutes.push(route);
+  78| |      continue;
+  79| |    }
+  81| |    const mod = modules[route.moduleIdx];
+  83| |    if (!mod || !mod.schemaExport) {
+  84| |      nextRoutes.push(route);
+  85| |      continue;
+  86| |    }
+  88| |    const routeModule = await loadRouteModule(mod.path);
+  89| |    const schema = routeModule?.schema;
+  91| |    if (!schema || typeof schema !== "object") {
+  92| |      nextRoutes.push(route);
+  93| |      continue;
+  94| |    }
+  96| |    const responseSchema = pickResponseSchema(schema.response);
+  98| |    if (!responseSchema || isStandardSchema(responseSchema)) {
+  99| |      nextRoutes.push(route);
+ 100| |      continue;
+ 101| |    }
+ 103| |    let cloned: any;
+ 105| |    try {
+ 106| |      cloned = cloneSchema(responseSchema);
+ 107| |    } catch {
+ 108| |      nextRoutes.push(route);
+ 109| |      continue;
+ 110| |    }
+ 112| |    try {
+ 113| |      // Test compile first.
+ 114| |      fastJson(cloned);
+ 116| |      const code = `import fastJson from "fast-json-stringify";
+ 118| |const schema = ${JSON.stringify(cloned)};
+ 120| |const serialize = fastJson(schema);
+ 122| |export default serialize;
+ 123| |`;
+ 125| |      writeFileSync(join(serializersDir, serializerFileName(route)), code);
+ 127| |      nextRoutes.push({
+ 128| |        ...route,
+ 129| |        serializers: {
+ 130| |          json: serializerImportName(route),
+ 131| |        },
+ 132| |      });
+ 134| |      logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
+ 135| |    } catch {
+ 136| |      nextRoutes.push(route);
+ 137| |    }
+ 138| |  }
+ 140| |  return nextRoutes;
+ 141| |};
 ---
 
 >src/core/context.ts
@@ -6005,66 +5861,188 @@ t:ResolveFn
 ---
 
 >src/core/http.ts
-l:./context|./types
-e:get|post|put|patch|del|all
+l:./context|./body|./types
+e:SchemaLike|RouteSchemas|BodyRouteSchemas|NoBodyRouteSchemas|RouteContext|RouteHandler|Handler|get|post|put|patch|del|all
+f:get(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:post(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:put(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:patch(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:del(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:all(
+  fn: RouteHandler<S>,
+  schema?: S,
+)
+f:attachSchema(fn: T, schemaOrPath?: unknown):T
+t:SchemaLike
+t:RouteSchemas
+t:BodyRouteSchemas
+t:NoBodyRouteSchemas
+t:InferSchema
+t:InferBody
+t:InferQuery
+t:InferParams
+t:LooksLikeSchema
+t:InferResponse
+t:TypedLazyBody
+t:RouteContext
+t:RouteResult
+t:RouteHandler
 t:Handler
+t:AnyFunction
 ---
    1| |// ============================================================================
-   2| |// FLUX HTTP — Type-Safe Placeholder (Zero Runtime)
+   2| |// FLUX HTTP — Schema-first typed route definitions
    3| |// ============================================================================
-   5| |import type { FluxContext } from "./context";
-   6| |import type { TSchema } from "./types";
-   8|▼|type Handler<B = unknown, Q = URLSearchParams, P = Record<string, string>> = (
-   9| |  ctx: FluxContext<P, Q, B>
-  10| |) => Promise<unknown> | unknown;
-  12| |/** Path is inferred from filename. Pass it only for DX. */
-  13| |export function get<Q = URLSearchParams, P = Record<string, string>>(
-  14| |  fn: Handler<unknown, Q, P>,
-  15| |  _path?: string,
-  16| |  _schema?: TSchema
-  17| |): Handler<unknown, Q, P> {
-  18| |  return fn;
-  19| |}
-  21| |/** Path is inferred from filename. Pass it only for DX. */
-  22| |export function post<B = unknown, P = Record<string, string>>(
-  23| |  fn: Handler<B, unknown, P>,
-  24| |  _path?: string,
-  25| |  _schema?: TSchema
-  26| |): Handler<B, unknown, P> {
-  27| |  return fn;
-  28| |}
-  30| |/** Path is inferred from filename. Pass it only for DX. */
-  31| |export function put<B = unknown, P = Record<string, string>>(
-  32| |  fn: Handler<B, unknown, P>,
-  33| |  _path?: string,
-  34| |  _schema?: TSchema
-  35| |): Handler<B, unknown, P> {
-  36| |  return fn;
-  37| |}
-  39| |/** Path is inferred from filename. Pass it only for DX. */
-  40| |export function patch<B = unknown, P = Record<string, string>>(
-  41| |  fn: Handler<B, unknown, P>,
-  42| |  _path?: string,
-  43| |  _schema?: TSchema
-  44| |): Handler<B, unknown, P> {
-  45| |  return fn;
-  46| |}
-  48| |/** Path is inferred from filename. Pass it only for DX. */
-  49| |export function del<P = Record<string, string>>(
-  50| |  fn: Handler<unknown, unknown, P>,
-  51| |  _path?: string,
-  52| |  _schema?: TSchema
-  53| |): Handler<unknown, unknown, P> {
-  54| |  return fn;
-  55| |}
-  57| |/** Path is inferred from filename. Pass it only for DX. */
-  58| |export function all<B = unknown, Q = URLSearchParams, P = Record<string, string>>(
-  59| |  fn: Handler<B, Q, P>,
-  60| |  _path?: string,
-  61| |  _schema?: TSchema
-  62| |): Handler<B, Q, P> {
-  63| |  return fn;
-  64| |}
+   4| |//
+   5| |// Breaking change:
+   6| |// - The second argument is now a schema object, not a route path.
+   7| |// - Route path is inferred from the filename by the compiler.
+   8| |//
+   9| |// Example:
+  10| |//   export default get(async (ctx) => {
+  11| |//     return ctx.json({ q: ctx.query.q });
+  12| |//   }, {
+  13| |//     query: Type.Object({ q: Type.String() }),
+  14| |//   });
+  15| |// ============================================================================
+  17| |import type { FluxContext } from "./context";
+  18| |import type { LazyBody } from "./body";
+  19| |import type { MaybePromise, StandardSchemaV1, TSchema } from "./types";
+  21|▼|export type SchemaLike = StandardSchemaV1<any, any> | TSchema | object;
+  23|▼|export type RouteSchemas = {
+  24| |  body?: SchemaLike;
+  25| |  query?: SchemaLike;
+  26| |  params?: SchemaLike;
+  27| |  headers?: SchemaLike;
+  28| |  response?: SchemaLike | Record<number, SchemaLike>;
+  29| |};
+  31|▼|export type BodyRouteSchemas = RouteSchemas;
+  32|▼|export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
+  34|▼|type InferSchema<T> = T extends StandardSchemaV1<any, infer Output>
+  35| |  ? Output
+  36| |  : T extends { static: infer S }
+  37| |    ? S
+  38| |    : unknown;
+  40|▼|type InferBody<S> = S extends { body: infer X } ? InferSchema<X> : unknown;
+  42|▼|type InferQuery<S> = S extends { query: infer X }
+  43| |  ? InferSchema<X>
+  44| |  : URLSearchParams;
+  46|▼|type InferParams<S> = S extends { params: infer X }
+  47| |  ? InferSchema<X>
+  48| |  : Record<string, string>;
+  50|▼|type LooksLikeSchema<T> = T extends StandardSchemaV1<any, any>
+  51| |  ? true
+  52| |  : T extends { "~standard": unknown }
+  53| |    ? true
+  54| |    : T extends { static: unknown }
+  55| |      ? true
+  56| |      : T extends { type: string }
+  57| |        ? true
+  58| |        : false;
+  60|▼|type InferResponse<S> = S extends { response: infer R }
+  61| |  ? LooksLikeSchema<R> extends true
+  62| |    ? InferSchema<R>
+  63| |    : R extends Record<string, infer V>
+  64| |      ? InferSchema<V>
+  65| |      : unknown
+  66| |  : unknown;
+  68|▼|type TypedLazyBody<B> = {
+  69| |  json<T = B>(): Promise<T>;
+  70| |  form<T = B extends Record<string, unknown> ? B : Record<string, string>>(): Promise<T>;
+  71| |  multipart<T = B extends Record<string, unknown> ? B : Record<string, unknown>>(): Promise<T>;
+  72| |} & LazyBody;
+  74|▼|export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
+  75| |  FluxContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
+  76| |  "body" | "query"
+  77| |> & {
+  78| |  body: TypedLazyBody<InferBody<S>>;
+  79| |  query: InferQuery<S>;
+  80| |};
+  82|▼|type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
+  83| |  Response | InferResponse<S>
+  84| |>;
+  86|▼|export type RouteHandler<S extends Partial<RouteSchemas>> = (
+  87| |  ctx: RouteContext<S>,
+  88| |) => RouteResult<S>;
+  90| |/**
+  91| | * Backward-compatible handler type.
+  92| | */
+  93|▼|export type Handler<
+  94| |  B = unknown,
+  95| |  Q = URLSearchParams,
+  96| |  P = Record<string, string>,
+  97| |> = (ctx: FluxContext<P, Q, B>) => MaybePromise<unknown>;
+  99|▼|type AnyFunction = (...args: any[]) => any;
+ 101|▼|const attachSchema = <T extends AnyFunction>(fn: T, schemaOrPath?: unknown): T => {
+ 102| |  // Runtime compatibility: if an old path string is passed, ignore it.
+ 103| |  if (schemaOrPath == null || typeof schemaOrPath === "string") {
+ 104| |    return fn;
+ 105| |  }
+ 107| |  Object.defineProperty(fn, "schema", {
+ 108| |    value: schemaOrPath,
+ 109| |    enumerable: false,
+ 110| |    writable: false,
+ 111| |    configurable: true,
+ 112| |  });
+ 114| |  return fn;
+ 115| |};
+ 117| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 118|▼|export function get<const S extends NoBodyRouteSchemas = {}>(
+ 119| |  fn: RouteHandler<S>,
+ 120| |  schema?: S,
+ 121| |): RouteHandler<S> {
+ 122| |  return attachSchema(fn, schema);
+ 123| |}
+ 125| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 126|▼|export function post<const S extends BodyRouteSchemas = {}>(
+ 127| |  fn: RouteHandler<S>,
+ 128| |  schema?: S,
+ 129| |): RouteHandler<S> {
+ 130| |  return attachSchema(fn, schema);
+ 131| |}
+ 133| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 134|▼|export function put<const S extends BodyRouteSchemas = {}>(
+ 135| |  fn: RouteHandler<S>,
+ 136| |  schema?: S,
+ 137| |): RouteHandler<S> {
+ 138| |  return attachSchema(fn, schema);
+ 139| |}
+ 141| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 142|▼|export function patch<const S extends BodyRouteSchemas = {}>(
+ 143| |  fn: RouteHandler<S>,
+ 144| |  schema?: S,
+ 145| |): RouteHandler<S> {
+ 146| |  return attachSchema(fn, schema);
+ 147| |}
+ 149| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 150|▼|export function del<const S extends BodyRouteSchemas = {}>(
+ 151| |  fn: RouteHandler<S>,
+ 152| |  schema?: S,
+ 153| |): RouteHandler<S> {
+ 154| |  return attachSchema(fn, schema);
+ 155| |}
+ 157| |/** Path is inferred from filename. Second parameter is a schema object. */
+ 158|▼|export function all<const S extends BodyRouteSchemas = {}>(
+ 159| |  fn: RouteHandler<S>,
+ 160| |  schema?: S,
+ 161| |): RouteHandler<S> {
+ 162| |  return attachSchema(fn, schema);
+ 163| |}
 ---
 
 >src/core/hooks.ts
@@ -6582,16 +6560,23 @@ l:../../core/http
 ---
 
 >src/routes/products/[id].get.ts
+i:@sinclair/typebox
 l:../../core/http
 ---
-   1| |import { get } from "../../core/http";
-   3| |export default get(async (ctx) => {
-   4| |  return ctx.json({
-   5| |    product: {
-   6| |      id: ctx.params.id,
-   7| |    },
-   8| |  });
-   9| |});
+   1| |import { Type } from "@sinclair/typebox";
+   2| |import { get } from "../../core/http";
+   4| |export default get(async (ctx) => {
+   5| |  return ctx.json({
+   6| |    product: {
+   7| |      id: ctx.params.id,
+   8| |    },
+   9| |  });
+  10| |}, {
+  11| |  params: Type.Object({
+  12| |    id: Type.String()
+  13| |  })
+  14| |}
+  15| |);
 ---
 
 >src/routes/files/[name].get.ts
@@ -6778,9 +6763,12 @@ t:PluginContext
 
 >src/compiler/index.ts
 i:defu
-l:./types|./logger|./types|./phases/discovery|./phases/analysis|./phases/optimization|./phases/codegen|./phases/linker|./phases/artifacts|./logger|./validate
+l:./types|./logger|./types|./phases/discovery|./phases/analysis|./phases/optimization|./phases/codegen|./phases/linker|./phases/artifacts|./phases/validators|./phases/serializers|./logger|./validate
 e:mergeOptions|createCompilationResult|runDiscoveryPhase|runAnalysisPhase|runOptimizationPhase|runCodegenPhase|runLinkingPhase|FluxCompiler|build|DEFAULT_OPTS
 f:build(opts?: Partial<CompilerOptions>)
+f:buildAsync(
+  opts?: Partial<CompilerOptions>
+)|a
 f:mergeOptions(
   opts: Partial<CompilerOptions>
 ):CompilerOptions
@@ -6817,12 +6805,12 @@ f:runLinkingPhase(
 c:FluxCompiler
 ---
    1| |/**
-   2| | * Flux Compiler Orchestrator
+   2| | * Flux Compiler Orchestrator — Phase 2
    3| | *
-   4| | * AOT upgrade:
-   5| | * - validates options
-   6| | * - runs phases
-   7| | * - emits DX artifacts
+   4| | * Adds:
+   5| | * - async build pipeline
+   6| | * - validator precompilation
+   7| | * - serializer precompilation
    8| | */
   10| |import type {
   11| |  CompilerOptions,
@@ -6839,138 +6827,196 @@ c:FluxCompiler
   23| |import { runCodeGen } from "./phases/codegen";
   24| |import { runLinker } from "./phases/linker";
   25| |import { writeArtifacts } from "./phases/artifacts";
-  26| |import { consoleLogger } from "./logger";
-  27| |import { validateOptions } from "./validate";
-  28| |import { defu } from "defu";
-  30| |export { DEFAULT_OPTS };
-  31| |export type { CompilerOptions, CompiledRoute };
-  33|▼|export const mergeOptions = (
-  34| |  opts: Partial<CompilerOptions>
-  35|→|): CompilerOptions => defu(opts, DEFAULT_OPTS) as CompilerOptions;
-  37|▼|export const createCompilationResult = (
-  38| |  optimized: OptimizationResult,
-  39| |  analysis: AnalysisResult,
-  40| |  elapsedMs: number
-  41| |): CompiledRoute => ({
-  42| |  staticRoutes: optimized.routes.filter((r) => r.isStatic),
-  43| |  dynamicRoutes: optimized.routes.filter((r) => r.isDynamic),
-  44| |  modules: analysis.modules,
-  45| |  meta: {
-  46| |    inlinedHandlers: optimized.meta.inlined,
-  47| |    deduplicatedHandlers: optimized.meta.deduplicated,
-  48| |    eliminatedRoutes: optimized.meta.eliminated,
-  49| |    totalCompileTime: elapsedMs,
-  50| |  },
-  51| |});
-  53|▼|export const runDiscoveryPhase = (
-  54| |  opts: CompilerOptions,
-  55| |  logger: Logger
-  56| |): DiscoveryResult =>
-  57| |  logger.time("discovery", () => {
-  58| |    const result = runDiscovery(opts, logger);
-  60| |    logger.info("discovery complete", {
-  61| |      files: result.files.length,
-  62| |      modules: result.modules.length,
-  63| |    });
-  65| |    return result;
-  66| |  });
-  68|▼|export const runAnalysisPhase = (
-  69| |  discovery: DiscoveryResult,
-  70| |  opts: CompilerOptions,
-  71| |  logger: Logger
-  72| |): AnalysisResult =>
-  73| |  logger.time("analysis", () => {
-  74| |    const result = runAnalysis(discovery, opts, logger);
-  76| |    logger.info("analysis complete", {
-  77| |      routes: result.routes.length,
-  78| |      hooks: result.hooks.size,
-  79| |    });
-  81| |    return result;
-  82| |  });
-  84|▼|export const runOptimizationPhase = (
-  85| |  analysis: AnalysisResult,
-  86| |  opts: CompilerOptions,
-  87| |  logger: Logger
-  88| |): OptimizationResult =>
-  89| |  logger.time("optimization", () => {
-  90| |    const result = runOptimization(
-  91| |      analysis.routes,
-  92| |      analysis.modules,
-  93| |      opts,
-  94| |      logger
-  95| |    );
-  97| |    logger.info("optimization complete", {
-  98| |      inlined: result.meta.inlined,
-  99| |      deduplicated: result.meta.deduplicated,
- 100| |      eliminated: result.meta.eliminated,
- 101| |    });
- 103| |    return result;
- 104| |  });
- 106|▼|export const runCodegenPhase = (
- 107| |  optimized: OptimizationResult,
- 108| |  analysis: AnalysisResult,
- 109| |  opts: CompilerOptions,
- 110| |  logger: Logger
- 111| |): string =>
- 112| |  logger.time("codegen", () => {
- 113| |    const code = runCodeGen(
- 114| |      optimized.routes,
- 115| |      analysis.modules,
- 116| |      analysis.hooks,
- 117| |      opts,
- 118| |      logger
- 119| |    );
- 121| |    logger.info("codegen complete", {
- 122| |      lines: code.split("\n").length,
- 123| |    });
- 125| |    return code;
- 126| |  });
- 128|▼|export const runLinkingPhase = (
- 129| |  code: string,
- 130| |  opts: CompilerOptions,
- 131| |  logger: Logger
- 132| |): string =>
- 133| |  logger.time("linker", () => {
- 134| |    return runLinker(code, opts, logger);
- 135| |  });
- 137|▼|export class FluxCompiler {
- 138| |  constructor(private readonly input: Partial<CompilerOptions> = {}) {}
- 140| |  compile(): CompiledRoute {
- 141| |    const validated = validateOptions(this.input);
- 143| |    if (!validated.ok) {
- 144|!|      throw new Error(
- 145| |        `Compiler options invalid:\n${validated.error.join("\n")}`
- 146| |      );
- 147| |    }
- 149| |    const opts = validated.value;
- 150| |    const logger = consoleLogger();
- 151| |    const t0 = performance.now();
- 153| |    logger.info("flux compiler started", {
- 154| |      target: opts.target,
- 155| |      optimizationLevel: opts.optimizationLevel,
- 156| |      routesDir: opts.routesDir,
- 157| |      outDir: opts.outDir,
- 158| |    });
- 160| |    const discovery = runDiscoveryPhase(opts, logger);
- 161| |    const analysis = runAnalysisPhase(discovery, opts, logger);
- 162| |    const optimized = runOptimizationPhase(analysis, opts, logger);
- 164| |    writeArtifacts(optimized.routes, opts, logger);
- 166| |    const code = runCodegenPhase(optimized, analysis, opts, logger);
- 167| |    const outPath = runLinkingPhase(code, opts, logger);
- 169| |    const elapsed = performance.now() - t0;
- 171| |    logger.info("build complete", {
- 172| |      elapsedMs: Number(elapsed.toFixed(2)),
- 173| |      outPath,
- 174| |    });
- 176| |    return createCompilationResult(optimized, analysis, elapsed);
- 177| |  }
- 178| |}
- 180|▼|export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
- 181| |  return new FluxCompiler(opts).compile();
- 182| |}
- 184| |if (import.meta.main) {
- 185| |  build();
- 186| |}
+  26| |import { precompileValidators } from "./phases/validators";
+  27| |import { precompileSerializers } from "./phases/serializers";
+  28| |import { consoleLogger } from "./logger";
+  29| |import { validateOptions } from "./validate";
+  30| |import { defu } from "defu";
+  32| |export { DEFAULT_OPTS };
+  33| |export type { CompilerOptions, CompiledRoute };
+  35|▼|export const mergeOptions = (
+  36| |  opts: Partial<CompilerOptions>
+  37|→|): CompilerOptions => defu(opts, DEFAULT_OPTS) as CompilerOptions;
+  39|▼|export const createCompilationResult = (
+  40| |  optimized: OptimizationResult,
+  41| |  analysis: AnalysisResult,
+  42| |  elapsedMs: number
+  43| |): CompiledRoute => ({
+  44| |  staticRoutes: optimized.routes.filter((r) => r.isStatic),
+  45| |  dynamicRoutes: optimized.routes.filter((r) => r.isDynamic),
+  46| |  modules: analysis.modules,
+  47| |  meta: {
+  48| |    inlinedHandlers: optimized.meta.inlined,
+  49| |    deduplicatedHandlers: optimized.meta.deduplicated,
+  50| |    eliminatedRoutes: optimized.meta.eliminated,
+  51| |    totalCompileTime: elapsedMs,
+  52| |  },
+  53| |});
+  55|▼|export const runDiscoveryPhase = (
+  56| |  opts: CompilerOptions,
+  57| |  logger: Logger
+  58| |): DiscoveryResult =>
+  59| |  logger.time("discovery", () => {
+  60| |    const result = runDiscovery(opts, logger);
+  62| |    logger.info("discovery complete", {
+  63| |      files: result.files.length,
+  64| |      modules: result.modules.length,
+  65| |    });
+  67| |    return result;
+  68| |  });
+  70|▼|export const runAnalysisPhase = (
+  71| |  discovery: DiscoveryResult,
+  72| |  opts: CompilerOptions,
+  73| |  logger: Logger
+  74| |): AnalysisResult =>
+  75| |  logger.time("analysis", () => {
+  76| |    const result = runAnalysis(discovery, opts, logger);
+  78| |    logger.info("analysis complete", {
+  79| |      routes: result.routes.length,
+  80| |      hooks: result.hooks.size,
+  81| |    });
+  83| |    return result;
+  84| |  });
+  86|▼|export const runOptimizationPhase = (
+  87| |  analysis: AnalysisResult,
+  88| |  opts: CompilerOptions,
+  89| |  logger: Logger
+  90| |): OptimizationResult =>
+  91| |  logger.time("optimization", () => {
+  92| |    const result = runOptimization(
+  93| |      analysis.routes,
+  94| |      analysis.modules,
+  95| |      opts,
+  96| |      logger
+  97| |    );
+  99| |    logger.info("optimization complete", {
+ 100| |      inlined: result.meta.inlined,
+ 101| |      deduplicated: result.meta.deduplicated,
+ 102| |      eliminated: result.meta.eliminated,
+ 103| |    });
+ 105| |    return result;
+ 106| |  });
+ 108|▼|export const runCodegenPhase = (
+ 109| |  optimized: OptimizationResult,
+ 110| |  analysis: AnalysisResult,
+ 111| |  opts: CompilerOptions,
+ 112| |  logger: Logger
+ 113| |): string =>
+ 114| |  logger.time("codegen", () => {
+ 115| |    const code = runCodeGen(
+ 116| |      optimized.routes,
+ 117| |      analysis.modules,
+ 118| |      analysis.hooks,
+ 119| |      opts,
+ 120| |      logger
+ 121| |    );
+ 123| |    logger.info("codegen complete", {
+ 124| |      lines: code.split("\n").length,
+ 125| |    });
+ 127| |    return code;
+ 128| |  });
+ 130|▼|export const runLinkingPhase = (
+ 131| |  code: string,
+ 132| |  opts: CompilerOptions,
+ 133| |  logger: Logger
+ 134| |): string =>
+ 135| |  logger.time("linker", () => {
+ 136| |    return runLinker(code, opts, logger);
+ 137| |  });
+ 139|▼|export class FluxCompiler {
+ 140| |  constructor(private readonly input: Partial<CompilerOptions> = {}) {}
+ 142| |  compile(): CompiledRoute {
+ 143| |    const validated = validateOptions(this.input);
+ 145| |    if (!validated.ok) {
+ 146|!|      throw new Error(
+ 147| |        `Compiler options invalid:\n${validated.error.join("\n")}`
+ 148| |      );
+ 149| |    }
+ 151| |    const opts = validated.value;
+ 152| |    const logger = consoleLogger();
+ 153| |    const t0 = performance.now();
+ 155| |    if (opts.precompileValidators || opts.precompileSerializers) {
+ 156| |      logger.warn(
+ 157| |        "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation."
+ 158| |      );
+ 159| |    }
+ 161| |    logger.info("flux compiler started", {
+ 162| |      target: opts.target,
+ 163| |      optimizationLevel: opts.optimizationLevel,
+ 164| |      routesDir: opts.routesDir,
+ 165| |      outDir: opts.outDir,
+ 166| |    });
+ 168| |    const discovery = runDiscoveryPhase(opts, logger);
+ 169| |    const analysis = runAnalysisPhase(discovery, opts, logger);
+ 170| |    const optimized = runOptimizationPhase(analysis, opts, logger);
+ 172| |    writeArtifacts(optimized.routes, opts, logger);
+ 174| |    const code = runCodegenPhase(optimized, analysis, opts, logger);
+ 175| |    const outPath = runLinkingPhase(code, opts, logger);
+ 177| |    const elapsed = performance.now() - t0;
+ 179| |    logger.info("build complete", {
+ 180| |      elapsedMs: Number(elapsed.toFixed(2)),
+ 181| |      outPath,
+ 182| |    });
+ 184| |    return createCompilationResult(optimized, analysis, elapsed);
+ 185| |  }
+ 187| |  async compileAsync(): Promise<CompiledRoute> {
+ 188| |    const validated = validateOptions(this.input);
+ 190| |    if (!validated.ok) {
+ 191|!|      throw new Error(
+ 192| |        `Compiler options invalid:\n${validated.error.join("\n")}`
+ 193| |      );
+ 194| |    }
+ 196| |    const opts = validated.value;
+ 197| |    const logger = consoleLogger();
+ 198| |    const t0 = performance.now();
+ 200| |    logger.info("flux compiler started (async)", {
+ 201| |      target: opts.target,
+ 202| |      optimizationLevel: opts.optimizationLevel,
+ 203| |      routesDir: opts.routesDir,
+ 204| |      outDir: opts.outDir,
+ 205| |    });
+ 207| |    const discovery = runDiscoveryPhase(opts, logger);
+ 208| |    const analysis = runAnalysisPhase(discovery, opts, logger);
+ 209| |    const optimized = runOptimizationPhase(analysis, opts, logger);
+ 211| |    let routes = optimized.routes;
+ 213| |    routes = await precompileValidators(
+ 214| |      routes,
+ 215| |      analysis.modules,
+ 216| |      opts,
+ 217| |      logger
+ 218| |    );
+ 220| |    routes = await precompileSerializers(
+ 221| |      routes,
+ 222| |      analysis.modules,
+ 223| |      opts,
+ 224| |      logger
+ 225| |    );
+ 227| |    const enriched: OptimizationResult = {
+ 228| |      routes,
+ 229| |      meta: optimized.meta,
+ 230| |    };
+ 232| |    writeArtifacts(enriched.routes, opts, logger);
+ 234| |    const code = runCodegenPhase(enriched, analysis, opts, logger);
+ 235| |    const outPath = runLinkingPhase(code, opts, logger);
+ 237| |    const elapsed = performance.now() - t0;
+ 239| |    logger.info("build complete", {
+ 240| |      elapsedMs: Number(elapsed.toFixed(2)),
+ 241| |      outPath,
+ 242| |    });
+ 244| |    return createCompilationResult(enriched, analysis, elapsed);
+ 245| |  }
+ 246| |}
+ 248|▼|export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
+ 249| |  return new FluxCompiler(opts).compile();
+ 250| |}
+ 252|▼|export async function buildAsync(
+ 253| |  opts?: Partial<CompilerOptions>
+ 254| |): Promise<CompiledRoute> {
+ 255| |  return new FluxCompiler(opts).compileAsync();
+ 256| |}
+ 258| |if (import.meta.main) {
+ 259| |  await buildAsync();
+ 260| |}
 ---
 
 >src/core/plugins/logger.ts
@@ -7407,8 +7453,8 @@ t:CompressionOptions
 >builder.ts
 l:./src/compiler/index
 ---
-   1| |import { build } from "./src/compiler/index";
-   3| |build({
+   1| |import { buildAsync } from "./src/compiler/index";
+   3| |await buildAsync({
    4| |  routesDir: "./src/routes",
    5| |  outDir: "./dist",
    6| |  outFile: "__server.js",
@@ -7428,5 +7474,7 @@ l:./src/compiler/index
   24| |  inlineHooks: true,
   25| |  treeshakeRuntime: true,
   26| |  routeCache: true,
-  27| |});
+  28| |  precompileValidators: true,
+  29| |  precompileSerializers: true,
+  30| |});
 ---

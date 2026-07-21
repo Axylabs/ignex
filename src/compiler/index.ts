@@ -1,10 +1,10 @@
 /**
- * Flux Compiler Orchestrator
+ * Flux Compiler Orchestrator — Phase 2
  *
- * AOT upgrade:
- * - validates options
- * - runs phases
- * - emits DX artifacts
+ * Adds:
+ * - async build pipeline
+ * - validator precompilation
+ * - serializer precompilation
  */
 
 import type {
@@ -23,6 +23,8 @@ import { runOptimization } from "./phases/optimization";
 import { runCodeGen } from "./phases/codegen";
 import { runLinker } from "./phases/linker";
 import { writeArtifacts } from "./phases/artifacts";
+import { precompileValidators } from "./phases/validators";
+import { precompileSerializers } from "./phases/serializers";
 import { consoleLogger } from "./logger";
 import { validateOptions } from "./validate";
 import { defu } from "defu";
@@ -150,6 +152,12 @@ export class FluxCompiler {
     const logger = consoleLogger();
     const t0 = performance.now();
 
+    if (opts.precompileValidators || opts.precompileSerializers) {
+      logger.warn(
+        "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation."
+      );
+    }
+
     logger.info("flux compiler started", {
       target: opts.target,
       optimizationLevel: opts.optimizationLevel,
@@ -175,12 +183,78 @@ export class FluxCompiler {
 
     return createCompilationResult(optimized, analysis, elapsed);
   }
+
+  async compileAsync(): Promise<CompiledRoute> {
+    const validated = validateOptions(this.input);
+
+    if (!validated.ok) {
+      throw new Error(
+        `Compiler options invalid:\n${validated.error.join("\n")}`
+      );
+    }
+
+    const opts = validated.value;
+    const logger = consoleLogger();
+    const t0 = performance.now();
+
+    logger.info("flux compiler started (async)", {
+      target: opts.target,
+      optimizationLevel: opts.optimizationLevel,
+      routesDir: opts.routesDir,
+      outDir: opts.outDir,
+    });
+
+    const discovery = runDiscoveryPhase(opts, logger);
+    const analysis = runAnalysisPhase(discovery, opts, logger);
+    const optimized = runOptimizationPhase(analysis, opts, logger);
+
+    let routes = optimized.routes;
+
+    routes = await precompileValidators(
+      routes,
+      analysis.modules,
+      opts,
+      logger
+    );
+
+    routes = await precompileSerializers(
+      routes,
+      analysis.modules,
+      opts,
+      logger
+    );
+
+    const enriched: OptimizationResult = {
+      routes,
+      meta: optimized.meta,
+    };
+
+    writeArtifacts(enriched.routes, opts, logger);
+
+    const code = runCodegenPhase(enriched, analysis, opts, logger);
+    const outPath = runLinkingPhase(code, opts, logger);
+
+    const elapsed = performance.now() - t0;
+
+    logger.info("build complete", {
+      elapsedMs: Number(elapsed.toFixed(2)),
+      outPath,
+    });
+
+    return createCompilationResult(enriched, analysis, elapsed);
+  }
 }
 
 export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
   return new FluxCompiler(opts).compile();
 }
 
+export async function buildAsync(
+  opts?: Partial<CompilerOptions>
+): Promise<CompiledRoute> {
+  return new FluxCompiler(opts).compileAsync();
+}
+
 if (import.meta.main) {
-  build();
+  await buildAsync();
 }
