@@ -69,7 +69,7 @@ export { LRUCache } from "./lru";
 export { serveCluster } from "./cluster";
 
 // FP
-export * from "../compiler/fp";
+// FP utilities removed from core barrel. Import from src/fp or src/compiler/fp if needed.
 
 // Types
 export type {

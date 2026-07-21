@@ -1,5 +1,8 @@
 /**
- * @fileoverview Rate Limit Plugin — memory-backed, LRU-based.
+ * Rate limit plugin.
+ *
+ * Hardened:
+ * - does not trust x-forwarded-for unless trustProxy is enabled
  */
 
 import type { FluxPlugin } from "../plugin";
@@ -10,6 +13,7 @@ export interface RateLimitOptions {
   windowMs?: number;
   maxRequests?: number;
   storeMax?: number;
+  trustProxy?: boolean;
   keyGenerator?: (ctx: FluxContext) => string;
   skip?: (ctx: FluxContext) => boolean;
   message?: string;
@@ -25,13 +29,21 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
     windowMs = 60_000,
     maxRequests = 100,
     storeMax = 10_000,
-    keyGenerator = (ctx) =>
-      ctx.headers.get("x-forwarded-for") ||
-      ctx.headers.get("x-real-ip") ||
-      "anonymous",
+    trustProxy = false,
     skip,
     message = "Too many requests",
   } = options;
+
+  const defaultKeyGenerator = (ctx: FluxContext): string => {
+    if (trustProxy) {
+      const xff = ctx.headers.get("x-forwarded-for");
+      if (xff) return xff.split(",")[0]?.trim() || "anonymous";
+    }
+
+    return ctx.headers.get("x-real-ip") || "anonymous";
+  };
+
+  const keyGenerator = options.keyGenerator ?? defaultKeyGenerator;
 
   const store = new LRUCache<string, WindowEntry>({
     max: storeMax,
@@ -87,9 +99,17 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
       const entry = ctx.getState<WindowEntry>("__ratelimit");
 
       if (entry) {
+        const headers = new Headers(response.headers);
+
         for (const [k, v] of Object.entries(getHeaders(entry))) {
-          response.headers.set(k, v);
+          headers.set(k, v);
         }
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
       }
 
       return response;

@@ -1,36 +1,38 @@
 /**
- * @fileoverview Multi-core server helper.
+ * Multi-core server helper.
  *
- * Bun is single-threaded per JS context, but Bun.serve can use reusePort
- * to run multiple accept loops across CPU cores.
+ * Fixed:
+ * - uses node:os availableParallelism()
+ * - avoids extending a union type
+ * - satisfies exactOptionalPropertyTypes
  */
+
+import { availableParallelism } from "node:os";
 
 export type ServeOptions = Parameters<typeof Bun.serve>[0];
 
-export interface ClusterServeOptions extends ServeOptions {
-  /**
-   * Number of server instances.
-   * Use "auto" to match CPU count.
-   */
+export type ClusterServeOptions = ServeOptions & {
   workers?: number | "auto";
-}
+};
 
 export function serveCluster(options: ClusterServeOptions) {
   const requested = options.workers ?? 1;
 
   const count =
     requested === "auto"
-      ? Math.max(1, navigator.hardwareConcurrency || 1)
+      ? Math.max(1, availableParallelism())
       : Math.max(1, Number(requested));
 
-  const serveOptions: ServeOptions = { ...options };
-  delete (serveOptions as any).workers;
+  const serveOptions: Record<string, unknown> = { ...options };
+
+  delete serveOptions.workers;
+
+  if (count > 1) {
+    serveOptions.reusePort = true;
+  }
 
   const servers = Array.from({ length: count }, () =>
-    Bun.serve({
-      ...serveOptions,
-      reusePort: count > 1 ? true : serveOptions.reusePort,
-    })
+    Bun.serve(serveOptions as unknown as ServeOptions),
   );
 
   return {

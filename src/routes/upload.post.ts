@@ -1,4 +1,6 @@
 import { post } from "../core/http";
+import { mkdir } from "node:fs/promises";
+
 export default post(async (ctx) => {
   const file = await ctx.body.file();
 
@@ -6,8 +8,11 @@ export default post(async (ctx) => {
     return ctx.json({ error: "file required" }, { status: 400 });
   }
 
+  await mkdir("uploads", { recursive: true });
+
   const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  const dest = Bun.file(`uploads/${Date.now().toString(36)}-${safeName}`);
+  const storedName = `${Date.now().toString(36)}-${safeName}`;
+  const dest = `uploads/${storedName}`;
 
   await Bun.write(dest, file);
 
@@ -15,6 +20,6 @@ export default post(async (ctx) => {
     ok: true,
     size: file.size,
     type: file.type,
-    path: `/files/${dest.name?.split("/").pop()}`,
+    path: `/files/${storedName}`,
   });
 });

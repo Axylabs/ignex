@@ -282,7 +282,7 @@ export class HttpResponseCache {
   async set(
     key: string,
     response: Response,
-    opts: { ttlMs?: number; staleTtlMs?: number; etag?: boolean } = {}
+    opts: { ttlMs?: number; staleTtlMs?: number; etag?: boolean } = {},
   ): Promise<Response> {
     if (!isCacheableResponse(response)) return response;
 
@@ -300,17 +300,21 @@ export class HttpResponseCache {
       headers.push(["etag", etag]);
     }
 
-    this.lru.set(
-      key,
-      {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-        body,
-        etag,
-      },
-      opts
-    );
+    const cached: CachedHttpResponse = {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+      body,
+    };
+
+    if (etag) {
+      cached.etag = etag;
+    }
+
+    this.lru.set(key, cached, {
+      ...(opts.ttlMs !== undefined ? { ttlMs: opts.ttlMs } : {}),
+      ...(opts.staleTtlMs !== undefined ? { staleTtlMs: opts.staleTtlMs } : {}),
+    });
 
     return response;
   }

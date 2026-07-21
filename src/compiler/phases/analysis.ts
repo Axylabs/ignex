@@ -98,37 +98,70 @@ export const computeMethodIndex = (method: HttpMethod): number =>
 
 export const findHandlerSymbol = (mod: ModuleInfo) =>
   mod.symbols.find((s) => s.name === "default") || mod.symbols[0];
+/**
+ * Normalize exported route cache config.
+ *
+ * Pure and exactOptionalPropertyTypes-safe.
+ */
+const normalizeRouteCache = (
+  input: unknown,
+): RouteCacheConfig | undefined => {
+  if (typeof input === "number") {
+    return { maxAge: input };
+  }
+
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+
+  const cfg = input as Record<string, unknown>;
+
+  const cache: {
+    maxAge?: number;
+    swr?: number;
+    immutable?: boolean;
+    vary?: string[];
+  } = {};
+
+  if (typeof cfg.maxAge === "number") cache.maxAge = cfg.maxAge;
+  if (typeof cfg.swr === "number") cache.swr = cfg.swr;
+  if (typeof cfg.immutable === "boolean") cache.immutable = cfg.immutable;
+
+  if (Array.isArray(cfg.vary)) {
+    cache.vary = cfg.vary.filter(
+      (item): item is string => typeof item === "string",
+    );
+  }
+
+  return Object.keys(cache).length > 0 ? cache : undefined;
+};
+
 
 export const createRouteDef = (
   file: string,
   parsed: NonNullable<ReturnType<typeof parseRouteFilename>>,
   mod: ModuleInfo,
   routeIndex: number,
-  moduleIdx: number
+  moduleIdx: number,
 ): RouteDef => {
   const handlerSym = findHandlerSymbol(mod);
   const methodIdx = computeMethodIndex(parsed.method);
 
   const astParsed = parseModule(mod.content);
 
-
-  const rawCache =
-    astParsed.config?.cache ??
-    (typeof astParsed.config?.cache === "number"
-      ? astParsed.config.cache
-      : undefined);
-
-  const cache = normalizeRouteCache(rawCache);
-
+  const cache = normalizeRouteCache(astParsed.config?.cache);
   const usage = astParsed.handler?.usage ?? FULL_CONTEXT_USAGE;
 
   const isAsync =
     astParsed.handler?.isAsync ?? handlerSym?.isAsync ?? false;
 
-  const hooks: string[] = [];
+  const hooks = Array.isArray(astParsed.config?.hooks)
+    ? astParsed.config.hooks.filter(
+        (x: unknown): x is string => typeof x === "string",
+      )
+    : [];
 
   const { isConstant, constantResponse } = detectConstantResponse(mod);
-
   const inferredResponseType = inferResponseTypeAST(astParsed.ast);
 
   const responseType = usage.json
@@ -152,9 +185,10 @@ export const createRouteDef = (
     hotnessScore: 0,
     hooks,
     isConstantResponse: isConstant,
-    constantResponse,
     usage,
-    cache,
+
+    ...(constantResponse !== undefined ? { constantResponse } : {}),
+    ...(cache !== undefined ? { cache } : {}),
   };
 };
 
@@ -319,22 +353,3 @@ export const runAnalysis = (
 
     return { routes: alive, modules: discovery.modules, hooks };
   });
-
-const normalizeRouteCache = (input: unknown): RouteCacheConfig | undefined => {
-  if (typeof input === "number") {
-    return { maxAge: input };
-  }
-
-  if (input && typeof input === "object") {
-    const cfg = input as Record<string, unknown>;
-
-    return {
-      maxAge: typeof cfg.maxAge === "number" ? cfg.maxAge : undefined,
-      swr: typeof cfg.swr === "number" ? cfg.swr : undefined,
-      immutable: typeof cfg.immutable === "boolean" ? cfg.immutable : undefined,
-      vary: Array.isArray(cfg.vary) ? (cfg.vary as string[]) : undefined,
-    };
-  }
-
-  return undefined;
-};

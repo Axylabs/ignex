@@ -2,7 +2,6 @@
  * @fileoverview Flux Context v3.0 — Production-grade request context.
  * Lazy evaluation, zero-allocation fast paths, full Elysia compatibility.
  */
-import * as cookie from "cookie";
 import * as setCookie from "set-cookie-parser";
 import type { HttpMethod, CookieOptions, ElysiaCookie } from "./types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
@@ -75,6 +74,117 @@ export interface FluxContext<
   readonly server: any;
 }
 
+/**
+ * Convert a cookie value into a string representation.
+ */
+const toCookieValue = (value: unknown): string =>
+  typeof value === "object" && value !== null
+    ? JSON.stringify(value)
+    : String(value ?? "");
+
+/**
+ * Encode cookie value safely.
+ */
+const encodeCookieValue = (value: string): string => encodeURIComponent(value);
+
+/**
+ * Decode cookie value with fallback for malformed values.
+ */
+const decodeCookieValue = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+/**
+ * Normalize SameSite attribute.
+ */
+const normalizeSameSite = (
+  sameSite: CookieOptions["sameSite"],
+): string | undefined => {
+  if (sameSite === true) return "Strict";
+  if (sameSite === false || sameSite === undefined) return undefined;
+
+  return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
+};
+
+/**
+ * Serialize one cookie pair.
+ */
+const serializeCookiePair = (
+  name: string,
+  value: string,
+  opts: ElysiaCookie,
+): string => {
+  const parts = [`${name}=${encodeCookieValue(value)}`];
+
+  if (opts.domain) parts.push(`Domain=${opts.domain}`);
+  if (opts.path) parts.push(`Path=${opts.path}`);
+
+  if (opts.expires instanceof Date) {
+    parts.push(`Expires=${opts.expires.toUTCString()}`);
+  }
+
+  if (opts.maxAge != null) {
+    parts.push(`Max-Age=${Math.floor(opts.maxAge)}`);
+  }
+
+  if (opts.httpOnly) parts.push("HttpOnly");
+  if (opts.secure) parts.push("Secure");
+
+  const sameSite = normalizeSameSite(opts.sameSite);
+  if (sameSite) parts.push(`SameSite=${sameSite}`);
+
+  if (opts.priority) parts.push(`Priority=${opts.priority}`);
+  if (opts.partitioned) parts.push("Partitioned");
+
+  return parts.join("; ");
+};
+
+export const serializeCookie = (
+  cookies: Record<string, ElysiaCookie>,
+): string | string[] | undefined => {
+  const serialized = Object.entries(cookies)
+    .filter(([, opts]) => opts?.value != null)
+    .map(([name, opts]) =>
+      serializeCookiePair(name, toCookieValue(opts.value), opts),
+    );
+
+  if (serialized.length === 0) return undefined;
+
+  return serialized.length === 1 ? serialized[0] : serialized;
+};
+
+export const parseCookieString = (
+  cookieString: string | null,
+): Record<string, string> => {
+  if (!cookieString) return {};
+
+  return cookieString
+    .split(";")
+    .reduce<Record<string, string>>((acc, segment) => {
+      const eq = segment.indexOf("=");
+      if (eq === -1) return acc;
+
+      const key = segment.slice(0, eq).trim();
+      if (!key) return acc;
+
+      const value = segment.slice(eq + 1).trim();
+      acc[key] = decodeCookieValue(value);
+
+      return acc;
+    }, {});
+};
+
+export const parseSetCookieHeader = (
+  header: string | string[] | null,
+) => {
+  if (!header) return [];
+  return setCookie.parse(header);
+};
+
 // ============================================================================
 // Cookie Class
 // ============================================================================
@@ -84,7 +194,7 @@ export class Cookie<T = string | undefined> {
     private name: string,
     private jar: Record<string, ElysiaCookie>,
     private initial: Partial<ElysiaCookie> = {}
-  ) {}
+  ) { }
 
   get value(): T { return (this.jar[this.name]?.value ?? this.initial.value) as T; }
   set value(v: T) {
@@ -152,65 +262,7 @@ export const createCookieJar = (
   }) as Record<string, Cookie>;
 };
 
-// ============================================================================
-// Cookie Serialization
-// ============================================================================
 
-export const serializeCookie = (
-  cookies: Record<string, ElysiaCookie>
-): string | string[] | undefined => {
-  const entries = Object.entries(cookies).filter(([, v]) => v?.value != null);
-  if (entries.length === 0) return undefined;
-
-  const result = entries.map(([name, opts]) => {
-    const value =
-      typeof opts.value === "object"
-        ? JSON.stringify(opts.value)
-        : String(opts.value ?? "");
-
-    const options: Record<string, unknown> = {
-      domain: opts.domain,
-      path: opts.path,
-      expires: opts.expires,
-      maxAge: opts.maxAge,
-      httpOnly: opts.httpOnly,
-      secure: opts.secure,
-      sameSite:
-        opts.sameSite === true
-          ? "strict"
-          : opts.sameSite === false
-            ? undefined
-            : opts.sameSite,
-    };
-
-    let str = cookie.serialize(name, value, options as any);
-
-    if (opts.priority) str += `; Priority=${opts.priority}`;
-    if (opts.partitioned) str += `; Partitioned`;
-
-    return str;
-  });
-
-  return result.length === 1 ? result[0] : result;
-};
-
-// ============================================================================
-// Cookie Parsing
-// ============================================================================
-
-export const parseCookieString = (
-  cookieString: string | null
-): Record<string, string> => {
-  if (!cookieString) return {};
-  return cookie.parse(cookieString);
-};
-
-export const parseSetCookieHeader = (
-  header: string | string[] | null
-) => {
-  if (!header) return [];
-  return setCookie.parse(header);
-};
 
 // ============================================================================
 // Context Factory
@@ -227,19 +279,78 @@ const generateRequestId = (): string => {
   return `${ts}-${seq}`;
 };
 
-type FluxHeadersInit =
-  | Headers
-  | Record<string, string>
-  | [string, string][];
+type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
 
+type FluxHeadersInit =
+  | ResponseHeadersInit
+  | Record<string, string | undefined>
+  | Array<[string, string | undefined]>;
+
+const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
+  headers as unknown as ResponseHeadersInit;
+
+/**
+ * Merge base headers with optional init headers.
+ * Filters undefined header values to satisfy exactOptionalPropertyTypes.
+ */
 const mergeHeaders = (
   base: Record<string, string>,
-  init?: FluxHeadersInit
-): Headers => {
+  init?: FluxHeadersInit,
+): ResponseHeadersInit => {
   const headers = new Headers(base);
-  if (init) new Headers(init).forEach((v, k) => headers.set(k, v));
-  return headers;
+
+  if (init === undefined) {
+    return asResponseHeaders(headers);
+  }
+
+  const forEachFn = (init as { forEach?: unknown }).forEach;
+
+  if (!Array.isArray(init) && typeof forEachFn === "function") {
+    (forEachFn as (cb: (value: string, key: string) => void) => void).call(
+      init,
+      (value, key) => {
+        headers.set(key, value);
+      },
+    );
+
+    return asResponseHeaders(headers);
+  }
+
+  if (Array.isArray(init)) {
+    for (const [key, value] of init as Array<[string, string | undefined]>) {
+      if (value !== undefined) {
+        headers.set(key, value);
+      }
+    }
+
+    return asResponseHeaders(headers);
+  }
+
+  for (const [key, value] of Object.entries(
+    init as Record<string, string | undefined>,
+  )) {
+    if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+
+  return asResponseHeaders(headers);
 };
+
+const createResponseInit = (
+  status: number,
+  headers?: FluxHeadersInit,
+): ResponseInit => {
+  if (headers === undefined) {
+    return { status };
+  }
+
+  return {
+    status,
+    headers: mergeHeaders({}, headers),
+  };
+};
+
 const defaultCache = new HttpResponseCache({ max: 1000, ttlMs: 60_000, staleTtlMs: 300_000 });
 
 export function createContext<P = Record<string, string>>(
@@ -272,6 +383,7 @@ export function createContext<P = Record<string, string>>(
     cookie,
     state,
 
+
     getState<T = unknown>(key: string | symbol): T | undefined {
       return state.get(key) as T | undefined;
     },
@@ -280,19 +392,37 @@ export function createContext<P = Record<string, string>>(
       state.set(key, value);
     },
     json<T>(data: T, init?: ResponseInit): Response {
-      return Response.json(data, { status: init?.status ?? set.status ?? 200, headers: mergeHeaders(HDR_JSON, init?.headers) });
+      const status = init?.status ?? set.status ?? 200;
+
+      return Response.json(data, {
+        status,
+        headers: mergeHeaders(HDR_JSON, init?.headers),
+      });
     },
+
     text(data: string, init?: ResponseInit): Response {
-      return new Response(data, { status: init?.status ?? set.status ?? 200, headers: mergeHeaders(HDR_TEXT, init?.headers) });
+      const status = init?.status ?? set.status ?? 200;
+
+      return new Response(data, {
+        status,
+        headers: mergeHeaders(HDR_TEXT, init?.headers),
+      });
     },
+
     html(data: string, init?: ResponseInit): Response {
-      return new Response(data, { status: init?.status ?? set.status ?? 200, headers: mergeHeaders(HDR_HTML, init?.headers) });
+      const status = init?.status ?? set.status ?? 200;
+
+      return new Response(data, {
+        status,
+        headers: mergeHeaders(HDR_HTML, init?.headers),
+      });
     },
-    redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
-      return Response.redirect(url, status);
-    },
+
     stream(stream: ReadableStream, init?: ResponseInit): Response {
-      return new Response(stream, { status: init?.status ?? 200, headers: init?.headers });
+      return new Response(
+        stream,
+        createResponseInit(init?.status ?? 200, init?.headers),
+      );
     },
     empty(status = 204): Response {
       return new Response(null, { status });
@@ -312,6 +442,12 @@ export function createContext<P = Record<string, string>>(
     },
     cache(factory: () => Promise<Response>, cacheOpts = {}) {
       return defaultCache.getOrSet(req, factory, cacheOpts);
+    },
+    redirect(
+      url: string,
+      status: 301 | 302 | 303 | 307 | 308 = 302,
+    ): Response {
+      return Response.redirect(url, status);
     },
     server: null,
   };

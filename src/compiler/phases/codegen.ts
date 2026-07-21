@@ -13,8 +13,6 @@ import { fnv1a } from "../utils/hash";
 import type {
   RouteDef,
   ModuleInfo,
-  SegNode,
-  JumpTable,
   CompilerOptions,
   HookDef,
 } from "../types";
@@ -354,11 +352,8 @@ const generateMethodHandler = (
 
 export const generateServer = (
   routes: readonly RouteDef[],
-  _trie: SegNode,
-  _jumpTable: JumpTable,
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
-  _buffers: ReadonlyMap<string, string>,
   opts: CompilerOptions
 ): string => {
   const cfg = getConfig(opts);
@@ -1056,24 +1051,13 @@ export default servers[0];
 
 export const runCodeGen = (
   routes: readonly RouteDef[],
-  trie: SegNode,
-  jumpTable: JumpTable,
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
-  buffers: ReadonlyMap<string, string>,
   opts: CompilerOptions,
   logger: Logger
 ): string =>
   logger.time("codegen", () => {
-    const code = generateServer(
-      routes,
-      trie,
-      jumpTable,
-      modules,
-      hooks,
-      buffers,
-      opts
-    );
+    const code = generateServer(routes, modules, hooks, opts);
 
     logger.info(
       `Generated ${code.split("\n").length} lines of Bun-native server code`

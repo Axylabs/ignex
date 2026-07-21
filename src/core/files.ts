@@ -97,16 +97,16 @@ export async function sendFile(
     opts.contentType || file.type || "application/octet-stream"
   );
 
-  headers.set(
-    "cache-control",
-    cacheControl({
-      public: !opts.isPrivate,
-      private: opts.isPrivate,
-      maxAge: opts.maxAge ?? 3600,
-      swr: opts.swr,
-      immutable: opts.immutable,
-    })
-  );
+headers.set(
+  "cache-control",
+  cacheControl({
+    public: !opts.isPrivate,
+    maxAge: opts.maxAge ?? 3600,
+    ...(opts.isPrivate !== undefined ? { private: opts.isPrivate } : {}),
+    ...(opts.swr !== undefined ? { swr: opts.swr } : {}),
+    ...(opts.immutable !== undefined ? { immutable: opts.immutable } : {}),
+  }),
+);
 
   headers.set("etag", etag);
   headers.set("last-modified", lastModified);

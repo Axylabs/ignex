@@ -1,6 +1,16 @@
 /**
- * @fileoverview Compiler Options Validation
- * TypeBox + Ajv based validation.
+ * Compiler options validation.
+ *
+ * Removed unimplemented flags:
+ * - enableSIMDPaths
+ * - enableBranchPrediction
+ * - enableDeadCodeElimination
+ * - enableConstantFolding
+ * - enableWorkerThreads
+ * - enableSchemaInlining
+ * - enableResponsePreserialization
+ * - browserCache
+ * - cacheBust
  */
 
 import { Type, type Static } from "@sinclair/typebox";
@@ -30,18 +40,9 @@ const CompilerOptionsSchema = Type.Object(
     ]),
 
     inlineThreshold: Type.Number({ minimum: 0, maximum: 1000 }),
-
-    enableSchemaInlining: Type.Boolean(),
-    enableResponsePreserialization: Type.Boolean(),
-    enableWorkerThreads: Type.Boolean(),
+    enableHandlerDeduplication: Type.Boolean(),
     sourceMap: Type.Boolean(),
     minify: Type.Boolean(),
-
-    enableSIMDPaths: Type.Boolean(),
-    enableBranchPrediction: Type.Boolean(),
-    enableDeadCodeElimination: Type.Boolean(),
-    enableConstantFolding: Type.Boolean(),
-    enableHandlerDeduplication: Type.Boolean(),
 
     hooksDir: Type.Optional(Type.String({ minLength: 1 })),
 
@@ -66,23 +67,6 @@ const CompilerOptionsSchema = Type.Object(
     ),
 
     reusePort: Type.Optional(Type.Boolean()),
-
-    browserCache: Type.Optional(
-      Type.Object({
-        maxAge: Type.Optional(Type.Number()),
-        swr: Type.Optional(Type.Number()),
-        immutable: Type.Optional(Type.Boolean()),
-        vary: Type.Optional(Type.Array(Type.String())),
-      })
-    ),
-
-    cacheBust: Type.Optional(
-      Type.Union([
-        Type.Literal("mtime"),
-        Type.Literal("hash"),
-        Type.Literal("none"),
-      ])
-    ),
   },
   { additionalProperties: false }
 );

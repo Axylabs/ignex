@@ -1,5 +1,8 @@
 /**
- * @fileoverview Compression Plugin — real gzip/deflate compression.
+ * Compression plugin.
+ *
+ * Hardened:
+ * - guards against missing CompressionStream
  */
 
 import type { FluxPlugin } from "../plugin";
@@ -21,6 +24,7 @@ const shouldCompress = (ct: string): boolean => {
   for (const prefix of COMPRESSIBLE) {
     if (ct.startsWith(prefix)) return true;
   }
+
   return false;
 };
 
@@ -50,13 +54,15 @@ export const compression = (options: CompressionOptions = {}): FluxPlugin => {
 
       if (!encoding) return response;
 
+      if (typeof CompressionStream === "undefined") {
+        return response;
+      }
+
       const headers = new Headers(response.headers);
       headers.set("content-encoding", encoding);
       headers.delete("content-length");
 
-      const compressed = response.body.pipeThrough(
-        new CompressionStream(encoding)
-      );
+      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
 
       return new Response(compressed, {
         status: response.status,

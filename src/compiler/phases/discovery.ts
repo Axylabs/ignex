@@ -109,8 +109,13 @@ export const parseRouteFilename = (
   };
 };
 
-export const parseModule = (filePath: string, relPath: string, content: string): ModuleInfo => {
+export const parseModule = (
+  filePath: string,
+  relPath: string,
+  content: string,
+): ModuleInfo => {
   const parsed = parseModuleAST(content);
+
   return {
     path: filePath,
     relPath,
@@ -119,10 +124,11 @@ export const parseModule = (filePath: string, relPath: string, content: string):
     exports: parsed.exports,
     symbols: parsed.symbols,
     hasDefaultExport: parsed.hasDefaultExport,
-    schemaExport: parsed.schemaExport ? "schema" : undefined,
-    configExport: parsed.configExport ? "config" : undefined,
     callGraph: new Map(),
     dataFlow: new Map(),
+
+    ...(parsed.schemaExport ? { schemaExport: "schema" } : {}),
+    ...(parsed.configExport ? { configExport: "config" } : {}),
   };
 };
 

@@ -66,17 +66,55 @@ const DEFAULT_LIMITS = {
   maxFileBytes: 20 * 1024 * 1024,
 };
 
+const forEachFormDataEntry = (
+  fd: FormData,
+  cb: (value: unknown, key: string) => void,
+): void => {
+  const forEach = (fd as unknown as { forEach?: unknown }).forEach;
+
+  if (typeof forEach === "function") {
+    (forEach as (cb: (value: unknown, key: string) => void) => void).call(
+      fd,
+      cb,
+    );
+  }
+};
+
+const getFormDataEntry = (fd: FormData, name: string): unknown => {
+  const get = (fd as unknown as { get?: unknown }).get;
+
+  if (typeof get !== "function") {
+    return null;
+  }
+
+  return (get as (name: string) => unknown).call(fd, name);
+};
+
+const getAllFormDataEntries = (fd: FormData, name: string): unknown[] => {
+  const getAll = (fd as unknown as { getAll?: unknown }).getAll;
+
+  if (typeof getAll !== "function") {
+    return [];
+  }
+
+  const values = (getAll as (name: string) => unknown).call(fd, name);
+
+  return Array.isArray(values) ? values : [];
+};
+
+const isFile = (value: unknown): value is File =>
+  typeof File !== "undefined" && value instanceof File;
+
 function formDataToRecord(fd: FormData): Record<string, string> {
   const out: Record<string, string> = {};
 
-  for (const [key, value] of fd) {
+  forEachFormDataEntry(fd, (value, key) => {
     if (typeof value === "string") {
       out[key] = value;
-    } else {
-      // For files, expose filename in form record.
+    } else if (isFile(value)) {
       out[key] = value.name;
     }
-  }
+  });
 
   return out;
 }
@@ -84,7 +122,7 @@ function formDataToRecord(fd: FormData): Record<string, string> {
 function formDataToObject(fd: FormData): Record<string, unknown> {
   const out: Record<string, unknown> = {};
 
-  for (const [key, value] of fd) {
+  forEachFormDataEntry(fd, (value, key) => {
     const existing = out[key];
 
     if (existing === undefined) {
@@ -94,7 +132,7 @@ function formDataToObject(fd: FormData): Record<string, unknown> {
     } else {
       out[key] = [existing, value];
     }
-  }
+  });
 
   return out;
 }
@@ -170,9 +208,13 @@ export function createLazyBody(
 
       if (target === "text") {
         const params = new URLSearchParams();
-        for (const [k, v] of fd) {
-          if (typeof v === "string") params.append(k, v);
-        }
+
+        forEachFormDataEntry(fd, (v, k) => {
+          if (typeof v === "string") {
+            params.append(k, v);
+          }
+        });
+
         return params.toString() as T;
       }
     }
@@ -239,12 +281,14 @@ export function createLazyBody(
 
     if (!ct) return undefined;
 
-    if (ct.includes("json")) return fn.json();
-    if (ct.includes("x-www-form-urlencoded")) return fn.form();
-    if (ct.includes("multipart/form-data")) return fn.multipart();
-    if (ct.startsWith("text/")) return fn.text();
+    const self = fn as unknown as LazyBody;
 
-    return fn.arrayBuffer();
+    if (ct.includes("json")) return self.json();
+    if (ct.includes("x-www-form-urlencoded")) return self.form();
+    if (ct.includes("multipart/form-data")) return self.multipart();
+    if (ct.startsWith("text/")) return self.text();
+
+    return self.arrayBuffer();
   };
 
   const body = fn as unknown as LazyBody;
@@ -254,12 +298,12 @@ export function createLazyBody(
       "json",
       async () => {
         try {
-          return await req.json();
+          return (await req.json()) as T;
         } catch {
           throw new BodyParseError("Invalid JSON body", 400);
         }
       },
-      limits.maxJsonBytes
+      limits.maxJsonBytes,
     );
 
   body.text = () =>
@@ -306,12 +350,12 @@ export function createLazyBody(
       "formData",
       async () => {
         try {
-          return await req.formData();
+          return (await req.formData()) as unknown as FormData;
         } catch {
           throw new BodyParseError("Invalid form/multipart body", 400);
         }
       },
-      limits.maxFormBytes
+      limits.maxFormBytes,
     );
 
   body.form = async () => {
@@ -324,51 +368,56 @@ export function createLazyBody(
     return formDataToObject(fd);
   };
 
-  body.file = async (name?: string) => {
-    const fd = await body.formData();
+body.file = async (name?: string) => {
+  const fd = await body.formData();
 
-    if (name) {
-      const value = fd.get(name);
-      if (value instanceof File) {
-        assertFileSize(value);
-        return value;
-      }
-      return null;
-    }
+  if (name) {
+    const value = getFormDataEntry(fd, name);
 
-    for (const value of fd.values()) {
-      if (value instanceof File) {
-        assertFileSize(value);
-        return value;
-      }
+    if (isFile(value)) {
+      assertFileSize(value);
+      return value;
     }
 
     return null;
-  };
+  }
 
-  body.files = async (name?: string) => {
-    const fd = await body.formData();
-    const files: File[] = [];
+  let found: File | null = null;
 
-    if (name) {
-      for (const value of fd.getAll(name)) {
-        if (value instanceof File) {
-          assertFileSize(value);
-          files.push(value);
-        }
-      }
-      return files;
+  forEachFormDataEntry(fd, (value) => {
+    if (!found && isFile(value)) {
+      assertFileSize(value);
+      found = value;
     }
+  });
 
-    for (const value of fd.values()) {
-      if (value instanceof File) {
+  return found;
+};
+
+body.files = async (name?: string) => {
+  const fd = await body.formData();
+  const files: File[] = [];
+
+  if (name) {
+    for (const value of getAllFormDataEntries(fd, name)) {
+      if (isFile(value)) {
         assertFileSize(value);
         files.push(value);
       }
     }
 
     return files;
-  };
+  }
+
+  forEachFormDataEntry(fd, (value) => {
+    if (isFile(value)) {
+      assertFileSize(value);
+      files.push(value);
+    }
+  });
+
+  return files;
+};
 
   body.stream = () => {
     if (kind !== "none") return null;

@@ -1,15 +1,25 @@
 /**
- * @fileoverview Flux Compiler Type System
- * All types are immutable interfaces (readonly) where possible.
- * No implementation here — pure contracts.
+ * Flux Compiler Type System
+ *
+ * Production cleanup:
+ * - removed unused jump table types
+ * - removed unused trie types from compiler pipeline
+ * - removed unimplemented compiler flags
+ * - removed preserialized buffer pipeline
  */
 
-// ---------------------------------------------------------------------------
-// HTTP & Routing
-// ---------------------------------------------------------------------------
-export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "ALL"] as const;
-export type HttpMethod = (typeof HTTP_METHODS)[number];
+export const HTTP_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+  "ALL",
+] as const;
 
+export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export interface ContextUsage {
   body: boolean;
@@ -39,10 +49,6 @@ export const FULL_CONTEXT_USAGE: ContextUsage = {
   url: true,
 };
 
-
-// ---------------------------------------------------------------------------
-// Compiler Configuration
-// ---------------------------------------------------------------------------
 export interface CompilerOptions {
   readonly routesDir: string;
   readonly outDir: string;
@@ -50,26 +56,23 @@ export interface CompilerOptions {
   readonly target: "bun" | "node" | "deno";
   readonly optimizationLevel: 0 | 1 | 2 | 3;
   readonly inlineThreshold: number;
-  readonly enableSchemaInlining: boolean;
-  readonly enableResponsePreserialization: boolean;
-  readonly enableWorkerThreads: boolean;
+  readonly enableHandlerDeduplication: boolean;
   readonly sourceMap: boolean;
   readonly minify: boolean;
-  readonly enableSIMDPaths: boolean;
-  readonly enableBranchPrediction: boolean;
-  readonly enableDeadCodeElimination: boolean;
-  readonly enableConstantFolding: boolean;
-  readonly enableHandlerDeduplication: boolean;
+
   readonly hooksDir?: string;
+
   readonly enableTracing?: boolean;
   readonly enableAccessLog?: boolean;
   readonly enableTraceHeaders?: boolean;
   readonly enableLifecycle?: boolean;
   readonly enableStrictMethods?: boolean;
   readonly enableFastBodyParsing?: boolean;
+
   readonly serviceName?: string;
   readonly requestIdHeader?: string;
   readonly exposeErrorDetails?: boolean;
+
   readonly maxJsonBytes?: number;
   readonly maxTextBytes?: number;
   readonly maxFormBytes?: number;
@@ -77,15 +80,6 @@ export interface CompilerOptions {
 
   readonly cluster?: number | "auto";
   readonly reusePort?: boolean;
-
-  readonly browserCache?: {
-    readonly maxAge?: number;
-    readonly swr?: number;
-    readonly immutable?: boolean;
-    readonly vary?: readonly string[];
-  };
-
-  readonly cacheBust?: "mtime" | "hash" | "none";
 }
 
 export interface RouteCacheConfig {
@@ -95,43 +89,44 @@ export interface RouteCacheConfig {
   readonly vary?: readonly string[];
 }
 
-export const DEFAULT_OPTS: CompilerOptions = {
+export const createDefaultOptions = (): CompilerOptions => ({
   routesDir: process.env.ROUTES_DIR || "./src/routes",
   outDir: process.env.OUT_DIR || "./dist",
   outFile: "__server.js",
   target: "bun",
   optimizationLevel: 3,
   inlineThreshold: 50,
-  enableSchemaInlining: true,
-  enableResponsePreserialization: true,
-  enableWorkerThreads: false,
+  enableHandlerDeduplication: true,
   sourceMap: false,
   minify: false,
-  enableSIMDPaths: true,
-  enableBranchPrediction: true,
-  enableDeadCodeElimination: true,
-  enableConstantFolding: true,
-  enableHandlerDeduplication: true,
+
   enableTracing: true,
   enableAccessLog: true,
   enableTraceHeaders: true,
   enableLifecycle: true,
   enableStrictMethods: true,
   enableFastBodyParsing: false,
+
   serviceName: "flux",
   requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
-};
+});
 
-// ---------------------------------------------------------------------------
-// Source Positions & Symbols
-// ---------------------------------------------------------------------------
+export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
+
 export interface Position {
   readonly line: number;
   readonly column: number;
 }
 
-export type SymbolKind = "function" | "class" | "const" | "let" | "var" | "type" | "interface";
+export type SymbolKind =
+  | "function"
+  | "class"
+  | "const"
+  | "let"
+  | "var"
+  | "type"
+  | "interface";
 
 export interface SymbolInfo {
   readonly name: string;
@@ -148,9 +143,6 @@ export interface SymbolInfo {
   readonly hotness: number;
 }
 
-// ---------------------------------------------------------------------------
-// Module Metadata
-// ---------------------------------------------------------------------------
 export interface ImportInfo {
   readonly source: string;
   readonly names: readonly string[];
@@ -178,9 +170,6 @@ export interface ModuleInfo {
   readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-// ---------------------------------------------------------------------------
-// Route Definitions
-// ---------------------------------------------------------------------------
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
 
 export interface RouteDef {
@@ -198,7 +187,6 @@ export interface RouteDef {
   readonly signatureHash: number;
   readonly handlerSize: number;
   readonly isAsync: boolean;
-
   readonly shouldInline: boolean;
   readonly responseType: ResponseType;
   readonly hasValidation: boolean;
@@ -207,7 +195,7 @@ export interface RouteDef {
   readonly hooks: readonly string[];
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
-  readonly usage: ContextUsage;  // ← NEW: build-time context usage
+  readonly usage: ContextUsage;
 }
 
 export interface HookDef {
@@ -217,42 +205,8 @@ export interface HookDef {
   readonly isAsync: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Trie & Jump Table
-// ---------------------------------------------------------------------------
-export interface Terminal {
-  readonly method: HttpMethod;
-  readonly handlerRef: string;
-  readonly schemaRef: string | null;
-  readonly paramNames: readonly string[];
-  readonly routeIdx: number;
-}
-
-export interface SegNode {
-  readonly terminals: ReadonlyMap<HttpMethod, Terminal>;
-  readonly staticChildren: ReadonlyMap<string, SegNode>;
-  readonly paramChild: { readonly name: string; readonly child: SegNode } | null;
-  readonly catchAll: ReadonlyMap<HttpMethod, { readonly name: string; readonly handlerRef: string; readonly schemaRef: string | null }>;
-  readonly depth: number;
-  readonly segmentHash?: number;
-}
-
-export type JumpStrategy = "dense" | "sparse" | "perfect-hash";
-
-export interface JumpTable {
-  readonly strategy: JumpStrategy;
-  readonly entries: ReadonlyArray<{ readonly hash: number; readonly routeIdx: number } | null>;
-  readonly minHash: number;
-  readonly maxHash: number;
-  readonly collisions: ReadonlyMap<number, readonly number[]>;
-  readonly lookupCode: string;
-  readonly seed?: number;
-
-}
 export type { Logger } from "./logger";
-// ---------------------------------------------------------------------------
-// Compilation Results
-// ---------------------------------------------------------------------------
+
 export interface DiscoveryResult {
   readonly files: readonly string[];
   readonly modules: readonly ModuleInfo[];
@@ -272,9 +226,6 @@ export interface OptimizationMeta {
 
 export interface OptimizationResult {
   readonly routes: readonly RouteDef[];
-  readonly trie: SegNode;
-  readonly jumpTable: JumpTable;
-  readonly preserializedBuffers: ReadonlyMap<string, string>;
   readonly meta: OptimizationMeta;
 }
 
@@ -282,15 +233,12 @@ export interface CompilationMeta {
   readonly inlinedHandlers: number;
   readonly deduplicatedHandlers: number;
   readonly eliminatedRoutes: number;
-  readonly preserializedResponses: number;
   readonly totalCompileTime: number;
 }
 
 export interface CompiledRoute {
   readonly staticRoutes: readonly RouteDef[];
   readonly dynamicRoutes: readonly RouteDef[];
-  readonly trie: SegNode;
   readonly modules: readonly ModuleInfo[];
-  readonly jumpTable: JumpTable;
   readonly meta: CompilationMeta;
 }

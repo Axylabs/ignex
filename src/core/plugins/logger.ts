@@ -1,7 +1,10 @@
 /**
- * @fileoverview Logger Plugin — pino-based structured logging.
+ * Logger plugin.
+ *
+ * Hardened:
+ * - redacts sensitive headers
+ * - exactOptionalPropertyTypes-safe pino options
  */
-
 import pino, { type Logger as PinoLogger } from "pino";
 import type { FluxPlugin } from "../plugin";
 import type { FluxContext } from "../context";
@@ -12,13 +15,44 @@ export interface LoggerOptions {
   skip?: (ctx: FluxContext) => boolean;
 }
 
+const REDACT_PATHS = [
+  "req.headers.authorization",
+  "req.headers.cookie",
+  "headers.authorization",
+  "headers.cookie",
+] as const;
+
+/**
+ * Create a pino logger with safe defaults.
+ */
+const createPinoLogger = (options: LoggerOptions): PinoLogger => {
+  if (options.logger) return options.logger;
+
+  return pino({
+    level: options.level ?? "info",
+    base: null,
+    redact: [...REDACT_PATHS],
+  });
+};
+
+/**
+ * Build structured access-log payload.
+ */
+const createLogPayload = (ctx: FluxContext, response: Response) => {
+  const duration = performance.now() - ctx.startTime;
+
+  return {
+    requestId: ctx.requestId,
+    method: ctx.method,
+    path: ctx.path,
+    status: response.status,
+    durationMs: Math.round(duration * 1000) / 1000,
+    timestamp: new Date().toISOString(),
+  };
+};
+
 export const logger = (options: LoggerOptions = {}): FluxPlugin => {
-  const log =
-    options.logger ??
-    pino({
-      level: options.level ?? "info",
-      base: undefined,
-    });
+  const log = createPinoLogger(options);
 
   return {
     name: "logger",
@@ -26,16 +60,7 @@ export const logger = (options: LoggerOptions = {}): FluxPlugin => {
     onResponse(ctx, response) {
       if (options.skip?.(ctx)) return response;
 
-      const duration = performance.now() - ctx.startTime;
-
-      const payload = {
-        requestId: ctx.requestId,
-        method: ctx.method,
-        path: ctx.path,
-        status: response.status,
-        durationMs: Math.round(duration * 1000) / 1000,
-        timestamp: new Date().toISOString(),
-      };
+      const payload = createLogPayload(ctx, response);
 
       if (response.status >= 500) {
         log.error(payload);

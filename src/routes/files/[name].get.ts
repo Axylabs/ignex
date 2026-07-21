@@ -2,7 +2,13 @@ import { safeJoin } from "../../core";
 import { get } from "../../core/http";
 
 export default get(async (ctx) => {
-  const path = safeJoin("uploads", ctx.params.name);
+  const name = ctx.params.name;
+
+  if (!name) {
+    return ctx.json({ error: "file name required" }, { status: 400 });
+  }
+
+  const path = safeJoin("uploads", name);
 
   return ctx.sendFile(path, {
     req: ctx.req,

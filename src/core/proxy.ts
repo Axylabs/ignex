@@ -1,6 +1,11 @@
 /**
- * @fileoverview Proxy / forwarding helpers.
- * Streams upstream responses directly to the client.
+ * Proxy / forwarding helpers.
+ *
+ * Design:
+ * - Pure header sanitizers
+ * - Pure request-init factory
+ * - No global BodyInit dependency
+ * - AbortSignal.timeout based cancellation
  */
 
 const HOP_BY_HOP = [
@@ -12,14 +17,24 @@ const HOP_BY_HOP = [
   "trailer",
   "transfer-encoding",
   "upgrade",
-];
+] as const;
 
-export interface ProxyOptions extends Omit<RequestInit, "body"> {
+type FetchRequestInit = NonNullable<Parameters<typeof fetch>[1]>;
+
+type ProxyRequestInit = FetchRequestInit & {
+  duplex?: "half";
+};
+
+export interface ProxyOptions extends Omit<FetchRequestInit, "body"> {
   timeoutMs?: number;
-  body?: BodyInit | ReadableStream | null;
+  body?: FetchRequestInit["body"];
 }
 
-function sanitizeRequestHeaders(headers: Headers): Headers {
+/**
+ * Remove hop-by-hop headers and request-specific headers
+ * that must be recomputed for upstream.
+ */
+const sanitizeRequestHeaders = (headers: Headers): Headers => {
   const out = new Headers(headers);
 
   for (const h of HOP_BY_HOP) out.delete(h);
@@ -28,50 +43,95 @@ function sanitizeRequestHeaders(headers: Headers): Headers {
   out.delete("content-length");
 
   return out;
-}
+};
 
-function sanitizeResponseHeaders(headers: Headers): Headers {
+/**
+ * Remove hop-by-hop headers from upstream response.
+ */
+const sanitizeResponseHeaders = (headers: Headers): Headers => {
   const out = new Headers(headers);
 
   for (const h of HOP_BY_HOP) out.delete(h);
 
   return out;
-}
+};
+
+/**
+ * Create a combined timeout + optional caller signal.
+ */
+const createProxySignal = (opts: ProxyOptions): AbortSignal => {
+  const timeoutSignal = AbortSignal.timeout(opts.timeoutMs ?? 10_000);
+
+  if (!opts.signal) return timeoutSignal;
+
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([opts.signal, timeoutSignal]);
+  }
+
+  return timeoutSignal;
+};
+
+/**
+ * Type guard for stream-like bodies.
+ */
+const isReadableStream = (
+  value: unknown,
+): value is ReadableStream<Uint8Array> =>
+  typeof value === "object" &&
+  value !== null &&
+  "pipeTo" in value &&
+  typeof value.pipeTo === "function";
+
+/**
+ * Build fetch init for upstream request.
+ */
+const createProxyInit = (
+  opts: ProxyOptions,
+  signal: AbortSignal,
+): ProxyRequestInit => {
+  const headers = sanitizeRequestHeaders(
+    opts.headers instanceof Headers ? opts.headers : new Headers(opts.headers),
+  );
+
+  const init: ProxyRequestInit = {
+    method: opts.method ?? "GET",
+    headers,
+    redirect: opts.redirect ?? "manual",
+    signal,
+  };
+
+  const body = opts.body;
+
+  if (body != null) {
+    init.body = body;
+
+    if (isReadableStream(body)) {
+      init.duplex = "half";
+    }
+  }
+
+  return init;
+};
+
+const isTimeoutError = (err: unknown): boolean =>
+  err instanceof Error &&
+  (err.name === "TimeoutError" || err.name === "AbortError");
+
+const createGatewayTimeout = (): Response =>
+  Response.json({ error: "Upstream timeout", status: 504 }, { status: 504 });
+
+const createBadGateway = (): Response =>
+  Response.json({ error: "Bad Gateway", status: 502 }, { status: 502 });
 
 export async function proxyRequest(
   target: string | URL,
-  opts: ProxyOptions = {}
+  opts: ProxyOptions = {},
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    opts.timeoutMs ?? 10_000
-  );
-
   try {
-    const headers = sanitizeRequestHeaders(
-      opts.headers instanceof Headers
-        ? opts.headers
-        : new Headers(opts.headers)
-    );
+    const signal = createProxySignal(opts);
+    const init = createProxyInit(opts, signal);
 
-    const init: any = {
-      method: opts.method ?? "GET",
-      headers,
-      redirect: opts.redirect ?? "manual",
-      signal: opts.signal ?? controller.signal,
-    };
-
-    if (opts.body != null) {
-      init.body = opts.body;
-
-      // Required by fetch implementations when streaming a request body.
-      if (typeof (opts.body as any).pipeTo === "function") {
-        init.duplex = "half";
-      }
-    }
-
-    const upstream = await fetch(target.toString(), init as RequestInit);
+    const upstream = await fetch(target.toString(), init);
 
     const responseHeaders = sanitizeResponseHeaders(upstream.headers);
     responseHeaders.set("x-proxy", "flux");
@@ -82,35 +142,22 @@ export async function proxyRequest(
       headers: responseHeaders,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      return Response.json(
-        { error: "Upstream timeout", status: 504 },
-        { status: 504 }
-      );
+    if (isTimeoutError(err)) {
+      return createGatewayTimeout();
     }
 
-    return Response.json(
-      { error: "Bad Gateway", status: 502 },
-      { status: 502 }
-    );
-  } finally {
-    clearTimeout(timeout);
+    return createBadGateway();
   }
 }
 
-/**
- * Forward the incoming request to another target.
- * Preserves method, query, headers, and streams request body.
- */
 export async function forwardRequest(
   req: Request,
   target: string | URL,
-  opts: ProxyOptions = {}
+  opts: ProxyOptions = {},
 ): Promise<Response> {
   const incoming = new URL(req.url);
   const targetUrl = new URL(target.toString());
 
-  // Preserve query string unless target already has one.
   if (!targetUrl.search) {
     targetUrl.search = incoming.search;
   }
@@ -118,14 +165,14 @@ export async function forwardRequest(
   const headers = sanitizeRequestHeaders(req.headers);
 
   const hasBody =
-    req.method !== "GET" &&
-    req.method !== "HEAD" &&
-    req.body != null;
+    req.method !== "GET" && req.method !== "HEAD" && req.body != null;
+
+  const body = hasBody ? req.body : undefined;
 
   return proxyRequest(targetUrl, {
     ...opts,
     method: req.method,
     headers,
-    body: hasBody ? (req.body as ReadableStream) : undefined,
+    ...(body ? { body } : {}),
   });
 }

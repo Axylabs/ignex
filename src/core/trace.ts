@@ -1,12 +1,21 @@
 /**
- * @fileoverview Distributed Tracing — OpenTelemetry-compatible.
+ * Distributed tracing helpers.
+ *
+ * Fixed:
+ * - uses crypto.randomUUID()
+ * - does not mutate response headers directly
  */
 
-import type { FluxContext } from "./context";
-
 export type TraceEvent =
-  | "request" | "parse" | "transform" | "beforeHandle"
-  | "handle" | "afterHandle" | "mapResponse" | "afterResponse" | "error";
+  | "request"
+  | "parse"
+  | "transform"
+  | "beforeHandle"
+  | "handle"
+  | "afterHandle"
+  | "mapResponse"
+  | "afterResponse"
+  | "error";
 
 export interface TraceSpan {
   id: string;
@@ -42,6 +51,7 @@ export const createTraceContext = (requestId: string): TraceContext => {
         begin: performance.now(),
         children: [],
       };
+
       spans.push(span);
       return span;
     },
@@ -53,17 +63,28 @@ export const createTraceContext = (requestId: string): TraceContext => {
 };
 
 export const startTrace = (req: Request): { traceId: string; start: number } => {
-  const traceId = req.headers.get("x-trace-id") || req.headers.get("x-request-id") || Math.random().toString(36).slice(2);
+  const traceId =
+    req.headers.get("x-trace-id") ||
+    req.headers.get("x-request-id") ||
+    crypto.randomUUID();
+
   return { traceId, start: performance.now() };
 };
 
 export const finishTrace = (
-  req: Request,
+  _req: Request,
   trace: { traceId: string; start: number },
   response: Response
 ): Response => {
   const duration = performance.now() - trace.start;
-  response.headers.set("x-trace-id", trace.traceId);
-  response.headers.set("x-response-time", `${duration.toFixed(2)}ms`);
-  return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("x-trace-id", trace.traceId);
+  headers.set("x-response-time", duration.toFixed(2) + "ms");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 };

@@ -14,7 +14,35 @@ import type {
 import * as oxcParser from "oxc-parser";
 
 import { createRequire } from "node:module";
-const optionalRequire = createRequire(import.meta.url);
+/**
+ * Build ImportInfo without assigning explicit undefined properties.
+ *
+ * This satisfies exactOptionalPropertyTypes cleanly.
+ */
+
+const createImportInfo = (
+  source: string,
+  names: string[],
+  defaultName?: string,
+  namespaceName?: string,
+): ImportInfo => {
+  const info: {
+    source: string;
+    names: string[];
+    defaultName?: string;
+    namespaceName?: string;
+  } = {
+    source,
+    names,
+  };
+
+  if (defaultName !== undefined) info.defaultName = defaultName;
+  if (namespaceName !== undefined) info.namespaceName = namespaceName;
+
+  return info;
+};
+
+
 // ---------------------------------------------------------------------------
 // ESTree Walker — tiny, zero-dependency
 // ---------------------------------------------------------------------------
@@ -210,8 +238,10 @@ export function extractHandler(source: string, ast: any): ExtractedHandler | nul
 
 export function extractImportsAST(ast: any): ImportInfo[] {
   const imports: ImportInfo[] = [];
+
   walk(ast, (n) => {
     if (n.type !== "ImportDeclaration") return;
+
     const source = n.source?.value as string;
     if (!source) return;
 
@@ -225,8 +255,9 @@ export function extractImportsAST(ast: any): ImportInfo[] {
       if (spec.type === "ImportSpecifier") names.push(spec.local.name);
     }
 
-    imports.push({ source, names, defaultName, namespaceName });
+    imports.push(createImportInfo(source, names, defaultName, namespaceName));
   });
+
   return imports;
 }
 

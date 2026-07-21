@@ -270,56 +270,8 @@ export interface ServerWebSocket<T = undefined> {
 }
 
 // ============================================================================
-// Compiler Options
+// Compiler Options (shared from compiler)
 // ============================================================================
 
-export interface CompilerOptions {
-  readonly routesDir: string;
-  readonly outDir: string;
-  readonly outFile: string;
-  readonly target: "bun" | "node" | "deno";
-  readonly optimizationLevel: 0 | 1 | 2 | 3;
-  readonly inlineThreshold: number;
-  readonly enableSchemaInlining: boolean;
-  readonly enableResponsePreserialization: boolean;
-  readonly sourceMap: boolean;
-  readonly minify: boolean;
-  readonly enableTracing: boolean;
-  readonly enableAccessLog: boolean;
-  readonly enableLifecycle: boolean;
-  readonly enableStrictMethods: boolean;
-  readonly serviceName: string;
-  readonly requestIdHeader: string;
-  readonly exposeErrorDetails: boolean;
-  readonly maxJsonBytes: number;
-  readonly maxTextBytes: number;
-  readonly maxFormBytes: number;
-  readonly maxFileBytes: number;
-  readonly hooksDir?: string;
-  readonly cluster?: number | "auto";
-  readonly reusePort?: boolean;
-}
-
-export const DEFAULT_OPTS: CompilerOptions = {
-  routesDir: "./src/routes",
-  outDir: "./dist",
-  outFile: "__server.js",
-  target: "bun",
-  optimizationLevel: 3,
-  inlineThreshold: 50,
-  enableSchemaInlining: true,
-  enableResponsePreserialization: true,
-  sourceMap: false,
-  minify: false,
-  enableTracing: true,
-  enableAccessLog: true,
-  enableLifecycle: true,
-  enableStrictMethods: true,
-  serviceName: "flux",
-  requestIdHeader: "x-request-id",
-  exposeErrorDetails: process.env.NODE_ENV !== "production",
-  maxJsonBytes: 2 * 1024 * 1024,
-  maxTextBytes: 2 * 1024 * 1024,
-  maxFormBytes: 2 * 1024 * 1024,
-  maxFileBytes: 20 * 1024 * 1024,
-};
+export type { CompilerOptions } from "../compiler/types";
+export { DEFAULT_OPTS } from "../compiler/types";
