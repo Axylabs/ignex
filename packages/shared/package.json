@@ -13,13 +13,15 @@
     "bun": ">=1.4"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
   },
   "description": "Shared types and constants for Flux.",
   "exports": {
     ".": "./src/index.ts"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

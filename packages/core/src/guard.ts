@@ -3,9 +3,8 @@
  * Apply hooks to a group of routes with proper scoping.
  */
 
-import type { LifeCycleStore, HookContainer, LifeCycleType } from "./types";
-import { EMPTY_LIFECYCLE } from "./types";
 import { mergeHookArrays } from "./hooks";
+import type { HookContainer, LifeCycleStore, LifeCycleType } from "./types";
 
 export interface GuardOptions {
   scope?: LifeCycleType;
@@ -22,7 +21,11 @@ export const createGuard = (options: GuardOptions = {}) => {
   const toContainers = (hooks: HookContainer | HookContainer[] | undefined): HookContainer[] => {
     if (!hooks) return [];
     const arr = Array.isArray(hooks) ? hooks : [hooks];
-    return arr.map(h => ({ ...h, scope: h.scope ?? scope }));
+    return arr.map((h) =>
+      // A bare function is a valid hook (same dialect as `lifecycle`); do NOT
+      // spread it (spreading a function yields `{}` and drops the hook).
+      typeof h === "function" ? { fn: h, scope } : { ...h, scope: h.scope ?? scope },
+    );
   };
 
   const guardHooks: Partial<LifeCycleStore> = {

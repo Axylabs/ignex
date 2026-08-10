@@ -27,6 +27,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# generated AI context artifacts
+repomix-output.txt
+project.txt
+*.repomix
+
 # IntelliJ based IDEs
 .idea
 

@@ -1,12 +1,12 @@
 /**
- * Rate limit plugin — Bun 1.4 edition.
+ * @fileoverview Rate limit plugin — Bun 1.4 edition.
  *
  * Uses ctx.ip, which prefers Bun server.requestIP().
  */
 
-import type { FluxPlugin } from "../plugin";
 import type { FluxContext } from "../context";
 import { LRUCache } from "../lru";
+import type { FluxPlugin } from "../plugin";
 
 export interface RateLimitOptions {
   windowMs?: number;
@@ -89,7 +89,7 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
               "content-type": "application/json",
               ...getHeaders(entry),
             },
-          }
+          },
         );
       }
 

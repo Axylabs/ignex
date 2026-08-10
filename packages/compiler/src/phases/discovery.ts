@@ -5,21 +5,19 @@
  * Now with functional composition and error recovery.
  */
 
-import { readdirSync, statSync, readFileSync } from "fs";
-import { join, dirname, basename, extname } from "path";
-
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
+import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
 import type {
-  ModuleInfo,
-  RouteDef,
-  HttpMethod,
+  CompilerContext,
   CompilerOptions,
   DiscoveryResult,
+  HttpMethod,
+  ModuleInfo,
+  RouteDef,
 } from "../types";
-
-import { HTTP_METHODS, normalizeHttpMethod } from "../types";
+import { normalizeHttpMethod } from "../types";
 import { parseModule as parseModuleAST } from "../utils/ast";
-import type { Logger } from "../logger";
-import { tryCatch } from "../fp";
 
 // Pure Functions
 export const isRouteFile = (entry: string): boolean =>
@@ -28,42 +26,54 @@ export const isRouteFile = (entry: string): boolean =>
 export const isValidDir = (entry: string): boolean =>
   !entry.startsWith(".") && entry !== "node_modules";
 
-/** Safely read directory, returning empty array on error. */
-const safeReaddir = (dir: string): string[] => {
-  const result = tryCatch(() => readdirSync(dir));
-  return result.ok ? result.value : [];
-};
-
-/** Safely check if path is directory. */
-const safeIsDir = (path: string): boolean => {
-  const result = tryCatch(() => statSync(path).isDirectory());
-  return result.ok ? result.value : false;
-};
-
-/** Safely read file, returning empty string on error. */
-const safeReadFile = (path: string): string => {
-  const result = tryCatch(() => readFileSync(path, "utf-8"));
-  return result.ok ? result.value : "";
-};
-export const scanDirectory = (dir: string, base = ""): string[] => {
+export const scanDirectory = (
+  dir: string,
+  base = "",
+  diagnostics?: DiagnosticCollector,
+): string[] => {
   const out: string[] = [];
-  for (const entry of safeReaddir(dir)) {
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch (error) {
+    diagnostics?.warn({
+      code: DiagnosticCodes.IoScanFailed,
+      message: `Failed to read directory: ${errorMessage(error)}`,
+      file: dir,
+    });
+    return out;
+  }
+
+  for (const entry of entries) {
     const abs = join(dir, entry);
     const rel = join(base, entry).replace(/\\/g, "/");
-    if (safeIsDir(abs)) {
+
+    let isDir = false;
+    try {
+      isDir = statSync(abs).isDirectory();
+    } catch {
+      // Ignore entries that disappear mid-scan; skip them.
+    }
+
+    if (isDir) {
       if (isValidDir(entry)) {
-        out.push(...scanDirectory(abs, rel));
+        out.push(...scanDirectory(abs, rel, diagnostics));
       }
     } else if (isRouteFile(entry)) {
       out.push(rel);
     }
   }
+
   return out;
 };
 
 export const parseRouteFilename = (
-  file: string
-): Pick<RouteDef, "method" | "path" | "paramNames" | "isDynamic" | "isStatic" | "segmentCount"> | null => {
+  file: string,
+): Pick<
+  RouteDef,
+  "method" | "path" | "paramNames" | "isDynamic" | "isStatic" | "segmentCount"
+> | null => {
   const ext = extname(file);
   const name = basename(file, ext);
   const parts = name.split(".");
@@ -81,7 +91,7 @@ export const parseRouteFilename = (
   }
 
   const dirPart = dirname(file);
-  let routePath = "/" + join(dirPart, routeName).replace(/\\/g, "/");
+  let routePath = `/${join(dirPart, routeName).replace(/\\/g, "/")}`;
   if (routePath.endsWith("/index")) {
     routePath = routePath.slice(0, -5) || "/";
   }
@@ -93,13 +103,13 @@ export const parseRouteFilename = (
     isDynamic = true;
     const pname = raw.slice(3);
     paramNames.push(pname);
-    return "*" + pname;
+    return `*${pname}`;
   });
 
   routePath = routePath.replace(/\[([^\]]+)\]/g, (_, pname: string) => {
     isDynamic = true;
     paramNames.push(pname);
-    return ":" + pname;
+    return `:${pname}`;
   });
 
   return {
@@ -116,8 +126,9 @@ export const parseModule = (
   filePath: string,
   relPath: string,
   content: string,
+  diagnostics?: DiagnosticCollector,
 ): ModuleInfo => {
-  const parsed = parseModuleAST(content);
+  const parsed = parseModuleAST(content, diagnostics);
 
   return {
     path: filePath,
@@ -127,26 +138,49 @@ export const parseModule = (
     exports: parsed.exports,
     symbols: parsed.symbols,
     hasDefaultExport: parsed.hasDefaultExport,
+    hasHandlerExport: parsed.hasHandlerExport,
     callGraph: new Map(),
     dataFlow: new Map(),
 
+    ...(parsed.handlerExportName !== undefined
+      ? { handlerExportName: parsed.handlerExportName }
+      : {}),
     ...(parsed.schemaExport ? { schemaExport: "schema" } : {}),
     ...(parsed.configExport ? { configExport: "config" } : {}),
   };
 };
 
 // Phase Orchestrator — Functional composition
-export const runDiscovery = (opts: CompilerOptions, logger: Logger): DiscoveryResult =>
-  logger.time("discovery", () => {
-    const files = scanDirectory(opts.routesDir);
-    const modules = files.map(f => {
-      const abs = join(opts.routesDir, f);
-      const content = safeReadFile(abs);
-      return parseModule(abs, f, content);
-    }).filter(m => m.content.length > 0); // Skip unreadable files
+export const runDiscovery = (opts: CompilerOptions, ctx: CompilerContext): DiscoveryResult =>
+  ctx.logger.time("discovery", () => {
+    const files = scanDirectory(opts.routesDir, "", ctx.diagnostics);
+    const modules: ModuleInfo[] = [];
 
-    logger.info(`Discovered ${files.length} files, ${modules.length} modules`, {
+    for (const f of files) {
+      const abs = join(opts.routesDir, f);
+
+      let content: string;
+      try {
+        content = readFileSync(abs, "utf-8");
+      } catch (error) {
+        ctx.diagnostics.warn({
+          code: DiagnosticCodes.IoReadFailed,
+          message: `Failed to read route file: ${errorMessage(error)}`,
+          file: abs,
+        });
+        continue;
+      }
+
+      if (!content || content.length === 0) {
+        continue;
+      }
+
+      modules.push(parseModule(abs, f, content, ctx.diagnostics));
+    }
+
+    ctx.logger.info(`Discovered ${files.length} files, ${modules.length} modules`, {
       routesDir: opts.routesDir,
     });
+
     return { files, modules };
   });

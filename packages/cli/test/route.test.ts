@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { httpExportName, routeFileTemplate } from "../src/templates/route.js";
 import { parseRouteInput } from "../src/utils/route.js";
 
 test("parses static route", () => {
@@ -32,4 +33,56 @@ test("normalizes delete to del", () => {
 
   expect(parsed.method).toBe("del");
   expect(parsed.file).toBe("products/[id].del.ts");
+});
+
+test("httpExportName maps methods to conventional identifiers", () => {
+  expect(httpExportName("get")).toBe("httpGet");
+  expect(httpExportName("post")).toBe("httpPost");
+  expect(httpExportName("put")).toBe("httpPut");
+  expect(httpExportName("patch")).toBe("httpPatch");
+  expect(httpExportName("del")).toBe("httpDelete");
+  expect(httpExportName("all")).toBe("httpAll");
+});
+
+test("default route template uses export default", () => {
+  const parsed = parseRouteInput("hello.get");
+  const code = routeFileTemplate(parsed);
+
+  expect(code).toContain('import { get } from "@flux/core/http";');
+  expect(code).toContain('export default get(() => new Response("OK"));');
+  expect(code).not.toContain("export const httpGet");
+});
+
+test("named route template uses export const httpGet", () => {
+  const parsed = parseRouteInput("hello.get");
+  const code = routeFileTemplate(parsed, { named: true });
+
+  expect(code).toContain('import { get } from "@flux/core/http";');
+  expect(code).toContain('export const httpGet = get(() => new Response("OK"));');
+  expect(code).not.toContain("export default");
+});
+
+test("named dynamic template wires params into a named handler", () => {
+  const parsed = parseRouteInput("products/[id].get");
+  const code = routeFileTemplate(parsed, { named: true });
+
+  expect(code).toContain("export const httpGet = get((ctx) => {");
+  expect(code).toContain("const { id } = ctx.params;");
+});
+
+test("named schema template emits schema export + named handler", () => {
+  const parsed = parseRouteInput("products/[id].get");
+  const code = routeFileTemplate(parsed, { schema: true, named: true });
+
+  expect(code).toContain("export const schema = {");
+  expect(code).toContain("export const httpGet = get(");
+  expect(code).toContain("params: Type.Object({ id: Type.String() }),");
+});
+
+test("named post template uses httpPost", () => {
+  const parsed = parseRouteInput("products/add", "post");
+  const code = routeFileTemplate(parsed, { named: true });
+
+  expect(code).toContain("export const httpPost = post(async (ctx) => {");
+  expect(code).toContain("await ctx.body.json();");
 });

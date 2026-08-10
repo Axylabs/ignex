@@ -26,10 +26,7 @@ function normalizeMethod(input: string | undefined): RouteMethod | undefined {
 }
 
 export function parseRouteInput(raw: string, methodFlag?: string): ParsedRoute {
-  let input = raw
-    .trim()
-    .replace(/\.ts$/, "")
-    .replace(/^\//, "");
+  let input = raw.trim().replace(/\.ts$/, "").replace(/^\//, "");
 
   if (!input) {
     throw new Error("Route path is required.");
@@ -59,17 +56,17 @@ export function parseRouteInput(raw: string, methodFlag?: string): ParsedRoute {
 
   const pathSegments = segments.map((segment) => {
     const catchAll = segment.match(/^\[\.\.\.(.+)\]$/);
-    if (catchAll) {
-      const name = catchAll[1]!;
-      paramNames.push(name);
-      return `*${name}`;
+    const catchName = catchAll?.[1];
+    if (catchName) {
+      paramNames.push(catchName);
+      return `*${catchName}`;
     }
 
     const param = segment.match(/^\[(.+)\]$/);
-    if (param) {
-      const name = param[1]!;
-      paramNames.push(name);
-      return `:${name}`;
+    const paramName = param?.[1];
+    if (paramName) {
+      paramNames.push(paramName);
+      return `:${paramName}`;
     }
 
     return segment;

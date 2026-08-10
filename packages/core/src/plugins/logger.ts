@@ -1,13 +1,13 @@
 /**
- * Logger plugin.
+ * @fileoverview Logger plugin.
  *
  * Hardened:
  * - redacts sensitive headers
  * - exactOptionalPropertyTypes-safe pino options
  */
 import pino, { type Logger as PinoLogger } from "pino";
-import type { FluxPlugin } from "../plugin";
 import type { FluxContext } from "../context";
+import type { FluxPlugin } from "../plugin";
 
 export interface LoggerOptions {
   level?: string;

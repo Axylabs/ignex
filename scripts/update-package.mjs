@@ -46,4 +46,4 @@ Object.assign(pkg.scripts, {
   smoke: "bun run dist/__server.js",
 });
 
-writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);

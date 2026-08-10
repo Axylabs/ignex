@@ -1,11 +1,11 @@
-import { parseArgs } from "node:util";
-import { resolve, join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { exists, writeFileEnsuringDir } from "../utils/fs.js";
-import { loadConfig } from "../utils/config.js";
-import { parseRouteInput } from "../utils/route.js";
+import { parseArgs } from "node:util";
 import { routeFileTemplate } from "../templates/route.js";
+import { loadConfig } from "../utils/config.js";
+import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { parseRouteInput } from "../utils/route.js";
 
 export async function runRoute(args: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
@@ -15,6 +15,7 @@ export async function runRoute(args: string[]): Promise<void> {
       dir: { type: "string" },
       method: { type: "string" },
       schema: { type: "boolean" },
+      named: { type: "boolean" },
       force: { type: "boolean" },
     },
     allowPositionals: true,
@@ -63,7 +64,10 @@ export async function runRoute(args: string[]): Promise<void> {
 
   await writeFileEnsuringDir(
     filePath,
-    routeFileTemplate(parsed, { schema: Boolean(values.schema) }),
+    routeFileTemplate(parsed, {
+      schema: Boolean(values.schema),
+      named: Boolean(values.named),
+    }),
   );
 
   success(`Created ${relative(process.cwd(), filePath)}`);
@@ -71,5 +75,11 @@ export async function runRoute(args: string[]): Promise<void> {
   if (values.schema) {
     info("Schema template uses @sinclair/typebox. Install it if missing:");
     info("  bun add @sinclair/typebox");
+  }
+
+  if (values.named) {
+    info(
+      "Route uses a named export (export const httpGet = ...). The compiler accepts both styles.",
+    );
   }
 }

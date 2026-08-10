@@ -8,9 +8,9 @@
  */
 
 import { stat } from "fs/promises";
-import { basename, resolve, normalize, sep } from "path";
-import { NotFoundError, ForbiddenError } from "./errors";
+import { basename, normalize, resolve, sep } from "path";
 import { cacheControl } from "./cache";
+import { ForbiddenError, NotFoundError } from "./errors";
 
 export interface SendFileOptions {
   req?: Request;
@@ -46,11 +46,7 @@ export function safeJoin(root: string, target: string): string {
   return resolved;
 }
 
-function isNotModified(
-  req: Request,
-  etag: string,
-  lastModified: string
-): boolean {
+function isNotModified(req: Request, etag: string, lastModified: string): boolean {
   const inm = req.headers.get("if-none-match");
 
   if (
@@ -72,10 +68,7 @@ function isNotModified(
   return false;
 }
 
-export async function sendFile(
-  path: string,
-  opts: SendFileOptions = {}
-): Promise<Response> {
+export async function sendFile(path: string, opts: SendFileOptions = {}): Promise<Response> {
   const stats = await stat(path).catch(() => null);
 
   if (!stats || !stats.isFile()) {
@@ -84,44 +77,33 @@ export async function sendFile(
 
   const file = Bun.file(path);
 
-  const etag = `W/"${stats.size.toString(16)}-${Math.floor(
-    stats.mtimeMs
-  ).toString(16)}"`;
+  const etag = `W/"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
 
   const lastModified = stats.mtime.toUTCString();
 
   const headers = new Headers();
 
-  headers.set(
-    "content-type",
-    opts.contentType || file.type || "application/octet-stream"
-  );
+  headers.set("content-type", opts.contentType || file.type || "application/octet-stream");
 
-headers.set(
-  "cache-control",
-  cacheControl({
-    public: !opts.isPrivate,
-    maxAge: opts.maxAge ?? 3600,
-    ...(opts.isPrivate !== undefined ? { private: opts.isPrivate } : {}),
-    ...(opts.swr !== undefined ? { swr: opts.swr } : {}),
-    ...(opts.immutable !== undefined ? { immutable: opts.immutable } : {}),
-  }),
-);
+  headers.set(
+    "cache-control",
+    cacheControl({
+      public: !opts.isPrivate,
+      maxAge: opts.maxAge ?? 3600,
+      ...(opts.isPrivate !== undefined ? { private: opts.isPrivate } : {}),
+      ...(opts.swr !== undefined ? { swr: opts.swr } : {}),
+      ...(opts.immutable !== undefined ? { immutable: opts.immutable } : {}),
+    }),
+  );
 
   headers.set("etag", etag);
   headers.set("last-modified", lastModified);
   headers.set("accept-ranges", "bytes");
 
   if (opts.download) {
-    const filename =
-      typeof opts.download === "string"
-        ? opts.download
-        : basename(path);
+    const filename = typeof opts.download === "string" ? opts.download : basename(path);
 
-    headers.set(
-      "content-disposition",
-      `attachment; filename="${filename.replace(/"/g, "")}"`
-    );
+    headers.set("content-disposition", `attachment; filename="${filename.replace(/"/g, "")}"`);
   }
 
   if (opts.req && isNotModified(opts.req, etag, lastModified)) {
@@ -158,12 +140,7 @@ headers.set(
       end = match[2] ? parseInt(match[2], 10) : stats.size - 1;
     }
 
-    if (
-      Number.isNaN(start) ||
-      Number.isNaN(end) ||
-      start > end ||
-      start >= stats.size
-    ) {
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stats.size) {
       return new Response("Range Not Satisfiable", {
         status: 416,
         headers: {
@@ -191,20 +168,14 @@ headers.set(
   });
 }
 
-export function streamDownload(
-  stream: ReadableStream,
-  opts: StreamDownloadOptions = {}
-): Response {
+export function streamDownload(stream: ReadableStream, opts: StreamDownloadOptions = {}): Response {
   const headers = new Headers({
     "content-type": opts.contentType || "application/octet-stream",
     "cache-control": opts.cacheControl || "no-store",
   });
 
   if (opts.filename) {
-    headers.set(
-      "content-disposition",
-      `attachment; filename="${opts.filename.replace(/"/g, "")}"`
-    );
+    headers.set("content-disposition", `attachment; filename="${opts.filename.replace(/"/g, "")}"`);
   }
 
   if (opts.size != null) {

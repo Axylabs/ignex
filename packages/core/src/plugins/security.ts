@@ -1,11 +1,11 @@
 /**
- * Security headers plugin — Bun 1.4 edition.
+ * @fileoverview Security headers plugin — Bun 1.4 edition.
  *
  * HSTS only on HTTPS requests.
  */
 
-import type { FluxPlugin } from "../plugin";
 import type { FluxContext } from "../context";
+import type { FluxPlugin } from "../plugin";
 
 export interface SecurityOptions {
   contentSecurityPolicy?: string | false;

@@ -1,9 +1,9 @@
 import { pathToFileURL } from "node:url";
 import { runBuild } from "./commands/build.js";
-import { runDev } from "./commands/dev.js";
 import { runCreate } from "./commands/create.js";
-import { runRoute } from "./commands/route.js";
+import { runDev } from "./commands/dev.js";
 import { runInfo } from "./commands/info.js";
+import { runRoute } from "./commands/route.js";
 
 const HELP = `
 @flux/cli

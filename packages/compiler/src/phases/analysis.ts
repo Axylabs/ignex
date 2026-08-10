@@ -3,34 +3,30 @@
  * Detects ctx usage at build time. Produces RouteDefs from discovered modules.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { DiagnosticCodes, type DiagnosticCollector } from "../diagnostics";
 import type {
-  RouteDef,
-  ModuleInfo,
-  CompilerOptions,
-  HttpMethod,
-  DiscoveryResult,
   AnalysisResult,
+  AppConfigInfo,
+  CompilerContext,
+  CompilerOptions,
+  DiscoveryResult,
   HookDef,
-  ContextUsage,
+  HttpMethod,
+  ModuleInfo,
   RouteCacheConfig,
+  RouteDef,
 } from "../types";
-
-import { HTTP_METHODS, FULL_CONTEXT_USAGE } from "../types";
-import { parseRouteFilename } from "./discovery";
-import { computeSignatureHash } from "../utils/hash";
+import { FULL_CONTEXT_USAGE, HTTP_METHODS } from "../types";
 import {
-  parseModule,
-  isPureBodyAST,
   inferResponseTypeAST,
+  isPureBodyAST,
+  parseModule,
+  parseModule as parseModuleAST,
 } from "../utils/ast";
-
-
-
-import type { Logger } from "../logger";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { parseModule as parseModuleAST } from "../utils/ast";
-import type { AppConfigInfo } from "../types";
+import { computeSignatureHash } from "../utils/hash";
+import { projectPath } from "../utils/path";
+import { parseRouteFilename } from "./discovery";
 
 const safeReadFile = (path: string): string => {
   try {
@@ -40,11 +36,9 @@ const safeReadFile = (path: string): string => {
   }
 };
 
-export const resolveAppConfig = (
-  opts: CompilerOptions,
-): AppConfigInfo | undefined => {
+export const resolveAppConfig = (opts: CompilerOptions): AppConfigInfo | undefined => {
   const relPath = opts.appConfig ?? "./src/app.config.ts";
-  const absPath = join(process.cwd(), relPath);
+  const absPath = projectPath(relPath);
 
   if (!existsSync(absPath)) {
     return undefined;
@@ -63,8 +57,7 @@ export const resolveAppConfig = (
     path: absPath,
     relPath,
     hasPlugins: exportNames.has("plugins"),
-    hasLifecycle:
-      exportNames.has("lifecycle") || exportNames.has("hooks"),
+    hasLifecycle: exportNames.has("lifecycle") || exportNames.has("hooks"),
     hasServer: exportNames.has("server"),
   };
 };
@@ -75,12 +68,12 @@ export const resolveAppConfig = (
 export const parseRouteFile = (file: string) => parseRouteFilename(file);
 
 export const findModuleByPath = (
-  modules: readonly ModuleInfo[], relPath: string
+  modules: readonly ModuleInfo[],
+  relPath: string,
 ): ModuleInfo | undefined => modules.find((m) => m.relPath === relPath);
 
-export const findModuleIndex = (
-  modules: readonly ModuleInfo[], relPath: string
-): number => modules.findIndex((m) => m.relPath === relPath);
+export const findModuleIndex = (modules: readonly ModuleInfo[], relPath: string): number =>
+  modules.findIndex((m) => m.relPath === relPath);
 
 // ============================================================================
 // Constant Response Detection
@@ -99,9 +92,10 @@ const evaluateConstantBodyAST = (ast: any): string | null => {
 };
 
 export const detectConstantResponse = (
-  mod: ModuleInfo
+  mod: ModuleInfo,
+  diagnostics?: DiagnosticCollector,
 ): { isConstant: boolean; constantResponse?: string } => {
-  const parsed = parseModule(mod.content);
+  const parsed = parseModule(mod.content, diagnostics);
 
   if (!parsed.handler) {
     return { isConstant: false };
@@ -128,10 +122,7 @@ export const detectConstantResponse = (
 // ============================================================================
 
 export const buildHandlerRef = (routeIndex: number): string => `_h${routeIndex}`;
-export const buildSchemaRef = (routeIndex: number, hasSchema: boolean): string | null =>
-  hasSchema ? `_s${routeIndex}` : null;
-export const computeMethodIndex = (method: HttpMethod): number =>
-  HTTP_METHODS.indexOf(method);
+export const computeMethodIndex = (method: HttpMethod): number => HTTP_METHODS.indexOf(method);
 
 export const findHandlerSymbol = (mod: ModuleInfo) =>
   mod.symbols.find((s) => s.name === "default") || mod.symbols[0];
@@ -140,9 +131,7 @@ export const findHandlerSymbol = (mod: ModuleInfo) =>
  *
  * Pure and exactOptionalPropertyTypes-safe.
  */
-const normalizeRouteCache = (
-  input: unknown,
-): RouteCacheConfig | undefined => {
+const normalizeRouteCache = (input: unknown): RouteCacheConfig | undefined => {
   if (typeof input === "number") {
     return { maxAge: input };
   }
@@ -165,14 +154,11 @@ const normalizeRouteCache = (
   if (typeof cfg.immutable === "boolean") cache.immutable = cfg.immutable;
 
   if (Array.isArray(cfg.vary)) {
-    cache.vary = cfg.vary.filter(
-      (item): item is string => typeof item === "string",
-    );
+    cache.vary = cfg.vary.filter((item): item is string => typeof item === "string");
   }
 
   return Object.keys(cache).length > 0 ? cache : undefined;
 };
-
 
 export const createRouteDef = (
   file: string,
@@ -180,25 +166,23 @@ export const createRouteDef = (
   mod: ModuleInfo,
   routeIndex: number,
   moduleIdx: number,
+  diagnostics?: DiagnosticCollector,
 ): RouteDef => {
   const handlerSym = findHandlerSymbol(mod);
   const methodIdx = computeMethodIndex(parsed.method);
 
-  const astParsed = parseModule(mod.content);
+  const astParsed = parseModule(mod.content, diagnostics);
 
   const cache = normalizeRouteCache(astParsed.config?.cache);
   const usage = astParsed.handler?.usage ?? FULL_CONTEXT_USAGE;
 
-  const isAsync =
-    astParsed.handler?.isAsync ?? handlerSym?.isAsync ?? false;
+  const isAsync = astParsed.handler?.isAsync ?? handlerSym?.isAsync ?? false;
 
   const hooks = Array.isArray(astParsed.config?.hooks)
-    ? astParsed.config.hooks.filter(
-        (x: unknown): x is string => typeof x === "string",
-      )
+    ? astParsed.config.hooks.filter((x: unknown): x is string => typeof x === "string")
     : [];
 
-  const { isConstant, constantResponse } = detectConstantResponse(mod);
+  const { isConstant, constantResponse } = detectConstantResponse(mod, diagnostics);
   const inferredResponseType = inferResponseTypeAST(astParsed.ast);
 
   const responseType = usage.json
@@ -216,7 +200,6 @@ export const createRouteDef = (
     file,
     moduleIdx,
     handlerRef: buildHandlerRef(routeIndex),
-    schemaRef: buildSchemaRef(routeIndex, !!mod.schemaExport),
     signatureHash: computeSignatureHash(methodIdx, parsed.path),
     handlerSize: handlerSym?.size || 9999,
     isAsync,
@@ -231,18 +214,23 @@ export const createRouteDef = (
     ...(constantResponse !== undefined ? { constantResponse } : {}),
     ...(cache !== undefined ? { cache } : {}),
     ...(astParsed.config !== undefined ? { config: astParsed.config } : {}),
+    ...(astParsed.handlerExportName !== undefined
+      ? { handlerExportName: astParsed.handlerExportName }
+      : {}),
   };
 };
 
 export const resolveRouteModule = (
   file: string,
-  modules: readonly ModuleInfo[]
+  modules: readonly ModuleInfo[],
 ): { mod: ModuleInfo; parsed: NonNullable<ReturnType<typeof parseRouteFilename>> } | null => {
   const parsed = parseRouteFile(file);
   if (!parsed) return null;
   const mod = findModuleByPath(modules, file);
   if (!mod) return null;
-  if (!mod.hasDefaultExport) return null;
+  // Accept default-export handlers AND named-export handlers
+  // (`export const httpGet = get(...)`, `export function httpGet(...)`).
+  if (!mod.hasHandlerExport) return null;
   return { mod, parsed };
 };
 
@@ -252,7 +240,8 @@ export const resolveRouteModule = (
 
 export const buildRouteGraph = (
   files: readonly string[],
-  modules: readonly ModuleInfo[]
+  modules: readonly ModuleInfo[],
+  diagnostics?: DiagnosticCollector,
 ): RouteDef[] => {
   const routes: RouteDef[] = [];
 
@@ -264,13 +253,7 @@ export const buildRouteGraph = (
     if (moduleIdx < 0) continue;
 
     routes.push(
-      createRouteDef(
-        file,
-        resolved.parsed,
-        resolved.mod,
-        routes.length,
-        moduleIdx
-      )
+      createRouteDef(file, resolved.parsed, resolved.mod, routes.length, moduleIdx, diagnostics),
     );
   }
 
@@ -280,12 +263,11 @@ export const buildRouteGraph = (
 // Dead Route Detection — Pure
 // ============================================================================
 
-export const staticRouteKey = (route: RouteDef): string =>
-  `${route.method}:${route.path}`;
+export const staticRouteKey = (route: RouteDef): string => `${route.method}:${route.path}`;
 
 export const detectDeadRoutes = (
   routes: readonly RouteDef[],
-  modules: readonly ModuleInfo[]
+  modules: readonly ModuleInfo[],
 ): { alive: RouteDef[]; dead: RouteDef[] } => {
   const seen = new Map<string, number>();
   const alive: RouteDef[] = [];
@@ -309,7 +291,6 @@ export const detectDeadRoutes = (
   return { alive, dead };
 };
 
-
 export interface RouteConflictIssue {
   readonly level: "error" | "warn";
   readonly message: string;
@@ -329,7 +310,7 @@ const normalizeConflictPattern = (path: string): string =>
 export const detectRouteConflicts = (
   routes: readonly RouteDef[],
   opts: CompilerOptions,
-  logger: Logger,
+  ctx: CompilerContext,
 ): void => {
   const issues: RouteConflictIssue[] = [];
 
@@ -374,11 +355,12 @@ export const detectRouteConflicts = (
   }
 
   for (const issue of issues) {
-    if (issue.level === "error") {
-      logger.error(issue.message, { routes: issue.routes });
-    } else {
-      logger.warn(issue.message, { routes: issue.routes });
-    }
+    ctx.diagnostics.warn({
+      code:
+        issue.level === "error" ? DiagnosticCodes.RouteConflict : DiagnosticCodes.AmbiguousRoute,
+      message: issue.message,
+      file: issue.routes[0],
+    });
   }
 
   const hasError = issues.some((issue) => issue.level === "error");
@@ -389,7 +371,7 @@ export const detectRouteConflicts = (
 };
 
 // ============================================================================
-// Hook Resolution — Pure
+// Hook Resolution — Pure + validated
 // ============================================================================
 
 export const collectHookNames = (routes: readonly RouteDef[]): Set<string> => {
@@ -400,24 +382,72 @@ export const collectHookNames = (routes: readonly RouteDef[]): Set<string> => {
   return referenced;
 };
 
-export const createHookDef = (name: string, hooksDir: string): HookDef => ({
-  name,
-  source: `${hooksDir}/${name}.ts`,
-  moduleIdx: -1,
-  isAsync: true,
-});
+/**
+ * Resolve and validate a single hook module: it must exist under `hooksDir`
+ * and parse successfully. Emits `FLX_HOOK_MISSING` when it does not.
+ */
+export const resolveHook = (
+  name: string,
+  hooksDir: string,
+  ctx?: CompilerContext,
+): HookDef | undefined => {
+  const rel = `${hooksDir}/${name}.ts`;
+  const abs = projectPath(rel);
+
+  if (!existsSync(abs)) {
+    ctx?.diagnostics.warn({
+      code: DiagnosticCodes.HookMissing,
+      message: `Route references hook '${name}' but '${rel}' does not exist.`,
+      file: abs,
+    });
+    return undefined;
+  }
+
+  const content = safeReadFile(abs);
+  const parsed = parseModule(content, ctx?.diagnostics);
+  const isAsync = parsed.handler?.isAsync ?? parsed.symbols.some((s) => s.isAsync) ?? true;
+
+  return { name, source: abs, moduleIdx: -1, isAsync };
+};
 
 export const resolveHooks = (
   routes: readonly RouteDef[],
-  hooksDir: string | undefined
+  hooksDir: string | undefined,
+  ctx?: CompilerContext,
 ): ReadonlyMap<string, HookDef> => {
   const names = collectHookNames(routes);
   const hooks = new Map<string, HookDef>();
   if (!hooksDir || names.size === 0) return hooks;
+
   for (const name of names) {
-    hooks.set(name, createHookDef(name, hooksDir));
+    const hook = resolveHook(name, hooksDir, ctx);
+    if (hook) hooks.set(name, hook);
   }
+
   return hooks;
+};
+
+// ============================================================================
+// Call Graph & Data Flow (built from per-module symbol call info)
+// ============================================================================
+
+/** caller → set of callees (from symbol `calls`). */
+export const buildCallGraph = (mod: ModuleInfo): ReadonlyMap<string, ReadonlySet<string>> => {
+  const graph = new Map<string, Set<string>>();
+  for (const symbol of mod.symbols) {
+    graph.set(symbol.name, new Set(symbol.calls));
+  }
+  return graph;
+};
+
+/** symbol → set of symbols it depends on (calls ∪ referenced identifiers). */
+export const buildDataFlow = (mod: ModuleInfo): ReadonlyMap<string, ReadonlySet<string>> => {
+  const names = new Set(mod.symbols.map((s) => s.name));
+  const flow = new Map<string, Set<string>>();
+  for (const symbol of mod.symbols) {
+    flow.set(symbol.name, new Set(symbol.calls.filter((c) => names.has(c))));
+  }
+  return flow;
 };
 
 // ============================================================================
@@ -426,7 +456,7 @@ export const resolveHooks = (
 
 export const countRoutes = (
   routes: readonly RouteDef[],
-  predicate: (r: RouteDef) => boolean
+  predicate: (r: RouteDef) => boolean,
 ): number => routes.filter(predicate).length;
 
 export const countStatic = (routes: readonly RouteDef[]): number =>
@@ -443,25 +473,50 @@ export const countConstant = (routes: readonly RouteDef[]): number =>
 export const runAnalysis = (
   discovery: DiscoveryResult,
   opts: CompilerOptions,
-  logger: Logger,
+  ctx: CompilerContext,
 ): AnalysisResult =>
-  logger.time("analysis", () => {
-    const routes = buildRouteGraph(discovery.files, discovery.modules);
+  ctx.logger.time("analysis", () => {
+    const routes = buildRouteGraph(discovery.files, discovery.modules, ctx.diagnostics);
     const { alive, dead } = detectDeadRoutes(routes, discovery.modules);
 
     if (dead.length > 0) {
-      logger.warn(`Eliminated ${dead.length} dead route(s)`, {
-        dead: dead.map((r) => `${r.method} ${r.path}`),
-      });
+      for (const r of dead) {
+        ctx.diagnostics.warn({
+          code: DiagnosticCodes.DeadRoute,
+          message: `Route eliminated (dead or duplicate): ${r.method} ${r.path}`,
+          file: r.file,
+        });
+      }
     }
 
-    detectRouteConflicts(alive, opts, logger);
+    detectRouteConflicts(alive, opts, ctx);
 
-    const hooks = resolveHooks(alive, opts.hooksDir);
+    // Enrich modules with the call graph / data-flow maps (populated from the
+    // per-symbol call info extracted during parsing).
+    const modules = discovery.modules.map((mod) => ({
+      ...mod,
+      callGraph: buildCallGraph(mod),
+      dataFlow: buildDataFlow(mod),
+    }));
+
+    // Hotness = handler symbol fan-in (calls within its module) + the number
+    // of routes sharing the same module (shared-handler pressure).
+    const shared = new Map<number, number>();
+    for (const route of alive) {
+      shared.set(route.moduleIdx, (shared.get(route.moduleIdx) ?? 0) + 1);
+    }
+    const routesWithHotness = alive.map((route) => {
+      const mod = modules[route.moduleIdx];
+      const handlerSym = mod ? findHandlerSymbol(mod) : undefined;
+      const score = (handlerSym?.hotness ?? 0) + (shared.get(route.moduleIdx) ?? 1);
+      return score === route.hotnessScore ? route : { ...route, hotnessScore: score };
+    });
+
+    const hooks = resolveHooks(routesWithHotness, opts.hooksDir, ctx);
     const appConfig = resolveAppConfig(opts);
 
     if (appConfig) {
-      logger.info(`App config found: ${appConfig.relPath}`, {
+      ctx.logger.info(`App config found: ${appConfig.relPath}`, {
         plugins: appConfig.hasPlugins,
         lifecycle: appConfig.hasLifecycle,
         server: appConfig.hasServer,
@@ -469,8 +524,8 @@ export const runAnalysis = (
     }
 
     return {
-      routes: alive,
-      modules: discovery.modules,
+      routes: routesWithHotness,
+      modules,
       hooks,
       ...(appConfig ? { appConfig } : {}),
     };

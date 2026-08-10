@@ -63,7 +63,8 @@ export const createPluginContext = (): PluginContext => {
       for (const p of plugins) await p.init?.();
     },
     async closeAll() {
-      for (const p of plugins) await p.close?.();
+      // Reverse (onion) order: last registered closes first.
+      for (const p of [...plugins].reverse()) await p.close?.();
     },
   };
 };
@@ -112,12 +113,39 @@ function isFluxPlugin(value: unknown): value is FluxPlugin {
   return typeof value === "object" && value !== null && "name" in value;
 }
 
-export const pluginsToLifeCycle = (
-  plugins: unknown[],
-): Partial<LifeCycleStore> => {
-  const list = (plugins ?? [])
-    .flat()
-    .filter(isFluxPlugin);
+const LIFECYCLE_STAGES = [
+  "start",
+  "request",
+  "parse",
+  "transform",
+  "beforeHandle",
+  "afterHandle",
+  "mapResponse",
+  "afterResponse",
+  "error",
+  "stop",
+] as const;
+
+/**
+ * Convert hooks registered on a {@link PluginContext} (via `addHook`) into
+ * lifecycle stage containers. This is what makes legacy callable/`setup`
+ * plugins — which register hooks on the context — actually run, instead of
+ * being invoked for side effects and then silently dropped.
+ */
+export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleStore> => {
+  const out: Partial<LifeCycleStore> = {};
+
+  for (const stage of LIFECYCLE_STAGES) {
+    const hooks = ctx.getHooks(stage);
+    if (hooks.length === 0) continue;
+    out[stage] = hooks.map((hook) => ({ scope: "global" as const, fn: hook }));
+  }
+
+  return out;
+};
+
+export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> => {
+  const list = (plugins ?? []).flat().filter(isFluxPlugin);
 
   const request: HookContainer[] = list
     .filter((p) => typeof p.onRequest === "function")
@@ -135,7 +163,10 @@ export const pluginsToLifeCycle = (
       },
     }));
 
-  const afterHandle: HookContainer[] = list
+  const afterHandle: HookContainer[] = [...list]
+    // onResponse is the onion "way out" phase: run in reverse so the last
+    // plugin wraps the previous ones' response — identical to composePlugins.
+    .reverse()
     .filter((p) => typeof p.onResponse === "function")
     .map((p) => ({
       scope: "global" as const,
@@ -153,7 +184,10 @@ export const pluginsToLifeCycle = (
     .map((p) => ({
       scope: "global" as const,
       fn: async (ctx: FluxContext, error: unknown) => {
-        const result = await p.onError!(error as Error, ctx);
+        const result = await p.onError!(
+          error instanceof Error ? error : new Error(String(error)),
+          ctx,
+        );
         if (result instanceof Response) {
           return { response: result };
         }

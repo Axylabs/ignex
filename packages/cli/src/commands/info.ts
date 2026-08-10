@@ -1,5 +1,5 @@
-import { parseArgs } from "node:util";
 import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import { loadConfig } from "../utils/config.js";
 
 export async function runInfo(args: string[]): Promise<void> {

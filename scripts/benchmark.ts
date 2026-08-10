@@ -34,10 +34,7 @@ await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
 latencies.sort((a, b) => a - b);
 
-const avg =
-  latencies.length > 0
-    ? latencies.reduce((a, b) => a + b, 0) / latencies.length
-    : 0;
+const avg = latencies.length > 0 ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0;
 
 const p50 = latencies[Math.floor(latencies.length * 0.5)] ?? 0;
 const p95 = latencies[Math.floor(latencies.length * 0.95)] ?? 0;
@@ -51,3 +48,5 @@ console.log(`latency avg: ${avg.toFixed(2)}ms`);
 console.log(`latency p50: ${p50.toFixed(2)}ms`);
 console.log(`latency p95: ${p95.toFixed(2)}ms`);
 console.log(`latency p99: ${p99.toFixed(2)}ms`);
+
+export {};

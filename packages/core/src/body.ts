@@ -9,12 +9,16 @@
  * - req.arrayBuffer()
  */
 
-export class BodyParseError extends Error {
-  constructor(
-    message: string,
-    public status = 400
-  ) {
-    super(message);
+import { HTTPError } from "./errors";
+
+/**
+ * Raised when a request body cannot be parsed (malformed JSON, oversize,
+ * unsupported content type). Extends {@link HTTPError} so it flows through
+ * `errorToResponse` with its `status` intact instead of leaking as a 500.
+ */
+export class BodyParseError extends HTTPError {
+  constructor(message: string, status = 400) {
+    super(status, message, "BODY_PARSE_ERROR");
     this.name = "BodyParseError";
   }
 }
@@ -26,13 +30,7 @@ export interface LazyBodyOptions {
   maxFileBytes?: number;
 }
 
-type BodyKind =
-  | "none"
-  | "json"
-  | "text"
-  | "formData"
-  | "arrayBuffer"
-  | "blob";
+type BodyKind = "none" | "json" | "text" | "formData" | "arrayBuffer" | "blob";
 
 export interface LazyBody {
   (): Promise<unknown>;
@@ -66,17 +64,11 @@ const DEFAULT_LIMITS = {
   maxFileBytes: 20 * 1024 * 1024,
 };
 
-const forEachFormDataEntry = (
-  fd: FormData,
-  cb: (value: unknown, key: string) => void,
-): void => {
+const forEachFormDataEntry = (fd: FormData, cb: (value: unknown, key: string) => void): void => {
   const forEach = (fd as unknown as { forEach?: unknown }).forEach;
 
   if (typeof forEach === "function") {
-    (forEach as (cb: (value: unknown, key: string) => void) => void).call(
-      fd,
-      cb,
-    );
+    (forEach as (cb: (value: unknown, key: string) => void) => void).call(fd, cb);
   }
 };
 
@@ -137,10 +129,7 @@ function formDataToObject(fd: FormData): Record<string, unknown> {
   return out;
 }
 
-export function createLazyBody(
-  req: Request,
-  opts: LazyBodyOptions = {}
-): LazyBody {
+export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBody {
   const limits = {
     maxJsonBytes: opts.maxJsonBytes ?? DEFAULT_LIMITS.maxJsonBytes,
     maxTextBytes: opts.maxTextBytes ?? DEFAULT_LIMITS.maxTextBytes,
@@ -221,25 +210,18 @@ export function createLazyBody(
 
     throw new BodyParseError(
       `Body already consumed as "${kind}"; cannot parse as "${target}".`,
-      409
+      409,
     );
   }
 
-  async function use<T>(
-    target: BodyKind,
-    parser: () => Promise<T>,
-    max?: number
-  ): Promise<T> {
+  async function use<T>(target: BodyKind, parser: () => Promise<T>, max?: number): Promise<T> {
     if (kind === target) return value as T;
     if (kind !== "none") return convert<T>(target);
 
     if (pending) {
       if (pendingKind === target) return pending as Promise<T>;
 
-      throw new BodyParseError(
-        `Body parse already in progress as "${pendingKind}".`,
-        409
-      );
+      throw new BodyParseError(`Body parse already in progress as "${pendingKind}".`, 409);
     }
 
     assertSize(max);
@@ -274,10 +256,7 @@ export function createLazyBody(
       return undefined;
     }
 
-    const ct = (req.headers.get("content-type") || "")
-      .split(";")[0]
-      ?.trim()
-      .toLowerCase();
+    const ct = (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
 
     if (!ct) return undefined;
 
@@ -316,7 +295,7 @@ export function createLazyBody(
           throw new BodyParseError("Invalid text body", 400);
         }
       },
-      limits.maxTextBytes
+      limits.maxTextBytes,
     );
 
   body.arrayBuffer = () =>
@@ -329,7 +308,7 @@ export function createLazyBody(
           throw new BodyParseError("Invalid binary body", 400);
         }
       },
-      limits.maxFileBytes
+      limits.maxFileBytes,
     );
 
   body.blob = () =>
@@ -342,7 +321,7 @@ export function createLazyBody(
           throw new BodyParseError("Invalid blob body", 400);
         }
       },
-      limits.maxFileBytes
+      limits.maxFileBytes,
     );
 
   body.formData = () =>
@@ -368,56 +347,56 @@ export function createLazyBody(
     return formDataToObject(fd);
   };
 
-body.file = async (name?: string) => {
-  const fd = await body.formData();
+  body.file = async (name?: string) => {
+    const fd = await body.formData();
 
-  if (name) {
-    const value = getFormDataEntry(fd, name);
+    if (name) {
+      const value = getFormDataEntry(fd, name);
 
-    if (isFile(value)) {
-      assertFileSize(value);
-      return value;
+      if (isFile(value)) {
+        assertFileSize(value);
+        return value;
+      }
+
+      return null;
     }
 
-    return null;
-  }
+    let found: File | null = null;
 
-  let found: File | null = null;
+    forEachFormDataEntry(fd, (value) => {
+      if (!found && isFile(value)) {
+        assertFileSize(value);
+        found = value;
+      }
+    });
 
-  forEachFormDataEntry(fd, (value) => {
-    if (!found && isFile(value)) {
-      assertFileSize(value);
-      found = value;
+    return found;
+  };
+
+  body.files = async (name?: string) => {
+    const fd = await body.formData();
+    const files: File[] = [];
+
+    if (name) {
+      for (const value of getAllFormDataEntries(fd, name)) {
+        if (isFile(value)) {
+          assertFileSize(value);
+          files.push(value);
+        }
+      }
+
+      return files;
     }
-  });
 
-  return found;
-};
-
-body.files = async (name?: string) => {
-  const fd = await body.formData();
-  const files: File[] = [];
-
-  if (name) {
-    for (const value of getAllFormDataEntries(fd, name)) {
+    forEachFormDataEntry(fd, (value) => {
       if (isFile(value)) {
         assertFileSize(value);
         files.push(value);
       }
-    }
+    });
 
     return files;
-  }
-
-  forEachFormDataEntry(fd, (value) => {
-    if (isFile(value)) {
-      assertFileSize(value);
-      files.push(value);
-    }
-  });
-
-  return files;
-};
+  };
 
   body.stream = () => {
     if (kind !== "none") return null;
@@ -473,7 +452,7 @@ export const defaultParsers: readonly BodyParser[] = [
 
 export async function parseBody(
   req: Request,
-  _parsers: readonly BodyParser[] = defaultParsers
+  _parsers: readonly BodyParser[] = defaultParsers,
 ): Promise<unknown> {
   return createLazyBody(req)();
 }

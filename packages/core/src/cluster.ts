@@ -19,9 +19,7 @@ export function serveCluster(options: ClusterServeOptions) {
   const requested = options.workers ?? 1;
 
   const count =
-    requested === "auto"
-      ? Math.max(1, availableParallelism())
-      : Math.max(1, Number(requested));
+    requested === "auto" ? Math.max(1, availableParallelism()) : Math.max(1, Number(requested));
 
   const serveOptions: Record<string, unknown> = { ...options };
 

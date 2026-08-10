@@ -1,35 +1,46 @@
-import { parseArgs } from "node:util";
-import { createInterface } from "node:readline/promises";
-import { resolve, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
-import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
-import { error, step, success, warn } from "../utils/logger.js";
-import { FEATURE_NAMES, type Feature } from "../types.js";
+import { join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { parseArgs } from "node:util";
 import {
-  packageJsonTemplate,
-  tsconfigTemplate,
-  fluxConfigTemplate,
   biomeTemplate,
+  fluxConfigTemplate,
   gitignoreTemplate,
-  readmeTemplate,
-  pluginsTemplate,
   hasPluginFeatures,
+  packageJsonTemplate,
+  pluginsTemplate,
+  readmeTemplate,
+  tsconfigTemplate,
 } from "../templates/project.js";
 import {
-  indexRouteTemplate,
-  healthRouteTemplate,
-  openApiRouteTemplate,
-  productByIdRouteTemplate,
-  productAddRouteTemplate,
-  uploadRouteTemplate,
-  sseRouteTemplate,
+  appConfigTemplate,
   cacheRouteTemplate,
-  proxyRouteTemplate,
-  wsExampleTemplate,
   clusterExampleTemplate,
-  vitestConfigTemplate,
+  envRouteTemplate,
+  healthRouteTemplate,
+  homeTemplate,
+  i18nRouteTemplate,
+  indexRouteTemplate,
+  jobsRouteTemplate,
+  layoutTemplate,
+  loginRouteTemplate,
+  meRouteTemplate,
+  openApiRouteTemplate,
+  pageRouteTemplate,
+  productAddRouteTemplate,
+  productByIdRouteTemplate,
+  proxyRouteTemplate,
+  requireAuthHookTemplate,
+  sessionRouteTemplate,
+  sseRouteTemplate,
   testTemplate,
+  uploadRouteTemplate,
+  vitestConfigTemplate,
+  wsExampleTemplate,
 } from "../templates/routes.js";
+import { FEATURE_NAMES, type Feature } from "../types.js";
+import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
+import { error, step, success, warn } from "../utils/logger.js";
 
 type Readline = ReturnType<typeof createInterface>;
 
@@ -107,9 +118,7 @@ export async function runCreate(args: string[]): Promise<void> {
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);
 
-  const features = parseFeatures(
-    featuresInput ?? (values.yes ? "openapi,examples,tests" : "none"),
-  );
+  const features = parseFeatures(featuresInput ?? (values.yes ? "openapi,examples,tests" : "none"));
 
   install = install ?? false;
   git = git ?? false;
@@ -140,15 +149,9 @@ export async function runCreate(args: string[]): Promise<void> {
   await writeFileEnsuringDir(join(target, ".gitignore"), gitignoreTemplate());
   await writeFileEnsuringDir(join(target, "README.md"), readmeTemplate(opts));
 
-  await writeFileEnsuringDir(
-    join(target, "src/routes/index.get.ts"),
-    indexRouteTemplate(name),
-  );
+  await writeFileEnsuringDir(join(target, "src/routes/index.get.ts"), indexRouteTemplate(name));
 
-  await writeFileEnsuringDir(
-    join(target, "src/routes/health.get.ts"),
-    healthRouteTemplate(),
-  );
+  await writeFileEnsuringDir(join(target, "src/routes/health.get.ts"), healthRouteTemplate());
 
   await writeFileEnsuringDir(
     join(target, "src/hooks/README.md"),
@@ -178,38 +181,23 @@ Place shared hooks here.
   }
 
   if (features.has("files")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/upload.post.ts"),
-      uploadRouteTemplate(),
-    );
+    await writeFileEnsuringDir(join(target, "src/routes/upload.post.ts"), uploadRouteTemplate());
   }
 
   if (features.has("sse")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/events.get.ts"),
-      sseRouteTemplate(),
-    );
+    await writeFileEnsuringDir(join(target, "src/routes/events.get.ts"), sseRouteTemplate());
   }
 
   if (features.has("cache")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/cached.get.ts"),
-      cacheRouteTemplate(),
-    );
+    await writeFileEnsuringDir(join(target, "src/routes/cached.get.ts"), cacheRouteTemplate());
   }
 
   if (features.has("proxy")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/proxy.get.ts"),
-      proxyRouteTemplate(),
-    );
+    await writeFileEnsuringDir(join(target, "src/routes/proxy.get.ts"), proxyRouteTemplate());
   }
 
   if (hasPluginFeatures(features)) {
-    await writeFileEnsuringDir(
-      join(target, "src/plugins/index.ts"),
-      pluginsTemplate(opts),
-    );
+    await writeFileEnsuringDir(join(target, "src/plugins/index.ts"), pluginsTemplate(opts));
   }
 
   if (features.has("ws")) {
@@ -217,10 +205,42 @@ Place shared hooks here.
   }
 
   if (features.has("cluster")) {
+    await writeFileEnsuringDir(join(target, "src/cluster.example.ts"), clusterExampleTemplate());
+  }
+
+  if (features.has("auth")) {
     await writeFileEnsuringDir(
-      join(target, "src/cluster.example.ts"),
-      clusterExampleTemplate(),
+      join(target, "src/hooks/require-auth.ts"),
+      requireAuthHookTemplate(),
     );
+    await writeFileEnsuringDir(join(target, "src/routes/auth/login.post.ts"), loginRouteTemplate());
+    await writeFileEnsuringDir(join(target, "src/routes/auth/me.get.ts"), meRouteTemplate());
+  }
+
+  if (features.has("sessions")) {
+    await writeFileEnsuringDir(join(target, "src/routes/session.get.ts"), sessionRouteTemplate());
+  }
+
+  if (features.has("sessions") || features.has("auth") || hasPluginFeatures(features)) {
+    await writeFileEnsuringDir(join(target, "src/app.config.ts"), appConfigTemplate());
+  }
+
+  if (features.has("templates")) {
+    await writeFileEnsuringDir(join(target, "src/views/layout.html"), layoutTemplate());
+    await writeFileEnsuringDir(join(target, "src/views/home.html"), homeTemplate());
+    await writeFileEnsuringDir(join(target, "src/routes/page.get.ts"), pageRouteTemplate());
+  }
+
+  if (features.has("i18n")) {
+    await writeFileEnsuringDir(join(target, "src/routes/i18n.get.ts"), i18nRouteTemplate());
+  }
+
+  if (features.has("env")) {
+    await writeFileEnsuringDir(join(target, "src/routes/env.get.ts"), envRouteTemplate());
+  }
+
+  if (features.has("jobs")) {
+    await writeFileEnsuringDir(join(target, "src/routes/jobs.get.ts"), jobsRouteTemplate());
   }
 
   if (features.has("tests")) {
@@ -277,11 +297,7 @@ function ask(rl: Readline, question: string, fallback: string): Promise<string> 
   });
 }
 
-async function askConfirm(
-  rl: Readline,
-  question: string,
-  fallback: boolean,
-): Promise<boolean> {
+async function askConfirm(rl: Readline, question: string, fallback: boolean): Promise<boolean> {
   const suffix = fallback ? "(Y/n)" : "(y/N)";
   const answer = (await rl.question(`${question} ${suffix} `)).trim().toLowerCase();
 

@@ -3,6 +3,7 @@ import { buildAsync } from "@flux/compiler";
 
 await buildAsync({
   routesDir: join(import.meta.dir, "src/routes"),
+  hooksDir: join(import.meta.dir, "src/hooks"),
   outDir: join(import.meta.dir, "dist"),
   outFile: "__server.js",
   target: "bun",
@@ -15,14 +16,12 @@ await buildAsync({
   enableAccessLog: false,
   enableStrictMethods: false,
 
-
   generateTypes: true,
   generateOpenAPI: true,
   generateClient: true,
 
   specializeContext: true,
   hoistConstants: true,
-  inlineHooks: true,
   treeshakeRuntime: true,
   routeCache: true,
 

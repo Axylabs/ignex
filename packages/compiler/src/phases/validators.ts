@@ -4,43 +4,29 @@
  * Emits Ajv standalone validators for route schemas.
  */
 
-import { mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-
-import type {
-  RouteDef,
-  ModuleInfo,
-  CompilerOptions,
-} from "../types";
-
-import type { Logger } from "../logger";
-import {
-  loadRouteModule,
-  isStandardSchema,
-  cloneSchema,
-} from "./schema-loader";
+import { DiagnosticCodes, errorMessage } from "../diagnostics";
+import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
+import { cloneSchema, isStandardSchema, loadRouteModule } from "./schema-loader";
 
 const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as const;
 
 type ValidatorKind = (typeof VALIDATOR_KINDS)[number];
 
-const validatorImportName = (
-  route: RouteDef,
-  kind: ValidatorKind
-): string => `validate_${route.handlerRef}_${kind}`;
+const validatorImportName = (route: RouteDef, kind: ValidatorKind): string =>
+  `validate_${route.handlerRef}_${kind}`;
 
-const validatorFileName = (
-  route: RouteDef,
-  kind: ValidatorKind
-): string => `${route.handlerRef}.${kind}.cjs`;
+const validatorFileName = (route: RouteDef, kind: ValidatorKind): string =>
+  `${route.handlerRef}.${kind}.cjs`;
 
 export const precompileValidators = async (
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
-  logger: Logger
+  ctx: CompilerContext,
 ): Promise<readonly RouteDef[]> => {
   if (!opts.precompileValidators) {
     return routes;
@@ -55,9 +41,11 @@ export const precompileValidators = async (
     const standaloneModule: any = await import("ajv/dist/standalone/index.js");
     standaloneCode = standaloneModule.default ?? standaloneModule;
   } catch {
-    logger.warn(
-      "Ajv standalone unavailable. Validator precompilation will be skipped."
-    );
+    ctx.diagnostics.warn({
+      code: DiagnosticCodes.ValidatorCompileFailed,
+      message:
+        "Ajv standalone unavailable. Validator precompilation skipped; falling back to runtime validation.",
+    });
     return routes;
   }
 
@@ -75,7 +63,10 @@ export const precompileValidators = async (
 
   addFormats(ajv);
 
-  const compileSchemaPart = (schemaPart: unknown): string | null => {
+  const compileSchemaPart = (
+    schemaPart: unknown,
+    onFail?: (reason: string) => void,
+  ): string | null => {
     if (!schemaPart || typeof schemaPart !== "object") {
       return null;
     }
@@ -88,7 +79,8 @@ export const precompileValidators = async (
 
     try {
       cloned = cloneSchema(schemaPart);
-    } catch {
+    } catch (error) {
+      onFail?.(`schema clone failed: ${errorMessage(error)}`);
       return null;
     }
 
@@ -113,7 +105,8 @@ try {
   }
 } catch {}
 `;
-    } catch {
+    } catch (error) {
+      onFail?.(`Ajv compile failed: ${errorMessage(error)}`);
       return null;
     }
   };
@@ -128,12 +121,12 @@ try {
 
     const mod = modules[route.moduleIdx];
 
-    if (!mod || !mod.schemaExport) {
+    if (!mod?.schemaExport) {
       nextRoutes.push(route);
       continue;
     }
 
-    const routeModule = await loadRouteModule(mod.path);
+    const routeModule = await loadRouteModule(mod.path, ctx.diagnostics, route.handlerExportName);
     const schema = routeModule?.schema;
 
     if (!schema || typeof schema !== "object") {
@@ -141,6 +134,7 @@ try {
       continue;
     }
 
+    const schemaDoc = schema as Record<string, unknown>;
     const validators: Record<string, string> = {};
 
     for (const kind of VALIDATOR_KINDS) {
@@ -150,7 +144,13 @@ try {
         continue;
       }
 
-      const code = compileSchemaPart(schemaPart);
+      const code = compileSchemaPart(schemaPart, (reason) => {
+        ctx.diagnostics.warn({
+          code: DiagnosticCodes.ValidatorCompileFailed,
+          message: `Validator precompilation failed for ${route.method} ${route.path} (${kind}); falling back to runtime validation. ${reason}`,
+          file: mod.path,
+        });
+      });
 
       if (!code) {
         continue;
@@ -162,17 +162,17 @@ try {
       validators[kind] = validatorImportName(route, kind);
     }
 
-    if (Object.keys(validators).length === 0) {
-      nextRoutes.push(route);
-      continue;
-    }
-
+    // Keep the resolved schema on the route so OpenAPI generation can emit
+    // real request/response schemas even when no validator compiled.
     nextRoutes.push({
       ...route,
-      validators: validators as any,
+      ...(Object.keys(validators).length > 0 ? { validators: validators as any } : {}),
+      schemaDoc,
     });
 
-    logger.info(`Precompiled validators for ${route.method} ${route.path}`);
+    if (Object.keys(validators).length > 0) {
+      ctx.logger.info(`Precompiled validators for ${route.method} ${route.path}`);
+    }
   }
 
   return nextRoutes;

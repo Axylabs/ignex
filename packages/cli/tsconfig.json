@@ -1,16 +1,23 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@flux/shared": ["../shared/src/index.ts"],
+      "@flux/core": ["../core/src/index.ts"],
+      "@flux/core/http": ["../core/src/http.ts"],
+      "@flux/core/*": ["../core/src/*"],
+      "@flux/compiler": ["../compiler/src/index.ts"],
+      "@flux/native": ["../native/src/index.ts"],
+      "castrum": ["../native/src/vendor/castrum.d.ts"]
+    }
   },
   "include": ["src"]
 }

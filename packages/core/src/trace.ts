@@ -78,13 +78,13 @@ export const startTrace = (req: Request): { traceId: string; start: number } => 
 export const finishTrace = (
   _req: Request,
   trace: { traceId: string; start: number },
-  response: Response
+  response: Response,
 ): Response => {
   const duration = performance.now() - trace.start;
 
   const headers = new Headers(response.headers);
   headers.set("x-trace-id", trace.traceId);
-  headers.set("x-response-time", duration.toFixed(2) + "ms");
+  headers.set("x-response-time", `${duration.toFixed(2)}ms`);
 
   return new Response(response.body, {
     status: response.status,

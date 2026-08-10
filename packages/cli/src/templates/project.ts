@@ -7,13 +7,7 @@ export interface ProjectTemplateOptions {
   features: Set<Feature>;
 }
 
-const PLUGIN_FEATURES: Feature[] = [
-  "cors",
-  "rateLimit",
-  "security",
-  "compression",
-  "logger",
-];
+const PLUGIN_FEATURES: Feature[] = ["cors", "rateLimit", "security", "compression", "logger"];
 
 export function hasPluginFeatures(features: Set<Feature>): boolean {
   return PLUGIN_FEATURES.some((feature) => features.has(feature));
@@ -52,7 +46,7 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
   }
 
   if (opts.features.has("tests")) {
-    devDependencies["vitest"] = "^4.1.10";
+    devDependencies.vitest = "^4.1.10";
     devDependencies["@vitest/ui"] = "^4.1.10";
   }
 
@@ -159,6 +153,23 @@ ${features}
 - \`${opts.pm} run start\` - run the compiled server
 - \`${opts.pm} run route -- products/[id].get\` - scaffold a route
 
+## Hello World
+
+Routes are files under \`src/routes\`; the path and method come from the filename.
+The handler can be exported as a default **or** a named binding:
+
+\`\`\`ts
+// src/routes/hello.get.ts → GET /hello
+export default get(() => "Hello World");
+\`\`\`
+
+\`\`\`ts
+// src/routes/hello.get.ts → GET /hello (same route, named export)
+export const httpGet = get(() => "Hello World");
+\`\`\`
+
+Both compile to the same fast \`Bun.serve\` route table.
+
 ## Routes
 
 Routes live in \`src/routes\`.
@@ -173,14 +184,19 @@ Examples:
 
 export function pluginsTemplate(opts: ProjectTemplateOptions): string {
   const selected = PLUGIN_FEATURES.filter((feature) => opts.features.has(feature));
-
-  const names = selected.map((feature) => feature);
   const calls = selected.map((feature) => `${feature}()`);
 
-  return `import { composePlugins, ${names.join(", ")} } from "@flux/core";
+  if (calls.length === 0) {
+    return `export const plugins: never[] = [];\n`;
+  }
 
-export const plugins = composePlugins(
+  // Emit an ARRAY (not composePlugins(...)) — the compiler and
+  // pluginsToLifeCycle iterate the plugins array; a composed single object is
+  // non-iterable and would crash at build time.
+  return `import { ${selected.join(", ")} } from "@flux/core";
+
+export const plugins = [
   ${calls.join(",\n  ")}
-);
+];
 `;
 }

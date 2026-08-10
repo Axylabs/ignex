@@ -6,17 +6,21 @@
  * - afterHandle hooks are placed in afterHandle lifecycle
  */
 
+import { type JwtAuthOptions, jwtAuth } from "./auth";
 import type { FluxContext } from "./context";
-import type { LifeCycleStore, HookContainer } from "./types";
+import { createCsrfGuard } from "./csrf";
+import { envSecret } from "./env";
+import type { HookFn } from "./hooks";
+import { type SessionManagerOptions, withSession } from "./session";
+import type { HookContainer, LifeCycleStore } from "./types";
 
 export interface MacroContext {
   onRequest?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
   beforeHandle?: (ctx: FluxContext) => Response | void | Promise<Response | void>;
   afterHandle?: (
     ctx: FluxContext,
-    response: Response
+    response: Response,
   ) => Response | void | Promise<Response | void>;
-  afterResponse?: (ctx: FluxContext, response: Response) => void | Promise<void>;
 }
 
 export type MacroFn = (value: unknown, ctx: MacroContext) => void;
@@ -35,10 +39,7 @@ export const createMacroRegistry = () => {
       return this;
     },
 
-    apply(
-      routeConfig: Record<string, unknown>,
-      lifecycle: LifeCycleStore
-    ): LifeCycleStore {
+    apply(routeConfig: Record<string, unknown>, lifecycle: LifeCycleStore): LifeCycleStore {
       const macroCtx: MacroContext = {};
 
       for (const [key, value] of Object.entries(routeConfig)) {
@@ -109,6 +110,48 @@ export const cacheMacro: MacroDefinition = {
           headers,
         });
       };
+    }
+  },
+};
+
+/** Convert a `HookFn`-shaped guard into the macro `beforeHandle` shape. */
+const asBeforeHandle =
+  (hook: HookFn) =>
+  async (ctx: FluxContext): Promise<Response | void> => {
+    const result = await hook(ctx);
+    return result.ok ? undefined : result.response;
+  };
+
+export const csrfMacro: MacroDefinition = {
+  name: "csrf",
+  fn(value, ctx) {
+    if (value === true || typeof value === "string") {
+      const secret = typeof value === "string" ? value : envSecret("CSRF_SECRET");
+      const hook = createCsrfGuard({ secret });
+      ctx.beforeHandle = asBeforeHandle(hook);
+    }
+  },
+};
+
+export const sessionMacro: MacroDefinition = {
+  name: "session",
+  fn(value, ctx) {
+    if (value && typeof value === "object") {
+      const hook = withSession(value as SessionManagerOptions);
+      ctx.beforeHandle = asBeforeHandle(hook);
+    }
+  },
+};
+
+export const jwtMacro: MacroDefinition = {
+  name: "jwt",
+  fn(value, ctx) {
+    if (typeof value === "string") {
+      const hook = jwtAuth({ secret: value });
+      ctx.beforeHandle = asBeforeHandle(hook);
+    } else if (value && typeof value === "object") {
+      const hook = jwtAuth(value as JwtAuthOptions);
+      ctx.beforeHandle = asBeforeHandle(hook);
     }
   },
 };

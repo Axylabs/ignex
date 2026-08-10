@@ -1,24 +1,31 @@
-// ============================================================================
-// FLUX HTTP — Schema-first typed route definitions
-// ============================================================================
-//
-// Breaking change:
-// - The second argument is now a schema object, not a route path.
-// - Route path is inferred from the filename by the compiler.
-//
-// Example:
-//   export default get(async (ctx) => {
-//     return ctx.json({ q: ctx.query.q });
-//   }, {
-//     query: Type.Object({ q: Type.String() }),
-//   });
-// ============================================================================
+/**
+ * @fileoverview Schema-first typed route definitions (`get` / `post` / …).
+ *
+ * Route files export a handler wrapped in an HTTP method helper. The route
+ * path is inferred from the filename by the compiler (not passed here); the
+ * optional second argument is a validation schema (TypeBox `TSchema`, a
+ * Standard Schema, or a raw object).
+ *
+ * Example:
+ * ```ts
+ * import { get } from "@flux/core/http";
+ * import { Type } from "@sinclair/typebox";
+ *
+ * export default get(async (ctx) => ctx.json({ q: ctx.query.q }), {
+ *   query: Type.Object({ q: Type.String() }),
+ * });
+ * ```
+ *
+ * The schemas type the handler's `ctx` (`params`, `query`, `body`) and the
+ * allowed return value via {@link RouteHandler}.
+ */
 
-import type { FluxContext } from "./context";
 import type { LazyBody } from "./body";
-import type { MaybePromise, StandardSchemaV1, TSchema } from "./types";
+import type { FluxContext } from "./context";
+import type { AnySchema, MaybePromise, StandardSchemaV1 } from "./types";
 
-export type SchemaLike = StandardSchemaV1<any, any> | TSchema | object;
+/** Any schema-shaped object accepted by the route helpers. */
+export type SchemaLike = AnySchema | object;
 
 export type RouteSchemas = {
   body?: SchemaLike;
@@ -31,31 +38,33 @@ export type RouteSchemas = {
 export type BodyRouteSchemas = RouteSchemas;
 export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
 
-type InferSchema<T> = T extends StandardSchemaV1<any, infer Output>
-  ? Output
-  : T extends { static: infer S }
-    ? S
-    : unknown;
+// `any` in the conditional types below is intentional: it must match a
+// Standard Schema of any input type to infer its *output* (the value the
+// schema validates/produces). Replacing it with `unknown` would stop the
+// conditional from matching concrete schemas.
+type InferSchema<T> =
+  T extends StandardSchemaV1<any, infer Output>
+    ? Output
+    : T extends { static: infer S }
+      ? S
+      : unknown;
 
 type InferBody<S> = S extends { body: infer X } ? InferSchema<X> : unknown;
 
-type InferQuery<S> = S extends { query: infer X }
-  ? InferSchema<X>
-  : URLSearchParams;
+type InferQuery<S> = S extends { query: infer X } ? InferSchema<X> : URLSearchParams;
 
-type InferParams<S> = S extends { params: infer X }
-  ? InferSchema<X>
-  : Record<string, string>;
+type InferParams<S> = S extends { params: infer X } ? InferSchema<X> : Record<string, string>;
 
-type LooksLikeSchema<T> = T extends StandardSchemaV1<any, any>
-  ? true
-  : T extends { "~standard": unknown }
+type LooksLikeSchema<T> =
+  T extends StandardSchemaV1<any, any>
     ? true
-    : T extends { static: unknown }
+    : T extends { "~standard": unknown }
       ? true
-      : T extends { type: string }
+      : T extends { static: unknown }
         ? true
-        : false;
+        : T extends { type: string }
+          ? true
+          : false;
 
 type InferResponse<S> = S extends { response: infer R }
   ? LooksLikeSchema<R> extends true
@@ -79,9 +88,7 @@ export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
   query: InferQuery<S>;
 };
 
-type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
-  Response | InferResponse<S>
->;
+type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<Response | InferResponse<S>>;
 
 export type RouteHandler<S extends Partial<RouteSchemas>> = (
   ctx: RouteContext<S>,
@@ -90,11 +97,9 @@ export type RouteHandler<S extends Partial<RouteSchemas>> = (
 /**
  * Backward-compatible handler type.
  */
-export type Handler<
-  B = unknown,
-  Q = URLSearchParams,
-  P = Record<string, string>,
-> = (ctx: FluxContext<P, Q, B>) => MaybePromise<unknown>;
+export type Handler<B = unknown, Q = URLSearchParams, P = Record<string, string>> = (
+  ctx: FluxContext<P, Q, B>,
+) => MaybePromise<unknown>;
 
 type AnyFunction = (...args: any[]) => any;
 

@@ -1,5 +1,5 @@
-import { post } from "@flux/core/http";
 import { mkdir } from "node:fs/promises";
+import { post } from "@flux/core/http";
 
 export default post(async (ctx) => {
   const file = await ctx.body.file();
@@ -10,7 +10,7 @@ export default post(async (ctx) => {
 
   await mkdir("uploads", { recursive: true });
 
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const safeName = file.name.replace(/[^\w.-]+/g, "_");
   const storedName = `${Date.now().toString(36)}-${safeName}`;
   const dest = `uploads/${storedName}`;
 

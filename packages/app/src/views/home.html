@@ -1,0 +1,7 @@
+<h1>Hello {{ name }}!</h1>
+<p>Locale: <strong>{{ locale }}</strong></p>
+<ul>
+  {% for feature in features %}
+  <li>{{ feature | upper }}</li>
+  {% endfor %}
+</ul>

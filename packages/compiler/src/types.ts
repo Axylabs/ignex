@@ -9,8 +9,10 @@
 
 import type { ContextUsage } from "@flux/shared";
 import { EMPTY_USAGE, FULL_USAGE } from "@flux/shared";
+import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
+import type { Logger } from "./logger";
 
-export type { ContextUsage };
+export type { ContextUsage, Diagnostic, Logger };
 export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
 export const FULL_CONTEXT_USAGE = FULL_USAGE;
 export interface AppConfigInfo {
@@ -50,17 +52,11 @@ export function normalizeHttpMethod(input: string): HttpMethod | undefined {
 
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
-export type RouterMode =
-  | "auto"
-  | "static-map"
-  | "radix"
-  | "bun-native";
-
 export interface CompilerOptions {
   /**
- * Application runtime config file.
- * May export `plugins`, `lifecycle`, and `server`.
- */
+   * Application runtime config file.
+   * May export `plugins`, `lifecycle`, and `server`.
+   */
   readonly appConfig?: string;
 
   /**
@@ -82,7 +78,12 @@ export interface CompilerOptions {
   readonly outFile: string;
   readonly target: "bun";
 
-  readonly optimizationLevel: 0 | 1 | 2 | 3;
+  /**
+   * Optimization preset (0–3). Each level maps to a documented group of
+   * optimizer knobs (see {@link optimizationPresets}); explicit knob values
+   * in the input always win over the preset.
+   */
+  readonly optimizationLevel: OptimizationLevel;
   readonly inlineThreshold: number;
   readonly enableHandlerDeduplication: boolean;
   readonly sourceMap: boolean;
@@ -106,11 +107,9 @@ export interface CompilerOptions {
   readonly maxFormBytes?: number;
   readonly maxFileBytes?: number;
 
-  readonly cluster?: number | "auto";
   readonly reusePort?: boolean;
 
   // Advanced AOT options
-  readonly router?: RouterMode;
   readonly generateTypes?: boolean;
   readonly generateOpenAPI?: boolean;
   readonly generateClient?: boolean;
@@ -120,12 +119,76 @@ export interface CompilerOptions {
 
   readonly hoistConstants?: boolean;
   readonly specializeContext?: boolean;
-  readonly inlineHooks?: boolean;
   readonly treeshakeRuntime?: boolean;
   readonly routeCache?: boolean;
 
+  /**
+   * Skip the full build when inputs are unchanged (content-hash cache).
+   * Persists a `.flux-cache.json` fingerprint inside `outDir`.
+   */
+  readonly incremental?: boolean;
+
   readonly maxInlineBytes?: number;
 }
+
+export type OptimizationLevel = 0 | 1 | 2 | 3;
+
+/**
+ * Documented optimization presets. Each level is a group of optimizer knobs;
+ * explicit user options always override the preset (preset is applied to the
+ * defaults, then user options are merged on top).
+ */
+export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOptions>> = {
+  0: {
+    optimizationLevel: 0,
+    inlineThreshold: 0,
+    enableHandlerDeduplication: false,
+    precompileValidators: false,
+    precompileSerializers: false,
+    hoistConstants: false,
+    specializeContext: false,
+    treeshakeRuntime: false,
+    routeCache: false,
+    generateTypes: false,
+    generateOpenAPI: false,
+    generateClient: false,
+    incremental: false,
+  },
+  1: {
+    optimizationLevel: 1,
+    inlineThreshold: 30,
+    enableHandlerDeduplication: true,
+    precompileValidators: false,
+    precompileSerializers: false,
+    hoistConstants: false,
+    specializeContext: false,
+    treeshakeRuntime: false,
+    routeCache: false,
+  },
+  2: {
+    optimizationLevel: 2,
+    inlineThreshold: 50,
+    enableHandlerDeduplication: true,
+    precompileValidators: false,
+    precompileSerializers: false,
+    hoistConstants: true,
+    specializeContext: true,
+    treeshakeRuntime: true,
+    routeCache: true,
+  },
+  3: {
+    optimizationLevel: 3,
+    inlineThreshold: 50,
+    enableHandlerDeduplication: true,
+    precompileValidators: true,
+    precompileSerializers: true,
+    hoistConstants: true,
+    specializeContext: true,
+    treeshakeRuntime: true,
+    routeCache: true,
+    incremental: true,
+  },
+};
 
 export interface RouteCacheConfig {
   readonly maxAge?: number;
@@ -151,8 +214,8 @@ export const createDefaultOptions = (): CompilerOptions => ({
   minify: false,
 
   enableTracing: true,
-  enableAccessLog: true,
-  enableTraceHeaders: true,
+  enableAccessLog: false,
+  enableTraceHeaders: false,
   enableLifecycle: true,
   enableStrictMethods: true,
   enableFastBodyParsing: false,
@@ -161,7 +224,6 @@ export const createDefaultOptions = (): CompilerOptions => ({
   requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
 
-  router: "bun-native",
   generateTypes: true,
   generateOpenAPI: true,
   generateClient: true,
@@ -171,9 +233,9 @@ export const createDefaultOptions = (): CompilerOptions => ({
 
   hoistConstants: true,
   specializeContext: true,
-  inlineHooks: true,
   treeshakeRuntime: true,
   routeCache: true,
+  incremental: true,
 
   maxInlineBytes: 2048,
 });
@@ -185,14 +247,7 @@ export interface Position {
   readonly column: number;
 }
 
-export type SymbolKind =
-  | "function"
-  | "class"
-  | "const"
-  | "let"
-  | "var"
-  | "type"
-  | "interface";
+export type SymbolKind = "function" | "class" | "const" | "let" | "var" | "type" | "interface";
 
 export interface SymbolInfo {
   readonly name: string;
@@ -230,6 +285,10 @@ export interface ModuleInfo {
   readonly exports: readonly ExportInfo[];
   readonly symbols: readonly SymbolInfo[];
   readonly hasDefaultExport: boolean;
+  /** Module exports a route handler (default or named) — participates in the route graph. */
+  readonly hasHandlerExport: boolean;
+  /** Named export identifier to import when the handler cannot be inlined. */
+  readonly handlerExportName?: string;
   readonly schemaExport?: string;
   readonly configExport?: string;
   readonly callGraph: ReadonlyMap<string, ReadonlySet<string>>;
@@ -259,7 +318,6 @@ export interface RouteDef {
   readonly file: string;
   readonly moduleIdx: number;
   readonly handlerRef: string;
-  readonly schemaRef: string | null;
   readonly paramNames: readonly string[];
   readonly isDynamic: boolean;
   readonly isStatic: boolean;
@@ -276,14 +334,23 @@ export interface RouteDef {
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;
+  /**
+   * Named export identifier to import when the handler is not inlined
+   * (e.g. `httpGet` in `export const httpGet = get(...)`). Absent for
+   * default-export handlers.
+   */
+  readonly handlerExportName?: string;
 
   // New optional AOT metadata
   readonly config?: Record<string, unknown>;
   readonly validators?: RouteValidators;
   readonly serializers?: RouteSerializers;
-  readonly statusCodes?: readonly number[];
-  readonly contentType?: string;
-  readonly openapi?: Record<string, unknown>;
+  /**
+   * The route's resolved schema parts (`body`/`query`/`params`/`headers`/
+   * `cookie`/`response`), attached during validator precompilation and used
+   * by OpenAPI generation.
+   */
+  readonly schemaDoc?: Record<string, unknown>;
 }
 
 export interface HookDef {
@@ -292,8 +359,6 @@ export interface HookDef {
   readonly moduleIdx: number;
   readonly isAsync: boolean;
 }
-
-export type { Logger } from "./logger";
 
 export interface DiscoveryResult {
   readonly files: readonly string[];
@@ -305,7 +370,6 @@ export interface AnalysisResult {
   readonly modules: readonly ModuleInfo[];
   readonly hooks: ReadonlyMap<string, HookDef>;
   readonly appConfig?: AppConfigInfo;
-
 }
 
 export interface OptimizationMeta {
@@ -326,9 +390,29 @@ export interface CompilationMeta {
   readonly totalCompileTime: number;
 }
 
-export interface CompiledRoute {
-  readonly staticRoutes: readonly RouteDef[];
-  readonly dynamicRoutes: readonly RouteDef[];
-  readonly modules: readonly ModuleInfo[];
-  readonly meta: CompilationMeta;
+/**
+ * Structured compiler result — the generated entry source, the diagnostics
+ * collected across all phases, and build metadata.
+ */
+export interface CompileResult {
+  /** Generated server entry source code. */
+  readonly code: string;
+  /** Absolute path of the written server entry on disk. */
+  readonly outFile: string;
+  /** Every diagnostic (info, warning, and error) collected during the build. */
+  readonly diagnostics: readonly Diagnostic[];
+  readonly warnings: readonly Diagnostic[];
+  readonly errors: readonly Diagnostic[];
+  readonly metadata: CompilationMeta;
+  /** True when the build was skipped because inputs were unchanged. */
+  readonly cached?: boolean;
 }
+
+/** Shared per-compile context passed through every phase. */
+export interface CompilerContext {
+  readonly logger: Logger;
+  readonly diagnostics: DiagnosticCollector;
+}
+
+/** @deprecated Use {@link CompileResult}. Kept as an alias for back-compat. */
+export type CompiledRoute = CompileResult;

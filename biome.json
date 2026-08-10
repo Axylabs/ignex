@@ -1,18 +1,44 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
-  "organizeImports": {
-    "enabled": true
+  "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.flux",
+      "!**/node_modules",
+      "!**/.git",
+      "!coverage",
+      "!repomix-output.txt",
+      "!**/project.txt",
+      "!**/context.py",
+      "!**/views/**/*.html"
+    ]
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
-        "noConsoleLog": "warn",
-        "noExplicitAny": "off"
+        "noExplicitAny": "off",
+        "noConsole": {
+          "level": "warn",
+          "options": { "allow": ["log", "warn", "error", "info"] }
+        },
+        "noAssignInExpressions": "warn",
+        "useIterableCallbackReturn": "warn"
       },
       "correctness": {
         "noUnusedVariables": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useNodejsImportProtocol": "warn",
+        "useTemplate": "warn"
+      },
+      "complexity": {
+        "noBannedTypes": "warn",
+        "useOptionalChain": "warn"
       }
     }
   },

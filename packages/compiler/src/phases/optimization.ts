@@ -10,23 +10,34 @@
  */
 
 import type {
-  RouteDef,
-  ModuleInfo,
+  CompilerContext,
   CompilerOptions,
+  ModuleInfo,
   OptimizationResult,
+  RouteDef,
 } from "../types";
 
-import { estimateNodeCount } from "../utils/ast";
-import type { Logger } from "../logger";
+import { estimateNodeCount, handlerBodyReferencesImports } from "../utils/ast";
 
 export const isInlineEligible = (
   route: RouteDef,
   mod: ModuleInfo | undefined,
-  threshold: number
+  threshold: number,
 ): boolean => {
   if (!mod) return false;
   if (route.hasValidation) return false;
   if (route.hooks.length > 0) return false;
+  if (route.isConstantResponse) return false;
+
+  // A handler can only be inlined into the generated server when its body is
+  // fully self-contained: imports that the body references would be dropped,
+  // and no other top-level symbols the body could reference. Imports that only
+  // feed the wrapper call (e.g. `get(...)`) or type-only imports do NOT block
+  // inlining — the wrapper is extracted away, leaving only the body.
+  if (handlerBodyReferencesImports(mod)) return false;
+  const selfName = route.handlerExportName;
+  const otherSymbols = selfName ? mod.symbols.filter((s) => s.name !== selfName) : mod.symbols;
+  if (otherSymbols.length > 0) return false;
 
   const nodeCount = estimateNodeCount(mod.content);
   return nodeCount <= threshold;
@@ -35,7 +46,7 @@ export const isInlineEligible = (
 export const markInline = (
   route: RouteDef,
   modules: readonly ModuleInfo[],
-  threshold: number
+  threshold: number,
 ): RouteDef => {
   const mod = modules[route.moduleIdx];
   const shouldInline = isInlineEligible(route, mod, threshold);
@@ -46,21 +57,21 @@ export const markInline = (
 export const detectInlineCandidates = (
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
-  threshold: number
+  threshold: number,
 ): RouteDef[] => routes.map((r) => markInline(r, modules, threshold));
 
 export const hasConstantResponse = (route: RouteDef): boolean =>
   route.isConstantResponse && !!route.constantResponse;
 
-export const groupByConstantResponse = (
-  routes: readonly RouteDef[]
-): Map<string, RouteDef[]> => {
+export const groupByConstantResponse = (routes: readonly RouteDef[]): Map<string, RouteDef[]> => {
   const groups = new Map<string, RouteDef[]>();
 
   for (const route of routes) {
     if (!hasConstantResponse(route)) continue;
 
-    const key = route.constantResponse!;
+    // Scope dedup to the same HTTP method: handler identifiers are per-method,
+    // so a POST cannot reuse a GET handler.
+    const key = `${route.method}:${route.constantResponse}`;
     const existing = groups.get(key);
 
     if (existing) existing.push(route);
@@ -70,28 +81,26 @@ export const groupByConstantResponse = (
   return groups;
 };
 
-export const buildDedupMap = (
-  groups: Map<string, RouteDef[]>
-): Map<string, string> => {
+export const buildDedupMap = (groups: Map<string, RouteDef[]>): Map<string, string> => {
   const replacements = new Map<string, string>();
 
   for (const group of groups.values()) {
     if (group.length < 2) continue;
 
-    const leader = group[0]!;
+    const leader = group[0];
+    if (!leader) continue;
 
     for (let i = 1; i < group.length; i++) {
-      replacements.set(group[i]!.handlerRef, leader.handlerRef);
+      const member = group[i];
+      if (!member) continue;
+      replacements.set(member.handlerRef, leader.handlerRef);
     }
   }
 
   return replacements;
 };
 
-export const applyDedup = (
-  route: RouteDef,
-  dedupMap: Map<string, string>
-): RouteDef => {
+export const applyDedup = (route: RouteDef, dedupMap: Map<string, string>): RouteDef => {
   const dedupGroup = dedupMap.get(route.handlerRef);
   return dedupGroup ? { ...route, dedupGroup } : route;
 };
@@ -115,28 +124,26 @@ export const runOptimization = (
   routes: readonly RouteDef[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
-  logger: Logger
+  ctx: CompilerContext,
 ): OptimizationResult =>
-  logger.time("optimization", () => {
+  ctx.logger.time("optimization", () => {
     const inlined = detectInlineCandidates(routes, modules, opts.inlineThreshold);
 
-    const deduped = opts.enableHandlerDeduplication
-      ? deduplicateRoutes(inlined)
-      : inlined;
+    const deduped = opts.enableHandlerDeduplication ? deduplicateRoutes(inlined) : inlined;
 
     const inlinedCount = countInlined(deduped);
     const dedupedCount = countDeduped(deduped);
 
-    logger.info(
-      `Optimized: ${inlinedCount} inlined | ${dedupedCount} deduplicated`
-    );
+    ctx.logger.info(`Optimized: ${inlinedCount} inlined | ${dedupedCount} deduplicated`);
 
     return {
       routes: deduped,
       meta: {
         inlined: inlinedCount,
         deduplicated: dedupedCount,
-        eliminated: routes.length - deduped.length,
+        // A route whose handler is merged into the leader's no longer emits
+        // its own handler — it is effectively eliminated from the output.
+        eliminated: dedupedCount,
       },
     };
   });

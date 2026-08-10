@@ -6,17 +6,10 @@
  * - Generated import paths are relative to opts.outDir.
  */
 
-import {
-  writeFileSync,
-  mkdirSync,
-  renameSync,
-  rmSync,
-  existsSync,
-} from "fs";
-import { join, basename } from "path";
-
-import type { CompilerOptions } from "../types";
-import type { Logger } from "../logger";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { DiagnosticCodes, errorMessage } from "../diagnostics";
+import type { CompilerContext, CompilerOptions } from "../types";
 
 const formatBuildLogs = (input: unknown): string => {
   const logs: any[] = Array.isArray(input)
@@ -48,18 +41,16 @@ const bun: any = (globalThis as any).Bun;
 const writeRaw = (
   outPath: string,
   code: string,
-  logger: Logger,
-  warning?: string
+  ctx: CompilerContext,
+  warning?: string,
 ): string => {
   if (warning) {
-    logger.warn(warning);
+    ctx.logger.warn(warning);
   }
 
   writeFileSync(outPath, code);
 
-  logger.info(
-    `Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`
-  );
+  ctx.logger.info(`Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`);
 
   return outPath;
 };
@@ -67,7 +58,7 @@ const writeRaw = (
 export const runLinkerAsync = async (
   code: string,
   opts: CompilerOptions,
-  logger: Logger
+  ctx: CompilerContext,
 ): Promise<string> => {
   const start = performance.now();
 
@@ -76,16 +67,11 @@ export const runLinkerAsync = async (
   const outPath = join(opts.outDir, opts.outFile);
 
   if (!bun?.build) {
-    return writeRaw(
-      outPath,
-      code,
-      logger,
-      "Bun.build unavailable. Wrote unminified output."
-    );
+    return writeRaw(outPath, code, ctx, "Bun.build unavailable. Wrote unminified output.");
   }
 
   if (!opts.minify && !opts.sourceMap) {
-    return writeRaw(outPath, code, logger);
+    return writeRaw(outPath, code, ctx);
   }
 
   /**
@@ -125,17 +111,23 @@ export const runLinkerAsync = async (
       err?.errors ?? err?.logs ?? err?.cause?.errors ?? err?.cause?.logs,
     );
 
-    throw new Error(
-      `Bun.build threw an exception:\n${err?.message ?? String(err)}${details}`,
-    );
+    ctx.diagnostics.error({
+      code: DiagnosticCodes.LinkFailed,
+      message: `Bun.build threw an exception: ${errorMessage(err)}${details}`,
+    });
+
+    throw new Error(`Bun.build threw an exception:\n${errorMessage(err)}${details}`);
   }
 
   if (!result.success) {
-    const message = (result.logs ?? [])
-      .map((log: any) => log?.message ?? String(log))
-      .join("\n");
+    const message = (result.logs ?? []).map((log: any) => log?.message ?? String(log)).join("\n");
 
     rmSync(entryPath, { force: true });
+
+    ctx.diagnostics.error({
+      code: DiagnosticCodes.LinkFailed,
+      message: `Bun.build failed: ${message}`,
+    });
 
     throw new Error(`Bun.build failed:\n${message}`);
   }
@@ -153,9 +145,7 @@ export const runLinkerAsync = async (
   }
 
   if (opts.sourceMap) {
-    const mapSource = builtPath
-      ? `${builtPath}.map`
-      : `${entryPath}.map`;
+    const mapSource = builtPath ? `${builtPath}.map` : `${entryPath}.map`;
 
     const mapOut = `${outPath}.map`;
 
@@ -168,7 +158,7 @@ export const runLinkerAsync = async (
 
       const fixed = text.replace(
         /\/\/# sourceMappingURL=.*$/m,
-        `//# sourceMappingURL=${basename(mapOut)}`
+        `//# sourceMappingURL=${basename(mapOut)}`,
       );
 
       await bun.write(outPath, fixed);
@@ -179,17 +169,13 @@ export const runLinkerAsync = async (
     rmSync(entryPath, { force: true });
   }
 
-  const finalCode = existsSync(outPath)
-    ? await bun.file(outPath).text()
-    : code;
+  const finalCode = existsSync(outPath) ? await bun.file(outPath).text() : code;
 
   const elapsed = (performance.now() - start).toFixed(2);
 
-  logger.info(
-    `Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`
-  );
+  ctx.logger.info(`Linked → ${outPath} (${(Buffer.byteLength(finalCode) / 1024).toFixed(1)} KB)`);
 
-  logger.info(`linker completed in ${elapsed}ms`);
+  ctx.logger.info(`linker completed in ${elapsed}ms`);
 
   return outPath;
 };
@@ -200,12 +186,8 @@ export const runLinkerAsync = async (
  * Bun.build is async, so synchronous compile() cannot use it.
  * Prefer buildAsync() in production.
  */
-export const runLinker = (
-  code: string,
-  opts: CompilerOptions,
-  logger: Logger
-): string =>
-  logger.time("linker", () => {
+export const runLinker = (code: string, opts: CompilerOptions, ctx: CompilerContext): string =>
+  ctx.logger.time("linker", () => {
     mkdirSync(opts.outDir, { recursive: true });
 
     const outPath = join(opts.outDir, opts.outFile);
@@ -213,20 +195,7 @@ export const runLinker = (
     return writeRaw(
       outPath,
       code,
-      logger,
-      "Sync linker wrote unminified output. Use buildAsync() for Bun.build minification."
+      ctx,
+      "Sync linker wrote unminified output. Use buildAsync() for Bun.build minification.",
     );
   });
-
-/**
- * Compatibility stubs.
- *
- * The old esbuild linker exported these.
- * They are no longer used by the Bun.build linker.
- */
-export const minifyCode = (code: string): string => code;
-
-export const emitSourceMap = (
-  _fileName: string,
-  _code: string
-): string => "";

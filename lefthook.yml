@@ -1,0 +1,20 @@
+# Pre-commit / pre-push hooks — https://github.com/evilmartians/lefthook
+# Install once per clone: `bunx lefthook install`
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{js,ts,jsx,tsx,json,jsonc,html,md}"
+      run: bunx biome check --write --staged {staged_files} && git add {staged_files}
+    oxlint:
+      glob: "*.{js,ts,jsx,tsx}"
+      run: bunx oxlint {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run typecheck && bun run typecheck:cli
+    test:
+      run: bun run test

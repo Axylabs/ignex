@@ -1,0 +1,30 @@
+{
+  "name": "@flux/native",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
+  },
+  "description": "Flux native accelerator: Rust NAPI addon (castrum) wrapper with byte-compatible pure-TS fallbacks.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "optionalDependencies": {
+    "castrum": "file:../../../bun-rust-runtime-bench"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -4,7 +4,7 @@
  */
 
 import type { FluxContext } from "./context";
-import type { HookContainer, LifeCycleType } from "./types";
+import type { HookContainer } from "./types";
 
 // ============================================================================
 // Types
@@ -29,7 +29,7 @@ export const haltHook = (response: Response): HookResult => ({ ok: false, respon
 
 export const executeHooks = async (
   ctx: FluxContext,
-  hooks: readonly HookFn[]
+  hooks: readonly HookFn[],
 ): Promise<{ ctx: FluxContext; halted?: Response }> => {
   let current = ctx;
   for (const hook of hooks) {
@@ -44,7 +44,8 @@ export const executeHooks = async (
 // Hook Composition
 // ============================================================================
 
-export const composeHooks = (...hooks: HookFn[]): HookFn =>
+export const composeHooks =
+  (...hooks: HookFn[]): HookFn =>
   async (ctx) => {
     const result = await executeHooks(ctx, hooks);
     if (result.halted) return haltHook(result.halted);
@@ -52,62 +53,24 @@ export const composeHooks = (...hooks: HookFn[]): HookFn =>
   };
 
 // ============================================================================
-// Hook Filtering by Scope
-// ============================================================================
-
-export const filterByScope = (scope: LifeCycleType) =>
-  (hooks: HookContainer[]): HookContainer[] =>
-    hooks.filter(h => !h.scope || h.scope === scope || h.scope === "global");
-
-export const filterGlobal = (hooks: HookContainer[]): HookContainer[] =>
-  hooks.filter(h => h.scope === "global" || h.scope === "scoped");
-
-// ============================================================================
 // Hook Merging (Pure)
 // ============================================================================
 
 export const mergeHookArrays = (
   a: HookContainer[] | undefined,
-  b: HookContainer[] | undefined
+  b: HookContainer[] | undefined,
 ): HookContainer[] => {
-  if (!a && !b) return [];
-  if (!a) return b!;
-  if (!b) return a;
+  // Always return a fresh array so callers' arrays are never aliased (mutating
+  // one app's lifecycle must not mutate `EMPTY_LIFECYCLE` or the caller's).
+  const base = a ?? [];
+  const extra = b ?? [];
+  if (base.length === 0 && extra.length === 0) return [];
 
-  const checksums = new Set(a.map(h => h.checksum).filter(Boolean));
-  const merged = [...a];
-  for (const hook of b) {
+  const checksums = new Set(base.map((h) => h.checksum).filter(Boolean));
+  const merged = [...base];
+  for (const hook of extra) {
     if (hook.checksum && checksums.has(hook.checksum)) continue;
     merged.push(hook);
   }
   return merged;
 };
-
-// ============================================================================
-// Async Detection
-// ============================================================================
-
-export const isAsyncFn = (fn: Function): boolean =>
-  fn.constructor.name === "AsyncFunction" ||
-  fn.constructor.name === "AsyncGeneratorFunction";
-
-// ============================================================================
-// Higher-Order Hook Factories
-// ============================================================================
-
-export const withTiming = (name: string, hook: HookFn): HookFn =>
-  async (ctx) => {
-    const start = performance.now();
-    const result = await hook(ctx);
-    ctx.setState(`__timing_${name}`, performance.now() - start);
-    return result;
-  };
-
-export const withErrorBoundary = (fallback: (err: Error) => Response) => (hook: HookFn): HookFn =>
-  async (ctx) => {
-    try { return await hook(ctx); }
-    catch (err) { return haltHook(fallback(err as Error)); }
-  };
-
-export const conditional = (predicate: (ctx: FluxContext) => boolean) => (hook: HookFn): HookFn =>
-  (ctx) => predicate(ctx) ? hook(ctx) : continueHook(ctx);

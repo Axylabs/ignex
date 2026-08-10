@@ -7,16 +7,7 @@ const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
 const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json";
 const CLIENT_OUT = process.env.CLIENT_OUT || "./packages/app/src/client";
 
-const HTTP_METHODS = new Set([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-  "ALL",
-]);
+const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "ALL"]);
 
 function parseRouteFile(file: string) {
   const ext = extname(file);
@@ -52,17 +43,11 @@ function parseRouteFile(file: string) {
 }
 
 function toOpenApiPath(path: string) {
-  return path
-    .replace(/:([A-Za-z0-9_]+)/g, "{$1}")
-    .replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
+  return path.replace(/:([A-Za-z0-9_]+)/g, "{$1}").replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
 }
 
 function isJsonSchema(value: unknown): boolean {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !("~standard" in value)
-  );
+  return typeof value === "object" && value !== null && !("~standard" in value);
 }
 
 function schemaToParameters(schema: any, location: "path" | "query") {
@@ -84,20 +69,12 @@ function pickResponseSchema(responseSchema: any) {
   if (!responseSchema) return undefined;
 
   if (isJsonSchema(responseSchema)) {
-    if (
-      responseSchema.type ||
-      responseSchema.properties ||
-      responseSchema.$ref
-    ) {
+    if (responseSchema.type || responseSchema.properties || responseSchema.$ref) {
       return responseSchema;
     }
   }
 
-  return (
-    responseSchema[200] ??
-    responseSchema["200"] ??
-    Object.values(responseSchema)[0]
-  );
+  return responseSchema[200] ?? responseSchema["200"] ?? Object.values(responseSchema)[0];
 }
 
 async function loadRouteSchema(absPath: string) {
@@ -138,7 +115,7 @@ async function main() {
     const method = parsed.method.toLowerCase();
 
     const operation: Record<string, unknown> = {
-      operationId: `${method}_${openApiPath.replace(/[{}\/]/g, "_")}`,
+      operationId: `${method}_${openApiPath.replace(/[{}/]/g, "_")}`,
       responses: {
         200: {
           description: "Successful response",
@@ -218,7 +195,7 @@ async function main() {
     ],
     {
       stdio: ["inherit", "inherit", "inherit"],
-    }
+    },
   );
 
   if (result.exitCode !== 0) {

@@ -8,7 +8,7 @@ export class HTTPError extends Error {
     public readonly status: number,
     message: string,
     public readonly code?: string,
-    public readonly details?: Record<string, unknown>
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "HTTPError";
@@ -35,7 +35,7 @@ export class ValidationError extends HTTPError {
   constructor(
     message: string,
     public readonly errors: Record<string, string[]>,
-    public readonly on?: string
+    public readonly on?: string,
   ) {
     super(422, message, "VALIDATION_ERROR", { errors, on });
     this.name = "ValidationError";
@@ -70,8 +70,31 @@ export class ConflictError extends HTTPError {
   }
 }
 
+export class BadRequestError extends HTTPError {
+  constructor(message = "Bad Request") {
+    super(400, message, "BAD_REQUEST");
+    this.name = "BadRequestError";
+  }
+}
+
+export class MethodNotAllowedError extends HTTPError {
+  constructor(
+    message = "Method Not Allowed",
+    public readonly allow?: string,
+  ) {
+    super(405, message, "METHOD_NOT_ALLOWED");
+    this.name = "MethodNotAllowedError";
+  }
+}
+
+/** Narrowing guard for the whole HTTP error family. */
+export const isHttpError = (value: unknown): value is HTTPError => value instanceof HTTPError;
+
 export class TooManyRequestsError extends HTTPError {
-  constructor(message = "Too Many Requests", public readonly retryAfter?: number) {
+  constructor(
+    message = "Too Many Requests",
+    public readonly retryAfter?: number,
+  ) {
     super(429, message, "TOO_MANY_REQUESTS");
     this.name = "TooManyRequestsError";
   }
@@ -107,10 +130,7 @@ export const errorToResponse = (err: unknown, exposeDetails = false): Response =
   if (err instanceof HTTPError) return err.toResponse();
 
   const message = exposeDetails && err instanceof Error ? err.message : "Internal Server Error";
-  return Response.json(
-    { error: message, status: 500, code: "INTERNAL_ERROR" },
-    { status: 500 }
-  );
+  return Response.json({ error: message, status: 500, code: "INTERNAL_ERROR" }, { status: 500 });
 };
 
 // ============================================================================
@@ -118,12 +138,29 @@ export const errorToResponse = (err: unknown, exposeDetails = false): Response =
 // ============================================================================
 
 export const StatusMap = {
-  Continue: 100, "Switching Protocols": 101, Processing: 102,
-  OK: 200, Created: 201, Accepted: 202, "No Content": 204, "Partial Content": 206,
-  "Multiple Choices": 300, "Moved Permanently": 301, Found: 302, "Not Modified": 304,
-  "Bad Request": 400, Unauthorized: 401, Forbidden: 403, "Not Found": 404,
-  "Method Not Allowed": 405, Conflict: 409, Gone: 410, "Too Many Requests": 429,
-  "Internal Server Error": 500, "Bad Gateway": 502, "Service Unavailable": 503,
+  Continue: 100,
+  "Switching Protocols": 101,
+  Processing: 102,
+  OK: 200,
+  Created: 201,
+  Accepted: 202,
+  "No Content": 204,
+  "Partial Content": 206,
+  "Multiple Choices": 300,
+  "Moved Permanently": 301,
+  Found: 302,
+  "Not Modified": 304,
+  "Bad Request": 400,
+  Unauthorized: 401,
+  Forbidden: 403,
+  "Not Found": 404,
+  "Method Not Allowed": 405,
+  Conflict: 409,
+  Gone: 410,
+  "Too Many Requests": 429,
+  "Internal Server Error": 500,
+  "Bad Gateway": 502,
+  "Service Unavailable": 503,
 } as const;
 
 export type StatusMapKey = keyof typeof StatusMap;

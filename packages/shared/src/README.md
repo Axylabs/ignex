@@ -1,11 +1,16 @@
 # Shared Types
 
-This directory is reserved for the unified type system.
+Home of the unified type system shared between the compiler and the runtime.
 
-Next step:
+## Done
+
+- ✅ `ContextUsage` (the compiler ↔ runtime AOT contract) lives here.
+- ✅ Functional core (`fp.ts`): `Result`/`Task`/`pipe`/`compose` — imported by
+  `@flux/core`, `@flux/compiler` and `@flux/native`.
+
+## Next step
 
 - move HTTP primitives here
-- move ContextUsage here
 - move CompilerOptions here
 - make compiler and runtime import from this shared package
 

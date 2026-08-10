@@ -1,62 +1,74 @@
 /**
  * Flux Compiler Orchestrator — Bun 1.4 edition.
  *
- * Async build uses Bun.build linker.
+ * The compiler follows a Svelte-style phased pipeline:
+ *
+ *   discovery → analysis → optimization → (precompile validators/serializers)
+ *       → codegen → linker → artifacts
+ *
+ * Every phase receives a {@link CompilerContext} carrying a `Logger` sink and a
+ * `DiagnosticCollector`, so problems are surfaced as structured diagnostics
+ * (code + severity + position + frame) instead of being silently swallowed.
+ *
+ * The async path (`buildAsync` / `compileAsync`) is the canonical, fully
+ * featured entry point. The sync path (`build` / `compile`) is deprecated:
+ * it cannot precompile validators/serializers, minify, or emit source maps.
  */
 
-import type {
-  CompilerOptions,
-  CompiledRoute,
-  DiscoveryResult,
-  AnalysisResult,
-  OptimizationResult,
-} from "./types";
-
-import type { Logger } from "./logger";
-import { DEFAULT_OPTS } from "./types";
-import { runDiscovery } from "./phases/discovery";
-import { runAnalysis } from "./phases/analysis";
-import { runOptimization } from "./phases/optimization";
-import { runCodeGen } from "./phases/codegen";
-import { runLinker, runLinkerAsync } from "./phases/linker";
-import { writeArtifacts } from "./phases/artifacts";
-import { precompileValidators } from "./phases/validators";
-import { precompileSerializers } from "./phases/serializers";
-import { consoleLogger } from "./logger";
-import { validateOptions } from "./validate";
 import { defu } from "defu";
+import { storeCache, tryCachedBuild } from "./cache";
+import { DiagnosticCodes, DiagnosticCollector, reportDiagnostics } from "./diagnostics";
+import type { Logger } from "./logger";
+import { consoleLogger } from "./logger";
+import { runAnalysis } from "./phases/analysis";
+import { writeArtifacts } from "./phases/artifacts";
+import { runCodeGen } from "./phases/codegen";
+import { runDiscovery } from "./phases/discovery";
+import { runLinker, runLinkerAsync } from "./phases/linker";
+import { runOptimization } from "./phases/optimization";
+import { precompileSerializers } from "./phases/serializers";
+import { precompileValidators } from "./phases/validators";
+import type { CompileResult, CompilerContext, CompilerOptions } from "./types";
+import {
+  DEFAULT_OPTS,
+  type OptimizationLevel,
+  type OptimizationMeta,
+  optimizationPresets,
+} from "./types";
+import { validateOptions } from "./validate";
 
+export {
+  type Diagnostic,
+  DiagnosticCodes,
+  formatDiagnostic,
+  getCodeFrame,
+} from "./diagnostics";
+export type { CompileResult, CompilerOptions };
 export { DEFAULT_OPTS };
-export type { CompilerOptions, CompiledRoute };
 
-export const mergeOptions = (
-  opts: Partial<CompilerOptions>
-): CompilerOptions => defu(opts, DEFAULT_OPTS) as CompilerOptions;
+export const mergeOptions = (opts: Partial<CompilerOptions>): CompilerOptions => {
+  // Apply the optimization preset for the requested level to the defaults, then
+  // let explicit user knobs win over both (defu: earlier args override later).
+  const level = (opts.optimizationLevel ?? DEFAULT_OPTS.optimizationLevel) as OptimizationLevel;
+  const preset = optimizationPresets[level] ?? {};
+  const base = defu(preset, DEFAULT_OPTS) as CompilerOptions;
+  return defu(opts, base) as CompilerOptions;
+};
 
-export const createCompilationResult = (
-  optimized: OptimizationResult,
-  analysis: AnalysisResult,
-  elapsedMs: number
-): CompiledRoute => ({
-  staticRoutes: optimized.routes.filter((r) => r.isStatic),
-  dynamicRoutes: optimized.routes.filter((r) => r.isDynamic),
-  modules: analysis.modules,
-  meta: {
-    inlinedHandlers: optimized.meta.inlined,
-    deduplicatedHandlers: optimized.meta.deduplicated,
-    eliminatedRoutes: optimized.meta.eliminated,
-    totalCompileTime: elapsedMs,
-  },
+/** Build a fresh per-compile context (logger + diagnostic collector). */
+const createContext = (logger: Logger): CompilerContext => ({
+  logger,
+  diagnostics: new DiagnosticCollector(),
 });
 
 export const runDiscoveryPhase = (
   opts: CompilerOptions,
-  logger: Logger
-): DiscoveryResult =>
-  logger.time("discovery", () => {
-    const result = runDiscovery(opts, logger);
+  ctx: CompilerContext,
+): ReturnType<typeof runDiscovery> =>
+  ctx.logger.time("discovery", () => {
+    const result = runDiscovery(opts, ctx);
 
-    logger.info("discovery complete", {
+    ctx.logger.info("discovery complete", {
       files: result.files.length,
       modules: result.modules.length,
     });
@@ -65,14 +77,14 @@ export const runDiscoveryPhase = (
   });
 
 export const runAnalysisPhase = (
-  discovery: DiscoveryResult,
+  discovery: ReturnType<typeof runDiscovery>,
   opts: CompilerOptions,
-  logger: Logger
-): AnalysisResult =>
-  logger.time("analysis", () => {
-    const result = runAnalysis(discovery, opts, logger);
+  ctx: CompilerContext,
+): ReturnType<typeof runAnalysis> =>
+  ctx.logger.time("analysis", () => {
+    const result = runAnalysis(discovery, opts, ctx);
 
-    logger.info("analysis complete", {
+    ctx.logger.info("analysis complete", {
       routes: result.routes.length,
       hooks: result.hooks.size,
     });
@@ -81,19 +93,14 @@ export const runAnalysisPhase = (
   });
 
 export const runOptimizationPhase = (
-  analysis: AnalysisResult,
+  analysis: ReturnType<typeof runAnalysis>,
   opts: CompilerOptions,
-  logger: Logger
-): OptimizationResult =>
-  logger.time("optimization", () => {
-    const result = runOptimization(
-      analysis.routes,
-      analysis.modules,
-      opts,
-      logger
-    );
+  ctx: CompilerContext,
+): ReturnType<typeof runOptimization> =>
+  ctx.logger.time("optimization", () => {
+    const result = runOptimization(analysis.routes, analysis.modules, opts, ctx);
 
-    logger.info("optimization complete", {
+    ctx.logger.info("optimization complete", {
       inlined: result.meta.inlined,
       deduplicated: result.meta.deduplicated,
       eliminated: result.meta.eliminated,
@@ -103,21 +110,15 @@ export const runOptimizationPhase = (
   });
 
 export const runCodegenPhase = (
-  optimized: OptimizationResult,
-  analysis: AnalysisResult,
+  optimized: ReturnType<typeof runOptimization>,
+  analysis: ReturnType<typeof runAnalysis>,
   opts: CompilerOptions,
-  logger: Logger
+  ctx: CompilerContext,
 ): string =>
-  logger.time("codegen", () => {
-    const code = runCodeGen(
-      optimized.routes,
-      analysis.modules,
-      analysis.hooks,
-      opts,
-      logger
-    );
+  ctx.logger.time("codegen", () => {
+    const code = runCodeGen(optimized.routes, analysis.modules, analysis.hooks, opts, ctx);
 
-    logger.info("codegen complete", {
+    ctx.logger.info("codegen complete", {
       lines: code.split("\n").length,
     });
 
@@ -127,136 +128,178 @@ export const runCodegenPhase = (
 export const runLinkingPhase = (
   code: string,
   opts: CompilerOptions,
-  logger: Logger
-): string =>
-  logger.time("linker", () => {
-    return runLinker(code, opts, logger);
-  });
+  ctx: CompilerContext,
+): string => runLinker(code, opts, ctx);
 
-export const runLinkingPhaseAsync = async (
+export const runLinkingPhaseAsync = (
   code: string,
   opts: CompilerOptions,
-  logger: Logger
-): Promise<string> => {
-  return runLinkerAsync(code, opts, logger);
+  ctx: CompilerContext,
+): Promise<string> => runLinkerAsync(code, opts, ctx);
+
+const finish = (
+  code: string,
+  outPath: string,
+  ctx: CompilerContext,
+  elapsed: number,
+  cached = false,
+  meta?: OptimizationMeta,
+): CompileResult => {
+  ctx.logger.info("build complete", {
+    elapsedMs: Number(elapsed.toFixed(2)),
+    outPath,
+    ...(cached ? { cached: true } : {}),
+  });
+
+  reportDiagnostics(ctx.diagnostics.all, ctx.logger);
+
+  const metadata = {
+    inlinedHandlers: meta?.inlined ?? 0,
+    deduplicatedHandlers: meta?.deduplicated ?? 0,
+    eliminatedRoutes: meta?.eliminated ?? 0,
+    totalCompileTime: Number(elapsed.toFixed(2)),
+  };
+
+  return {
+    code,
+    outFile: outPath,
+    diagnostics: ctx.diagnostics.all,
+    warnings: ctx.diagnostics.warnings,
+    errors: ctx.diagnostics.errors,
+    metadata,
+    ...(cached ? { cached } : {}),
+  };
 };
 
 export class FluxCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
-  compile(): CompiledRoute {
+  /**
+   * Synchronous compile.
+   *
+   * @deprecated The sync path cannot precompile validators/serializers,
+   * minify, or emit source maps. Prefer {@link compileAsync}.
+   */
+  compile(): CompileResult {
     const validated = validateOptions(this.input);
 
     if (!validated.ok) {
-      throw new Error(
-        `Compiler options invalid:\n${validated.error.join("\n")}`
-      );
+      throw new Error(`Compiler options invalid:\n${validated.error.join("\n")}`);
     }
 
     const opts = validated.value;
-    const logger = consoleLogger();
+    const ctx = createContext(consoleLogger());
     const t0 = performance.now();
 
     if (opts.precompileValidators || opts.precompileSerializers) {
-      logger.warn(
-        "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation."
-      );
+      ctx.diagnostics.info({
+        code: DiagnosticCodes.SyncLimited,
+        message:
+          "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation, minification, and source maps.",
+      });
     }
 
-    logger.info("flux compiler started", {
+    ctx.logger.info("flux compiler started (sync)", {
       target: opts.target,
       optimizationLevel: opts.optimizationLevel,
       routesDir: opts.routesDir,
       outDir: opts.outDir,
     });
 
-    const discovery = runDiscoveryPhase(opts, logger);
-    const analysis = runAnalysisPhase(discovery, opts, logger);
-    const optimized = runOptimizationPhase(analysis, opts, logger);
+    const discovery = runDiscoveryPhase(opts, ctx);
+    const analysis = runAnalysisPhase(discovery, opts, ctx);
+    const optimized = runOptimizationPhase(analysis, opts, ctx);
 
-    writeArtifacts(optimized.routes, opts, logger);
+    writeArtifacts(optimized.routes, opts, ctx);
 
-    const code = runCodegenPhase(optimized, analysis, opts, logger);
-    const outPath = runLinkingPhase(code, opts, logger);
+    const code = runCodegenPhase(optimized, analysis, opts, ctx);
+    const outPath = runLinkingPhase(code, opts, ctx);
 
     const elapsed = performance.now() - t0;
 
-    logger.info("build complete", {
-      elapsedMs: Number(elapsed.toFixed(2)),
-      outPath,
-    });
-
-    return createCompilationResult(optimized, analysis, elapsed);
+    return finish(code, outPath, ctx, elapsed, false, optimized.meta);
   }
 
-  async compileAsync(): Promise<CompiledRoute> {
+  /** Canonical async compile with validator/serializer precompilation. */
+  async compileAsync(): Promise<CompileResult> {
     const validated = validateOptions(this.input);
 
     if (!validated.ok) {
-      throw new Error(
-        `Compiler options invalid:\n${validated.error.join("\n")}`
-      );
+      throw new Error(`Compiler options invalid:\n${validated.error.join("\n")}`);
     }
 
     const opts = validated.value;
-    const logger = consoleLogger();
+    const ctx = createContext(consoleLogger());
     const t0 = performance.now();
 
-    logger.info("flux compiler started (async)", {
+    ctx.logger.info("flux compiler started (async)", {
       target: opts.target,
       optimizationLevel: opts.optimizationLevel,
       routesDir: opts.routesDir,
       outDir: opts.outDir,
     });
 
-    const discovery = runDiscoveryPhase(opts, logger);
-    const analysis = runAnalysisPhase(discovery, opts, logger);
-    const optimized = runOptimizationPhase(analysis, opts, logger);
+    // Incremental fast path: reuse the previous build when nothing changed.
+    if (opts.incremental) {
+      const cached = await tryCachedBuild(opts, ctx);
+      if (cached) {
+        // Artifacts (openapi.json, client.ts/d.ts, routes.d.ts) are NOT stored
+        // in the cache, so on a cache hit they could go stale or go missing.
+        // Regenerate them from a fresh discovery/analysis (skipping the
+        // expensive codegen + link steps) whenever artifact generation is on.
+        if (opts.generateTypes || opts.generateOpenAPI || opts.generateClient) {
+          const discovery = runDiscoveryPhase(opts, ctx);
+          const analysis = runAnalysisPhase(discovery, opts, ctx);
+          const optimized = runOptimizationPhase(analysis, opts, ctx);
+          writeArtifacts(optimized.routes, opts, ctx);
+        }
+        const elapsed = performance.now() - t0;
+        return finish(cached.code, cached.outFile, ctx, elapsed, true, cached.meta);
+      }
+    }
+
+    const discovery = runDiscoveryPhase(opts, ctx);
+    const analysis = runAnalysisPhase(discovery, opts, ctx);
+    const optimized = runOptimizationPhase(analysis, opts, ctx);
 
     let routes = optimized.routes;
 
-    routes = await precompileValidators(
-      routes,
-      analysis.modules,
-      opts,
-      logger
-    );
+    routes = await precompileValidators(routes, analysis.modules, opts, ctx);
+    routes = await precompileSerializers(routes, analysis.modules, opts, ctx);
 
-    routes = await precompileSerializers(
-      routes,
-      analysis.modules,
-      opts,
-      logger
-    );
-
-    const enriched: OptimizationResult = {
+    const enriched = {
       routes,
       meta: optimized.meta,
     };
 
-    writeArtifacts(enriched.routes, opts, logger);
+    writeArtifacts(enriched.routes, opts, ctx);
 
-    const code = runCodegenPhase(enriched, analysis, opts, logger);
-    const outPath = await runLinkingPhaseAsync(code, opts, logger);
+    const code = runCodegenPhase(enriched, analysis, opts, ctx);
+    const outPath = await runLinkingPhaseAsync(code, opts, ctx);
+
+    if (opts.incremental) {
+      await storeCache(opts, ctx, outPath, optimized.meta);
+    }
 
     const elapsed = performance.now() - t0;
 
-    logger.info("build complete", {
-      elapsedMs: Number(elapsed.toFixed(2)),
-      outPath,
-    });
+    if (ctx.diagnostics.hasErrors) {
+      const summary = ctx.diagnostics.errors.map((d) => `  - ${d.code}: ${d.message}`).join("\n");
 
-    return createCompilationResult(enriched, analysis, elapsed);
+      throw new Error(
+        `Compilation failed with ${ctx.diagnostics.errors.length} error(s):\n${summary}`,
+      );
+    }
+
+    return finish(code, outPath, ctx, elapsed, false, optimized.meta);
   }
 }
 
-export function build(opts?: Partial<CompilerOptions>): CompiledRoute {
+export function build(opts?: Partial<CompilerOptions>): CompileResult {
   return new FluxCompiler(opts).compile();
 }
 
-export async function buildAsync(
-  opts?: Partial<CompilerOptions>
-): Promise<CompiledRoute> {
+export async function buildAsync(opts?: Partial<CompilerOptions>): Promise<CompileResult> {
   return new FluxCompiler(opts).compileAsync();
 }
 

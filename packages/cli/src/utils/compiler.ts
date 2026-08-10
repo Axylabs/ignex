@@ -1,13 +1,14 @@
-import { isAbsolute, join, resolve } from "node:path";
-import { exists } from "./fs.js";
+import { isAbsolute, join } from "node:path";
+import { type CompileResult, type CompilerOptions, formatDiagnostic } from "@flux/compiler";
 import { loadConfig } from "./config.js";
-import { step } from "./logger.js";
+import { exists } from "./fs.js";
+import { error, step, warn } from "./logger.js";
 
 /**
  * CLI flags are mapped to real CompilerOptions names here.
  * Never pass raw CLI names directly into the compiler.
  */
-const CLI_TO_COMPILER: Record<string, string> = {
+const CLI_TO_COMPILER: Partial<Record<string, keyof CompilerOptions>> = {
   routesDir: "routesDir",
   hooksDir: "hooksDir",
   outDir: "outDir",
@@ -16,31 +17,37 @@ const CLI_TO_COMPILER: Record<string, string> = {
   sourcemap: "sourceMap",
   sourceMap: "sourceMap",
   target: "target",
-  router: "router",
-  routerMode: "router",
   cache: "routeCache",
   routeCache: "routeCache",
 };
 
-function mapCliFlags(flags: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+function mapCliFlags(flags: Record<string, unknown>): Partial<CompilerOptions> {
+  const out: Partial<CompilerOptions> = {};
 
   for (const [cliKey, compilerKey] of Object.entries(CLI_TO_COMPILER)) {
-    if (flags[cliKey] !== undefined) {
-      out[compilerKey] = flags[cliKey];
+    if (compilerKey !== undefined && flags[cliKey] !== undefined) {
+      (out as Record<string, unknown>)[compilerKey] = flags[cliKey];
     }
   }
 
   return out;
 }
 
+export interface BuildOutcome {
+  /** Effective compiler options used for the build. */
+  readonly opts: CompilerOptions;
+  /** Structured compile result including diagnostics. */
+  readonly result: CompileResult;
+}
+
+/** Compile the project and surface structured compiler diagnostics. */
 export async function buildProject(
   root: string,
   flags: Record<string, unknown>,
-): Promise<any> {
+): Promise<BuildOutcome> {
   const config = await loadConfig(root);
 
-  let compiler: any;
+  let compiler: typeof import("@flux/compiler");
   try {
     compiler = await import("@flux/compiler");
   } catch (err) {
@@ -54,40 +61,27 @@ export async function buildProject(
   const input: Record<string, unknown> = { ...config };
   Object.assign(input, mapCliFlags(flags));
 
-  const opts =
-    typeof compiler.mergeOptions === "function"
-      ? compiler.mergeOptions(input)
-      : input;
+  const opts = compiler.mergeOptions(input as Partial<CompilerOptions>);
 
-  const build = compiler.buildAsync ?? compiler.build;
+  step(`Compiling ${String(opts.routesDir ?? "src/routes")} → ${String(opts.outDir ?? ".flux")}`);
 
-  if (typeof build !== "function") {
-    throw new Error("@flux/compiler does not export buildAsync or build.");
-  }
+  const result = await compiler.buildAsync(opts);
 
-  step(
-    `Compiling ${String(opts.routesDir ?? "src/routes")} → ${String(
-      opts.outDir ?? ".flux",
-    )}`,
-  );
+  // Surface structured compiler diagnostics (warnings and errors).
+  for (const d of result.warnings) warn(formatDiagnostic(d));
+  for (const d of result.errors) error(formatDiagnostic(d));
 
-  await build(opts);
-
-  return opts;
+  return { opts, result };
 }
 
 export async function findServerEntry(
   root: string,
-  opts: any,
+  opts: CompilerOptions,
 ): Promise<string | undefined> {
-  const outDir = typeof opts?.outDir === "string" ? opts.outDir : ".flux";
-  const outFile = typeof opts?.outFile === "string" ? opts.outFile : "server.js";
+  const outDir = opts.outDir ?? ".flux";
+  const outFile = opts.outFile ?? "server.js";
 
   const candidates = [
-    opts?.output,
-    opts?.serverEntry,
-    opts?.entry,
-    opts?.outFile ? join(outDir, opts.outFile) : undefined,
     join(outDir, outFile),
     join(outDir, "server.js"),
     join(outDir, "server.mjs"),

@@ -3,14 +3,8 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "bun"
-    ],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun"],
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
@@ -21,23 +15,16 @@
     "verbatimModuleSyntax": false,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "paths": {
-      "@flux/shared": [
-        "packages/shared/src/index.ts"
-      ],
-      "@flux/core": [
-        "packages/core/src/index.ts"
-      ],
-      "@flux/core/http": [
-        "packages/core/src/http.ts"
-      ],
-      "@flux/core/*": [
-        "packages/core/src/*"
-      ],
-      "@flux/compiler": [
-        "packages/compiler/src/index.ts"
-      ]
+      "@flux/shared": ["./packages/shared/src/index.ts"],
+      "@flux/core": ["./packages/core/src/index.ts"],
+      "@flux/core/http": ["./packages/core/src/http.ts"],
+      "@flux/core/*": ["./packages/core/src/*"],
+      "@flux/compiler": ["./packages/compiler/src/index.ts"],
+      "@flux/native": ["./packages/native/src/index.ts"],
+      "castrum": ["./packages/native/src/vendor/castrum.d.ts"]
     }
   },
   "include": [
@@ -47,9 +34,5 @@
     "packages/app/test",
     "scripts"
   ],
-  "exclude": [
-    "node_modules",
-    "**/dist",
-    "packages/app/dist"
-  ]
+  "exclude": ["node_modules", "**/dist", "packages/app/dist", "packages/cli"]
 }

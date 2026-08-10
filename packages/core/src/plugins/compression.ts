@@ -1,5 +1,5 @@
 /**
- * Compression plugin — Bun 1.4 edition.
+ * @fileoverview Compression plugin — Bun 1.4 edition.
  *
  * Adds Brotli when available.
  */

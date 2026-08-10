@@ -74,9 +74,7 @@ const createProxySignal = (opts: ProxyOptions): AbortSignal => {
 /**
  * Type guard for stream-like bodies.
  */
-const isReadableStream = (
-  value: unknown,
-): value is ReadableStream<Uint8Array> =>
+const isReadableStream = (value: unknown): value is ReadableStream<Uint8Array> =>
   typeof value === "object" &&
   value !== null &&
   "pipeTo" in value &&
@@ -85,10 +83,7 @@ const isReadableStream = (
 /**
  * Build fetch init for upstream request.
  */
-const createProxyInit = (
-  opts: ProxyOptions,
-  signal: AbortSignal,
-): ProxyRequestInit => {
+const createProxyInit = (opts: ProxyOptions, signal: AbortSignal): ProxyRequestInit => {
   const headers = sanitizeRequestHeaders(
     opts.headers instanceof Headers ? opts.headers : new Headers(opts.headers),
   );
@@ -114,8 +109,7 @@ const createProxyInit = (
 };
 
 const isTimeoutError = (err: unknown): boolean =>
-  err instanceof Error &&
-  (err.name === "TimeoutError" || err.name === "AbortError");
+  err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 
 const createGatewayTimeout = (): Response =>
   Response.json({ error: "Upstream timeout", status: 504 }, { status: 504 });
@@ -164,8 +158,7 @@ export async function forwardRequest(
 
   const headers = sanitizeRequestHeaders(req.headers);
 
-  const hasBody =
-    req.method !== "GET" && req.method !== "HEAD" && req.body != null;
+  const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.body != null;
 
   const body = hasBody ? req.body : undefined;
 

@@ -1,7 +1,7 @@
+import { type ChildProcess, spawn as spawnProcess, spawnSync } from "node:child_process";
+import { type FSWatcher, watch } from "node:fs";
+import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { watch, type FSWatcher } from "node:fs";
-import { spawn as spawnProcess, spawnSync, type ChildProcess } from "node:child_process";
-import { resolve, relative } from "node:path";
 import { buildProject, findServerEntry } from "../utils/compiler.js";
 import { loadConfig } from "../utils/config.js";
 import { error, step, success, warn } from "../utils/logger.js";
@@ -25,7 +25,10 @@ export async function runDev(args: string[]): Promise<void> {
   const root = resolve((values.root as string | undefined) ?? positionals[0] ?? ".");
   const runtime = detectRuntime(values.runtime as string | undefined);
   const port = (values.port as string | undefined) ?? process.env.PORT ?? "3000";
-  const shouldSpawn = values.spawn !== false;
+  // `--no-spawn` is parsed by node:util/parseArgs as the "no-spawn" key, so
+  // support the negation explicitly.
+  const noSpawn = (values as Record<string, unknown>)["no-spawn"] === true;
+  const shouldSpawn = values.spawn !== false && !noSpawn;
 
   let child: ChildProcess | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -100,13 +103,11 @@ export async function runDev(args: string[]): Promise<void> {
     building = true;
 
     try {
-      const opts = await buildProject(root, values as Record<string, unknown>);
+      const { opts } = await buildProject(root, values as Record<string, unknown>);
       const entry = await findServerEntry(root, opts);
 
       if (!entry) {
-        warn(
-          "Could not locate generated server entry. Set outDir/output or run with --no-spawn.",
-        );
+        warn("Could not locate generated server entry. Set outDir/output or run with --no-spawn.");
       }
 
       if (shouldSpawn && entry) {
@@ -145,12 +146,7 @@ export async function runDev(args: string[]): Promise<void> {
     const normalized = filename.replaceAll("\\", "/");
     const normalizedOut = outDir.replaceAll("\\", "/").replace(/^\.\//, "");
 
-    const lockfiles = new Set([
-      "bun.lockb",
-      "package-lock.json",
-      "pnpm-lock.yaml",
-      "yarn.lock",
-    ]);
+    const lockfiles = new Set(["bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]);
 
     const basename = normalized.split("/").pop() ?? "";
 

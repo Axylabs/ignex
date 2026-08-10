@@ -3,6 +3,8 @@
  * Streaming responses with proper formatting.
  */
 
+import { sseEncode } from "@flux/native";
+
 export interface SSEOptions {
   event?: string;
   id?: string;
@@ -16,18 +18,12 @@ export interface SSEMessage {
   retry?: number;
 }
 
-export const formatSSE = (msg: SSEMessage): string => {
-  let out = "";
-  if (msg.id) out += `id: ${msg.id}\n`;
-  if (msg.event) out += `event: ${msg.event}\n`;
-  if (msg.retry) out += `retry: ${msg.retry}\n`;
-  out += `data: ${msg.data}\n\n`;
-  return out;
-};
+export const formatSSE = (msg: SSEMessage): string =>
+  sseEncode(msg.event ?? null, msg.data, msg.id ?? null, msg.retry ?? null);
 
 export const sse = (
   generator: AsyncGenerator<string | SSEMessage> | Generator<string | SSEMessage>,
-  init?: ResponseInit
+  init?: ResponseInit,
 ): Response => {
   const encoder = new TextEncoder();
 
@@ -38,9 +34,12 @@ export const sse = (
           const msg = typeof chunk === "string" ? { data: chunk } : chunk;
           controller.enqueue(encoder.encode(formatSSE(msg)));
         }
-      } catch { /* stream closed */ }
-      finally { controller.close(); }
-    }
+      } catch {
+        /* stream closed */
+      } finally {
+        controller.close();
+      }
+    },
   });
 
   return new Response(stream, {
@@ -48,7 +47,7 @@ export const sse = (
     headers: {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
-      "connection": "keep-alive",
+      connection: "keep-alive",
       ...init?.headers,
     },
   });
@@ -60,7 +59,7 @@ export const sseFromStream = (stream: ReadableStream, init?: ResponseInit): Resp
     headers: {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
-      "connection": "keep-alive",
+      connection: "keep-alive",
       ...init?.headers,
     },
   });

@@ -1,12 +1,33 @@
 import type { ParsedRoute } from "../utils/route.js";
 
+/** Conventional named-export identifiers per HTTP method (`httpGet`, ...). */
+const HTTP_EXPORT_NAMES: Record<string, string> = {
+  get: "httpGet",
+  post: "httpPost",
+  put: "httpPut",
+  patch: "httpPatch",
+  del: "httpDelete",
+  all: "httpAll",
+};
+
+/**
+ * The named export identifier for a method, e.g. `httpGet`. Falls back to a
+ * conventional `http<Method>` shape for unknown methods.
+ */
+export const httpExportName = (method: string): string =>
+  HTTP_EXPORT_NAMES[method] ?? `http${method.charAt(0).toUpperCase()}${method.slice(1)}`;
+
 export function routeFileTemplate(
   route: ParsedRoute,
-  options: { schema?: boolean } = {},
+  options: { schema?: boolean; named?: boolean } = {},
 ): string {
   const fn = route.method;
   const hasBody = route.method === "post" || route.method === "put" || route.method === "patch";
   const params = route.paramNames;
+  const named = Boolean(options.named);
+
+  const exportLine = (expr: string): string =>
+    named ? `export const ${httpExportName(route.method)} = ${expr};` : `export default ${expr};`;
 
   if (options.schema) {
     const schemaParts: string[] = [];
@@ -50,7 +71,7 @@ export const schema = {
 ${schemaParts.join("\n")}
 };
 
-export default ${fn}(${handler}, schema);
+${exportLine(`${fn}(${handler}, schema)`)}
 `;
   }
 
@@ -59,34 +80,34 @@ export default ${fn}(${handler}, schema);
 
     return `import { ${fn} } from "@flux/core/http";
 
-export default ${fn}((ctx) => {
+${exportLine(`${fn}((ctx) => {
   const { ${params.join(", ")} } = ctx.params;
 
   return Response.json({ ${json} });
-});
+})`)}
 `;
   }
 
   if (hasBody) {
     return `import { ${fn} } from "@flux/core/http";
 
-export default ${fn}(async (ctx) => {
+${exportLine(`${fn}(async (ctx) => {
   const body = await ctx.body.json();
 
   return Response.json({ received: body }, { status: 201 });
-});
+})`)}
 `;
   }
 
   if (route.method === "all") {
     return `import { all } from "@flux/core/http";
 
-export default all(() => new Response("OK"));
+${exportLine(`all(() => new Response("OK"))`)}
 `;
   }
 
   return `import { ${fn} } from "@flux/core/http";
 
-export default ${fn}(() => new Response("OK"));
+${exportLine(`${fn}(() => new Response("OK"))`)}
 `;
 }

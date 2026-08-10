@@ -37,12 +37,11 @@ const createEntry = <V>(
   bytes: number,
   ttlMs: number,
   staleTtlMs: number,
-  now: number
+  now: number,
 ): Entry<V> => {
   const freshTtl = ttlMs > 0 ? ttlMs : 0;
 
-  const staleTtl =
-    staleTtlMs > 0 ? Math.max(staleTtlMs, ttlMs) : freshTtl;
+  const staleTtl = staleTtlMs > 0 ? Math.max(staleTtlMs, ttlMs) : freshTtl;
 
   const freshUntil = freshTtl > 0 ? now + freshTtl : 0;
   const staleUntil = staleTtl > 0 ? now + staleTtl : freshUntil;
@@ -141,11 +140,7 @@ export class LRUCache<K extends {}, V> {
     this.inflight.clear();
   }
 
-  async getOrSet(
-    key: K,
-    factory: () => Promise<V> | V,
-    options: WriteOptions = {}
-  ): Promise<V> {
+  async getOrSet(key: K, factory: () => Promise<V> | V, options: WriteOptions = {}): Promise<V> {
     const now = this.now();
     const entry = this.lru.get(key);
 

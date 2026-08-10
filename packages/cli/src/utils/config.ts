@@ -1,5 +1,5 @@
-import { pathToFileURL } from "node:url";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { exists, readTextFile } from "./fs.js";
 import { warn } from "./logger.js";
 
@@ -40,9 +40,7 @@ export async function loadConfig(root: string): Promise<Record<string, unknown>>
       return (value ?? {}) as Record<string, unknown>;
     } catch (err) {
       if (file.endsWith(".ts") || file.endsWith(".mts")) {
-        warn(
-          `Could not import ${file}. Use flux.config.mjs with Node, or run the CLI with Bun.`,
-        );
+        warn(`Could not import ${file}. Use flux.config.mjs with Node, or run the CLI with Bun.`);
       } else {
         warn(`Failed to load ${file}: ${err instanceof Error ? err.message : String(err)}`);
       }

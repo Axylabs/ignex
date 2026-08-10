@@ -33,6 +33,7 @@ export interface ContextUsage {
   proxy: boolean;
   forward: boolean;
   cache: boolean;
+  loader: boolean;
 }
 
 export const EMPTY_USAGE: ContextUsage = Object.freeze({
@@ -62,6 +63,7 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
   proxy: false,
   forward: false,
   cache: false,
+  loader: false,
 });
 
 export const FULL_USAGE: ContextUsage = Object.freeze({
@@ -91,4 +93,5 @@ export const FULL_USAGE: ContextUsage = Object.freeze({
   proxy: true,
   forward: true,
   cache: true,
+  loader: true,
 });

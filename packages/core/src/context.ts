@@ -7,18 +7,31 @@
  * - ctx.ip using Bun server.requestIP when available
  */
 
-import * as setCookie from "set-cookie-parser";
-import type { HttpMethod, CookieOptions, ElysiaCookie } from "./types";
+import { cookiePairs } from "@flux/native";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
-import { sendFile, type SendFileOptions } from "./files";
-import { proxyRequest, forwardRequest, type ProxyOptions } from "./proxy";
 import { HttpResponseCache, type HttpResponseCacheOptions } from "./cache";
+import { createDataLoader, type DataLoaderFactory } from "./dataloader";
+import { type SendFileOptions, sendFile } from "./files";
+import { forwardRequest, type ProxyOptions, proxyRequest } from "./proxy";
+import type { CookieOptions, ElysiaCookie, HttpMethod } from "./types";
 
 export interface SetHeaders {
   headers: Record<string, string>;
   status?: number;
   redirect?: string;
   cookie?: Record<string, ElysiaCookie>;
+}
+
+/**
+ * Narrow, Bun-free view of the server handle exposed on {@link FluxContext}.
+ *
+ * The generated server assigns the Bun `Server` instance here; this structural
+ * subset is all the runtime reads (client IP lookup). Keeping it Bun-free lets
+ * `@flux/core` typecheck under non-Bun tsconfigs (e.g. the CLI's `types:
+ * ["node"]`).
+ */
+export interface FluxServer {
+  requestIP(req: Request): { address: string; family?: string; port?: number } | null;
 }
 
 export interface ContextOptions {
@@ -29,11 +42,7 @@ export interface ContextOptions {
   set?: Partial<SetHeaders>;
 }
 
-export interface FluxContext<
-  P = Record<string, string>,
-  Q = URLSearchParams,
-  B = unknown
-> {
+export interface FluxContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
   readonly req: Request;
   readonly url: URL;
   readonly method: HttpMethod;
@@ -46,8 +55,16 @@ export interface FluxContext<
 
   params: P;
   readonly query: Q;
-  body: LazyBody;
+  /** Request body. The `B` type parameter is preserved for API compatibility. */
+  body: LazyBody & (B extends unknown ? unknown : never);
   cookie: Record<string, Cookie<string | undefined>>;
+
+  /**
+   * Outgoing channel: headers, status, redirect and cookie mutations are
+   * accumulated here and applied to the final response by the runtime
+   * (`__applySet` in the generated server).
+   */
+  readonly set: SetHeaders;
 
   state: Map<string | symbol, unknown>;
 
@@ -68,16 +85,20 @@ export interface FluxContext<
 
   cache(
     factory: () => Promise<Response>,
-    opts?: HttpResponseCacheOptions & { vary?: string[] }
+    opts?: HttpResponseCacheOptions & { vary?: string[] },
   ): Promise<Response>;
 
-  readonly server: any;
+  /**
+   * Create a per-request DataLoader (batching + caching + dedup). Loaders
+   * created here live for the duration of this request.
+   */
+  readonly loader: DataLoaderFactory;
+
+  readonly server: FluxServer | null;
 }
 
 const toCookieValue = (value: unknown): string =>
-  typeof value === "object" && value !== null
-    ? JSON.stringify(value)
-    : String(value ?? "");
+  typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? "");
 
 const encodeCookieValue = (value: string): string => encodeURIComponent(value);
 
@@ -89,20 +110,14 @@ const decodeCookieValue = (value: string): string => {
   }
 };
 
-const normalizeSameSite = (
-  sameSite: CookieOptions["sameSite"]
-): string | undefined => {
+const normalizeSameSite = (sameSite: CookieOptions["sameSite"]): string | undefined => {
   if (sameSite === true) return "Strict";
   if (sameSite === false || sameSite === undefined) return undefined;
 
   return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
 };
 
-const serializeCookiePair = (
-  name: string,
-  value: string,
-  opts: ElysiaCookie
-): string => {
+const serializeCookiePair = (name: string, value: string, opts: ElysiaCookie): string => {
   const parts = [`${name}=${encodeCookieValue(value)}`];
 
   if (opts.domain) parts.push(`Domain=${opts.domain}`);
@@ -129,50 +144,100 @@ const serializeCookiePair = (
 };
 
 export const serializeCookie = (
-  cookies: Record<string, ElysiaCookie>
+  cookies: Record<string, ElysiaCookie>,
 ): string | string[] | undefined => {
   const serialized = Object.entries(cookies)
     .filter(([, opts]) => opts?.value != null)
-    .map(([name, opts]) =>
-      serializeCookiePair(name, toCookieValue(opts.value), opts)
-    );
+    .map(([name, opts]) => serializeCookiePair(name, toCookieValue(opts.value), opts));
 
   if (serialized.length === 0) return undefined;
 
   return serialized.length === 1 ? serialized[0] : serialized;
 };
 
-export const parseCookieString = (
-  cookieString: string | null
-): Record<string, string> => {
-  if (!cookieString) return {};
+/**
+ * Apply a request's accumulated `set` mutations (headers, status, redirect,
+ * cookies) to a final `Response`.
+ *
+ * Shared by the interpreted `createApp` pipeline and the compiler-generated
+ * server (`__applySet`) so both paths behave identically. When nothing was
+ * mutated and no trace header is requested it returns the original response
+ * unchanged (no allocation).
+ */
+export const applySet = (
+  response: Response,
+  set: SetHeaders | undefined,
+  requestId?: string,
+  trace = false,
+): Response => {
+  if (!set) return response;
 
-  return cookieString
-    .split(";")
-    .reduce<Record<string, string>>((acc, segment) => {
-      const eq = segment.indexOf("=");
-      if (eq === -1) return acc;
+  const { headers, cookie, status, redirect } = set;
 
-      const key = segment.slice(0, eq).trim();
-      if (!key) return acc;
+  // Fast path: nothing was mutated and no trace header requested.
+  if (
+    !trace &&
+    status === undefined &&
+    redirect === undefined &&
+    (headers === undefined || Object.keys(headers).length === 0) &&
+    (cookie === undefined || Object.keys(cookie).length === 0)
+  ) {
+    return response;
+  }
 
-      const value = segment.slice(eq + 1).trim();
-      acc[key] = decodeCookieValue(value);
+  if (redirect !== undefined) {
+    return Response.redirect(redirect, status ?? 302);
+  }
 
-      return acc;
-    }, {});
+  const h = new Headers(response.headers);
+  if (trace && requestId) h.set("x-request-id", requestId);
+
+  if (headers) {
+    for (const [k, v] of Object.entries(headers)) {
+      if (v == null) continue;
+      if (Array.isArray(v)) {
+        h.delete(k);
+        for (const x of v) h.append(k, String(x));
+      } else {
+        h.set(k, String(v));
+      }
+    }
+  }
+
+  if (cookie && typeof cookie === "object") {
+    const s = serializeCookie(cookie);
+    if (s) {
+      if (Array.isArray(s)) for (const c of s) h.append("set-cookie", c);
+      else h.append("set-cookie", s);
+    }
+  }
+
+  return new Response(response.body, {
+    status: status ?? response.status,
+    headers: h,
+    statusText: response.statusText,
+  });
 };
 
-export const parseSetCookieHeader = (header: string | string[] | null) => {
-  if (!header) return [];
-  return setCookie.parse(header);
+export const parseCookieString = (cookieString: string | null): Record<string, string> => {
+  if (!cookieString) return {};
+
+  const out: Record<string, string> = {};
+
+  // Native-accelerated (proven ~2.5x), with a pure-TS fallback. The native
+  // parser trims but does not URL-decode, so we keep the existing decode step.
+  for (const [key, value] of cookiePairs(cookieString)) {
+    out[key] = decodeCookieValue(value);
+  }
+
+  return out;
 };
 
 export class Cookie<T = string | undefined> {
   constructor(
     private name: string,
     private jar: Record<string, ElysiaCookie>,
-    private initial: Partial<ElysiaCookie> = {}
+    private initial: Partial<ElysiaCookie> = {},
   ) {}
 
   get value(): T {
@@ -265,7 +330,7 @@ export class Cookie<T = string | undefined> {
 export const createCookieJar = (
   set: SetHeaders,
   store: Record<string, ElysiaCookie>,
-  initial?: Partial<ElysiaCookie>
+  initial?: Partial<ElysiaCookie>,
 ): Record<string, Cookie> => {
   if (!set.cookie) set.cookie = Object.create(null);
 
@@ -279,7 +344,7 @@ export const createCookieJar = (
 export const createLazyCookieJar = (
   set: SetHeaders,
   getCookieHeader: () => string | null,
-  initial?: Partial<ElysiaCookie>
+  initial?: Partial<ElysiaCookie>,
 ): Record<string, Cookie> => {
   if (!set.cookie) set.cookie = Object.create(null);
 
@@ -331,7 +396,7 @@ const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
 
 const mergeHeaders = (
   base: Record<string, string>,
-  init?: FluxHeadersInit
+  init?: FluxHeadersInit,
 ): ResponseHeadersInit => {
   const headers = new Headers(base);
 
@@ -342,12 +407,9 @@ const mergeHeaders = (
   const forEachFn = (init as { forEach?: unknown }).forEach;
 
   if (!Array.isArray(init) && typeof forEachFn === "function") {
-    (forEachFn as (cb: (value: string, key: string) => void) => void).call(
-      init,
-      (value, key) => {
-        headers.set(key, value);
-      }
-    );
+    (forEachFn as (cb: (value: string, key: string) => void) => void).call(init, (value, key) => {
+      headers.set(key, value);
+    });
 
     return asResponseHeaders(headers);
   }
@@ -362,9 +424,7 @@ const mergeHeaders = (
     return asResponseHeaders(headers);
   }
 
-  for (const [key, value] of Object.entries(
-    init as Record<string, string | undefined>
-  )) {
+  for (const [key, value] of Object.entries(init as Record<string, string | undefined>)) {
     if (value !== undefined) {
       headers.set(key, value);
     }
@@ -373,10 +433,7 @@ const mergeHeaders = (
   return asResponseHeaders(headers);
 };
 
-const createResponseInit = (
-  status: number,
-  headers?: FluxHeadersInit
-): ResponseInit => {
+const createResponseInit = (status: number, headers?: FluxHeadersInit): ResponseInit => {
   if (headers === undefined) {
     return { status };
   }
@@ -396,7 +453,7 @@ const defaultCache = new HttpResponseCache({
 export function createContext<P = Record<string, string>>(
   req: Request,
   params: P,
-  opts: ContextOptions = {}
+  opts: ContextOptions = {},
 ): FluxContext<P, URLSearchParams> {
   let _url: URL | undefined;
   let _query: URLSearchParams | undefined = opts.query;
@@ -413,7 +470,11 @@ export function createContext<P = Record<string, string>>(
     return state;
   };
 
-  const set: SetHeaders = { headers: {}, status: 200, ...opts.set };
+  // `status` is intentionally left unset: an explicitly-set `set.status`
+  // overrides the response status (see `applySet`), but a default of 200 here
+  // would clobber handlers returning e.g. 401/redirects. `json`/`text`/`html`
+  // fall back to 200 themselves.
+  const set: SetHeaders = { headers: {}, ...opts.set };
 
   const cookie = createLazyCookieJar(set, () => req.headers.get("cookie"));
 
@@ -436,7 +497,7 @@ export function createContext<P = Record<string, string>>(
     startTime: performance.now(),
 
     get ip(): string {
-      const server = (this as any).server;
+      const server = this.server;
 
       try {
         const socketIp = server?.requestIP?.(req)?.address;
@@ -456,6 +517,7 @@ export function createContext<P = Record<string, string>>(
 
     body,
     cookie,
+    set,
 
     get state() {
       return ensureState();
@@ -497,10 +559,7 @@ export function createContext<P = Record<string, string>>(
     },
 
     stream(stream: ReadableStream, init?: ResponseInit): Response {
-      return new Response(
-        stream,
-        createResponseInit(init?.status ?? 200, init?.headers)
-      );
+      return new Response(stream, createResponseInit(init?.status ?? 200, init?.headers));
     },
 
     empty(status = 204): Response {
@@ -527,10 +586,9 @@ export function createContext<P = Record<string, string>>(
       return defaultCache.getOrSet(req, factory, cacheOpts);
     },
 
-    redirect(
-      url: string,
-      status: 301 | 302 | 303 | 307 | 308 = 302
-    ): Response {
+    loader: createDataLoader,
+
+    redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
       return Response.redirect(url, status);
     },
 

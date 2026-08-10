@@ -27,19 +27,13 @@ export const HTTP_METHODS = [
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export type MaybePromise<T> = T | Promise<T>;
-export type MaybeArray<T> = T | T[];
-export type MaybeReadonlyArray<T> = T | readonly T[];
-
-export type Prettify<T> = { [K in keyof T]: T[K] } & {};
-export type IsAny<T> = 0 extends 1 & T ? true : false;
-export type IsNever<T> = [T] extends [never] ? true : false;
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
     readonly version: 1;
     readonly vendor: string;
     readonly validate: (
-      value: unknown
+      value: unknown,
     ) => MaybePromise<{ value: Output } | { issues: readonly SchemaIssue[] }>;
     readonly types?: { readonly input: Input; readonly output: Output };
   };
@@ -78,11 +72,7 @@ export interface TSchema {
 export type AnySchema = TSchema | StandardSchemaV1;
 
 export type Static<T extends AnySchema> =
-  T extends StandardSchemaV1<any, infer O>
-    ? O
-    : T extends TSchema
-      ? T["static"]
-      : unknown;
+  T extends StandardSchemaV1<any, infer O> ? O : T extends TSchema ? T["static"] : unknown;
 
 export interface RouteSchema {
   body?: unknown;
@@ -104,7 +94,7 @@ export interface InputSchema<Name extends string = string> {
 
 export type LifeCycleType = "global" | "scoped" | "local";
 
-export interface HookContainer<T = Function> {
+export interface HookContainer<T = (...args: any[]) => any> {
   fn: T;
   scope?: LifeCycleType;
   subType?: string;
@@ -153,15 +143,6 @@ export interface DefinitionBase {
   error: Record<string, Error>;
 }
 
-export interface RouteConfig {
-  cache?:
-    | number
-    | { maxAge?: number; swr?: number; immutable?: boolean; vary?: string[] };
-  headers?: Record<string, string>;
-  hooks?: string[];
-  mount?: (req: Request) => MaybePromise<Response>;
-}
-
 export interface DocumentDecoration {
   summary?: string;
   description?: string;
@@ -188,20 +169,6 @@ export interface ElysiaCookie extends CookieOptions {
   value?: unknown;
 }
 
-export interface ServerOptions {
-  port?: number | string;
-  hostname?: string;
-  reusePort?: boolean;
-  development?: boolean;
-  maxRequestBodySize?: number;
-  idleTimeout?: number;
-  routes?: Record<
-    string,
-    Function | Response | Record<string, Function | Response>
-  >;
-  websocket?: WebSocketHandler;
-}
-
 export interface WebSocketHandler<T = undefined> {
   open?(ws: ServerWebSocket<T>): MaybePromise<void>;
   message?(ws: ServerWebSocket<T>, message: string | Buffer): MaybePromise<void>;
@@ -214,9 +181,7 @@ export interface WebSocketHandler<T = undefined> {
   closeOnBackpressureLimit?: boolean;
   idleTimeout?: number;
   sendPings?: boolean;
-  perMessageDeflate?:
-    | boolean
-    | { compress?: boolean | string; decompress?: boolean | string };
+  perMessageDeflate?: boolean | { compress?: boolean | string; decompress?: boolean | string };
 }
 
 export interface ServerWebSocket<T = undefined> {
@@ -240,4 +205,3 @@ export interface ServerWebSocket<T = undefined> {
   binaryType?: "nodebuffer" | "arraybuffer" | "uint8array";
   data: T;
 }
-

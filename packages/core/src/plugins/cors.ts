@@ -1,9 +1,9 @@
 /**
- * CORS plugin — Bun 1.4 hardened edition.
+ * @fileoverview CORS plugin — Bun 1.4 hardened edition.
  */
 
-import type { FluxPlugin } from "../plugin";
 import type { FluxContext } from "../context";
+import type { FluxPlugin } from "../plugin";
 
 export interface CorsOptions {
   origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
@@ -30,7 +30,7 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
 
   if (origin === "*" && credentials) {
     throw new Error(
-      "CORS misconfiguration: origin '*' cannot be used with credentials: true. Use an explicit origin allowlist."
+      "CORS misconfiguration: origin '*' cannot be used with credentials: true. Use an explicit origin allowlist.",
     );
   }
 

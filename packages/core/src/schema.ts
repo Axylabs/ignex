@@ -9,8 +9,8 @@
 
 import Ajv, { type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
-import type { AnySchema, StandardSchemaV1 } from "./types";
 import { ValidationError } from "./errors";
+import type { AnySchema, StandardSchemaV1 } from "./types";
 
 const ajv = new Ajv({
   allErrors: true,
@@ -30,7 +30,7 @@ function isStandardSchema(schema: AnySchema): schema is StandardSchemaV1 {
 
 function toErrorRecord(
   errors: ErrorObject[] | null | undefined,
-  on: string
+  on: string,
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
 
@@ -47,14 +47,12 @@ function toErrorRecord(
   return out;
 }
 
-export function compileValidator<T = unknown>(
-  schema: AnySchema,
-  on: string = "input"
-) {
+export function compileValidator<T = unknown>(schema: AnySchema, on: string = "input") {
   if (isStandardSchema(schema)) {
     return (_input: unknown): T => {
-      throw new Error(
-        "Standard Schema validators are async. Use validateAsync() instead of compileValidator()."
+      throw new ValidationError(
+        "Standard Schema validators are async. Use validateAsync() instead of compileValidator().",
+        { [on]: ["Standard Schema validators are async"] },
       );
     };
   }
@@ -68,11 +66,7 @@ export function compileValidator<T = unknown>(
 
     validator = (input: unknown): unknown => {
       if (!validate(input)) {
-        throw new ValidationError(
-          "Validation failed",
-          toErrorRecord(validate.errors, on),
-          on
-        );
+        throw new ValidationError("Validation failed", toErrorRecord(validate.errors, on), on);
       }
 
       return input;
@@ -87,7 +81,7 @@ export function compileValidator<T = unknown>(
 export function validateOrThrow<T = unknown>(
   schema: AnySchema,
   input: unknown,
-  on: string = "input"
+  on: string = "input",
 ): T {
   return compileValidator<T>(schema, on)(input);
 }
@@ -95,7 +89,7 @@ export function validateOrThrow<T = unknown>(
 export async function validateAsync<T = unknown>(
   schema: AnySchema,
   input: unknown,
-  on: string = "input"
+  on: string = "input",
 ): Promise<T> {
   if (isStandardSchema(schema)) {
     const result = await schema["~standard"].validate(input);
