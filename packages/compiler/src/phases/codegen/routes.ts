@@ -432,9 +432,10 @@ export const generateRouteCode = (
     ctx = mapped.ctx ?? ctx;
     response = mapped.response ?? response;
     // Observe-only post-handler stages: a throwing afterResponse/trace hook
-    // must not corrupt an already-finalized response (matches interpreted).
-    try { await runHooks(__lc.afterResponse, ctx, response); } catch {}
-    try { await runHooks(__lc.trace, ctx, response); } catch {}
+    // must not corrupt an already-finalized response (matches interpreted),
+    // but the error is surfaced so broken hooks are debuggable.
+    try { await runHooks(__lc.afterResponse, ctx, response); } catch (__err) { console.error("[flux] afterResponse hook error:", __err); }
+    try { await runHooks(__lc.trace, ctx, response); } catch (__err) { console.error("[flux] trace hook error:", __err); }
     if (__ACCESS_LOG) {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(cfg.serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));

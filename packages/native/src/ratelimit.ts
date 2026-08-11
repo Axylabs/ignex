@@ -9,9 +9,7 @@
  * then deny until reset); exact `resetMs` math may differ between the native
  * weighted-overlap engine and the simple TS fallback.
  */
-import { getNative } from "./loader";
-
-const native = getNative();
+import { nativeFor } from "./runtime";
 
 export interface RateLimiterOptions {
   /** Max requests allowed per window per key. */
@@ -41,12 +39,9 @@ export interface RateLimiter {
  * a pure-TS fixed-window fallback. Never throws.
  */
 export const createRateLimiter = (options: RateLimiterOptions): RateLimiter => {
-  if (native && typeof native.RateLimiter === "function") {
-    const inst = new native.RateLimiter(
-      options.limit,
-      options.windowMs,
-      options.maxEntries ?? null,
-    );
+  const n = nativeFor("createRateLimiter");
+  if (n && typeof n.RateLimiter === "function") {
+    const inst = new n.RateLimiter(options.limit, options.windowMs, options.maxEntries ?? null);
     return {
       check(key, nowMs = Date.now()) {
         return inst.check(key, nowMs);

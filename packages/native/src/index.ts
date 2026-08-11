@@ -5,6 +5,12 @@
  * loadable, and otherwise falls back to a byte-compatible pure-TS
  * implementation. Importing this package NEVER throws — native is a pure
  * acceleration layer. Check {@link isNativeAvailable} for observability.
+ *
+ * Prefer the unified execution API for new consumers: {@link backend} groups
+ * every operation by domain and binds each to its fastest implementation per
+ * the selection table (`selection.ts` — the single source of truth for which
+ * impl wins). The flat named exports below remain the parity-testable surface
+ * (each still consults the same table).
  */
 
 export {
@@ -34,6 +40,16 @@ export {
   verifyCookie,
   verifyCookieFallback,
 } from "./crypto";
+// ── unified execution API ───────────────────────────────────────
+export {
+  backend,
+  createExecutionBackend,
+  type ExecutionOpStatus,
+  type ExecutionStatus,
+  executionStatus,
+  type FluxExecution,
+  implFor,
+} from "./execution";
 export { crc32, fnv1a64, fnv1a64Fallback, fnv1a64String } from "./hash";
 export {
   type AcceptNegotiator,
@@ -108,6 +124,8 @@ export {
   type RateLimiter,
   type RateLimiterOptions,
 } from "./ratelimit";
+export { backendName, useNative } from "./runtime";
+export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./validation";

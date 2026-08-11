@@ -64,9 +64,10 @@ function toBytes(input: string | ArrayBuffer | Uint8Array): Uint8Array {
 
 /**
  * Fast non-cryptographic hash for cache keys and weak ETags.
- * Prefers the Rust addon's FNV-1a 64 (proven ~11x faster than JS), with a
- * pure-TS fallback inside `@flux/native` — so results are deterministic
- * whether or not the addon is present.
+ * Delegates to `@flux/native` `fnv1a64` — the selection table
+ * (`packages/native/src/selection.ts`) owns the impl choice (castrum native,
+ * measured x6.74 on the 2026-08-11 bench) with a deterministic pure-TS
+ * fallback — so results are identical whether or not the addon is present.
  */
 export function fastHash(input: string | ArrayBuffer | Uint8Array): string {
   return fnv1a64(toBytes(input)).toString(36);

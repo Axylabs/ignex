@@ -7,10 +7,8 @@
  * with a `loop` object, and `{# comments #}`. Complex Jinja features are
  * available only through the native addon.
  */
-import { getNative } from "./loader";
+import { nativeFor } from "./runtime";
 import { fromBytes } from "./util";
-
-const native = getNative();
 
 interface NativeTemplateRenderer {
   render(context: unknown): Uint8Array;
@@ -22,10 +20,14 @@ interface NativeTemplateRenderer {
  * not exported). Returns `null` when native is unavailable, so the fallback
  * engine is always a valid path.
  */
-const createNativeRenderer = (source: string): NativeTemplateRenderer | null => {
-  if (!native || typeof native.TemplateRenderer !== "function") return null;
+const createNativeRenderer = (
+  source: string,
+  op: "createTemplate" | "renderTemplate",
+): NativeTemplateRenderer | null => {
+  const n = nativeFor(op);
+  if (!n || typeof n.TemplateRenderer !== "function") return null;
   try {
-    return new native.TemplateRenderer(source);
+    return new n.TemplateRenderer(source);
   } catch {
     return null;
   }
@@ -33,14 +35,14 @@ const createNativeRenderer = (source: string): NativeTemplateRenderer | null => 
 
 /** Render a template string with the given context (JSON-serializable). */
 export const renderTemplate = (source: string, context: unknown): string => {
-  const renderer = createNativeRenderer(source);
+  const renderer = createNativeRenderer(source, "renderTemplate");
   if (renderer) return fromBytes(renderer.render(context));
   return renderTemplateFallback(source, context);
 };
 
 /** Create a compiled template renderer (reusable, lower per-render cost). */
 export const createTemplate = (source: string): ((context: Record<string, unknown>) => string) => {
-  const renderer = createNativeRenderer(source);
+  const renderer = createNativeRenderer(source, "createTemplate");
   if (renderer) return (context) => fromBytes(renderer.render(context));
   return (context) => renderTemplateFallback(source, context);
 };

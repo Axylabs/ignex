@@ -100,11 +100,17 @@ export const precompileValidators = async (
       const code = standaloneCode(ajv, validate);
 
       return `${code}
-try {
-  if (typeof module !== "undefined" && module.exports && typeof module.exports === "function") {
+// Best-effort CJS interop so standalone Ajv output works under both
+// module systems: expose the compiled validate fn as \`.default\` when running
+// as CJS. The \`typeof module\` guard already skips ESM; the try/catch only
+// defends against hostile \`module.exports\` shapes.
+if (typeof module !== "undefined" && module.exports && typeof module.exports === "function") {
+  try {
     module.exports.default = module.exports;
+  } catch {
+    // ignore — the validator still works without the alias.
   }
-} catch {}
+}
 `;
     } catch (error) {
       onFail?.(`Ajv compile failed: ${errorMessage(error)}`);

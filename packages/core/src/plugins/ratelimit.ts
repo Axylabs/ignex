@@ -14,6 +14,7 @@ import { LRUCache } from "../data/lru";
 import type { FluxContext } from "../http/context";
 import { reWrapResponse } from "../http/headers";
 import type { FluxPlugin } from "../lifecycle/plugin";
+import { firstForwardedIp } from "../platform/coerce";
 
 export interface RateLimitOptions {
   windowMs?: number;
@@ -57,7 +58,7 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
       const xff = ctx.headers.get("x-forwarded-for");
 
       if (xff) {
-        return xff.split(",")[0]?.trim() || ctx.ip;
+        return firstForwardedIp(xff) || ctx.ip;
       }
     }
 

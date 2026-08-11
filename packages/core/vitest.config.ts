@@ -13,6 +13,10 @@ export default defineConfig({
     alias: {
       "@flux/shared": alias("../shared/src/index.ts"),
       "@flux/native": alias("../native/src/index.ts"),
+      // Order matters: Vite prefix-replaces aliases, so the specific subpath
+      // must come before the package root (`@flux/core/http` must not match
+      // `@flux/core` first) — mirrors the root vitest.config.ts.
+      "@flux/core/http": alias("../core/src/http/route.ts"),
       "@flux/core": alias("../core/src/index.ts"),
       // Keep the Rust addon out of unit tests (fallbacks only) unless
       // FLUX_NATIVE_PATH is explicitly set — matches the root config.

@@ -17,6 +17,28 @@
  * route DSL) — the folder layout is an internal implementation detail.
  */
 
+// ── unified execution API (@flux/native) ────────────────────────
+// The single runtime-switch facade: `backend.*` binds every primitive to its
+// fastest implementation (castrum native on Bun vs pure-TS fallback), driven
+// by the `SELECTION` table in @flux/native. `SELECTION` is read-only data —
+// treat it as a snapshot, not something to mutate.
+export {
+  backend,
+  backendName,
+  createExecutionBackend,
+  type ExecutionBackend,
+  type ExecutionOpStatus,
+  type ExecutionStatus,
+  executionStatus,
+  type FluxExecution,
+  implFor,
+  initNative,
+  isNativeAvailable,
+  type OpDecision,
+  type OpName,
+  SELECTION,
+  useNative,
+} from "@flux/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
 export {
   always,
@@ -80,7 +102,6 @@ export { applySet } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
 export { formatSSE, sse } from "./http/sse";
 export { createWSHandler, FluxWS } from "./http/ws";
-
 // ── lifecycle ───────────────────────────────────────────────────
 export type { HookFn, HookResult } from "./lifecycle/hooks";
 export {

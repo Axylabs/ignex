@@ -11,7 +11,7 @@
  * - AEAD:           AES-256-GCM, ciphertext ‖ 16-byte tag
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { getNative } from "./loader";
+import { nativeFor } from "./runtime";
 import {
   b64urlDecode,
   b64urlEncode,
@@ -24,8 +24,6 @@ import {
   toBytes,
   toPlain,
 } from "./util";
-
-const native = getNative();
 
 export interface JwtSignOptions {
   /** Time-to-live in seconds (injects `iat`/`exp` when positive). */
@@ -58,7 +56,8 @@ const IAT_LEEWAY_SECONDS = 60;
 export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array): Uint8Array => {
   const k = toBytes(key);
   const d = toBytes(data);
-  if (native) return toPlain(native.hmacSha256(k, d));
+  const nv = nativeFor("hmacSha256");
+  if (nv) return toPlain(nv.hmacSha256(k, d));
   return hmacSha256Bytes(k, d);
 };
 
@@ -70,7 +69,8 @@ export const hmacSha256Verify = (
   const k = toBytes(key);
   const d = toBytes(data);
   const s = toBytes(sig);
-  if (native) return native.hmacSha256Verify(k, d, s);
+  const nv = nativeFor("hmacSha256Verify");
+  if (nv) return nv.hmacSha256Verify(k, d, s);
   return ctEqual(hmacSha256Bytes(k, d), s);
 };
 
@@ -78,7 +78,8 @@ export const hmacSha256Verify = (
 
 export const signCookie = (value: string, secret: string | Uint8Array): string => {
   const s = toBytes(secret);
-  if (native) return fromBytes(native.signCookie(toBytes(value), s));
+  const nv = nativeFor("signCookie");
+  if (nv) return fromBytes(nv.signCookie(toBytes(value), s));
   return signCookieFallback(value, s);
 };
 
@@ -90,8 +91,9 @@ export const signCookieFallback = (value: string, secret: Uint8Array): string =>
 
 export const verifyCookie = (signed: string, secret: string | Uint8Array): string | null => {
   const s = toBytes(secret);
-  if (native) {
-    const result = native.verifyCookie(toBytes(signed), s);
+  const nv = nativeFor("verifyCookie");
+  if (nv) {
+    const result = nv.verifyCookie(toBytes(signed), s);
     return result ? fromBytes(result) : null;
   }
   return verifyCookieFallback(signed, s);
@@ -114,7 +116,8 @@ export const verifyCookieFallback = (signed: string, secret: Uint8Array): string
 
 export const csrfToken = (secret: string | Uint8Array): string => {
   const s = toBytes(secret);
-  if (native) return fromBytes(native.csrfToken(s));
+  const nv = nativeFor("csrfToken");
+  if (nv) return fromBytes(nv.csrfToken(s));
   return csrfTokenFallback(s);
 };
 
@@ -127,7 +130,8 @@ export const csrfTokenFallback = (secret: Uint8Array): string => {
 
 export const csrfVerify = (token: string, secret: string | Uint8Array): boolean => {
   const s = toBytes(secret);
-  if (native) return native.csrfVerify(toBytes(token), s);
+  const nv = nativeFor("csrfVerify");
+  if (nv) return nv.csrfVerify(toBytes(token), s);
   return csrfVerifyFallback(token, s);
 };
 
@@ -153,7 +157,8 @@ export const jwtSign = (
   const s = toBytes(secret);
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
   const ttl = options.ttlSeconds ?? null;
-  if (native) return fromBytes(native.jwtSign(claims, s, ttl, now));
+  const nv = nativeFor("jwtSign");
+  if (nv) return fromBytes(nv.jwtSign(claims, s, ttl, now));
   return jwtSignFallback(claims, s, ttl, now);
 };
 
@@ -191,8 +196,9 @@ export const jwtVerify = (
 ): unknown | null => {
   const s = toBytes(secret);
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
-  if (native) {
-    const result = native.jwtVerify(toBytes(token), s, now);
+  const nv = nativeFor("jwtVerify");
+  if (nv) {
+    const result = nv.jwtVerify(toBytes(token), s, now);
     return result ?? null;
   }
   return jwtVerifyFallback(token, s, now);
@@ -255,7 +261,8 @@ const MAX_TOKEN_BYTES = 16 * 1024 * 1024;
 
 export const randomToken = (byteLen: number): string => {
   // Native returns the token as hex-string BYTES (not raw random bytes).
-  if (native) return fromBytes(native.randomToken(byteLen));
+  const nv = nativeFor("randomToken");
+  if (nv) return fromBytes(nv.randomToken(byteLen));
   return randomTokenFallback(byteLen);
 };
 
@@ -284,7 +291,8 @@ export const passwordHash = (
 ): string => {
   const p = toBytes(password);
   const s = toBytes(salt);
-  if (native) {
+  const nv = nativeFor("passwordHash");
+  if (nv) {
     const opts =
       options.mCost != null ||
       options.tCost != null ||
@@ -292,14 +300,15 @@ export const passwordHash = (
       options.outLen != null
         ? options
         : null;
-    return fromBytes(native.passwordHash(p, s, opts));
+    return fromBytes(nv.passwordHash(p, s, opts));
   }
   return passwordHashScrypt(p, s);
 };
 
 export const passwordVerify = (password: string, phc: string): boolean => {
   if (phc.startsWith("$scrypt$")) return passwordVerifyScrypt(toBytes(password), phc);
-  if (native) return native.passwordVerify(toBytes(password), toBytes(phc));
+  const nv = nativeFor("passwordVerify");
+  if (nv) return nv.passwordVerify(toBytes(password), toBytes(phc));
   return false;
 };
 
@@ -338,7 +347,8 @@ export const aeadEncrypt = (
   const k = toBytes(key);
   const n = toBytes(nonce);
   const p = toBytes(plaintext);
-  if (native) return toPlain(native.aeadEncrypt(k, n, p, algorithm ?? null));
+  const nv = nativeFor("aeadEncrypt");
+  if (nv) return toPlain(nv.aeadEncrypt(k, n, p, algorithm ?? null));
   return aeadEncryptFallback(k, n, p, algorithm ?? null);
 };
 
@@ -368,8 +378,9 @@ export const aeadDecrypt = (
   const k = toBytes(key);
   const n = toBytes(nonce);
   const c = toBytes(ciphertext);
-  if (native) {
-    const result = native.aeadDecrypt(k, n, c, algorithm ?? null);
+  const nv = nativeFor("aeadDecrypt");
+  if (nv) {
+    const result = nv.aeadDecrypt(k, n, c, algorithm ?? null);
     return result ? new Uint8Array(result) : null;
   }
   return aeadDecryptFallback(k, n, c, algorithm ?? null);

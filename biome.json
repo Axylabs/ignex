@@ -12,7 +12,8 @@
       "!repomix-output.txt",
       "!**/project.txt",
       "!**/context.py",
-      "!**/views/**/*.html"
+      "!**/views/**/*.html",
+      "!**/test/fixtures/client-types"
     ]
   },
   "linter": {

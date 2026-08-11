@@ -121,8 +121,14 @@ export const stageRouteTable = (
   const routeLines: string[] = [];
   for (const [path, methods] of routeEntries) {
     if (methods.size === 1) {
-      const [method, expr] = [...methods.entries()][0]!;
-      routeLines.push(`  ${JSON.stringify(path)}: { ${method}: ${expr} },`);
+      // Explicitly guard the single-entry read instead of `[...entries()][0]!` —
+      // the `size === 1` check above should guarantee it, but a non-null
+      // assertion would silently corrupt output if the guard ever changed.
+      const entry = methods.entries().next().value;
+      if (entry) {
+        const [method, expr] = entry;
+        routeLines.push(`  ${JSON.stringify(path)}: { ${method}: ${expr} },`);
+      }
     } else {
       const methodEntries = [...methods.entries()].map(([m, e]) => `    ${m}: ${e},`).join("\n");
       routeLines.push(`  ${JSON.stringify(path)}: {\n${methodEntries}\n  },`);

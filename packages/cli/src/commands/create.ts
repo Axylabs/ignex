@@ -13,7 +13,6 @@ import {
 import {
   appConfigTemplate,
   cacheRouteTemplate,
-  clusterExampleTemplate,
   envRouteTemplate,
   healthRouteTemplate,
   homeTemplate,
@@ -193,10 +192,6 @@ Place shared hooks here.
 
   if (features.has("ws")) {
     await writeFileEnsuringDir(join(target, "src/ws.example.ts"), wsExampleTemplate());
-  }
-
-  if (features.has("cluster")) {
-    await writeFileEnsuringDir(join(target, "src/cluster.example.ts"), clusterExampleTemplate());
   }
 
   if (features.has("auth")) {

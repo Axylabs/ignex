@@ -2,6 +2,7 @@
  * Environment & typed config — dotenv loading + typed accessors.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { tryCatchOr } from "@flux/shared";
 import { coerceBoolean } from "./coerce";
 
 /** Parse a dotenv-style line into `[key, value]` (or `null`). */
@@ -50,42 +51,52 @@ const get = (key: string, fallback?: string): string | undefined => {
   return value !== undefined ? value : fallback;
 };
 
-/** Read a string env var (with optional fallback). */
-export const env = (key: string, fallback?: string): string => get(key, fallback) ?? "";
+/** Read a string env var, falling back when absent. */
+export function env(key: string, fallback: string): string;
+export function env(key: string, fallback?: string): string | undefined;
+export function env(key: string, fallback?: string): string | undefined {
+  return get(key, fallback);
+}
 
-/** Read an integer env var. */
-export const envInt = (key: string, fallback?: number): number => {
-  const raw = get(key);
-  if (raw === undefined) return fallback ?? 0;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isNaN(parsed) ? (fallback ?? 0) : parsed;
-};
-
-/** Read a float env var. */
-export const envFloat = (key: string, fallback?: number): number => {
-  const raw = get(key);
-  if (raw === undefined) return fallback ?? 0;
-  const parsed = Number.parseFloat(raw);
-  return Number.isNaN(parsed) ? (fallback ?? 0) : parsed;
-};
-
-/** Read a boolean env var (`true/false/1/0/yes/no`). */
-export const envBool = (key: string, fallback = false): boolean => {
+/**
+ * Read a typed env var: coerce the raw value, falling back when unset or when
+ * coercion throws. Shared by the typed accessors below.
+ */
+const readEnv = <T>(key: string, coerce: (raw: string) => T, fallback: T): T => {
   const raw = get(key);
   if (raw === undefined) return fallback;
-  return coerceBoolean(raw) ?? fallback;
+  return tryCatchOr(fallback, () => coerce(raw));
 };
+
+/** Read an integer env var. */
+export const envInt = (key: string, fallback = 0): number =>
+  readEnv(
+    key,
+    (raw) => {
+      const parsed = Number.parseInt(raw, 10);
+      return Number.isNaN(parsed) ? fallback : parsed;
+    },
+    fallback,
+  );
+
+/** Read a float env var. */
+export const envFloat = (key: string, fallback = 0): number =>
+  readEnv(
+    key,
+    (raw) => {
+      const parsed = Number.parseFloat(raw);
+      return Number.isNaN(parsed) ? fallback : parsed;
+    },
+    fallback,
+  );
+
+/** Read a boolean env var (`true/false/1/0/yes/no`). */
+export const envBool = (key: string, fallback = false): boolean =>
+  readEnv(key, (raw) => coerceBoolean(raw) ?? fallback, fallback);
 
 /** Read + parse a JSON env var. */
-export const envJson = <T>(key: string, fallback?: T): T => {
-  const raw = get(key);
-  if (raw === undefined) return fallback as T;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback as T;
-  }
-};
+export const envJson = <T>(key: string, fallback?: T): T =>
+  readEnv<T>(key, (raw) => JSON.parse(raw) as T, fallback as T);
 
 /** Read a secret (same as `env`, named for intent — never logged). */
-export const envSecret = (key: string, fallback?: string): string => env(key, fallback);
+export const envSecret = (key: string, fallback?: string): string | undefined => env(key, fallback);

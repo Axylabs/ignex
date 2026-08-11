@@ -1,9 +1,10 @@
 /**
  * AOT-compile the matrix fixture app used by the request-handling suites.
  *
- * Mirrors `packages/app/builder.ts` but skips codegen *artifacts* (OpenAPI /
- * client / types) — the fixture only exercises runtime request handling, so
- * keeping the build surface minimal keeps rebuilds fast and deterministic.
+ * Mirrors `packages/app/builder.ts`. Artifact generation (OpenAPI / client /
+ * types) uses the compiler defaults (on), so `dist/client.ts` is available to
+ * the compiled-code E2E suite. The build surface stays minimal because the
+ * fixture only exercises runtime request handling plus the generated SDK.
  */
 import { join } from "node:path";
 import { buildAsync } from "@flux/compiler";

@@ -21,3 +21,11 @@ export const coerceBoolean = (raw: string): boolean | undefined => {
   if (FALSY.has(normalized)) return false;
   return undefined;
 };
+
+/**
+ * Extract the first (original-client) IP from an `x-forwarded-for` header.
+ * The value is a comma-separated chain; the leftmost entry is the client when
+ * each proxy appends. Returns `undefined` when absent or blank.
+ */
+export const firstForwardedIp = (xff: string | null | undefined): string | undefined =>
+  xff?.split(",")[0]?.trim() || undefined;

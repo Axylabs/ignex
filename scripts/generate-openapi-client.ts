@@ -1,81 +1,25 @@
 #!/usr/bin/env bun
+/**
+ * Standalone OpenAPI + typed-client generator.
+ *
+ * Discovers route files, loads each module's exported schema, and emits an
+ * OpenAPI 3.1 document using the compiler's canonical `generateOpenApi`
+ * (route parsing via `parseRouteFilename`). The hey-api client generation
+ * (`@hey-api/openapi-ts`) then turns that document into a typed SDK under
+ * {@link CLIENT_OUT}.
+ *
+ * Delegating to `@flux/compiler` keeps this script's output from ever
+ * drifting from `flux build`'s `openapi.json`.
+ */
 import { mkdirSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { CompilerOptions, RouteDef } from "@flux/compiler";
+import { generateOpenApi, parseRouteFilename } from "@flux/compiler";
 
 const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
 const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json";
 const CLIENT_OUT = process.env.CLIENT_OUT || "./packages/app/src/client";
-
-const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "ALL"]);
-
-function parseRouteFile(file: string) {
-  const ext = extname(file);
-  const name = basename(file, ext);
-  const parts = name.split(".");
-
-  let method = "GET";
-  let routeName = name;
-
-  const last = parts.at(-1);
-
-  if (last && HTTP_METHODS.has(last.toUpperCase())) {
-    method = last.toUpperCase();
-    routeName = parts.slice(0, -1).join(".");
-  }
-
-  const dir = dirname(file);
-
-  let routePath = `/${join(dir, routeName).replace(/\\/g, "/")}`;
-
-  if (routePath.endsWith("/index")) {
-    routePath = routePath.slice(0, -5) || "/";
-  }
-
-  routePath = routePath
-    .replace(/\[(\.\.\.[^\]]+)\]/g, (_, raw) => `*${raw.slice(3)}`)
-    .replace(/\[([^\]]+)\]/g, (_, p) => `:${p}`);
-
-  return {
-    method,
-    path: routePath,
-  };
-}
-
-function toOpenApiPath(path: string) {
-  return path.replace(/:([A-Za-z0-9_]+)/g, "{$1}").replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
-}
-
-function isJsonSchema(value: unknown): boolean {
-  return typeof value === "object" && value !== null && !("~standard" in value);
-}
-
-function schemaToParameters(schema: any, location: "path" | "query") {
-  if (!isJsonSchema(schema) || !schema.properties) {
-    return [];
-  }
-
-  const required = new Set<string>(schema.required ?? []);
-
-  return Object.entries(schema.properties).map(([name, propSchema]) => ({
-    name,
-    in: location,
-    required: location === "path" ? true : required.has(name),
-    schema: propSchema,
-  }));
-}
-
-function pickResponseSchema(responseSchema: any) {
-  if (!responseSchema) return undefined;
-
-  if (isJsonSchema(responseSchema)) {
-    if (responseSchema.type || responseSchema.properties || responseSchema.$ref) {
-      return responseSchema;
-    }
-  }
-
-  return responseSchema[200] ?? responseSchema["200"] ?? Object.values(responseSchema)[0];
-}
 
 async function loadRouteSchema(absPath: string) {
   try {
@@ -101,80 +45,33 @@ async function main() {
     files.push(file);
   }
 
-  const paths: Record<string, Record<string, unknown>> = {};
+  const routes: RouteDef[] = [];
 
   for (const file of files) {
-    const parsed = parseRouteFile(file);
+    const parsed = parseRouteFilename(file);
 
     if (!parsed || parsed.method === "ALL") continue;
 
     const abs = join(process.cwd(), ROUTES_DIR, file);
     const schema = await loadRouteSchema(abs);
 
-    const openApiPath = toOpenApiPath(parsed.path);
-    const method = parsed.method.toLowerCase();
-
-    const operation: Record<string, unknown> = {
-      operationId: `${method}_${openApiPath.replace(/[{}/]/g, "_")}`,
-      responses: {
-        200: {
-          description: "Successful response",
-        },
+    // Shape the loaded route module into the minimal RouteDef surface the
+    // canonical OpenAPI generator reads; everything else is derived there.
+    routes.push({
+      source: {
+        method: parsed.method,
+        path: parsed.path,
+        paramNames: parsed.paramNames,
       },
-    };
-
-    const parameters: unknown[] = [];
-
-    if (schema?.params) {
-      parameters.push(...schemaToParameters(schema.params, "path"));
-    }
-
-    if (schema?.query) {
-      parameters.push(...schemaToParameters(schema.query, "query"));
-    }
-
-    if (parameters.length) {
-      operation.parameters = parameters;
-    }
-
-    if (schema?.body && isJsonSchema(schema.body)) {
-      operation.requestBody = {
-        required: true,
-        content: {
-          "application/json": {
-            schema: schema.body,
-          },
-        },
-      };
-    }
-
-    const responseSchema = pickResponseSchema(schema?.response);
-
-    if (responseSchema && isJsonSchema(responseSchema)) {
-      operation.responses = {
-        200: {
-          description: "Successful response",
-          content: {
-            "application/json": {
-              schema: responseSchema,
-            },
-          },
-        },
-      };
-    }
-
-    paths[openApiPath] ??= {};
-    paths[openApiPath][method] = operation;
+      analysis: {
+        config: {},
+        usage: { body: Boolean(schema?.body) },
+      },
+      decisions: { schemaDoc: schema as Record<string, unknown> | undefined },
+    } as unknown as RouteDef);
   }
 
-  const openapi = {
-    openapi: "3.1.0",
-    info: {
-      title: "Flux API",
-      version: "1.0.0",
-    },
-    paths,
-  };
+  const openapi = generateOpenApi(routes, { serviceName: "flux" } as CompilerOptions);
 
   mkdirSync(dirname(OPENAPI_OUT), { recursive: true });
 

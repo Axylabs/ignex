@@ -15,7 +15,6 @@ const CLI_TO_COMPILER: Partial<Record<string, keyof CompilerOptions>> = {
   outFile: "outFile",
   minify: "minify",
   sourcemap: "sourceMap",
-  sourceMap: "sourceMap",
   target: "target",
   cache: "routeCache",
   routeCache: "routeCache",
@@ -86,8 +85,10 @@ export async function buildProject(
   const input: Record<string, unknown> = { ...config };
   Object.assign(input, mapCliFlags(flags));
 
-  const opts = compiler.mergeOptions(resolveRootedPaths(root, input) as Partial<CompilerOptions>);
-  // Root defaulted path options too (e.g. `./src/routes` from mergeOptions).
+  // Single rooting pass AFTER mergeOptions: the compiler defaults (`./src/routes`,
+  // `.flux`) are also relative, so pre-rooting the input first would be redundant
+  // work against two sources of truth. Absolute values pass through unchanged.
+  const opts = compiler.mergeOptions(input as Partial<CompilerOptions>);
   const rootedOpts = {
     ...opts,
     ...resolveRootedPaths(root, opts as unknown as Record<string, unknown>),
@@ -115,15 +116,14 @@ export async function findServerEntry(
   const outDir = opts.outDir ?? ".flux";
   const outFile = opts.outFile ?? "server.js";
 
+  // Candidates are all joined under the (already rooted) `outDir`; the hardcoded
+  // root-relative `.flux`/`dist` tails were leftover heuristics that duplicated
+  // the configured output and are undocumented — dropped.
   const candidates = [
     join(outDir, outFile),
     join(outDir, "server.js"),
     join(outDir, "server.mjs"),
     join(outDir, "index.js"),
-    join(outDir, "entry.js"),
-    ".flux/server.js",
-    "dist/server.js",
-    "dist/__server.js",
   ]
     .filter((x): x is string => typeof x === "string" && x.length > 0)
     .map((x) => (isAbsolute(x) ? x : join(root, x)));

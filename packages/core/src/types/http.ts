@@ -5,19 +5,8 @@
 
 export type MaybePromise<T> = T | Promise<T>;
 
-export const HTTP_METHODS = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-  "ALL",
-  "WS",
-] as const;
-
-export type HttpMethod = (typeof HTTP_METHODS)[number];
+// Shared method vocabulary (single source of truth in @flux/shared).
+export { HTTP_METHODS, type HttpMethod } from "@flux/shared";
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {

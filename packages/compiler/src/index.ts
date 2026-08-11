@@ -11,13 +11,13 @@
  * (code + severity + position + frame) instead of being silently swallowed.
  *
  * The async path (`buildAsync` / `compileAsync`) is the canonical, fully
- * featured entry point. The sync path (`build` / `compile`) is deprecated:
- * it cannot precompile validators/serializers, minify, or emit source maps.
+ * featured entry point. The old sync path (`build` / `compile`) was removed —
+ * it could not precompile validators/serializers, minify, or emit source maps.
  */
 
-import { pipe, pipeAsync } from "@flux/shared";
+import { pipeAsync } from "@flux/shared";
 import { storeCache, tryCachedBuild } from "./cache";
-import { DiagnosticCodes, DiagnosticCollector, reportDiagnostics } from "./diagnostics";
+import { DiagnosticCollector, reportDiagnostics } from "./diagnostics";
 import type { Logger } from "./logger";
 import { consoleLogger } from "./logger";
 import { runAnalysis } from "./phases/analysis";
@@ -38,7 +38,19 @@ export {
   formatDiagnostic,
   getCodeFrame,
 } from "./diagnostics";
-export type { CompileResult, CompilerOptions };
+export {
+  generateClient,
+  generateClientDts,
+  generateManifest,
+  generateOpenApi,
+  generateRouteTypes,
+  writeArtifacts,
+} from "./phases/artifacts";
+// Route/OpenAPI helpers are part of the public surface so consumers (e.g. the
+// standalone `scripts/generate-openapi-client.ts`) can share the canonical
+// implementations instead of re-implementing (and drifting from) them.
+export { parseRouteFilename } from "./phases/discovery";
+export type { CompileResult, CompilerOptions, RouteDef } from "./types";
 export { DEFAULT_OPTS, mergeOptions };
 
 /** Build a fresh per-compile context (logger + diagnostic collector). */
@@ -59,8 +71,8 @@ const createContext = (logger: Logger): CompilerContext => ({
  *   validate → discover → analyze → optimize → (precompile validators/
  *   serializers) → artifacts → codegen → link → cache
  *
- * The sync path composes the same stages with `pipe`; the async path (the
- * canonical entry) uses `pipeAsync` and adds the precompile + cache stages.
+ * Every stage is a pure function composed with `pipeAsync` (the canonical
+ * async entry); the precompile + cache stages are async-only.
  */
 interface PipelineState {
   opts: CompilerOptions;
@@ -126,11 +138,6 @@ const codegenStage = (s: PipelineState): PipelineState => ({
 const linkStage = async (s: PipelineState): Promise<PipelineState> => ({
   ...s,
   outPath: await runLinkingPhaseAsync(s.code as string, s.opts, s.ctx),
-});
-
-const linkStageSync = (s: PipelineState): PipelineState => ({
-  ...s,
-  outPath: runLinkingPhase(s.code as string, s.opts, s.ctx),
 });
 
 const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
@@ -260,52 +267,6 @@ const finish = (
 export class FluxCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
-  /**
-   * Synchronous compile.
-   *
-   * @deprecated The sync path cannot precompile validators/serializers,
-   * minify, or emit source maps. Prefer {@link compileAsync}.
-   */
-  compile(): CompileResult {
-    const validated = validateOptions(this.input);
-
-    if (!validated.ok) {
-      throw new Error(`Compiler options invalid:\n${validated.error.join("\n")}`);
-    }
-
-    const opts = validated.value;
-    const ctx = createContext(consoleLogger(opts.verbose ?? false));
-    const t0 = performance.now();
-
-    if (opts.precompileValidators || opts.precompileSerializers) {
-      ctx.diagnostics.info({
-        code: DiagnosticCodes.SyncLimited,
-        message:
-          "compile() is synchronous. Use buildAsync() to enable validator/serializer precompilation, minification, and source maps.",
-      });
-    }
-
-    ctx.logger.info("flux compiler started (sync)", {
-      target: opts.target,
-      optimizationLevel: opts.optimizationLevel,
-      routesDir: opts.routesDir,
-      outDir: opts.outDir,
-    });
-
-    const state = pipe({ opts, ctx, t0, routes: [] } as PipelineState)(
-      discoveryStage,
-      analysisStage,
-      optimizationStage,
-      artifactsStage,
-      codegenStage,
-      linkStageSync,
-    ) as PipelineState;
-
-    const elapsed = performance.now() - t0;
-
-    return finish(state.code as string, state.outPath as string, ctx, elapsed, false, state.meta);
-  }
-
   /** Canonical async compile with validator/serializer precompilation. */
   async compileAsync(): Promise<CompileResult> {
     const validated = validateOptions(this.input);
@@ -369,10 +330,6 @@ export class FluxCompiler {
 
     return finish(state.code as string, state.outPath as string, ctx, elapsed, false, state.meta);
   }
-}
-
-export function build(opts?: Partial<CompilerOptions>): CompileResult {
-  return new FluxCompiler(opts).compile();
 }
 
 export async function buildAsync(opts?: Partial<CompilerOptions>): Promise<CompileResult> {

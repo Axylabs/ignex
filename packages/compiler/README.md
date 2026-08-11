@@ -33,7 +33,7 @@ never silently swallowed.
 | **Precompile** | Ajv standalone validators (`.cjs`) and `fast-json-stringify` serializers (`.mjs`) per route/schema part. |
 | **Codegen** | Emit the server entry through an indentation-aware `Emitter` with dependency-aware pruning of generated runtime helpers (dead-code elimination). |
 | **Linker** | Write the entry raw, or `Bun.build` it when `minify`/`sourceMap` is requested. |
-| **Artifacts** | `routes.d.ts`, `client.d.ts`, `openapi.json`, `manifest.json`. |
+| **Artifacts** | `routes.d.ts`, `client.d.ts`, `client.ts`, `openapi.json`, `manifest.json`. |
 
 ## Public API
 
@@ -92,6 +92,11 @@ interface CompileResult {
 | `generateTypes` / `generateOpenAPI` / `generateClient` | `true` | Emit `routes.d.ts`, `openapi.json`, `client.d.ts`. |
 | `strictRouteConflicts` | `false` | Throw on duplicate routes. |
 | `maxJsonBytes` / `maxTextBytes` / `maxFormBytes` / `maxFileBytes` | — | Body size limits. |
+| `target` | `bun` | Runtime target for generated output. |
+| `maxRequestBodySize` | `128 MB` | `Bun.serve` max request body size. |
+| `validateCookies` | `true` | Validate cookies at runtime. |
+| `enableAccessLog` / `enableTraceHeaders` | `false` | Observability: structured access log / trace headers. |
+| `verbose` | `false` | Verbose compiler logging. |
 | `serviceName`, `exposeErrorDetails`, `reusePort`, … | — | Server/feature flags. |
 
 ### Deprecated / removed options
@@ -165,7 +170,7 @@ Explicit option values always override the preset.
 - **Hook analysis** — referenced hooks are validated (`FLX_HOOK_MISSING` when missing).
 - **OpenAPI schemas** — `openapi.json` now emits real request/response schemas from route schemas.
 - **Generated client** — `client.ts` (a real `createApiClient` implementation) alongside `client.d.ts`.
-- **Call graph / data flow** — per-module symbol call graphs and route hotness scoring (in `manifest.json`).
+- **Route hotness & call-graph metadata** — intra-module symbol call graph and route hotness scoring (in `manifest.json`).
 
 ## Development
 

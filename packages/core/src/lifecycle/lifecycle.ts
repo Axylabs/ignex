@@ -267,11 +267,12 @@ export const runLifecycle = async (
   const afterResponse = async (s: LifecycleState): Promise<LifecycleState> => {
     if (s.halted || s.response === undefined) return s;
     // observe-only: a throwing observability hook must not corrupt an
-    // already-finalized response (e.g. turn a 200 into a 500).
+    // already-finalized response (e.g. turn a 200 into a 500), but the error
+    // is surfaced so broken hooks are debuggable (matches compiled).
     try {
       await runHooks(lc.afterResponse ?? [], s.ctx, s.response);
-    } catch {
-      // swallow
+    } catch (err) {
+      console.error("[flux] afterResponse hook error:", err);
     }
     return s;
   };
@@ -280,11 +281,11 @@ export const runLifecycle = async (
     if (s.halted || s.response === undefined) return s;
     // `trace` is the final observe-only stage (declared after `afterResponse`
     // in LifeCycleStore); it receives the finalized response and can never
-    // replace or corrupt it.
+    // replace or corrupt it. A throwing trace hook is a bug — surface it.
     try {
       await runHooks(lc.trace ?? [], s.ctx, s.response);
-    } catch {
-      // swallow — observability must never break a request
+    } catch (err) {
+      console.error("[flux] trace hook error:", err);
     }
     return s;
   };

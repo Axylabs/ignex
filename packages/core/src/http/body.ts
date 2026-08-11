@@ -9,8 +9,16 @@
  * - req.arrayBuffer()
  */
 
-import { formPairs, isNativeAvailable } from "@flux/native";
+import { formPairs } from "@flux/native";
 import { HTTPError } from "../platform/errors";
+
+/**
+ * Normalized media type of a request's `Content-Type` header — lowercased,
+ * with parameters (e.g. `; charset=utf-8`) stripped. Empty string when the
+ * header is absent.
+ */
+const contentType = (req: Request): string =>
+  (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase() ?? "";
 
 /**
  * Raised when a request body cannot be parsed (malformed JSON, oversize,
@@ -300,7 +308,7 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       return undefined;
     }
 
-    const ct = (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
+    const ct = contentType(req);
 
     if (!ct) return undefined;
 
@@ -376,13 +384,14 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "formData",
       async () => {
         try {
-          // application/x-www-form-urlencoded: use the Rust addon's packed
-          // form parser when present (byte-identical output — duplicates and
-          // order preserved so later conversions behave exactly like Bun's
-          // native FormData). Falls back to Bun when native is unavailable.
-          const ct = (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
+          // application/x-www-form-urlencoded: `formPairs` is the single source
+          // of truth for form parsing — the selection table (src/selection.ts)
+          // owns the impl choice (JS wins for scalar form parsing), so behavior
+          // is identical with or without the addon and duplicates/order are
+          // preserved exactly like Bun's native FormData.
+          const ct = contentType(req);
 
-          if (ct === "application/x-www-form-urlencoded" && isNativeAvailable()) {
+          if (ct === "application/x-www-form-urlencoded") {
             const text = await req.text();
             const fd = new FormData();
             for (const [name, value] of formPairs(text)) fd.append(name, value);

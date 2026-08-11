@@ -116,6 +116,14 @@ const requireAddon = (nodePath: string): unknown => {
 const normalize = (mod: unknown): unknown =>
   (mod as { default?: unknown }).default ?? (mod as { rust?: unknown }).rust ?? mod;
 
+/** One-time (and debug-gated) log so broken addon loads are diagnosable. */
+let reportedLoadFailure = false;
+const reportLoadFailure = (err: unknown): void => {
+  if (reportedLoadFailure || process.env.FLUX_NATIVE !== "debug") return;
+  reportedLoadFailure = true;
+  console.info("[flux-native] failed to load addon:", err);
+};
+
 const init = (async (): Promise<void> => {
   // Master switch: `FLUX_NATIVE=off` disables the addon even when installed
   // (e.g. for parity debugging). Anything else (auto/unset) uses it when present.
@@ -144,8 +152,9 @@ const init = (async (): Promise<void> => {
         native = isNativeSurface(normalize(mod)) ? (normalize(mod) as NativeAddon) : null;
       }
     }
-  } catch {
+  } catch (err) {
     native = null;
+    reportLoadFailure(err);
   }
 })();
 
@@ -223,7 +232,8 @@ export const loadCastrumModule = async (): Promise<Record<string, unknown> | nul
     return (
       (mod as { default?: Record<string, unknown> }).default ?? (mod as Record<string, unknown>)
     );
-  } catch {
+  } catch (err) {
+    reportLoadFailure(err);
     return null;
   }
 };

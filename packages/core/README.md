@@ -20,7 +20,7 @@ Grouped **by use case** into domain folders (each with a pure re-export
 | `lifecycle/`   | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics + `mergeLifeCycle`), `plugin` (+ `hookToPlugin`) |
 | `platform/`    | `env` (typed accessors), `config` (`defineConfig` — subpath `@flux/core/config`), `coerce` (shared string coercion), `jobs`, `errors` (`HTTPError` family) |
 | `content/`     | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |
-| `plugins/`     | auth / session / csrf / cors / compression / security / logger / ratelimit factories |
+| `plugins/`     | auth / session / csrf / cors / compression / security / logger / ratelimit / native-preflight factories |
 | `types/`       | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
 
 Top-level: `client.ts` (typed fetch client), `openapi.ts` (OpenAPI 3.1 spec

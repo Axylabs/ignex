@@ -5,7 +5,7 @@
  * field from (in order of precedence): explicit overrides → environment →
  * default.
  */
-import { fold } from "@flux/shared";
+import { fold, tryCatchOr } from "@flux/shared";
 import { coerceBoolean } from "./coerce";
 
 export type ConfigFieldType = "string" | "number" | "boolean" | "json";
@@ -44,11 +44,8 @@ const coerce = (field: ConfigField, raw: string | undefined): unknown => {
       return coerceBoolean(raw) ?? field.default;
     }
     case "json": {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return field.default;
-      }
+      // Same fallback semantics as `envJson` (single coercion path).
+      return tryCatchOr(field.default, () => JSON.parse(raw));
     }
     default:
       return raw;

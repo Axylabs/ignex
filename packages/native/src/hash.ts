@@ -5,15 +5,14 @@
  * than their JS equivalents on the addon's benchmark registry, so we prefer
  * native and keep a pure-TS implementation that is bit-for-bit identical.
  */
-import { getNative } from "./loader";
+import { nativeFor } from "./runtime";
 import { crc32 as crc32Fallback, toBytes } from "./util";
-
-const native = getNative();
 
 /** FNV-1a 64-bit hash. */
 export const fnv1a64 = (input: string | Uint8Array): bigint => {
   const bytes = toBytes(input);
-  if (native) return native.fnv1a64(bytes);
+  const n = nativeFor("fnv1a64");
+  if (n) return n.fnv1a64(bytes);
   return fnv1a64Fallback(bytes);
 };
 
@@ -30,7 +29,8 @@ export const fnv1a64Fallback = (input: Uint8Array): bigint => {
 /** CRC-32 checksum (unsigned 32-bit number). */
 export const crc32 = (input: string | Uint8Array): number => {
   const bytes = toBytes(input);
-  if (native) return native.crc32(bytes);
+  const n = nativeFor("crc32");
+  if (n) return n.crc32(bytes);
   return crc32Fallback(bytes);
 };
 

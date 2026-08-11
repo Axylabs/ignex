@@ -25,7 +25,7 @@ import { projectPath } from "./utils/path";
  * Bump when the generated output format changes so stale caches are
  * invalidated even if inputs are identical.
  */
-const COMPILER_CACHE_VERSION = "0.5.1";
+const COMPILER_CACHE_VERSION = "0.5.2";
 
 const CACHE_FILE = ".flux-cache.json";
 

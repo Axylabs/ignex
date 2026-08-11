@@ -13,28 +13,34 @@ import {
   gunzipSync,
   gzipSync,
 } from "node:zlib";
-import { getNative } from "./loader";
+import { nativeFor } from "./runtime";
 import { fromBytes, toBytes, toPlain } from "./util";
-
-const native = getNative();
 
 // ── Compression ─────────────────────────────────────────────────
 
-export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array =>
-  toPlain(native ? native.gzipCompress(data, level) : gzipSync(data, { level }));
+export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
+  const n = nativeFor("gzipCompress");
+  return toPlain(n ? n.gzipCompress(data, level) : gzipSync(data, { level }));
+};
 
-export const gzipDecompress = (data: Uint8Array): Uint8Array =>
-  toPlain(native ? native.gzipDecompress(data) : gunzipSync(data));
+export const gzipDecompress = (data: Uint8Array): Uint8Array => {
+  const n = nativeFor("gzipDecompress");
+  return toPlain(n ? n.gzipDecompress(data) : gunzipSync(data));
+};
 
-export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array =>
-  toPlain(
-    native
-      ? native.brotliCompress(data, quality)
+export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array => {
+  const n = nativeFor("brotliCompress");
+  return toPlain(
+    n
+      ? n.brotliCompress(data, quality)
       : brotliCompressSync(data, { params: { [constants.BROTLI_PARAM_QUALITY]: quality } }),
   );
+};
 
-export const brotliDecompress = (data: Uint8Array): Uint8Array =>
-  toPlain(native ? native.brotliDecompress(data) : brotliDecompressSync(data));
+export const brotliDecompress = (data: Uint8Array): Uint8Array => {
+  const n = nativeFor("brotliDecompress");
+  return toPlain(n ? n.brotliDecompress(data) : brotliDecompressSync(data));
+};
 
 // ── SSE ─────────────────────────────────────────────────────────
 
@@ -43,9 +49,10 @@ export const sseEncode = (
   data: string | Uint8Array,
   id?: string | null,
   retry?: number | null,
-): string =>
-  // Measured: SSE framing is faster in pure TS (napi marshal overhead).
-  sseEncodeFallback(event, data, id ?? null, retry ?? null);
+): string => {
+  // Selection: js — native FFI marshal loses for typical frames (x0.28) — see selection.ts.
+  return sseEncodeFallback(event, data, id ?? null, retry ?? null);
+};
 
 /** WHATWG SSE framing: optional `id:`/`event:`/`retry:` lines, `data:` per line, trailing blank line. */
 export const sseEncodeFallback = (
@@ -80,12 +87,14 @@ export const wsFrameEncode = (
   payload: Uint8Array,
   mask: boolean,
   fin: boolean,
-): Uint8Array =>
-  toPlain(
-    native
-      ? native.wsFrameEncode(opcode, payload, mask, fin)
+): Uint8Array => {
+  const n = nativeFor("wsFrameEncode");
+  return toPlain(
+    n
+      ? n.wsFrameEncode(opcode, payload, mask, fin)
       : wsFrameEncodeFallback(opcode, payload, mask, fin),
   );
+};
 
 /** RFC 6455 §5.2 frame encode (deterministic mask when `mask` is true). */
 export const wsFrameEncodeFallback = (
@@ -126,8 +135,9 @@ export const wsFrameEncodeFallback = (
 };
 
 export const wsFrameDecode = (data: Uint8Array): WsFrame | null => {
-  if (native) {
-    const frame = native.wsFrameDecode(data);
+  const n = nativeFor("wsFrameDecode");
+  if (n) {
+    const frame = n.wsFrameDecode(data);
     return frame ? { fin: frame.fin, opcode: frame.opcode, payload: toPlain(frame.payload) } : null;
   }
   return wsFrameDecodeFallback(data);
@@ -173,7 +183,8 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /** Compute the RFC 6455 Sec-WebSocket-Accept value from a client key. */
 export const wsAcceptKey = (key: string): string => {
-  if (native) return fromBytes(native.wsAcceptKey(toBytes(key)));
+  const n = nativeFor("wsAcceptKey");
+  if (n) return fromBytes(n.wsAcceptKey(toBytes(key)));
   return createHash("sha1")
     .update(key + WS_GUID)
     .digest("base64");

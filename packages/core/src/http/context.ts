@@ -12,6 +12,7 @@
 
 import { HttpResponseCache, type HttpResponseCacheOptions } from "../data/cache";
 import { createDataLoader, type DataLoaderFactory } from "../data/dataloader";
+import { firstForwardedIp } from "../platform/coerce";
 import type { HttpMethod } from "../types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
 import { type Cookie, createLazyCookieJar } from "./cookies";
@@ -178,15 +179,18 @@ export function createContext<P = Record<string, string>>(
       try {
         const socketIp = server?.requestIP?.(req)?.address;
         if (socketIp) return socketIp;
-      } catch {
-        // ignore
+      } catch (err) {
+        // `requestIP` is non-standard on some runtimes and may throw rather
+        // than return undefined — surface it at info level instead of
+        // silently masking the failure, then fall through to headers.
+        console.info("[flux] requestIP unavailable:", err);
       }
 
       // Client-supplied IP headers are spoofable; only honor them when the app
       // explicitly opts into trusting a proxy in front.
       if (opts.trustProxy) {
         const forwarded =
-          req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+          req.headers.get("x-real-ip") ?? firstForwardedIp(req.headers.get("x-forwarded-for"));
         if (forwarded) return forwarded;
       }
 

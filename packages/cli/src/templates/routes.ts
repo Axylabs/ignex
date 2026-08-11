@@ -120,20 +120,6 @@ export const wsHandler = createWSHandler({
 `;
 }
 
-export function clusterExampleTemplate(): string {
-  return `import { serveCluster } from "@flux/core";
-
-// Example multi-core entry.
-// Adjust once your generated server entry/runtime options are finalized.
-//
-// serveCluster({
-//   port: Number(process.env.PORT ?? 3000)
-// });
-
-export {};
-`;
-}
-
 export function vitestConfigTemplate(): string {
   return `import { defineConfig } from "vitest/config";
 

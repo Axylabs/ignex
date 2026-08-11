@@ -51,11 +51,17 @@ purely an acceleration layer — importing it **never throws**.
 
 ## What's wired today (measured — native where it wins)
 
+> **The selection table (`packages/native/src/selection.ts`) is the single
+> authoritative source for which implementation each op binds to.** The tables
+> below are a human summary; when they disagree with the table, the table wins.
+> Flipping an op is a one-line edit to `SELECTION` — no framework code changes,
+> and every consumer (including the unified `backend` facade) picks it up.
+
 **Native is used (wins or parity, measured with `bun scripts/native-bench.ts`):**
 
 | Area | Core module | Native primitive(s) | Measured |
 | --- | --- | --- | --- |
-| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` | **~8x** ✓ |
+| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` | **x6.74** ✓ (2026-08-11) |
 | Crypto | `security/*` | `hmacSha256`, `jwtSign/Verify`, `signCookie/Verify`, `csrfToken/Verify`, `passwordHash/Verify`, `aeadEncrypt/Decrypt`, `randomToken` | proven wins (argon2 ~18x, csrf ~13x, cookie-sign ~9x) |
 | Compression | `plugins/compression.ts` (native buffered gzip) | `gzipCompress` | native zlib-rs |
 | Templates | `content/template.ts` | `renderTemplate`/`createTemplate` (minijinja) | compiled renderer |
@@ -71,13 +77,13 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 
 | Area | Core module | Wrapper | Measured (native : JS) |
 | --- | --- | --- | --- |
-| Query | `data/query.ts` | `queryPairs` → JS | **x0.87** (native loses) |
-| Cookies | `http/cookies.ts` | `cookiePairs` → JS | **x0.46** (native loses) |
-| Form bodies | `http/body.ts` | `formPairs` → JS | **x0.97** (native loses slightly) |
+| Query | `data/query.ts` | `queryPairs` → JS | **x0.96** (native loses) |
+| Cookies | `http/cookies.ts` | `cookiePairs` → JS | **x0.65** (native loses) |
+| Form bodies | `http/body.ts` | `formPairs` → JS | **x0.88** (native loses slightly) |
 | Multipart | `http/body.ts` | Bun `req.formData()` | **Bun wins 4-5x** at 64-512KB (native x0.21-0.24) |
-| SSE | `http/sse.ts` | `sseEncode` → JS | parity+ (native fine on large data) |
+| SSE | `http/sse.ts` | `sseEncode` → JS | **x0.28** (native FFI marshal loses) |
 | ETag | `etag` | JS crc32 | parity (x0.92) |
-| Conditional 304 | `http/conditional.ts` | `createConditionalRequest` → JS | parity (native x1.14) |
+| Conditional 304 | `http/conditional.ts` | `createConditionalRequest` → JS | **x0.08** (native per-call construction loses ~12x) |
 | Accept negotiation | `createAcceptNegotiator`, `parseAcceptEncoding` | JS | parity |
 | Media type | `parseMediaType` | JS | native marked @deprecated (slower) |
 

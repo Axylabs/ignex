@@ -2,15 +2,14 @@
  * JSON helpers (native-accelerated where proven): validity checks and
  * RFC 6902 JSON Patch.
  */
-import { getNative } from "./loader";
+import { nativeFor } from "./runtime";
 import { fromBytes, toBytes } from "./util";
-
-const native = getNative();
 
 /** True when the input is well-formed JSON. */
 export const jsonValid = (input: string | Uint8Array): boolean => {
   const bytes = toBytes(input);
-  if (native) return native.jsonValid(bytes);
+  const n = nativeFor("jsonValid");
+  if (n) return n.jsonValid(bytes);
   try {
     JSON.parse(typeof input === "string" ? input : fromBytes(bytes));
     return true;
@@ -39,8 +38,9 @@ export interface SchemaValidator {
  * the TS validator for small one-off documents.
  */
 export const createSchemaValidator = (schema: string | Uint8Array): SchemaValidator | null => {
-  if (!native) return null;
-  const inst = new native.SchemaValidator(toBytes(schema));
+  const n = nativeFor("createSchemaValidator");
+  if (!n) return null;
+  const inst = new n.SchemaValidator(toBytes(schema));
   return {
     validate(input) {
       return inst.validate(toBytes(input));
@@ -53,7 +53,8 @@ export const createSchemaValidator = (schema: string | Uint8Array): SchemaValida
 
 /** Apply an RFC 6902 JSON Patch to a JSON document; returns the patched JSON. */
 export const jsonPatch = (doc: string, patch: string): string => {
-  if (native) return fromBytes(native.jsonPatch(toBytes(doc), toBytes(patch)));
+  const n = nativeFor("jsonPatch");
+  if (n) return fromBytes(n.jsonPatch(toBytes(doc), toBytes(patch)));
   return jsonPatchFallback(doc, patch);
 };
 

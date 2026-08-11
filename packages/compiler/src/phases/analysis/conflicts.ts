@@ -4,6 +4,7 @@
 
 import { DiagnosticCodes } from "../../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../../types";
+import { normalizePathPattern } from "../../utils/route-path";
 
 export const staticRouteKey = (route: RouteDef): string =>
   `${route.source.method}:${route.source.path}`;
@@ -41,16 +42,6 @@ export interface RouteConflictIssue {
   readonly routes: readonly string[];
 }
 
-const normalizeConflictPattern = (path: string): string =>
-  path
-    .split("/")
-    .map((segment) => {
-      if (segment.startsWith(":")) return ":param";
-      if (segment.startsWith("*")) return "*";
-      return segment;
-    })
-    .join("/");
-
 export const detectRouteConflicts = (
   routes: readonly RouteDef[],
   opts: CompilerOptions,
@@ -64,7 +55,7 @@ export const detectRouteConflicts = (
   for (const route of routes) {
     const routePath = route.source.path;
     const exactKey = `${route.source.method} ${routePath}`;
-    const patternKey = `${route.source.method} ${normalizeConflictPattern(routePath)}`;
+    const patternKey = `${route.source.method} ${normalizePathPattern(routePath)}`;
 
     const exactGroup = exact.get(exactKey);
     if (exactGroup) exactGroup.push(route);

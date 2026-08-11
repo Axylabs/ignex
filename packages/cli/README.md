@@ -9,7 +9,7 @@ Source-only package — `bin/flux.js` (`#!/usr/bin/env bun`) imports
 ## Commands
 
 ```
-flux create <app-name> [options]   Scaffold a new flux app (22 feature toggles)
+flux create <app-name> [options]   Scaffold a new flux app (20 feature toggles)
 flux dev [root] [options]          Compile + run the dev server (watch)
 flux build [root] [options]        AOT-compile an app with diagnostics
 flux route <path> [options]        Scaffold a single route (--named, --schema)

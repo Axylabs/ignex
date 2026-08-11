@@ -1,9 +1,11 @@
 /**
- * @fileoverview Query string parsing, native-accelerated.
+ * @fileoverview Query string parsing.
  *
- * Uses the Rust addon's packed query parser (proven ~4x faster than JS)
- * through `@flux/native`, which falls back to a pure-TS parser when the
- * addon is unavailable. Duplicate keys are grouped into arrays.
+ * Delegates to `@flux/native` `queryPairs`, whose selection table
+ * (`packages/native/src/selection.ts`) owns the impl choice — the scalar
+ * pure-TS parser is the fast path (native measures x0.96 on the 2026-08-11
+ * bench), and the native packed parser stays available for batched large
+ * inputs. Duplicate keys are grouped into arrays.
  */
 
 import { queryPairs } from "@flux/native";

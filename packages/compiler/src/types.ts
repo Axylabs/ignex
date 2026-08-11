@@ -7,8 +7,8 @@
  * - added route metadata for future validators/serializers/OpenAPI
  */
 
-import type { ContextUsage } from "@flux/shared";
-import { FULL_USAGE } from "@flux/shared";
+import type { ContextUsage, HttpMethod } from "@flux/shared";
+import { FULL_USAGE, HTTP_METHODS } from "@flux/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
 import type { SourceFile } from "./frontend/source-file";
 import type { SourceManager } from "./frontend/source-manager";
@@ -25,16 +25,9 @@ export interface AppConfigInfo {
   readonly hasServer: boolean;
 }
 
-export const HTTP_METHODS = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-  "ALL",
-] as const;
+export type { HttpMethod };
+// Shared method vocabulary (single source of truth in @flux/shared).
+export { HTTP_METHODS };
 
 export const HTTP_METHOD_ALIASES: Record<string, HttpMethod> = {
   GET: "GET",
@@ -51,8 +44,6 @@ export const HTTP_METHOD_ALIASES: Record<string, HttpMethod> = {
 export function normalizeHttpMethod(input: string): HttpMethod | undefined {
   return HTTP_METHOD_ALIASES[input.toUpperCase()];
 }
-
-export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export interface CompilerOptions {
   /**

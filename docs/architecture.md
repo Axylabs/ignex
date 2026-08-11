@@ -41,7 +41,7 @@ server — it never duplicates their logic.
 `packages/compiler/src` is organized into phases that run in order:
 
 ```
-discovery → analysis → optimization → precompile → codegen → linker → artifacts
+discovery → analysis → optimization → precompile → artifacts → codegen → linker
 ```
 
 Each phase is a focused module under `src/phases/` (large phases are further
@@ -52,8 +52,8 @@ split into concern folders — `analysis/` and `codegen/`):
   reads + parses each one exactly once through the source frontend.
 - **analysis/** — lowers discovered sources into `RouteIR`s and computes the
   semantic facts (usage bitmap, response type, hooks, schemas). Split into
-  `route-graph.ts`, `conflicts.ts`, `hooks.ts`, `app-config.ts` and the
-  `runAnalysis` orchestrator in `index.ts`.
+  `route-graph.ts`, `conflicts.ts`, `hooks.ts`, `app-config.ts`, `fs.ts` and
+  the `runAnalysis` orchestrator in `index.ts`.
 
 Two cross-cutting layers sit directly under `src/`:
 

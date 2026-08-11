@@ -6,11 +6,10 @@
  * The pure-TS fallbacks are byte/behavior compatible for the common cases so
  * the framework behaves identically with or without the Rust addon.
  */
-import { getNative } from "./loader";
-import { pairsToObject } from "./packed";
-import { crc32, fromBytes, toBytes } from "./util";
 
-const native = getNative();
+import { pairsToObject } from "./packed";
+import { nativeFor } from "./runtime";
+import { crc32, fromBytes, toBytes } from "./util";
 
 export type Pairs = ReadonlyArray<[string, string]>;
 
@@ -46,10 +45,7 @@ export interface MultipartLimits {
 
 /** Parse a query string into `[name, value]` pairs (duplicates preserved). */
 export const queryPairs = (input: string | Uint8Array): Pairs => {
-  // Measured: the napi FFI + packed-buffer unpack is slower than plain JS for
-  // query/cookie/form parsing at every input size, so the wrapper prefers the
-  // pure-TS implementation. The native `queryParsePacked` stays exported for
-  // apps that batch large inputs where it amortizes.
+  // Selection: js (native x0.96) — see selection.ts.
   return queryPairsFallback(toBytes(input));
 };
 
@@ -82,8 +78,7 @@ export const parseQuery = (input: string | Uint8Array): Record<string, string> =
 
 /** Parse a `Cookie` header into `[name, value]` pairs. */
 export const cookiePairs = (input: string | Uint8Array): Pairs => {
-  // Measured: native cookie parsing is 2-5x slower than JS through the napi
-  // wrapper at every size; prefer the pure-TS implementation.
+  // Selection: js (native x0.65) — see selection.ts.
   return cookiePairsFallback(toBytes(input));
 };
 
@@ -109,7 +104,7 @@ export const parseCookie = (input: string | Uint8Array): Record<string, string> 
 // ── Media types ─────────────────────────────────────────────────
 
 export const parseMediaType = (input: string): MediaTypeResult =>
-  // Media-type headers are tiny; the pure-TS parser is the fast path.
+  // Selection: js (native marked @deprecated / slower) — see selection.ts.
   parseMediaTypeFallback(input);
 
 export const parseMediaTypeFallback = (input: string): MediaTypeResult => {
@@ -147,7 +142,7 @@ export const mediaTypeMatches = (actual: string, expected: string): boolean => {
 
 /** Generate a strong (`"<8-hex>"`) or weak (`W/"<8-hex>"`) ETag from a crc32. */
 export const etag = (input: string | Uint8Array, weak = false): string => {
-  // Measured: native etag (FFI) loses to the JS crc32 table for typical sizes.
+  // Selection: js (native x0.92) — see selection.ts.
   return etagFallback(toBytes(input), weak);
 };
 
@@ -186,7 +181,7 @@ export const parseAcceptEncodingFallback = (input: string): EncodingPrefResult[]
 
 /** Parse a `x-www-form-urlencoded` body into `[name, value]` pairs. */
 export const formPairs = (input: string | Uint8Array): Pairs => {
-  // Measured: native form parsing loses to JS through the napi wrapper.
+  // Selection: js (native x0.88) — see selection.ts.
   return formPairsFallback(toBytes(input));
 };
 
@@ -233,8 +228,7 @@ export const createConditionalRequest = (
   etagValue: string,
   lastModifiedSecs?: number,
 ): ConditionalRequest =>
-  // ETags are tiny and the check is a cheap string/date compare — the pure-TS
-  // implementation is the fast path (native FFI is slower for one-shot checks).
+  // Selection: js — per-call native construction loses (~12x) — see selection.ts.
   createConditionalRequestFallback(etagValue, lastModifiedSecs);
 
 export const createConditionalRequestFallback = (
@@ -273,7 +267,7 @@ export interface AcceptNegotiator {
  * (exact > `*`), then q-value, then earliest client order.
  */
 export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
-  // Negotiation over typical (small) headers is fastest in pure TS.
+  // Selection: js (parity) — see selection.ts.
   createAcceptNegotiatorFallback(supported);
 
 export const createAcceptNegotiatorFallback = (supported: string[]): AcceptNegotiator => {
@@ -320,7 +314,8 @@ export const multipartParse = (
   boundary: string,
   limits?: MultipartLimits,
 ): MultipartPart[] => {
-  if (native) return native.multipartParse(body, toBytes(boundary), limits ?? null);
+  const n = nativeFor("multipartParse");
+  if (n) return n.multipartParse(body, toBytes(boundary), limits ?? null);
   return multipartParseFallback(body, boundary, limits);
 };
 
