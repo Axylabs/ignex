@@ -111,6 +111,31 @@ export const compose =
   (x: A) =>
     fns.reduceRight((acc: any, fn) => fn(acc), x);
 
+/**
+ * Async left-to-right function composition:
+ * `pipeAsync(value)(f, g, h)` === `h(g(f(value)))` with every stage awaited.
+ * Each stage may return a plain value or a `Promise`; the resolved value is
+ * threaded into the next stage, so sync and async stages can be freely mixed.
+ */
+export const pipeAsync =
+  <A>(a: A) =>
+  async <B>(...fns: Array<(x: any) => any>): Promise<B> => {
+    let acc: any = a;
+    for (const fn of fns) acc = await fn(acc);
+    return acc as unknown as B;
+  };
+
+/**
+ * Left fold over an array:
+ * `fold(init, fn)([a, b, c])` === `fn(fn(fn(init, a), b), c)`.
+ * The curried shape matches `pipe`/`compose` and is used to fold hook / config
+ * / plugin stage chains into a single composed runner.
+ */
+export const fold =
+  <A, B>(init: B, fn: (acc: B, item: A, index: number) => B) =>
+  (items: readonly A[]): B =>
+    items.reduce((acc, item, i) => fn(acc, item, i), init);
+
 /** Constant function: `always(v)(...)` === `v`. */
 export const always =
   <T>(value: T) =>

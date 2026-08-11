@@ -6,8 +6,8 @@
  * - exactOptionalPropertyTypes-safe pino options
  */
 import pino, { type Logger as PinoLogger } from "pino";
-import type { FluxContext } from "../context";
-import type { FluxPlugin } from "../plugin";
+import type { FluxContext } from "../http/context";
+import type { FluxPlugin } from "../lifecycle/plugin";
 
 export interface LoggerOptions {
   level?: string;

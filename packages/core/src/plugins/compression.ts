@@ -4,7 +4,8 @@
  * Adds Brotli when available.
  */
 
-import type { FluxPlugin } from "../plugin";
+import { appendVary } from "../http/headers";
+import type { FluxPlugin } from "../lifecycle/plugin";
 
 export interface CompressionOptions {
   threshold?: number;
@@ -78,8 +79,10 @@ export const compression = (options: CompressionOptions = {}): FluxPlugin => {
       const headers = new Headers(response.headers);
       headers.set("content-encoding", encoding);
       headers.delete("content-length");
-      headers.append("vary", "Accept-Encoding");
+      appendVary(headers, "Accept-Encoding");
 
+      // NOTE: the body is REPLACED with the compressed stream, so we cannot
+      // reuse `reWrapResponse` (which keeps the original body).
       const compressed = response.body.pipeThrough(new CS(encoding));
 
       return new Response(compressed, {

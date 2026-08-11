@@ -19,8 +19,8 @@
   "description": "Flux runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
   "exports": {
     ".": "./src/index.ts",
-    "./http": "./src/http.ts",
-    "./config": "./src/config.ts",
+    "./http": "./src/http/route.ts",
+    "./config": "./src/platform/config.ts",
     "./package.json": "./package.json"
   },
   "dependencies": {

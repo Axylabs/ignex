@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
-import { cloneSchema, isStandardSchema, loadRouteModule } from "./schema-loader";
+import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
 const pickResponseSchema = (responseSchema: any): any => {
   if (!responseSchema || typeof responseSchema !== "object") {
@@ -71,72 +71,52 @@ export const precompileSerializers = async (
   const serializersDir = join(opts.outDir, "serializers");
   mkdirSync(serializersDir, { recursive: true });
 
-  const nextRoutes: RouteDef[] = [];
+  return forEachRouteWithSchema(
+    routes,
+    modules,
+    ctx,
+    (route) => route.responseType === "json" || route.usage.json === true,
+    async (route, mod, schema) => {
+      const multiStatus = getStatusSchemas(schema.response);
+      const responseSchema = pickResponseSchema(schema.response);
 
-  for (const route of routes) {
-    const isJsonRoute = route.responseType === "json" || route.usage.json === true;
+      if (!multiStatus && !responseSchema) {
+        return null;
+      }
 
-    if (!isJsonRoute) {
-      nextRoutes.push(route);
-      continue;
-    }
+      const byStatus: Record<string, string> = {};
+      const schemasToCompile = multiStatus ?? { "200": responseSchema };
 
-    const mod = modules[route.moduleIdx];
+      for (const [status, statusSchema] of Object.entries(schemasToCompile)) {
+        const fileName = `${route.handlerRef}.${status}.mjs`;
+        const importName = `serialize_${route.handlerRef}_${status}`;
 
-    if (!mod?.schemaExport) {
-      nextRoutes.push(route);
-      continue;
-    }
-
-    const routeModule = await loadRouteModule(mod.path, ctx.diagnostics, route.handlerExportName);
-    const schema = routeModule?.schema;
-
-    if (!schema || typeof schema !== "object") {
-      nextRoutes.push(route);
-      continue;
-    }
-
-    const multiStatus = getStatusSchemas(schema.response);
-    const responseSchema = pickResponseSchema(schema.response);
-
-    if (!multiStatus && !responseSchema) {
-      nextRoutes.push(route);
-      continue;
-    }
-
-    const byStatus: Record<string, string> = {};
-    const schemasToCompile = multiStatus ?? { "200": responseSchema };
-
-    for (const [status, statusSchema] of Object.entries(schemasToCompile)) {
-      const fileName = `${route.handlerRef}.${status}.mjs`;
-      const importName = `serialize_${route.handlerRef}_${status}`;
-
-      // Standard Schema fallback: safe JSON.stringify serializer
-      if (isStandardSchema(statusSchema)) {
-        const code = `export default (input) => JSON.stringify(input);
+        // Standard Schema fallback: safe JSON.stringify serializer
+        if (isStandardSchema(statusSchema)) {
+          const code = `export default (input) => JSON.stringify(input);
 `;
 
-        writeFileSync(join(serializersDir, fileName), code);
-        byStatus[status] = importName;
-        continue;
-      }
+          writeFileSync(join(serializersDir, fileName), code);
+          byStatus[status] = importName;
+          continue;
+        }
 
-      let cloned: any;
-      try {
-        cloned = cloneSchema(statusSchema);
-      } catch (error) {
-        ctx.diagnostics.warn({
-          code: DiagnosticCodes.SerializerFallback,
-          message: `Response schema clone failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
-          file: mod.path,
-        });
-        continue;
-      }
+        let cloned: any;
+        try {
+          cloned = cloneSchema(statusSchema);
+        } catch (error) {
+          ctx.diagnostics.warn({
+            code: DiagnosticCodes.SerializerFallback,
+            message: `Response schema clone failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
+            file: mod.path,
+          });
+          continue;
+        }
 
-      try {
-        fastJson(cloned);
+        try {
+          fastJson(cloned);
 
-        const code = `import fastJson from "fast-json-stringify";
+          const code = `import fastJson from "fast-json-stringify";
 
 const schema = ${JSON.stringify(cloned)};
 
@@ -145,39 +125,37 @@ const serialize = fastJson(schema);
 export default serialize;
 `;
 
-        writeFileSync(join(serializersDir, fileName), code);
-        byStatus[status] = importName;
-      } catch (error) {
-        // If schema compilation fails, fall back to JSON.stringify
-        ctx.diagnostics.warn({
-          code: DiagnosticCodes.SerializerFallback,
-          message: `Response schema compilation failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
-          file: mod.path,
-        });
+          writeFileSync(join(serializersDir, fileName), code);
+          byStatus[status] = importName;
+        } catch (error) {
+          // If schema compilation fails, fall back to JSON.stringify
+          ctx.diagnostics.warn({
+            code: DiagnosticCodes.SerializerFallback,
+            message: `Response schema compilation failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
+            file: mod.path,
+          });
 
-        const code = `export default (input) => JSON.stringify(input);
+          const code = `export default (input) => JSON.stringify(input);
 `;
 
-        writeFileSync(join(serializersDir, fileName), code);
-        byStatus[status] = importName;
+          writeFileSync(join(serializersDir, fileName), code);
+          byStatus[status] = importName;
+        }
       }
-    }
 
-    if (Object.keys(byStatus).length === 0) {
-      nextRoutes.push(route);
-      continue;
-    }
+      if (Object.keys(byStatus).length === 0) {
+        return null;
+      }
 
-    nextRoutes.push({
-      ...route,
-      serializers: {
-        json: byStatus["200"] ?? Object.values(byStatus)[0],
-        byStatus,
-      },
-    });
+      ctx.logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
 
-    ctx.logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
-  }
-
-  return nextRoutes;
+      return {
+        ...route,
+        serializers: {
+          json: byStatus["200"] ?? Object.values(byStatus)[0],
+          byStatus,
+        },
+      };
+    },
+  );
 };

@@ -139,8 +139,6 @@ export const parseModule = (
     symbols: parsed.symbols,
     hasDefaultExport: parsed.hasDefaultExport,
     hasHandlerExport: parsed.hasHandlerExport,
-    callGraph: new Map(),
-    dataFlow: new Map(),
 
     ...(parsed.handlerExportName !== undefined
       ? { handlerExportName: parsed.handlerExportName }

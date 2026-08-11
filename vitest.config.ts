@@ -16,7 +16,7 @@ export default defineConfig({
       // Order matters: Vite prefix-replaces aliases, so the specific subpath
       // must come before the package root (`@flux/core/http` must not match
       // `@flux/core` first).
-      "@flux/core/http": alias("packages/core/src/http.ts"),
+      "@flux/core/http": alias("packages/core/src/http/route.ts"),
       "@flux/core/*": alias("packages/core/src/*"),
       "@flux/core": alias("packages/core/src/index.ts"),
       "@flux/compiler": alias("packages/compiler/src/index.ts"),

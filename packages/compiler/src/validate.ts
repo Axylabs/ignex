@@ -9,6 +9,7 @@
 
 import { type Static, Type } from "@sinclair/typebox";
 import Ajv from "ajv";
+import { defu } from "defu";
 import { DiagnosticCodes, type DiagnosticCollector } from "./diagnostics";
 import type { Result } from "./fp";
 import { err, ok } from "./fp";
@@ -104,17 +105,27 @@ const ajv = new Ajv({
 
 const validate = ajv.compile(CompilerOptionsSchema);
 
+/**
+ * Merge partial compiler options with defaults + the optimization preset.
+ * Single source of truth for preset application — `validateOptions` validates
+ * the result produced here.
+ */
+export const mergeOptions = (opts: Partial<CompilerOptions>): CompilerOptions => {
+  // Apply the optimization preset for the requested level to the defaults, then
+  // let explicit user knobs win over both (defu: earlier args override later).
+  const level = (opts.optimizationLevel ?? DEFAULT_OPTS.optimizationLevel) as OptimizationLevel;
+  const preset = optimizationPresets[level] ?? {};
+  const base = defu(preset, DEFAULT_OPTS) as CompilerOptions;
+  return defu(opts, base) as CompilerOptions;
+};
+
 export const validateOptions = (
   input: Partial<CompilerOptions>,
   diagnostics?: DiagnosticCollector,
 ): Result<CompilerOptions, string[]> => {
-  const data: Record<string, unknown> = { ...DEFAULT_OPTS, ...input };
-
-  // Apply the optimization preset for the requested level, then let the
-  // caller's explicit knob values win over the preset.
-  const level = (input.optimizationLevel ?? DEFAULT_OPTS.optimizationLevel) as OptimizationLevel;
-  const preset = optimizationPresets[level] ?? {};
-  Object.assign(data, preset, input);
+  // Defaults + optimization preset are merged once (see `mergeOptions`); this
+  // function only validates the merged result and warns on removed/unknown keys.
+  const data: Record<string, unknown> = { ...mergeOptions(input) };
 
   // Handle removed and unknown options before schema validation.
   for (const key of Object.keys(input)) {

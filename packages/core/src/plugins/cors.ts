@@ -2,8 +2,9 @@
  * @fileoverview CORS plugin — Bun 1.4 hardened edition.
  */
 
-import type { FluxContext } from "../context";
-import type { FluxPlugin } from "../plugin";
+import type { FluxContext } from "../http/context";
+import { appendVary, reWrapResponse } from "../http/headers";
+import type { FluxPlugin } from "../lifecycle/plugin";
 
 export interface CorsOptions {
   origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
@@ -39,21 +40,6 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
     if (typeof origin === "string") return origin === requestOrigin;
     if (Array.isArray(origin)) return origin.includes(requestOrigin);
     return origin(requestOrigin, ctx);
-  };
-
-  const appendVary = (headers: Headers, value: string): void => {
-    const existing = headers.get("vary");
-
-    if (!existing) {
-      headers.set("vary", value);
-      return;
-    }
-
-    const parts = existing.split(",").map((x) => x.trim().toLowerCase());
-
-    if (!parts.includes(value.toLowerCase())) {
-      headers.set("vary", `${existing}, ${value}`);
-    }
   };
 
   const setCorsHeaders = (ctx: FluxContext, headers: Headers): void => {
@@ -113,11 +99,7 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
       const headers = new Headers(response.headers);
       setCorsHeaders(ctx, headers);
 
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      return reWrapResponse(response, { headers });
     },
   };
 };

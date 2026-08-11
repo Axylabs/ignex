@@ -5,6 +5,9 @@
  * the existing plugin system (`composePlugins`, app.config `plugins`).
  */
 
+import type { FluxContext } from "../http/context";
+import type { HookFn } from "../lifecycle/hooks";
+import { type FluxPlugin, hookToPlugin } from "../lifecycle/plugin";
 import {
   type AuthUser,
   basicAuth,
@@ -13,20 +16,11 @@ import {
   jwtAuth,
   optionalAuth,
   requireAuth,
-} from "../auth";
-import type { FluxContext } from "../context";
-import type { HookFn } from "../hooks";
-import type { FluxPlugin } from "../plugin";
+} from "../security/auth";
 import type { MaybePromise } from "../types";
 
 /** Turn any request hook into a `FluxPlugin`. */
-export const auth = (hook: HookFn): FluxPlugin => ({
-  name: "auth",
-  async onRequest(ctx) {
-    const result = await hook(ctx);
-    return result.ok ? result.ctx : result.response;
-  },
-});
+export const auth = (hook: HookFn): FluxPlugin => hookToPlugin("auth", hook);
 
 /** Require a user (from a custom extractor) on every request. */
 export const authGuard = <T>(extract: (ctx: FluxContext) => MaybePromise<T | null>): FluxPlugin =>

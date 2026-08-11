@@ -9,7 +9,7 @@ codebase and make changes without breaking the AOT contract.
 | ---------------- | ----------------------------------------------------------------- | --------------- |
 | `@flux/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
 | `@flux/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
-| `@flux/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation  | `src/index.ts`  |
+| `@flux/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
 | `@flux/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
 | `@flux/cli`      | Developer CLI (scaffold / dev / build)                            | `src/index.ts`  |
 | `packages/app`   | Example application (routes, views, hooks) + benchmarks           | `builder.ts`    |
@@ -44,21 +44,35 @@ server — it never duplicates their logic.
 discovery → analysis → optimization → precompile → codegen → linker → artifacts
 ```
 
-Each phase is a focused module under `src/phases/`:
+Each phase is a focused module under `src/phases/` (large phases are further
+split into concern folders — `analysis/` and `codegen/`):
 
 - **discovery** — finds route files, classifies them by method/path
   (`products/[id].get.ts` → `GET /products/:id`).
-- **analysis** — parses each module (memoized), builds the route graph, and
-  computes the `RouteDef` (usage bitmap, response type, hooks, schemas).
+- **analysis/** — parses each module (memoized), builds the route graph, and
+  computes the `RouteDef` (usage bitmap, response type, hooks, schemas). Split
+  into `route-graph.ts`, `conflicts.ts`, `hooks.ts`, `app-config.ts`, `stats.ts`
+  and the `runAnalysis` orchestrator in `index.ts`.
 - **optimization** — constant-response detection, inline eligibility, dead-code
   pruning. Gated by `optimizationLevel` 0–3 presets.
-- **precompile** — compiles validators/serializers ahead of time.
-- **codegen** — emits the optimized `__server.js`: native Bun routing, a
+- **precompile** — compiles validators/serializers ahead of time. Both use the
+  shared `forEachRouteWithSchema` loop in `schema-loader.ts`.
+- **codegen/** — emits the optimized `__server.js`: native Bun routing, a
   specialized per-route context, `__applySet`/`__finalize`/`__handleError`
-  helpers, and the pre/post lifecycle.
+  helpers, and the pre/post lifecycle. `generateServer` composes named emission
+  stages (`imports.ts` → `header.ts` → `routes.ts` → `routetable.ts` →
+  `server.ts`) over a shared `CodegenState`; `identifiers.ts` owns all
+  generated-name conventions and `helpers.ts` the dependency-aware helper
+  registry.
 - **linker** — wires route modules, hooks, and app config together.
 - **artifacts** — writes `routes.d.ts`, `client.ts`/`client.d.ts`,
   `openapi.json`, `manifest.json`.
+
+The pipeline itself is composed declaratively in `src/index.ts`: each phase is
+a pure function over a `PipelineState`, threaded with `pipe` (sync path) or
+`pipeAsync` (async path) from `@flux/shared`. The whole build reads as:
+`validate → discover → analyze → optimize → precompile → artifacts → codegen
+→ link → cache`.
 
 ### The AST layer (`src/utils/ast/`)
 
@@ -96,17 +110,66 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 
 ## Runtime lifecycle
 
-`@flux/core/src/lifecycle.ts` owns the request pipeline. `runLifecycle`
+`@flux/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
 composes the pre-handler stages (`beforeHandle` …), runs the handler, then the
-post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`). The
+post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as a
+`pipeAsync` composition of named stages over a `LifecycleState` carrier. The
 generated server imports `runHooks`/`runLifecycle` from `@flux/core` — there is
 **one** implementation, not a compiled copy.
 
-`FluxContext` (`core/src/context.ts`) is the per-request object: read-only
+`FluxContext` (`core/src/http/context.ts`) is the per-request object: read-only
 request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
 `body`/`cookie`/`state`, the `set` outgoing channel, and response builders
 (`json`/`text`/`redirect`/`stream`/…). `ctx.set` mutations are applied by the
-generated `__applySet` helper.
+generated `__applySet` helper. Cookie parsing/serialization, the `set`/
+response channel and request-id generation live in sibling modules
+(`http/cookies.ts`, `http/headers.ts`, `http/request-id.ts`).
+
+## Core domain layout
+
+`packages/core/src` is grouped **by use case** (not by mechanism). Each folder
+has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
+
+| Folder        | Use case                                                   | Modules                     |
+| ------------- | ---------------------------------------------------------- | --------------------------- |
+| `security/`   | Request security & trust                                   | auth, csrf, crypto, session |
+| `http/`       | Request/response handling                                  | context, cookies, headers, body, proxy, files, sse, ws, route DSL |
+| `data/`       | Data access, caching & validation                          | cache, dataloader, lru, query, schema, validation |
+| `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, guard, plugin, macro, derive |
+| `platform/`   | App runtime infrastructure                                 | env, config, trace, cluster, jobs, errors |
+| `content/`    | Rendering & localization                                   | i18n, template |
+| `plugins/`    | Ready-made `FluxPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
+| `types/`      | Unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) | — |
+
+`client.ts` and `openapi.ts` stay top-level (consumer-facing). The public
+surface is `src/index.ts` — a grouped barrel that re-exports from the domain
+folders, so the internal layout never leaks to consumers. Subpath exports:
+`@flux/core/http` → `src/http/route.ts`, `@flux/core/config` →
+`src/platform/config.ts`.
+
+## Maintainability conventions
+
+- **Group by use case.** Files that serve one feature live together; god files
+  are split by concern (e.g. `context.ts` → context/cookies/headers/request-id).
+  A file exceeding ~400 lines is a signal to split.
+- **Barrels are pure re-exports.** Domain `index.ts` files only re-export; all
+  logic lives in the sibling modules. Internal imports target the specific
+  module (`../http/context`), not the barrel, to avoid import cycles.
+- **Single source of truth.** Cross-cutting helpers live in exactly one place:
+  `http/conditional.ts` (ETag/If-Modified-Since), `http/headers.ts`
+  (hop-by-hop set, `appendVary`, `reWrapResponse`), `http/cookies.ts`
+  (`writeCookie`), `security/auth.ts` (`parseAuthorizationHeader`),
+  `lifecycle/plugin.ts` (`hookToPlugin`), `http/request-id.ts` (request ids),
+  `compiler/validate.ts` (`mergeOptions` — preset application happens once),
+  `compiler/phases/schema-loader.ts` (`forEachRouteWithSchema`).
+- **Compose with the FP toolkit.** `pipe`/`pipeAsync`/`fold`/`Result` from
+  `@flux/shared` are used where they make control flow explicit (the compiler
+  pipeline, `runLifecycle`, `negotiateLocale`, `defineConfig`, session cookie
+  decoding). Hot-path request code stays plain where composition would obscure
+  short-circuiting semantics — prefer readability over ceremony.
+- **Prune dead code.** Removed paths are deleted, not commented out (e.g.
+  `ModuleInfo.callGraph`/`dataFlow`, `RouteDef.signatureHash`/`handlerSize`,
+  the legacy `BodyParser` helpers).
 
 ## Cache / determinism
 

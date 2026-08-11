@@ -4,9 +4,9 @@
  * Uses ctx.ip, which prefers Bun server.requestIP().
  */
 
-import type { FluxContext } from "../context";
-import { LRUCache } from "../lru";
-import type { FluxPlugin } from "../plugin";
+import { LRUCache } from "../data/lru";
+import type { FluxContext } from "../http/context";
+import type { FluxPlugin } from "../lifecycle/plugin";
 
 export interface RateLimitOptions {
   windowMs?: number;

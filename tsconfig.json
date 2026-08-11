@@ -20,7 +20,7 @@
     "paths": {
       "@flux/shared": ["./packages/shared/src/index.ts"],
       "@flux/core": ["./packages/core/src/index.ts"],
-      "@flux/core/http": ["./packages/core/src/http.ts"],
+      "@flux/core/http": ["./packages/core/src/http/route.ts"],
       "@flux/core/*": ["./packages/core/src/*"],
       "@flux/compiler": ["./packages/compiler/src/index.ts"],
       "@flux/native": ["./packages/native/src/index.ts"],

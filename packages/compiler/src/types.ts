@@ -291,8 +291,6 @@ export interface ModuleInfo {
   readonly handlerExportName?: string;
   readonly schemaExport?: string;
   readonly configExport?: string;
-  readonly callGraph: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
@@ -322,8 +320,6 @@ export interface RouteDef {
   readonly isDynamic: boolean;
   readonly isStatic: boolean;
   readonly segmentCount: number;
-  readonly signatureHash: number;
-  readonly handlerSize: number;
   readonly isAsync: boolean;
   readonly shouldInline: boolean;
   readonly responseType: ResponseType;

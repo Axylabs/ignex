@@ -15,7 +15,7 @@
  * it cannot precompile validators/serializers, minify, or emit source maps.
  */
 
-import { defu } from "defu";
+import { pipe, pipeAsync } from "@flux/shared";
 import { storeCache, tryCachedBuild } from "./cache";
 import { DiagnosticCodes, DiagnosticCollector, reportDiagnostics } from "./diagnostics";
 import type { Logger } from "./logger";
@@ -28,14 +28,9 @@ import { runLinker, runLinkerAsync } from "./phases/linker";
 import { runOptimization } from "./phases/optimization";
 import { precompileSerializers } from "./phases/serializers";
 import { precompileValidators } from "./phases/validators";
-import type { CompileResult, CompilerContext, CompilerOptions } from "./types";
-import {
-  DEFAULT_OPTS,
-  type OptimizationLevel,
-  type OptimizationMeta,
-  optimizationPresets,
-} from "./types";
-import { validateOptions } from "./validate";
+import type { CompileResult, CompilerContext, CompilerOptions, RouteDef } from "./types";
+import { DEFAULT_OPTS, type OptimizationMeta } from "./types";
+import { mergeOptions, validateOptions } from "./validate";
 
 export {
   type Diagnostic,
@@ -44,22 +39,111 @@ export {
   getCodeFrame,
 } from "./diagnostics";
 export type { CompileResult, CompilerOptions };
-export { DEFAULT_OPTS };
-
-export const mergeOptions = (opts: Partial<CompilerOptions>): CompilerOptions => {
-  // Apply the optimization preset for the requested level to the defaults, then
-  // let explicit user knobs win over both (defu: earlier args override later).
-  const level = (opts.optimizationLevel ?? DEFAULT_OPTS.optimizationLevel) as OptimizationLevel;
-  const preset = optimizationPresets[level] ?? {};
-  const base = defu(preset, DEFAULT_OPTS) as CompilerOptions;
-  return defu(opts, base) as CompilerOptions;
-};
+export { DEFAULT_OPTS, mergeOptions };
 
 /** Build a fresh per-compile context (logger + diagnostic collector). */
 const createContext = (logger: Logger): CompilerContext => ({
   logger,
   diagnostics: new DiagnosticCollector(),
 });
+
+// ============================================================================
+// Composed build pipeline
+// ============================================================================
+
+/**
+ * Results threaded through the composed build stages. Each stage is a pure
+ * function over this state (returning a new state), so the whole build reads
+ * as a declarative pipeline:
+ *
+ *   validate → discover → analyze → optimize → (precompile validators/
+ *   serializers) → artifacts → codegen → link → cache
+ *
+ * The sync path composes the same stages with `pipe`; the async path (the
+ * canonical entry) uses `pipeAsync` and adds the precompile + cache stages.
+ */
+interface PipelineState {
+  opts: CompilerOptions;
+  ctx: CompilerContext;
+  t0: number;
+  discovery?: ReturnType<typeof runDiscovery>;
+  analysis?: ReturnType<typeof runAnalysis>;
+  optimized?: ReturnType<typeof runOptimization>;
+  routes: readonly RouteDef[];
+  code?: string;
+  outPath?: string;
+  meta?: OptimizationMeta;
+}
+
+const discoveryStage = (s: PipelineState): PipelineState => ({
+  ...s,
+  discovery: runDiscoveryPhase(s.opts, s.ctx),
+});
+
+const analysisStage = (s: PipelineState): PipelineState => ({
+  ...s,
+  analysis: runAnalysisPhase(s.discovery as ReturnType<typeof runDiscovery>, s.opts, s.ctx),
+});
+
+const optimizationStage = (s: PipelineState): PipelineState => {
+  const optimized = runOptimizationPhase(
+    s.analysis as ReturnType<typeof runAnalysis>,
+    s.opts,
+    s.ctx,
+  );
+  return { ...s, optimized, routes: optimized.routes, meta: optimized.meta };
+};
+
+const precompileStage = async (s: PipelineState): Promise<PipelineState> => {
+  const analysis = s.analysis as ReturnType<typeof runAnalysis>;
+  let routes = s.routes;
+  routes = await precompileValidators(routes, analysis.modules, s.opts, s.ctx);
+  routes = await precompileSerializers(routes, analysis.modules, s.opts, s.ctx);
+  // The precompiled routes (validators/serializers/schemaDoc) replace the
+  // optimization result's routes so codegen sees the enriched set.
+  return {
+    ...s,
+    optimized: { ...(s.optimized as ReturnType<typeof runOptimization>), routes },
+    routes,
+  };
+};
+
+const artifactsStage = (s: PipelineState): PipelineState => {
+  writeArtifacts(s.routes, s.opts, s.ctx);
+  return s;
+};
+
+const codegenStage = (s: PipelineState): PipelineState => ({
+  ...s,
+  code: runCodegenPhase(
+    s.optimized as ReturnType<typeof runOptimization>,
+    s.analysis as ReturnType<typeof runAnalysis>,
+    s.opts,
+    s.ctx,
+  ),
+});
+
+const linkStage = async (s: PipelineState): Promise<PipelineState> => ({
+  ...s,
+  outPath: await runLinkingPhaseAsync(s.code as string, s.opts, s.ctx),
+});
+
+const linkStageSync = (s: PipelineState): PipelineState => ({
+  ...s,
+  outPath: runLinkingPhase(s.code as string, s.opts, s.ctx),
+});
+
+const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
+  if (s.opts.incremental && s.outPath) {
+    await storeCache(
+      s.opts,
+      s.ctx,
+      s.outPath,
+      (s.optimized as ReturnType<typeof runOptimization>).meta,
+    );
+  }
+  return s;
+};
 
 export const runDiscoveryPhase = (
   opts: CompilerOptions,
@@ -206,18 +290,18 @@ export class FluxCompiler {
       outDir: opts.outDir,
     });
 
-    const discovery = runDiscoveryPhase(opts, ctx);
-    const analysis = runAnalysisPhase(discovery, opts, ctx);
-    const optimized = runOptimizationPhase(analysis, opts, ctx);
-
-    writeArtifacts(optimized.routes, opts, ctx);
-
-    const code = runCodegenPhase(optimized, analysis, opts, ctx);
-    const outPath = runLinkingPhase(code, opts, ctx);
+    const state = pipe({ opts, ctx, t0, routes: [] } as PipelineState)(
+      discoveryStage,
+      analysisStage,
+      optimizationStage,
+      artifactsStage,
+      codegenStage,
+      linkStageSync,
+    ) as PipelineState;
 
     const elapsed = performance.now() - t0;
 
-    return finish(code, outPath, ctx, elapsed, false, optimized.meta);
+    return finish(state.code as string, state.outPath as string, ctx, elapsed, false, state.meta);
   }
 
   /** Canonical async compile with validator/serializer precompilation. */
@@ -248,38 +332,28 @@ export class FluxCompiler {
         // Regenerate them from a fresh discovery/analysis (skipping the
         // expensive codegen + link steps) whenever artifact generation is on.
         if (opts.generateTypes || opts.generateOpenAPI || opts.generateClient) {
-          const discovery = runDiscoveryPhase(opts, ctx);
-          const analysis = runAnalysisPhase(discovery, opts, ctx);
-          const optimized = runOptimizationPhase(analysis, opts, ctx);
-          writeArtifacts(optimized.routes, opts, ctx);
+          await pipeAsync({ opts, ctx, t0, routes: [] } as PipelineState)(
+            discoveryStage,
+            analysisStage,
+            optimizationStage,
+            artifactsStage,
+          );
         }
         const elapsed = performance.now() - t0;
         return finish(cached.code, cached.outFile, ctx, elapsed, true, cached.meta);
       }
     }
 
-    const discovery = runDiscoveryPhase(opts, ctx);
-    const analysis = runAnalysisPhase(discovery, opts, ctx);
-    const optimized = runOptimizationPhase(analysis, opts, ctx);
-
-    let routes = optimized.routes;
-
-    routes = await precompileValidators(routes, analysis.modules, opts, ctx);
-    routes = await precompileSerializers(routes, analysis.modules, opts, ctx);
-
-    const enriched = {
-      routes,
-      meta: optimized.meta,
-    };
-
-    writeArtifacts(enriched.routes, opts, ctx);
-
-    const code = runCodegenPhase(enriched, analysis, opts, ctx);
-    const outPath = await runLinkingPhaseAsync(code, opts, ctx);
-
-    if (opts.incremental) {
-      await storeCache(opts, ctx, outPath, optimized.meta);
-    }
+    const state = (await pipeAsync({ opts, ctx, t0, routes: [] } as PipelineState)(
+      discoveryStage,
+      analysisStage,
+      optimizationStage,
+      precompileStage,
+      artifactsStage,
+      codegenStage,
+      linkStage,
+      cacheStage,
+    )) as PipelineState;
 
     const elapsed = performance.now() - t0;
 
@@ -291,7 +365,7 @@ export class FluxCompiler {
       );
     }
 
-    return finish(code, outPath, ctx, elapsed, false, optimized.meta);
+    return finish(state.code as string, state.outPath as string, ctx, elapsed, false, state.meta);
   }
 }
 

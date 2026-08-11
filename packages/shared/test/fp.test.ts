@@ -7,6 +7,7 @@ import {
   compose,
   err,
   flatMapResult,
+  fold,
   identity,
   isErr,
   isOk,
@@ -14,6 +15,7 @@ import {
   mapResult,
   ok,
   pipe,
+  pipeAsync,
   taskChain,
   taskFromResult,
   taskMap,
@@ -104,5 +106,31 @@ describe("Composition", () => {
   it("always / identity", () => {
     expect(always(9)()).toBe(9);
     expect(identity("x")).toBe("x");
+  });
+
+  it("pipeAsync awaits each stage (sync + async mixed)", async () => {
+    const double = (n: number) => n * 2;
+    const asyncAdd = (n: number) => async (x: number) => x + n;
+    const asyncMul = (n: number) => (x: number) => Promise.resolve(x * n);
+    // 1 → double → 2 → asyncAdd(1) → 3 → asyncMul(10) → 30
+    expect(await pipeAsync(1)(double, asyncAdd(1), asyncMul(10))).toBe(30);
+  });
+
+  it("pipeAsync threads promises stage-to-stage", async () => {
+    expect(
+      await pipeAsync(2)(
+        async (x) => x * 3,
+        (x) => x + 1,
+      ),
+    ).toBe(7);
+  });
+
+  it("fold accumulates left-to-right", () => {
+    expect(fold(0, (acc, n: number) => acc + n)([1, 2, 3, 4])).toBe(10);
+    expect(fold("", (acc, s: string) => acc + s)(["a", "b", "c"])).toBe("abc");
+  });
+
+  it("fold carries index", () => {
+    expect(fold("", (acc, s: string, i) => acc + i + s)(["x", "y"])).toBe("0x1y");
   });
 });

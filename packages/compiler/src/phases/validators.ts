@@ -10,7 +10,7 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
-import { cloneSchema, isStandardSchema, loadRouteModule } from "./schema-loader";
+import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
 const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as const;
 
@@ -111,69 +111,50 @@ try {
     }
   };
 
-  const nextRoutes: RouteDef[] = [];
+  return forEachRouteWithSchema(
+    routes,
+    modules,
+    ctx,
+    (route) => route.hasValidation,
+    async (route, mod, schemaDoc) => {
+      const validators: Record<string, string> = {};
 
-  for (const route of routes) {
-    if (!route.hasValidation) {
-      nextRoutes.push(route);
-      continue;
-    }
+      for (const kind of VALIDATOR_KINDS) {
+        const schemaPart = schemaDoc[kind];
 
-    const mod = modules[route.moduleIdx];
+        if (!schemaPart) {
+          continue;
+        }
 
-    if (!mod?.schemaExport) {
-      nextRoutes.push(route);
-      continue;
-    }
-
-    const routeModule = await loadRouteModule(mod.path, ctx.diagnostics, route.handlerExportName);
-    const schema = routeModule?.schema;
-
-    if (!schema || typeof schema !== "object") {
-      nextRoutes.push(route);
-      continue;
-    }
-
-    const schemaDoc = schema as Record<string, unknown>;
-    const validators: Record<string, string> = {};
-
-    for (const kind of VALIDATOR_KINDS) {
-      const schemaPart = schema[kind];
-
-      if (!schemaPart) {
-        continue;
-      }
-
-      const code = compileSchemaPart(schemaPart, (reason) => {
-        ctx.diagnostics.warn({
-          code: DiagnosticCodes.ValidatorCompileFailed,
-          message: `Validator precompilation failed for ${route.method} ${route.path} (${kind}); falling back to runtime validation. ${reason}`,
-          file: mod.path,
+        const code = compileSchemaPart(schemaPart, (reason) => {
+          ctx.diagnostics.warn({
+            code: DiagnosticCodes.ValidatorCompileFailed,
+            message: `Validator precompilation failed for ${route.method} ${route.path} (${kind}); falling back to runtime validation. ${reason}`,
+            file: mod.path,
+          });
         });
-      });
 
-      if (!code) {
-        continue;
+        if (!code) {
+          continue;
+        }
+
+        const file = validatorFileName(route, kind);
+        writeFileSync(join(validatorsDir, file), code);
+
+        validators[kind] = validatorImportName(route, kind);
       }
 
-      const file = validatorFileName(route, kind);
-      writeFileSync(join(validatorsDir, file), code);
+      if (Object.keys(validators).length > 0) {
+        ctx.logger.info(`Precompiled validators for ${route.method} ${route.path}`);
+      }
 
-      validators[kind] = validatorImportName(route, kind);
-    }
-
-    // Keep the resolved schema on the route so OpenAPI generation can emit
-    // real request/response schemas even when no validator compiled.
-    nextRoutes.push({
-      ...route,
-      ...(Object.keys(validators).length > 0 ? { validators: validators as any } : {}),
-      schemaDoc,
-    });
-
-    if (Object.keys(validators).length > 0) {
-      ctx.logger.info(`Precompiled validators for ${route.method} ${route.path}`);
-    }
-  }
-
-  return nextRoutes;
+      // Keep the resolved schema on the route so OpenAPI generation can emit
+      // real request/response schemas even when no validator compiled.
+      return {
+        ...route,
+        ...(Object.keys(validators).length > 0 ? { validators: validators as any } : {}),
+        schemaDoc,
+      };
+    },
+  );
 };

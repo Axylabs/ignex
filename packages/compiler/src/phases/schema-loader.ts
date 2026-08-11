@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
+import type { CompilerContext, ModuleInfo, RouteDef } from "../types";
 import { hashString } from "../utils/hash";
 
 const moduleCache = new Map<string, unknown>();
@@ -78,4 +79,53 @@ export const cloneSchema = (value: unknown): any => {
   } catch {
     return JSON.parse(JSON.stringify(value));
   }
+};
+
+/**
+ * Shared precompilation loop — load each route's module + schema and let the
+ * caller emit validators/serializers for it.
+ *
+ * Handles the common pass-through cases (route not selected, no schema
+ * export, module/schema missing) and always preserves the original route
+ * order. `process` returns an enriched `RouteDef` to replace the original, or
+ * `null` to keep it unchanged. Shared by `validators.ts` and `serializers.ts`.
+ */
+export const forEachRouteWithSchema = async (
+  routes: readonly RouteDef[],
+  modules: readonly ModuleInfo[],
+  ctx: CompilerContext,
+  shouldProcess: (route: RouteDef) => boolean,
+  process: (
+    route: RouteDef,
+    mod: ModuleInfo,
+    schema: Record<string, unknown>,
+  ) => Promise<RouteDef | null>,
+): Promise<readonly RouteDef[]> => {
+  const nextRoutes: RouteDef[] = [];
+
+  for (const route of routes) {
+    if (!shouldProcess(route)) {
+      nextRoutes.push(route);
+      continue;
+    }
+
+    const mod = modules[route.moduleIdx];
+
+    if (!mod?.schemaExport) {
+      nextRoutes.push(route);
+      continue;
+    }
+
+    const routeModule = await loadRouteModule(mod.path, ctx.diagnostics, route.handlerExportName);
+    const schema = routeModule?.schema;
+
+    if (!schema || typeof schema !== "object") {
+      nextRoutes.push(route);
+      continue;
+    }
+
+    nextRoutes.push((await process(route, mod, schema as Record<string, unknown>)) ?? route);
+  }
+
+  return nextRoutes;
 };

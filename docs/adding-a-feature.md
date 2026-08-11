@@ -52,10 +52,11 @@ Hooks run in one of the named stages in `LifeCycleStore`
 `mapResponse` / `afterResponse` / `trace` / `error` / `stop`).
 
 1. If it's an existing stage: write a `HookFn` and register it, or create a
-   macro/factory like `requireAuth` in `core/src/auth.ts`.
+   macro/factory like `requireAuth` in `core/src/security/auth.ts`.
 2. If you need a **new stage**: add it to `LifeCycleStore` in
-   `core/src/types.ts`, extend `PRE_HANDLER_STAGES` / `POST_HANDLER_STAGES` in
-   `core/src/lifecycle.ts`, update `EMPTY_LIFECYCLE`, and **bump
+   `core/src/types/` (lifecycle types), extend `PRE_HANDLER_STAGES` /
+   `POST_HANDLER_STAGES` in `core/src/lifecycle/lifecycle.ts`, update
+   `EMPTY_LIFECYCLE`, and **bump
    `COMPILER_CACHE_VERSION`** (codegen embeds the lifecycle stages).
 3. Halting semantics: a hook that returns a `Response` halts the chain
    (`{ ok: false, response }`); pass-through hooks must return `undefined` or
@@ -63,7 +64,8 @@ Hooks run in one of the named stages in `LifeCycleStore`
 
 ## C: Add a route type / helper
 
-`@flux/core/http.ts` defines the schema-first helpers (`get`, `post`, …).
+`packages/core/src/http/route.ts` defines the schema-first helpers
+(`get`, `post`, …), exposed as the `@flux/core/http` subpath.
 
 1. Add the method helper mirroring `get`/`post` with the right schema bounds
    (`NoBodyRouteSchemas` for GET/DELETE, `BodyRouteSchemas` for body methods).
@@ -89,12 +91,12 @@ This is the one that crosses the compiler boundary — follow it precisely.
 
 1. **shared**: add the flag to `ContextUsage` in `packages/shared/src/context-usage.ts`
    (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).
-2. **core**: add the member to `FluxContext` in `core/src/context.ts` and
+2. **core**: add the member to `FluxContext` in `core/src/http/context.ts` and
    implement it in `createContext`.
 3. **compiler**: add the member name to `USAGE_FLAGS` in
-   `utils/ast/usage.ts`; gate the context emission in `codegen.ts` on the flag.
-   If the member forces the "full context" (like `cookie`/`loader`), add it to
-   the `needsFull` condition.
+   `utils/ast/usage.ts`; gate the context emission in `phases/codegen/` (the
+   `routes.ts` emitter) on the flag. If the member forces the "full context"
+   (like `cookie`/`loader`), add it to the `needsFull` condition.
 4. **tests**: `packages/compiler/test/ast.test.ts` (usage detection) +
    `packages/core/test/` (runtime behavior).
 5. **bump `COMPILER_CACHE_VERSION`** in `packages/compiler/src/cache.ts`.
@@ -102,7 +104,8 @@ This is the one that crosses the compiler boundary — follow it precisely.
 ## F: Add a compiler pass / artifact
 
 1. Add the phase module under `packages/compiler/src/phases/` and wire it into
-   the pipeline entry (`src/index.ts` `buildAsync`) at the correct point.
+   the composed pipeline in `src/index.ts` (add a stage to `compileAsync`'s
+   `pipeAsync` chain) at the correct point.
 2. Keep phases **pure and testable**: accept inputs, return outputs, report via
    the `DiagnosticCollector` (FLX_* codes in `src/diagnostics.ts`).
 3. If the phase changes emitted code, bump `COMPILER_CACHE_VERSION`.

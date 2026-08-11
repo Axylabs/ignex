@@ -4,8 +4,9 @@
  * HSTS only on HTTPS requests.
  */
 
-import type { FluxContext } from "../context";
-import type { FluxPlugin } from "../plugin";
+import type { FluxContext } from "../http/context";
+import { reWrapResponse } from "../http/headers";
+import type { FluxPlugin } from "../lifecycle/plugin";
 
 export interface SecurityOptions {
   contentSecurityPolicy?: string | false;
@@ -107,11 +108,7 @@ export const security = (options: SecurityOptions = {}): FluxPlugin => {
         headers.set("X-XSS-Protection", "0");
       }
 
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      return reWrapResponse(response, { headers });
     },
   };
 };

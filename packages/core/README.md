@@ -9,41 +9,22 @@ runtime behavior; the compiler never duplicates it.
 
 ## Module map (`src/`)
 
-| Module        | Responsibility                                            |
-| ------------- | --------------------------------------------------------- |
-| `context.ts`  | `FluxContext` + `createContext` + cookies (`ctx.set`)     |
-| `lifecycle.ts`| `createApp` + `runLifecycle` + stage builders             |
-| `hooks.ts`    | Hook engine: `composeHooks`, `runHooks`, halt semantics   |
-| `http.ts`     | Schema-first route helpers (`get`/`post`/…) — subpath `@flux/core/http` |
-| `errors.ts`   | `HTTPError` family + `errorToResponse`                    |
-| `auth.ts`     | `requireAuth`/`optionalAuth`/JWT/basic/bearer/token hooks |
-| `session.ts`  | signed-cookie + store-backed sessions                     |
-| `csrf.ts`     | double-submit CSRF guard                                  |
-| `crypto.ts`   | JWT / cookie signer / CSRF / password hash / AEAD         |
-| `validation.ts` | email/uuid/ip validators (native-backed)                |
-| `schema.ts`   | Ajv + Standard Schema v1 validation, compiled cache       |
-| `body.ts`     | lazy body parsing (`ctx.body`)                            |
-| `cache.ts`    | HTTP cache headers + `HttpResponseCache` + `ctx.cache`    |
-| `dataloader.ts`| per-request `ctx.loader` batching/caching                 |
-| `query.ts`    | query string parsing (native-backed)                      |
-| `files.ts`    | `sendFile` + `safeJoin` (traversal guard)                 |
-| `proxy.ts`    | `proxyRequest` / `forwardRequest`                         |
-| `sse.ts`      | SSE helpers                                               |
-| `ws.ts`       | `FluxWS` + `createWSHandler`                              |
-| `jobs.ts`     | in-process job queue + retry/timeout                      |
-| `i18n.ts`     | locale negotiation + interpolation                        |
-| `env.ts`      | typed env accessors (`envInt`, `envJson`, `envSecret`…)   |
-| `config.ts`   | `defineConfig` (subpath `@flux/core/config`)              |
-| `template.ts` | Jinja-subset templating + layouts                          |
-| `openapi.ts`  | OpenAPI 3.1 spec generator                                |
-| `plugin.ts` + `plugins/` | plugin system + auth/session/csrf/cors/compression/security/logger/ratelimit |
-| `macro.ts`    | macro registry (auth/cache/csrf/jwt/session)              |
-| `derive.ts`   | context enrichment pipelines                              |
-| `trace.ts`    | trace context + spans                                     |
-| `cluster.ts`  | multi-core `Bun.serve`                                    |
-| `client.ts`   | typed fetch client (base for generated clients)           |
-| `lru.ts`      | LRU cache wrapper                                         |
-| `types.ts`    | central types (`HttpMethod`, `TSchema`, `LifeCycleStore`, `FluxContext`-adjacent) |
+Grouped **by use case** into domain folders (each with a pure re-export
+`index.ts` barrel). The public surface is `src/index.ts` — a grouped barrel.
+
+| Folder         | Modules                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `security/`    | `auth` (requireAuth/optionalAuth/JWT/basic/bearer/token), `session` (signed-cookie + store), `csrf` (double-submit), `crypto` (JWT / cookie signer / CSRF / password hash / AEAD) |
+| `http/`        | `context` (`FluxContext` + `createContext`), `cookies`, `headers` (`set`/`applySet`), `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first helpers `get`/`post`/… — subpath `@flux/core/http`), `conditional` |
+| `data/`        | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
+| `lifecycle/`   | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics), `plugin` (+ `hookToPlugin`), `guard`, `macro`, `derive` |
+| `platform/`    | `env` (typed accessors), `config` (`defineConfig` — subpath `@flux/core/config`), `trace`, `cluster`, `jobs`, `errors` (`HTTPError` family) |
+| `content/`     | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |
+| `plugins/`     | auth / session / csrf / cors / compression / security / logger / ratelimit factories |
+| `types/`       | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
+
+Top-level: `client.ts` (typed fetch client), `openapi.ts` (OpenAPI 3.1 spec
+generator), `index.ts` (public barrel).
 
 ## The `ctx.set` contract
 

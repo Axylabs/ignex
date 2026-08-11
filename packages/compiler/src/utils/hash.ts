@@ -22,11 +22,6 @@ export const fnv1a = (str: string): number => {
   return hash >>> 0;
 };
 
-export const computeSignatureHash = (methodIdx: number, path: string): number => {
-  const pathHash = fnv1a(path);
-  return ((methodIdx & 0x07) << 29) | (pathHash >>> 3);
-};
-
 /**
  * FNV-1a 64-bit string hash, native-accelerated (~11x faster than the JS
  * loop) and deterministic whether or not the Rust addon is present. Used for
