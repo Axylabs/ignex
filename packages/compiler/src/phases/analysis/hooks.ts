@@ -19,7 +19,7 @@ export const collectHookNames = (routes: readonly RouteDef[]): Set<string> => {
 
 /**
  * Resolve and validate a single hook module: it must exist under `hooksDir`
- * and parse successfully. Emits `FLX_HOOK_MISSING` when it does not. The
+ * and parse successfully. Emits `IGN_HOOK_MISSING` when it does not. The
  * module is read + parsed through the build's {@link SourceManager} (once).
  */
 export const resolveHook = (
@@ -41,6 +41,18 @@ export const resolveHook = (
   }
 
   const content = safeReadFile(abs);
+
+  if (content === undefined) {
+    // The hook exists but could not be read (permissions, transient IO) —
+    // surface it instead of treating it as a valid empty hook module.
+    ctx?.diagnostics.warn({
+      code: DiagnosticCodes.IoReadFailed,
+      message: `Hook '${name}' exists but could not be read: ${rel}`,
+      file: abs,
+    });
+    return undefined;
+  }
+
   const parsed = sources.fromSource(abs, rel, content, ctx?.diagnostics);
   const isAsync = parsed.handler?.isAsync ?? parsed.symbols.some((s) => s.isAsync) ?? true;
 

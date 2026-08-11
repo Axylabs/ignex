@@ -24,7 +24,7 @@ import {
   tryCatchOr,
   unwrapOr,
   unwrapOrElse,
-} from "@flux/shared";
+} from "@ignus/shared";
 import { describe, expect, it } from "vitest";
 
 describe("Result", () => {

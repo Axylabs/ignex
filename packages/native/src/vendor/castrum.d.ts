@@ -1,7 +1,7 @@
 /**
  * Ambient type surface for the `castrum` NAPI addon.
  *
- * This is the SUB-SET of castrum's generated `index.d.ts` that flux uses.
+ * This is the SUB-SET of castrum's generated `index.d.ts` that ignus uses.
  * It is mapped through the root tsconfig `paths` (`"castrum": [...]`), so
  * TypeScript resolves the module even when the addon isn't installed; at
  * runtime the loader resolves the real package (native) or falls back to

@@ -7,17 +7,17 @@
  * halt, or `{ ctx }` to continue with a new context). `serve` wraps
  * `Bun.serve`; `stop` drains and runs `onStop`/`stop` hooks.
  */
-import { initNative } from "@flux/native";
-import { pipeAsync } from "@flux/shared";
+import { initNative } from "@ignus/native";
+import { pipeAsync } from "@ignus/shared";
 import type { HttpResponseCache } from "../data/cache";
-import { type ContextOptions, createContext, type FluxContext } from "../http/context";
+import { type ContextOptions, createContext, type IgnusContext } from "../http/context";
 import { applySet } from "../http/headers";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
 import {
   createPluginContext,
-  type FluxPlugin,
+  type IgnusPlugin,
   pluginContextToLifecycle,
   pluginsToLifeCycle,
 } from "./plugin";
@@ -25,9 +25,9 @@ import {
 export interface AppOptions {
   /** Lifecycle hooks (merged after plugin hooks). */
   lifecycle?: Partial<LifeCycleStore>;
-  plugins?: FluxPlugin[];
+  plugins?: IgnusPlugin[];
   /** The base handler receiving the resolved context. */
-  handler(ctx: FluxContext): MaybePromise<Response>;
+  handler(ctx: IgnusContext): MaybePromise<Response>;
   onStart?(): MaybePromise<void>;
   onStop?(): MaybePromise<void>;
   /** Expose error details in 500 responses. */
@@ -41,7 +41,7 @@ export interface AppOptions {
   trustProxy?: boolean;
 }
 
-export interface FluxApp {
+export interface IgnusApp {
   /** Run the full lifecycle pipeline for a request. */
   handler(req: Request): Promise<Response>;
   /**
@@ -59,9 +59,9 @@ export interface FluxApp {
 /** Mirror of the compiler-generated `__runHooks` hook-execution semantics. */
 export const runHooks = async (
   hooks: readonly HookContainer[] | undefined,
-  ctx: FluxContext,
+  ctx: IgnusContext,
   arg?: unknown,
-): Promise<{ ctx: FluxContext; response?: Response }> => {
+): Promise<{ ctx: IgnusContext; response?: Response }> => {
   let current = ctx;
   if (!hooks || hooks.length === 0) return { ctx: current };
   for (const entry of hooks) {
@@ -70,7 +70,7 @@ export const runHooks = async (
     const result = arg === undefined ? await fn(current) : await fn(current, arg);
     if (result instanceof Response) return { response: result, ctx: current };
     if (result && typeof result === "object") {
-      const r = result as { ok?: boolean; response?: Response; ctx?: FluxContext };
+      const r = result as { ok?: boolean; response?: Response; ctx?: IgnusContext };
       if (r.ok === false && r.response instanceof Response)
         return { response: r.response, ctx: current };
       if (r.response instanceof Response) return { response: r.response, ctx: current };
@@ -80,7 +80,7 @@ export const runHooks = async (
   return { ctx: current };
 };
 
-export const createApp = (options: AppOptions): FluxApp => {
+export const createApp = (options: AppOptions): IgnusApp => {
   const pluginContext = createPluginContext();
   for (const p of options.plugins ?? []) pluginContext.register(p);
 
@@ -156,11 +156,11 @@ export const createApp = (options: AppOptions): FluxApp => {
       // Run plugin init hooks before accepting requests (best-effort). A
       // rejected init must not become an unhandled rejection / crash the app.
       void init().catch((err) => {
-        console.error("[flux] plugin init failed:", err);
+        console.error("[ignus] plugin init failed:", err);
       });
       server = serve({ fetch: handler, port, hostname, ...rest });
       void Promise.resolve(options.onStart?.()).catch((err) => {
-        console.error("[flux] onStart failed:", err);
+        console.error("[ignus] onStart failed:", err);
       });
       return server;
     },
@@ -176,7 +176,7 @@ export const createApp = (options: AppOptions): FluxApp => {
         }),
       );
       for (const r of results) {
-        if (r.status === "rejected") console.error("[flux] stop hook failed:", r.reason);
+        if (r.status === "rejected") console.error("[ignus] stop hook failed:", r.reason);
       }
       server?.stop(stopOptions.closeActive ?? false);
       server = null;
@@ -211,7 +211,7 @@ export const buildPostStages = (lc: LifeCycleStore): HookContainer[] =>
 
 /** Pipeline state threaded through the composed `runLifecycle` stages. */
 interface LifecycleState {
-  ctx: FluxContext;
+  ctx: IgnusContext;
   /** Set once a stage halts or the handler produces a response. */
   response?: Response | undefined;
   /** True when the pipeline halted before the handler — skips post/afterResponse/applySet. */
@@ -228,7 +228,7 @@ interface LifecycleState {
  * `Response` (or `{ ok: false, response }`).
  *
  * The stages are pure functions over a `LifecycleState` carrier, composed
- * left-to-right with `pipeAsync` from `@flux/shared`; each stage short-
+ * left-to-right with `pipeAsync` from `@ignus/shared`; each stage short-
  * circuits when a previous stage already halted. The pipeline is composed
  * once per request (matching the previous imperative form) and is protected
  * by `lifecycle.test.ts`.
@@ -237,8 +237,8 @@ export const runLifecycle = async (
   lc: LifeCycleStore,
   pre: readonly HookContainer[],
   post: readonly HookContainer[],
-  ctx: FluxContext,
-  handler: (ctx: FluxContext) => MaybePromise<Response>,
+  ctx: IgnusContext,
+  handler: (ctx: IgnusContext) => MaybePromise<Response>,
   exposeErrors = false,
 ): Promise<Response> => {
   // `current` mirrors the ctx seen by the error stage: it is advanced after
@@ -272,7 +272,7 @@ export const runLifecycle = async (
     try {
       await runHooks(lc.afterResponse ?? [], s.ctx, s.response);
     } catch (err) {
-      console.error("[flux] afterResponse hook error:", err);
+      console.error("[ignus] afterResponse hook error:", err);
     }
     return s;
   };
@@ -285,7 +285,7 @@ export const runLifecycle = async (
     try {
       await runHooks(lc.trace ?? [], s.ctx, s.response);
     } catch (err) {
-      console.error("[flux] trace hook error:", err);
+      console.error("[ignus] trace hook error:", err);
     }
     return s;
   };

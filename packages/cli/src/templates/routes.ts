@@ -4,14 +4,14 @@ export function indexRouteTemplate(name: string): string {
   // Either export style is discovered by the compiler:
   //   export default get(() => ...)
   //   export const httpGet = get(() => ...)
-  return `import { get } from "@flux/core/http";
+  return `import { get } from "@ignus/core/http";
 
 export const httpGet = get(() => Response.json({ name: "${safe}" }));
 `;
 }
 
 export function healthRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
+  return `import { get } from "@ignus/core/http";
 
 export const httpGet = get(() => new Response("ok"));
 `;
@@ -20,8 +20,8 @@ export const httpGet = get(() => new Response("ok"));
 export function openApiRouteTemplate(name: string): string {
   const safe = name.replace(/"/g, '\\"');
 
-  return `import { get } from "@flux/core/http";
-import { generateOpenAPI } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { generateOpenAPI } from "@ignus/core";
 
 export default get(() =>
   Response.json(
@@ -38,7 +38,7 @@ export default get(() =>
 }
 
 export function productByIdRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
+  return `import { get } from "@ignus/core/http";
 
 export default get((ctx) => {
   const id = ctx.params.id;
@@ -49,7 +49,7 @@ export default get((ctx) => {
 }
 
 export function productAddRouteTemplate(): string {
-  return `import { post } from "@flux/core/http";
+  return `import { post } from "@ignus/core/http";
 
 export default post(async (ctx) => {
   const body = await ctx.body.json();
@@ -60,7 +60,7 @@ export default post(async (ctx) => {
 }
 
 export function uploadRouteTemplate(): string {
-  return `import { post } from "@flux/core/http";
+  return `import { post } from "@ignus/core/http";
 
 export default post(async (ctx) => {
   const form = await ctx.body.formData();
@@ -77,8 +77,8 @@ export default post(async (ctx) => {
 }
 
 export function sseRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { sse } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { sse } from "@ignus/core";
 
 export default get(() =>
   sse(async function* () {
@@ -89,8 +89,8 @@ export default get(() =>
 }
 
 export function cacheRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { withBrowserCache } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { withBrowserCache } from "@ignus/core";
 
 export default get(() =>
   withBrowserCache(Response.json({ cached: true }), { maxAge: 10 })
@@ -99,19 +99,19 @@ export default get(() =>
 }
 
 export function proxyRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { proxyRequest } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { proxyRequest } from "@ignus/core";
 
 export default get(() => proxyRequest("https://example.com"));
 `;
 }
 
 export function wsExampleTemplate(): string {
-  return `import { createWSHandler } from "@flux/core";
+  return `import { createWSHandler } from "@ignus/core";
 
 export const wsHandler = createWSHandler({
   open(ws) {
-    ws.send("Welcome to Flux");
+    ws.send("Welcome to Ignus");
   },
   message(ws, message) {
     ws.send(String(message));
@@ -145,7 +145,7 @@ test("placeholder", () => {
 // ============================================================================
 
 export function requireAuthHookTemplate(): string {
-  return `import { continueHook, haltHook, jwtVerify } from "@flux/core";
+  return `import { continueHook, haltHook, jwtVerify } from "@ignus/core";
 
 // Shared auth hook: verifies an HS256 Bearer token and attaches the claims to
 // \`ctx.state.user\`. Used via \`export const config = { hooks: ["require-auth"] }\`.
@@ -168,13 +168,13 @@ export default (async (ctx) => {
 }
 
 export function loginRouteTemplate(): string {
-  return `import { post } from "@flux/core/http";
-import { createJwt } from "@flux/core";
+  return `import { post } from "@ignus/core/http";
+import { createJwt } from "@ignus/core";
 
 const jwt = createJwt({
   secret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   ttlSeconds: 3600,
-  issuer: "flux-app"
+  issuer: "ignus-app"
 });
 
 const USERS: Record<string, string> = { admin: "secret" };
@@ -192,7 +192,7 @@ export default post(async (ctx) => {
 }
 
 export function meRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
+  return `import { get } from "@ignus/core/http";
 
 export const config = { hooks: ["require-auth"] };
 
@@ -201,8 +201,8 @@ export default get((ctx) => ctx.json({ user: ctx.getState("user") ?? null }));
 }
 
 export function sessionRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { getSession } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { getSession } from "@ignus/core";
 
 export default get(async (ctx) => {
   const session = getSession(ctx);
@@ -218,8 +218,8 @@ export default get(async (ctx) => {
 }
 
 export function pageRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { createTemplateDir, withLayout } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { createTemplateDir, withLayout } from "@ignus/core";
 import { join } from "node:path";
 
 export default get(async (ctx) => {
@@ -231,7 +231,7 @@ export default get(async (ctx) => {
 
   return ctx.html(
     page({
-      title: "Flux app",
+      title: "Ignus app",
       name: ctx.query.get("name") ?? "world",
       features: ["routing", "templates", "i18n", "native"]
     })
@@ -241,8 +241,8 @@ export default get(async (ctx) => {
 }
 
 export function i18nRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { createI18n } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { createI18n } from "@ignus/core";
 
 const i18n = createI18n(
   {
@@ -264,8 +264,8 @@ export default get((ctx) => {
 }
 
 export function envRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { defineConfig, env, loadEnv } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { defineConfig, env, loadEnv } from "@ignus/core";
 
 loadEnv();
 
@@ -282,8 +282,8 @@ export default get((ctx) =>
 }
 
 export function jobsRouteTemplate(): string {
-  return `import { get } from "@flux/core/http";
-import { createJobQueue, withRetry, withTimeout } from "@flux/core";
+  return `import { get } from "@ignus/core/http";
+import { createJobQueue, withRetry, withTimeout } from "@ignus/core";
 
 const queue = createJobQueue({ concurrency: 2 });
 
@@ -326,7 +326,7 @@ export function homeTemplate(): string {
 }
 
 export function appConfigTemplate(): string {
-  return `import { compression, cors, security, session } from "@flux/core";
+  return `import { compression, cors, security, session } from "@ignus/core";
 
 export const plugins = [
   cors(),

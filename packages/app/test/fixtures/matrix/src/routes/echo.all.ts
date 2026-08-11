@@ -1,4 +1,4 @@
-import { all } from "@flux/core/http";
+import { all } from "@ignus/core/http";
 
 /** ALL /echo — responds to every HTTP method with request facts. */
 export default all(async (ctx) =>

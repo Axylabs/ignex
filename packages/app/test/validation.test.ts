@@ -45,10 +45,10 @@ describe("validation matrix (compiled server)", () => {
   });
 
   it("validates and coerces a valid body", async () => {
-    const res = await client.post("/validate-body", JSON.stringify({ name: "flux", age: "7" }), {
+    const res = await client.post("/validate-body", JSON.stringify({ name: "ignus", age: "7" }), {
       headers: json,
     });
-    expect(await jsonBody(res)).toEqual({ body: { name: "flux", age: 7 } });
+    expect(await jsonBody(res)).toEqual({ body: { name: "ignus", age: 7 } });
   });
 
   it("rejects a missing required body field with 422", async () => {
@@ -72,7 +72,7 @@ describe("validation matrix (compiled server)", () => {
 
   it("serializes the 200 response schema", async () => {
     const res = await client.get("/serialize");
-    expect(await jsonBody(res)).toEqual({ name: "flux", level: 1 });
+    expect(await jsonBody(res)).toEqual({ name: "ignus", level: 1 });
   });
 
   it("serializes the 201 response schema by status", async () => {

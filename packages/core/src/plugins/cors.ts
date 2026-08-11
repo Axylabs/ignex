@@ -2,12 +2,12 @@
  * @fileoverview CORS plugin — Bun 1.4 hardened edition.
  */
 
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import { appendVary, reWrapResponse } from "../http/headers";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 
 export interface CorsOptions {
-  origin?: string | string[] | ((origin: string, ctx: FluxContext) => boolean);
+  origin?: string | string[] | ((origin: string, ctx: IgnusContext) => boolean);
   methods?: string[];
   allowedHeaders?: string[];
   exposedHeaders?: string[];
@@ -18,7 +18,7 @@ export interface CorsOptions {
 
 const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
 
-export const cors = (options: CorsOptions = {}): FluxPlugin => {
+export const cors = (options: CorsOptions = {}): IgnusPlugin => {
   const {
     origin = "*",
     methods = DEFAULT_METHODS,
@@ -35,14 +35,14 @@ export const cors = (options: CorsOptions = {}): FluxPlugin => {
     );
   }
 
-  const isOriginAllowed = (requestOrigin: string, ctx: FluxContext): boolean => {
+  const isOriginAllowed = (requestOrigin: string, ctx: IgnusContext): boolean => {
     if (origin === "*") return true;
     if (typeof origin === "string") return origin === requestOrigin;
     if (Array.isArray(origin)) return origin.includes(requestOrigin);
     return origin(requestOrigin, ctx);
   };
 
-  const setCorsHeaders = (ctx: FluxContext, headers: Headers): void => {
+  const setCorsHeaders = (ctx: IgnusContext, headers: Headers): void => {
     appendVary(headers, "Origin");
 
     const requestOrigin = ctx.headers.get("origin") || "";

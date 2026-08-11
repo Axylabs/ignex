@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /files/*path — wildcard (catch-all) param echo. */
 export default get(async (ctx) => {

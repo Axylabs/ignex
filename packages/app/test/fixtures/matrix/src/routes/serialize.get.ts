@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 import { Type } from "@sinclair/typebox";
 
 /** Response serialized per status: 200 → `{name,level}`, 201 → `{created}`. */
@@ -14,7 +14,7 @@ export default get(
       return { status: 201 as const, body: { created: true } };
     }
 
-    return { name: "flux", level: 1 };
+    return { name: "ignus", level: 1 };
   },
   {
     response: {

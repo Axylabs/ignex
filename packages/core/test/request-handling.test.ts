@@ -9,7 +9,7 @@
  * cases a backend framework must handle before AOT compilation is involved.
  */
 import { describe, expect, it } from "vitest";
-import { createApp, type FluxPlugin } from "../src/index.js";
+import { createApp, type IgnusPlugin } from "../src/index.js";
 import { inject } from "./helpers/inject";
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -288,7 +288,7 @@ describe("interpreted request handling (createApp.handler)", () => {
 
   it("runs plugin onRequest forward and onResponse in reverse (onion)", async () => {
     const order: string[] = [];
-    const mk = (name: string): FluxPlugin => ({
+    const mk = (name: string): IgnusPlugin => ({
       name,
       onRequest: (ctx) => {
         order.push(`${name}:req`);

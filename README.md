@@ -1,8 +1,8 @@
-# flux-core
+# ignus
 
 > Work-in-progress TypeScript framework for building high-performance HTTP APIs on **Bun 1.4**, using **native Bun routing** and **ahead-of-time compilation** for maximum performance.
 
-`flux-core` is an AOT-first web framework designed to achieve native-like performance while keeping a TypeScript-friendly developer experience. Routes are written as simple file-system modules, then compiled into an optimized Bun server with generated types, OpenAPI artifacts, precompiled validators, and specialized request handlers.
+`ignus` is an AOT-first web framework designed to achieve native-like performance while keeping a TypeScript-friendly developer experience. Routes are written as simple file-system modules, then compiled into an optimized Bun server with generated types, OpenAPI artifacts, precompiled validators, and specialized request handlers.
 
 ---
 
@@ -28,17 +28,17 @@
 
 ## Overview
 
-`flux-core` is a TypeScript framework and compiler toolchain for building production-oriented HTTP APIs on Bun.
+`ignus` is a TypeScript framework and compiler toolchain for building production-oriented HTTP APIs on Bun.
 
-Instead of relying only on a runtime router, `flux-core` compiles your file-based routes into a highly optimized Bun server. The compiler analyzes route files ahead of time, detects context usage, precompiles validation and serialization where possible, and emits a server that uses Bun 1.4’s native routing capabilities.
+Instead of relying only on a runtime router, `ignus` compiles your file-based routes into a highly optimized Bun server. The compiler analyzes route files ahead of time, detects context usage, precompiles validation and serialization where possible, and emits a server that uses Bun 1.4’s native routing capabilities.
 
 The project is composed of several workspace packages:
 
-- `@flux/compiler` — AOT compiler pipeline
-- `@flux/core` — runtime primitives and HTTP helpers
-- `@flux/cli` — developer CLI for scaffolding, building, and dev mode
-- `@flux/shared` — shared types, FP core, and compile-time/runtime flags
-- `@flux/native` — Rust-accelerated primitives with pure-TS fallbacks
+- `@ignus/compiler` — AOT compiler pipeline
+- `@ignus/core` — runtime primitives and HTTP helpers
+- `@ignus/cli` — developer CLI for scaffolding, building, and dev mode
+- `@ignus/shared` — shared types, FP core, and compile-time/runtime flags
+- `@ignus/native` — Rust-accelerated primitives with pure-TS fallbacks
 - `packages/app` — example application used for testing and benchmarking
 - `scripts/` — benchmarking and OpenAPI client generation utilities
 
@@ -46,7 +46,7 @@ The project is composed of several workspace packages:
 
 ## Project Goals
 
-The main goal of `flux-core` is to build a high-performance TypeScript web framework that feels ergonomic while compiling away as much runtime overhead as possible.
+The main goal of `ignus` is to build a high-performance TypeScript web framework that feels ergonomic while compiling away as much runtime overhead as possible.
 
 ### Primary Goals
 
@@ -102,7 +102,7 @@ The main goal of `flux-core` is to build a high-performance TypeScript web frame
 
 ## Why Bun 1.4 Native Routing?
 
-`flux-core` targets Bun 1.4 because Bun provides a high-performance JavaScript/TypeScript runtime with built-in primitives that are ideal for an AOT framework.
+`ignus` targets Bun 1.4 because Bun provides a high-performance JavaScript/TypeScript runtime with built-in primitives that are ideal for an AOT framework.
 
 The compiler emits a server that uses **Bun’s native routing** instead of implementing a custom regex trie or runtime route matcher.
 
@@ -115,7 +115,7 @@ This gives several advantages:
 - Simpler generated server entry.
 - Static, dynamic, and wildcard routes handled directly by Bun.
 
-In short: route matching is delegated to Bun, while `flux-core` focuses on compile-time optimization, typed context, validation, serialization, and production HTTP primitives.
+In short: route matching is delegated to Bun, while `ignus` focuses on compile-time optimization, typed context, validation, serialization, and production HTTP primitives.
 
 ---
 
@@ -154,14 +154,14 @@ discovers either, and the route path + method still come from the filename:
 
 ```ts
 // src/routes/hello.get.ts → GET /hello
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 export default get(() => "Hello World");
 ```
 
 ```ts
 // Same route, named export
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 export const httpGet = get(() => "Hello World");
 ```
@@ -170,9 +170,9 @@ Both compile to the same optimized `Bun.serve` route table. Scaffold either styl
 with the CLI:
 
 ```sh
-flux create my-api --yes        # generates hello-world routes (named-export style)
-flux route products/featured --named   # export const httpGet = ...
-flux route about                # export default ...
+ignus create my-api --yes        # generates hello-world routes (named-export style)
+ignus route products/featured --named   # export const httpGet = ...
+ignus route about                # export default ...
 ```
 
 **DataLoaders are available by default** on every request context — batching,
@@ -192,7 +192,7 @@ export const httpGet = get(async (ctx) => {
 
 ## How the Compiler Works
 
-`@flux/compiler` runs a Svelte-style phased pipeline over your route files and emits a
+`@ignus/compiler` runs a Svelte-style phased pipeline over your route files and emits a
 single Bun server entry plus typed/OpenAPI artifacts:
 
 1. **Discovery** — scans `routesDir`, parses each module to an AST (oxc-parser with
@@ -217,18 +217,31 @@ options, and diagnostic-code reference.
 
 ## Generated Artifacts
 
-`build`/`dev` write into `outDir` (default `.flux`):
+`build`/`dev` write into `outDir` (default `.ignus`):
 
 | Artifact | Description |
 | --- | --- |
 | `server.js` | The generated Bun server entry. |
 | `routes.d.ts` | Typed route map consumed by the generated client. |
-| `client.d.ts` + `client.ts` | Typed `FluxClient` types + a real `createApiClient` implementation. |
+| `client.d.ts` + `client.ts` | Typed `IgnusClient` types + a real `createApiClient` implementation. |
 | `openapi.json` | OpenAPI 3.1 document derived from route metadata and real schemas. |
 | `manifest.json` | Per-route metadata (path, method, usage, hotness, constants). |
 | `validators/*.cjs` | Precompiled Ajv validators per schema part. |
 | `serializers/*.mjs` | Precompiled response serializers per status code. |
-| `.flux-cache.json` | Incremental build fingerprint. |
+| `.ignus-cache.json` | Incremental build fingerprint. |
+| `.ignus-modules.json` | Persistent per-module parse cache (content-hash keyed). |
+
+### Developer experience & automations
+
+- **`@ignus/mcp`** — a Model Context Protocol server exposing `build`, `route`,
+  `info`, `doctor`, `openapi`, and `dev` as agent tools over stdio. Launch it with
+  `ignus mcp` and point an MCP client (Claude, Copilot, Codex, …) at it to scaffold,
+  compile, and inspect projects without hand-running commands.
+- **`ignus create`** now scaffolds the production optimization profile
+  (`optimizationLevel: 3`, precompiled validators/serializers, all artifact
+  generation, context specialization) so new projects start from the tuned defaults.
+- **`ignus route --schema`** offers to install `@sinclair/typebox` when missing.
+- **`scripts/new-package.ts`** scaffolds a new workspace package in seconds.
 
 ## Compiler Hardening
 
@@ -274,7 +287,7 @@ bun run test            # full vitest suite (all packages)
 
 ## Feature Overview
 
-`flux-core` is a **complete, Rust-accelerated backend framework** on Bun. It combines an AOT compiler with a rich runtime:
+`ignus` is a **complete, Rust-accelerated backend framework** on Bun. It combines an AOT compiler with a rich runtime:
 
 | Area | What's included |
 | --- | --- |
@@ -295,53 +308,57 @@ bun run test            # full vitest suite (all packages)
 | Client | Generated typed client (`client.ts`) backed by a runtime `createClient`. |
 | Artifacts | `routes.d.ts`, `client.d.ts` + `client.ts`, `openapi.json` (real schemas), `manifest.json`. |
 
-### Native acceleration (`@flux/native`)
+### Native acceleration (`@ignus/native`)
 
 The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a 64/CRC-32), crypto (JWT, cookie signing, CSRF, HMAC, AEAD, argon2, random tokens), HTTP parsing (query/cookie/multipart/media-type/ETag), SSE/WebSocket framing, compression, JSON validation/patch, template rendering and input validation.
 
-- Every function falls back to a **byte-compatible pure-TS implementation**, so flux works everywhere; native is a pure acceleration layer.
-- Check `isNativeAvailable()` from `@flux/native` for observability; override the resolved addon with `FLUX_NATIVE_PATH`.
+- Every function falls back to a **byte-compatible pure-TS implementation**, so ignus works everywhere; native is a pure acceleration layer.
+- Check `isNativeAvailable()` from `@ignus/native` for observability; override the resolved addon with `IGNUS_NATIVE_PATH`.
 - Native is used **only where proven faster** (castrum's `proven` registry) — the framework never regresses on non-proven surfaces.
 
 ## What Is Done
 
 - ✅ AOT compiler pipeline (discovery → analysis → optimization → precompile → codegen → linker → artifacts) with content-keyed **parse memoization** (kills the 5× re-parse).
+- ✅ **Persistent per-module parse cache across builds** — `SourceFile` parse results (AST included) are persisted to `.ignus-modules.json` keyed by content hash; cache-hit artifact regeneration and full rebuilds rehydrate unchanged modules instead of re-parsing.
 - ✅ Native-accelerated hashing for cache fingerprints and content keys.
 - ✅ Real optimization metadata (`inlinedHandlers`, `deduplicatedHandlers`, `eliminatedRoutes`) persisted across incremental cache hits.
+- ✅ Incremental cache integrity — companion artifacts (validators/serializers/artifacts) are verified on cache hits, so stale/missing outputs trigger a rebuild.
 - ✅ Documented `optimizationLevel` presets (0–3) with explicit-knob override.
-- ✅ Hook module analysis (`FLX_HOOK_MISSING`), per-module call graphs / data flow, and route hotness scoring.
+- ✅ Hook module analysis (`IGN_HOOK_MISSING`), per-module call graphs / data flow, and route hotness scoring.
+- ✅ **Standard-Schema build-time codegen** — parts exposing `toJSONSchema` (or zod/valibot vendors) are converted to JSON Schema and precompiled into Ajv standalone validators + `fast-json-stringify` serializers (and emitted in OpenAPI); unconvertible parts fall back to runtime with `IGN_STANDARD_SCHEMA_RUNTIME`.
 - ✅ OpenAPI generation wired to real route schemas (request body, params, headers, status-keyed responses).
 - ✅ Generated typed client implementation (`client.ts`).
+- ✅ **Durable background jobs** — `JobStore` (file-backed JSONL, plus `bun:sqlite`-backed when available) and a durable queue with claim/lease, crash-recovery via lease expiry, retries with backoff, recurring interval jobs, and `onComplete`/`onFailed`/`onRetry` hooks.
+- ✅ **i18n JSON catalog loading** — `loadCatalogDir` / `createI18nFromDir` read `locales/*.json` (incl. namespaced `en/errors.json`) alongside TS catalogs; `withI18n` middleware alias.
 - ✅ Runtime security suite (JWT, auth hooks, sessions, CSRF, signed cookies, password hashing, AEAD).
 - ✅ Templates (minijinja native / JS fallback), i18n, env/config, background jobs, graceful shutdown, typed client.
+- ✅ **MCP server + automation** — `@ignus/mcp` exposes `build`/`route`/`info`/`doctor`/`openapi`/`dev` tools over stdio, launched via `ignus mcp`; scaffolded `ignus create` projects now ship the production optimization profile.
 - ✅ Core bug fix: `ctx.set` is now exposed, so cookies/headers set via `ctx.cookie`/`ctx.set` are serialized into responses.
 - ✅ Core bug fix: plugin `onResponse` hooks no longer run on raw (non-`Response`) handler results.
 
 ## What Is In Progress / Missing
 
-- ⏳ **Persistent parse cache across builds** — in-build memoization is done; a disk-persisted metadata cache is future work.
-- ⏳ **Durable background jobs** — the job queue is in-process only; an optional file/SQLite-backed store is planned.
-- ⏳ Standard-Schema build-time codegen (currently validated at runtime).
 - ⏳ OAuth2 / third-party providers on top of the JWT/Basic primitives.
 
 ## Roadmap
 
-1. **Persistent compile cache** — serialize minimal per-module metadata (imports/exports/symbols) keyed by content hash.
-2. **Durable jobs** — optional SQLite/file-backed queue store + worker hooks.
-3. **Schema-first runtime** — standard-schema build-time compilation and native JSON-schema where it wins.
-4. **i18n catalog loading** — JSON directory loader alongside TS catalogs.
-5. **Publish** — `@flux/native` + `castrum` binaries for all major platforms.
+1. **Publish** — `@ignus/native` + `castrum` binaries for all major platforms; publish `@ignus/mcp`.
+2. **OAuth2 providers** — authorization-code flow, provider registry, PKCE, token refresh on top of the JWT/Basic primitives.
+3. **Schema-first runtime** — deepen Standard-Schema vendor coverage (more converters, native JSON-schema where it wins).
+4. **i18n catalog hot-reload** — watch `locales/` in dev mode.
 
 ## Current Limitations
 
 - The native addon (`castrum`) must be installed for native acceleration; the pure-TS fallbacks are always functional.
 - Password hashes are KDF-specific (argon2id native / `$scrypt$` fallback) — a hash created on one path verifies only on a path that supports its format.
 - Templates: the pure-TS fallback supports the common Jinja subset; full Jinja features require the native minijinja renderer.
-- Schema validation/serialization for Standard-Schema parts falls back to runtime (no build-time codegen yet).
+- Standard-Schema build-time conversion covers schemas that expose a JSON-schema converter (`toJSONSchema`/`toJsonSchema`) or the zod/valibot vendors; other vendors are validated/serialized at runtime (`IGN_STANDARD_SCHEMA_RUNTIME`).
+- The SQLite job store requires `bun:sqlite`; the file-backed store works everywhere.
 
 ## Status
 
-Functional and tested end-to-end. The AOT compiler, CLI (`build`/`dev`/scaffold), runtime
-primitives, security suite, templates, i18n, jobs, config, client, and native
-acceleration layer are all implemented. Tests live in `packages/{native,core,compiler,app,cli}/test`.
-and `packages/cli/test`; see the roadmap sections above for planned work.
+Functional and tested end-to-end. The AOT compiler (with persistent parse caching and
+Standard-Schema codegen), CLI (`build`/`dev`/scaffold`/`mcp`), runtime primitives,
+security suite, templates, i18n, durable jobs, config, client, native acceleration
+layer, and the MCP server are all implemented. Tests live in
+`packages/{native,core,compiler,app,cli,mcp}/test`.

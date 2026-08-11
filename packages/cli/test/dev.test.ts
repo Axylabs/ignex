@@ -5,23 +5,23 @@ const ROOT = "/repo/my-app";
 
 describe("shouldIgnore", () => {
   it("ignores node_modules", () => {
-    expect(shouldIgnore("node_modules/x/index.js", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore("/repo/my-app/node_modules/x.js", ".flux", ROOT)).toBe(true);
+    expect(shouldIgnore("node_modules/x/index.js", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("/repo/my-app/node_modules/x.js", ".ignus", ROOT)).toBe(true);
   });
 
   it("ignores .git", () => {
-    expect(shouldIgnore(".git/config", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore("/repo/my-app/.git/HEAD", ".flux", ROOT)).toBe(true);
+    expect(shouldIgnore(".git/config", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("/repo/my-app/.git/HEAD", ".ignus", ROOT)).toBe(true);
   });
 
   it("ignores the compiler output directory (relative outDir)", () => {
-    expect(shouldIgnore(".flux/server.js", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore(".flux/validators/x.cjs", ".flux", ROOT)).toBe(true);
+    expect(shouldIgnore(".ignus/server.js", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore(".ignus/validators/x.cjs", ".ignus", ROOT)).toBe(true);
   });
 
   it("ignores an absolute outDir inside the root", () => {
-    expect(shouldIgnore(".flux/server.js", "/repo/my-app/.flux", ROOT)).toBe(true);
-    expect(shouldIgnore("/repo/my-app/.flux/server.js", "/repo/my-app/.flux", ROOT)).toBe(true);
+    expect(shouldIgnore(".ignus/server.js", "/repo/my-app/.ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("/repo/my-app/.ignus/server.js", "/repo/my-app/.ignus", ROOT)).toBe(true);
   });
 
   it("ignores files inside a ../ outDir resolved against root", () => {
@@ -29,23 +29,23 @@ describe("shouldIgnore", () => {
   });
 
   it("ignores dist, logs, lockfiles and the incremental cache", () => {
-    expect(shouldIgnore("dist/__server.js", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore("server.log", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore("bun.lockb", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore("package-lock.json", ".flux", ROOT)).toBe(true);
-    expect(shouldIgnore(".flux-cache.json", ".flux", ROOT)).toBe(true);
+    expect(shouldIgnore("dist/__server.js", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("server.log", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("bun.lockb", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore("package-lock.json", ".ignus", ROOT)).toBe(true);
+    expect(shouldIgnore(".ignus-cache.json", ".ignus", ROOT)).toBe(true);
   });
 
   it("does not ignore route/source files", () => {
-    expect(shouldIgnore("src/routes/health.get.ts", ".flux", ROOT)).toBe(false);
-    expect(shouldIgnore("src/app.config.ts", ".flux", ROOT)).toBe(false);
+    expect(shouldIgnore("src/routes/health.get.ts", ".ignus", ROOT)).toBe(false);
+    expect(shouldIgnore("src/app.config.ts", ".ignus", ROOT)).toBe(false);
   });
 });
 
 describe("normalizeOutDir", () => {
   it("resolves relative outDir against root and strips trailing slashes", () => {
-    expect(normalizeOutDir(".flux", ROOT)).toBe("/repo/my-app/.flux");
-    expect(normalizeOutDir("./.flux/", ROOT)).toBe("/repo/my-app/.flux");
+    expect(normalizeOutDir(".ignus", ROOT)).toBe("/repo/my-app/.ignus");
+    expect(normalizeOutDir("./.ignus/", ROOT)).toBe("/repo/my-app/.ignus");
   });
 
   it("keeps absolute outDir", () => {

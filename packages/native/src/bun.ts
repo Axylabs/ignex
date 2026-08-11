@@ -28,9 +28,10 @@ const gzipRaw = B?.gzipSync as
  * Bun's API takes an options OBJECT (e.g. `{ level }`), so we adapt the
  * `(data, level)` call shape.
  */
-export const bunGzipSync: GzipFn | null = isFn(gzipRaw)
-  ? (data: Uint8Array, level?: number) => gzipRaw(data, { level })
-  : null;
+export const bunGzipSync: GzipFn | null =
+  gzipRaw === undefined
+    ? null
+    : (data: Uint8Array, level?: number) => gzipRaw(data, level === undefined ? {} : { level });
 
 const gunzipRaw = B?.gunzipSync as ((data: Uint8Array) => Uint8Array) | undefined;
 /** `Bun.gunzipSync` when available (~1.4x faster than the Rust addon). */

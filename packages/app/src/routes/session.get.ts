@@ -1,5 +1,5 @@
-import { getSession } from "@flux/core";
-import { get } from "@flux/core/http";
+import { getSession } from "@ignus/core";
+import { get } from "@ignus/core/http";
 
 /** GET /session — read/write the signed-cookie session (attached by plugin). */
 export default get(async (ctx) => {

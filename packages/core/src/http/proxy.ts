@@ -136,7 +136,7 @@ export async function proxyRequest(
       responseHeaders.delete("content-length");
     }
 
-    responseHeaders.set("x-proxy", "flux");
+    responseHeaders.set("x-proxy", "ignus");
 
     return new Response(upstream.body, {
       status: upstream.status,

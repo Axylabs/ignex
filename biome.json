@@ -5,7 +5,7 @@
     "includes": [
       "**",
       "!**/dist",
-      "!**/.flux",
+      "!**/.ignus",
       "!**/node_modules",
       "!**/.git",
       "!coverage",

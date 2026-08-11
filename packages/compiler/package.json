@@ -1,5 +1,5 @@
 {
-  "name": "@flux/compiler",
+  "name": "@ignus/compiler",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -16,12 +16,13 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Flux AOT compiler: route discovery, analysis, optimization, codegen, linker, artifacts.",
+  "description": "Ignus AOT compiler: route discovery, analysis, optimization, codegen, linker, artifacts.",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@flux/shared": "workspace:*",
+    "@ignus/core": "workspace:*",
+    "@ignus/shared": "workspace:*",
     "@sinclair/typebox": "^0.34.52",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

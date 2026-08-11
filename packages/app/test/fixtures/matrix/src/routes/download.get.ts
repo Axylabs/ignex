@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /download — streams a fixed-size payload (1 MiB) as octet-stream. */
 export default get((ctx) => {

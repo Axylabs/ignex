@@ -1,5 +1,5 @@
 {
-  "name": "@flux/native",
+  "name": "@ignus/native",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Flux native accelerator: Rust NAPI addon (castrum) wrapper with byte-compatible pure-TS fallbacks.",
+  "description": "Ignus native accelerator: Rust NAPI addon (castrum) wrapper with byte-compatible pure-TS fallbacks.",
   "exports": {
     ".": "./src/index.ts"
   },

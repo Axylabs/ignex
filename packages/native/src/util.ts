@@ -33,7 +33,7 @@ export const toPlain = (bytes: Uint8Array): Uint8Array =>
 export const ctEqual = (a: Uint8Array, b: Uint8Array): boolean => {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  for (let i = 0; i < a.length; i++) diff |= (a[i] as number) ^ (b[i] as number);
   return diff === 0;
 };
 
@@ -53,7 +53,7 @@ const CRC_TABLE = /* @__PURE__ */ (() => {
 export const crc32 = (input: Uint8Array): number => {
   let crc = 0xffffffff;
   for (let i = 0; i < input.length; i++) {
-    crc = (CRC_TABLE[(crc ^ input[i]!) & 0xff] ?? 0) ^ (crc >>> 8);
+    crc = (CRC_TABLE[(crc ^ (input[i] as number)) & 0xff] ?? 0) ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
 };

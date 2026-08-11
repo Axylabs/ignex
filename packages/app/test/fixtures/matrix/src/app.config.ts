@@ -10,13 +10,13 @@ import {
   compression,
   cors,
   createI18n,
-  type FluxPlugin,
+  type IgnusPlugin,
   rateLimit,
   security,
   session,
-} from "@flux/core";
+} from "@ignus/core";
 
-export const plugins: FluxPlugin[] = [
+export const plugins: IgnusPlugin[] = [
   cors({ origin: "*" }),
   compression(),
   security(),

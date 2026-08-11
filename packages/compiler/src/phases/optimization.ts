@@ -94,7 +94,7 @@ export const transpileHandlerBody = (body: string, isAsync: boolean): string | n
       // Wrap so top-level `return` / `await` are legal, then extract the inner
       // body from the transpiled (type-erased) function.
       const wrapped = t.transformSync(
-        `${isAsync ? "async " : ""}function __fluxInline() { ${body} }`,
+        `${isAsync ? "async " : ""}function __ignusInline() { ${body} }`,
       );
       const start = wrapped.indexOf("{");
       const end = wrapped.lastIndexOf("}");

@@ -1,5 +1,5 @@
-import { defineConfig, env, loadEnv } from "@flux/core";
-import { get } from "@flux/core/http";
+import { defineConfig, env, loadEnv } from "@ignus/core";
+import { get } from "@ignus/core/http";
 
 loadEnv();
 

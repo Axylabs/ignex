@@ -9,7 +9,7 @@ To report a vulnerability:
 
 - Email the maintainers at the address listed on the project's npm/GitHub page,
 - or open a **private security advisory** on GitHub:
-  `https://github.com/Axylabs/flux-core/security/advisories/new`
+  `https://github.com/Axylabs/ignus/security/advisories/new`
 
 Include as much detail as possible:
 
@@ -22,13 +22,13 @@ the fix.
 
 ## Security model
 
-`flux-core` compiles user route code into a Bun server. Keep in mind:
+`ignus` compiles user route code into a Bun server. Keep in mind:
 
 - **Input validation is opt-in.** Untrusted input should be validated with a
   schema (`TypeBox`/Standard Schema) on every affected route.
 - **`ctx.set`/cookies/headers are applied verbatim.** Avoid echoing unvalidated
   user input into headers without sanitizing (header injection).
-- **Path traversal** is guarded by `safeJoin` in `@flux/core` — use `ctx.sendFile`
+- **Path traversal** is guarded by `safeJoin` in `@ignus/core` — use `ctx.sendFile`
   rather than manual `fs` reads.
 - **Native primitives** fall back to pure-TS implementations when the `castrum`
   addon is unavailable; both paths are covered by the parity test suite.

@@ -1,0 +1,38 @@
+{
+  "name": "@ignus/mcp",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "test": "vitest run"
+  },
+  "description": "Model Context Protocol server for Ignus — agent tooling for build/dev/route/info/openapi/doctor.",
+  "bin": {
+    "ignus-mcp": "./bin/ignus-mcp.js"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@ignus/cli": "workspace:*",
+    "@ignus/compiler": "workspace:*",
+    "@ignus/native": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.0"
+  }
+}

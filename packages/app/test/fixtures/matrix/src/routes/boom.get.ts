@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /boom — throws → exercises the central error handler (500). */
 export default get(async () => {

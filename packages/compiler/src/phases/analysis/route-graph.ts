@@ -46,7 +46,8 @@ export const resolveRouteModule = (
   if (!mod) return null;
   // Accept default-export handlers AND named-export handlers
   // (`export const httpGet = get(...)`, `export function httpGet(...)`).
-  if (!mod.hasHandlerExport) return null;
+  // WebSocket routes (`*.ws.ts`) export `wsHandler` instead — allow those too.
+  if (!mod.hasHandlerExport && parsed.method !== "WS") return null;
   return { mod, parsed };
 };
 

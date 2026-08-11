@@ -1,13 +1,13 @@
 /**
  * @fileoverview Auth plugin convenience wrappers.
  *
- * Wraps the auth hooks from `../auth` as `FluxPlugin`s so they compose with
+ * Wraps the auth hooks from `../auth` as `IgnusPlugin`s so they compose with
  * the existing plugin system (`composePlugins`, app.config `plugins`).
  */
 
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import type { HookFn } from "../lifecycle/hooks";
-import { type FluxPlugin, hookToPlugin } from "../lifecycle/plugin";
+import { hookToPlugin, type IgnusPlugin } from "../lifecycle/plugin";
 import {
   type AuthUser,
   basicAuth,
@@ -19,27 +19,27 @@ import {
 } from "../security/auth";
 import type { MaybePromise } from "../types";
 
-/** Turn any request hook into a `FluxPlugin`. */
-export const auth = (hook: HookFn): FluxPlugin => hookToPlugin("auth", hook);
+/** Turn any request hook into a `IgnusPlugin`. */
+export const auth = (hook: HookFn): IgnusPlugin => hookToPlugin("auth", hook);
 
 /** Require a user (from a custom extractor) on every request. */
-export const authGuard = <T>(extract: (ctx: FluxContext) => MaybePromise<T | null>): FluxPlugin =>
+export const authGuard = <T>(extract: (ctx: IgnusContext) => MaybePromise<T | null>): IgnusPlugin =>
   auth(requireAuth(extract));
 
 /** Attach a user when present, but never reject. */
 export const optionalAuthPlugin = <T>(
-  extract: (ctx: FluxContext) => MaybePromise<T | null>,
-): FluxPlugin => auth(optionalAuth(extract));
+  extract: (ctx: IgnusContext) => MaybePromise<T | null>,
+): IgnusPlugin => auth(optionalAuth(extract));
 
 /** JWT bearer auth plugin. */
-export const jwtAuthPlugin = (options: JwtAuthOptions): FluxPlugin => auth(jwtAuth(options));
+export const jwtAuthPlugin = (options: JwtAuthOptions): IgnusPlugin => auth(jwtAuth(options));
 
 /** Basic credentials auth plugin. */
 export const basicAuthPlugin = (
-  verify: (username: string, password: string, ctx: FluxContext) => MaybePromise<AuthUser | null>,
-): FluxPlugin => auth(basicAuth(verify));
+  verify: (username: string, password: string, ctx: IgnusContext) => MaybePromise<AuthUser | null>,
+): IgnusPlugin => auth(basicAuth(verify));
 
 /** Custom bearer-token auth plugin. */
 export const bearerAuthPlugin = (
-  verify: (token: string, ctx: FluxContext) => MaybePromise<AuthUser | null>,
-): FluxPlugin => auth(bearerAuth(verify));
+  verify: (token: string, ctx: IgnusContext) => MaybePromise<AuthUser | null>,
+): IgnusPlugin => auth(bearerAuth(verify));

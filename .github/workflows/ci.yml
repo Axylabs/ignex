@@ -77,7 +77,7 @@ jobs:
     timeout-minutes: 30
     continue-on-error: true
     steps:
-      - name: Checkout flux-core
+      - name: Checkout ignus
         uses: actions/checkout@v4
 
       - name: Checkout castrum (Rust addon)
@@ -95,7 +95,7 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install flux dependencies
+      - name: Install ignus dependencies
         run: bun install --frozen-lockfile
 
       - name: Build castrum addon
@@ -106,7 +106,7 @@ jobs:
 
       - name: Native parity + benchmark (real addon)
         env:
-          FLUX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+          IGNUS_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: |
           bun run test:native:real
           bun scripts/native-bench.ts

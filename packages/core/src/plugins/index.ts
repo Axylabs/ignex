@@ -1,5 +1,5 @@
 /**
- * @fileoverview `plugins` domain — ready-made `FluxPlugin` factories.
+ * @fileoverview `plugins` domain — ready-made `IgnusPlugin` factories.
  *
  * Modules: auth, compression, cors, csrf, logger, ratelimit, security,
  * session. Re-exported here for internal and subpath consumers; the top-level

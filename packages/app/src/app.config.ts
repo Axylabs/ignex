@@ -1,14 +1,14 @@
 /**
- * Flux application configuration.
+ * Ignus application configuration.
  *
  * The compiler reads this file at build time and merges `plugins`, `lifecycle`
  * and `server` into the generated `Bun.serve` entry.
  */
-import { compression, cors, createI18n, type FluxPlugin, security, session } from "@flux/core";
+import { compression, cors, createI18n, type IgnusPlugin, security, session } from "@ignus/core";
 
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 
-export const plugins: FluxPlugin[] = [
+export const plugins: IgnusPlugin[] = [
   cors(),
   compression(),
   security(),

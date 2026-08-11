@@ -26,19 +26,21 @@ describe("validateOptions", () => {
     expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionDeprecated)).toBe(true);
   });
 
-  it("rejects unknown options with a diagnostic", () => {
+  it("warns on unknown options, strips them, and still validates", () => {
     const d = new DiagnosticCollector();
     const result = validateOptions({ ...valid, notARealOption: 1 } as never, d);
 
-    expect(result.ok).toBe(false);
-    expect(d.errors.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
+    const value = (result as unknown as { value?: Record<string, unknown> }).value;
+    expect(value?.notARealOption).toBeUndefined();
   });
 
-  it("rejects removed (formerly dead) options", () => {
+  it("warns on removed (formerly dead) options", () => {
     const d = new DiagnosticCollector();
     const result = validateOptions({ ...valid, enableStrictMethods: true } as never, d);
 
-    expect(result.ok).toBe(false);
-    expect(d.errors.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
   });
 });

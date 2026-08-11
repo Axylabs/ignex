@@ -1,7 +1,7 @@
 /**
  * SDK client generation tests — content, runtime behavior, and structure of
  * the generated `client.ts` / `client.d.ts` / `routes.d.ts` artifacts that
- * `flux build` surfaces as the app SDK.
+ * `ignus build` surfaces as the app SDK.
  *
  * Covers:
  * - content: ROUTES map, PARAM_PATHS, buildUrl encoding, codegen-time
@@ -9,7 +9,7 @@
  * - runtime: the generated `createApiClient` executed against a mocked
  *   `fetch` (no server) — header preservation, param encoding, ROUTES-key
  *   fallback, non-2xx throw
- * - type contract: see `client-types.test.ts` (expectTypeOf on FluxClient).
+ * - type contract: see `client-types.test.ts` (expectTypeOf on IgnusClient).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,9 +43,9 @@ describe("generated client.ts (SDK)", () => {
     const client = readFileSync(join(outDir, "client.ts"), "utf8");
 
     // Imports + mapped type contract.
-    expect(client).toContain('import { createClient } from "@flux/core"');
-    expect(client).toContain("export type FluxClient");
-    expect(client).toContain("type FluxRouteHandler<Route>");
+    expect(client).toContain('import { createClient } from "@ignus/core"');
+    expect(client).toContain("export type IgnusClient");
+    expect(client).toContain("type IgnusRouteHandler<Route>");
 
     // ROUTES map keys for every non-ALL route.
     expect(client).toContain('"get /health"');
@@ -70,11 +70,11 @@ describe("generated client.ts (SDK)", () => {
     const { outDir } = await buildWithParamRoute();
 
     const dts = readFileSync(join(outDir, "client.d.ts"), "utf8");
-    expect(dts).toContain("export type FluxClient");
+    expect(dts).toContain("export type IgnusClient");
     expect(dts).toContain("export declare function createApiClient");
 
     const routes = readFileSync(join(outDir, "routes.d.ts"), "utf8");
-    expect(routes).toContain("export interface FluxRoutes");
+    expect(routes).toContain("export interface IgnusRoutes");
     // Param route declares a typed params object.
     expect(routes).toContain('"/products/:id": {');
     expect(routes).toContain("      params: {");
@@ -114,7 +114,7 @@ describe("generated client.ts (runtime)", () => {
 
       // 1. Param-less route: a plain-object init (headers) must be preserved,
       //    not misread as `params` (regression guard for the old heuristic).
-      //    Access order is path-then-method, matching the FluxClient type.
+      //    Access order is path-then-method, matching the IgnusClient type.
       await client["/health"].get({ headers: { "x-auth": "t" } });
       expect(requests[0]?.url).toBe("http://api.test/health");
       expect((requests[0]?.init?.headers as Record<string, string>)?.["x-auth"]).toBe("t");

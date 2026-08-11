@@ -8,9 +8,9 @@
  * context's cookie jar, so responses automatically carry the right
  * `Set-Cookie` header.
  */
-import { randomToken, signCookie, verifyCookie } from "@flux/native";
-import { err, isOk, ok, type Result } from "@flux/shared";
-import type { FluxContext } from "../http/context";
+import { randomToken, signCookie, verifyCookie } from "@ignus/native";
+import { err, isOk, ok, type Result } from "@ignus/shared";
+import type { IgnusContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
@@ -86,6 +86,79 @@ export const createMemorySessionStore = (
   };
 };
 
+/**
+ * SQLite-backed session store via `bun:sqlite` (mirrors `createSqliteJobStore`).
+ * Returns `null` when the module is unavailable (e.g. running on Node without
+ * the polyfill) so callers can fall back to the memory store. Expired rows are
+ * deleted lazily on read; a `close()` is provided for clean shutdown.
+ */
+export const createSqliteSessionStore = async (
+  file = ":memory:",
+  options: { ttlSeconds?: number } = {},
+): Promise<SessionStore | null> => {
+  let Database: new (path: string) => unknown;
+  try {
+    const mod: any = await import("bun:sqlite");
+    Database = mod.Database;
+    if (typeof Database !== "function") return null;
+  } catch {
+    return null;
+  }
+
+  const ttlMs = (options.ttlSeconds ?? 3600) * 1000;
+  const db = new Database(file);
+  (db as { run: (sql: string) => unknown }).run(
+    "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL)",
+  );
+  const run = (db as { run: (sql: string, params?: unknown[]) => unknown }).run.bind(db);
+  const all = (sql: string, params: unknown[]): Array<{ data: string; expires_at: number }> =>
+    (
+      db as {
+        query: (sql: string) => {
+          all: (...p: unknown[]) => Array<{ data: string; expires_at: number }>;
+        };
+      }
+    )
+      .query(sql)
+      .all(...params);
+
+  return {
+    async get(id) {
+      const rows = all("SELECT data, expires_at FROM sessions WHERE id = ?", [id]);
+      const row = rows[0];
+      if (!row) return null;
+      if (row.expires_at <= Date.now()) {
+        run("DELETE FROM sessions WHERE id = ?", [id]);
+        return null;
+      }
+      try {
+        return JSON.parse(row.data) as SessionData;
+      } catch {
+        run("DELETE FROM sessions WHERE id = ?", [id]);
+        return null;
+      }
+    },
+    async set(id, data, opts) {
+      run(
+        "INSERT INTO sessions (id, data, expires_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at",
+        [id, JSON.stringify(data), opts?.expiresAt ?? Date.now() + ttlMs],
+      );
+    },
+    async delete(id) {
+      run("DELETE FROM sessions WHERE id = ?", [id]);
+    },
+    async touch(id, opts) {
+      run("UPDATE sessions SET expires_at = ? WHERE id = ?", [
+        opts?.expiresAt ?? Date.now() + ttlMs,
+        id,
+      ]);
+    },
+    close() {
+      (db as { close: () => void }).close();
+    },
+  };
+};
+
 export interface SessionManagerOptions {
   secret: string | Uint8Array;
   /** Backing store. When omitted, sessions are fully stateless signed cookies. */
@@ -99,19 +172,19 @@ export interface SessionManagerOptions {
 
 export interface SessionManager {
   /** Load the session for the current request (or `null`). */
-  load(ctx: FluxContext): Promise<Session | null>;
+  load(ctx: IgnusContext): Promise<Session | null>;
   /** Load the session, creating one when missing. */
-  loadOrCreate(ctx: FluxContext): Promise<Session>;
+  loadOrCreate(ctx: IgnusContext): Promise<Session>;
   /** Build the request hook that attaches the session to the context. */
   middleware(options?: { createIfMissing?: boolean }): HookFn;
   /** Close the backing store (releases sweep timers). Called on app shutdown. */
   close?(): void;
 }
 
-const SESSION_KEY = Symbol.for("flux.session");
+const SESSION_KEY = Symbol.for("ignus.session");
 
 /** Read the session attached by `withSession` middleware. */
-export const getSession = (ctx: FluxContext): Session | undefined =>
+export const getSession = (ctx: IgnusContext): Session | undefined =>
   ctx.getState<Session>(SESSION_KEY);
 
 interface Envelope {
@@ -159,7 +232,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     signCookie(JSON.stringify(envelope), secret);
 
   const makeSession = (
-    ctx: FluxContext,
+    ctx: IgnusContext,
     id: string,
     data: SessionData,
     createdAt: number,
@@ -181,7 +254,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     return session;
   };
 
-  const save = async (ctx: FluxContext, session: Session): Promise<void> => {
+  const save = async (ctx: IgnusContext, session: Session): Promise<void> => {
     const envelope: Envelope = {
       id: session.id,
       exp: Math.floor(session.expiresAt / 1000),
@@ -194,12 +267,12 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
   };
 
-  const destroy = async (ctx: FluxContext, session: Session | null): Promise<void> => {
+  const destroy = async (ctx: IgnusContext, session: Session | null): Promise<void> => {
     if (store && session) await store.delete(session.id);
     ctx.cookie[cookieName]?.remove();
   };
 
-  const load = async (ctx: FluxContext): Promise<Session | null> => {
+  const load = async (ctx: IgnusContext): Promise<Session | null> => {
     const envelope = decodeEnvelope(ctx.cookie[cookieName]?.value);
     if (!isOk(envelope)) return null;
     const { id, data: envelopeData, exp } = envelope.value;
@@ -214,7 +287,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     return makeSession(ctx, id, data, exp * 1000, exp * 1000, false);
   };
 
-  const loadOrCreate = async (ctx: FluxContext): Promise<Session> => {
+  const loadOrCreate = async (ctx: IgnusContext): Promise<Session> => {
     const existing = await load(ctx);
     if (existing) return existing;
     const session = makeSession(ctx, createId(), {}, now(), expiresAtFor(), true);

@@ -3,7 +3,7 @@
  *
  * Modules: body, conditional, context, cookies, files, headers, proxy,
  * request-id, route (DSL), sse, ws. Re-exported here for internal and subpath
- * consumers; `@flux/core/http` resolves to `./route` (the schema-first route
+ * consumers; `@ignus/core/http` resolves to `./route` (the schema-first route
  * helpers).
  */
 export * from "./body";

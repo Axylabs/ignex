@@ -3,7 +3,7 @@
  * `ctx.loader` per-request factory.
  */
 
-import { createContext, createDataLoader } from "@flux/core";
+import { createContext, createDataLoader } from "@ignus/core";
 import { describe, expect, it, vi } from "vitest";
 
 const flush = () => new Promise<void>((resolve) => queueMicrotask(() => resolve()));
@@ -229,7 +229,7 @@ describe("ctx.loader (per-request by default)", () => {
   });
 
   it("works through createApp handlers", async () => {
-    const { createApp } = await import("@flux/core");
+    const { createApp } = await import("@ignus/core");
     const app = createApp({
       handler: async (c) => {
         const loader = c.loader(async (keys: readonly number[]) => keys.map((k) => k * 100));

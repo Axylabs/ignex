@@ -18,7 +18,7 @@
  * `RouteDef` in `types.ts` is a deprecated alias of `RouteIR`.
  */
 
-import type { ContextUsage } from "@flux/shared";
+import type { ContextUsage } from "@ignus/shared";
 import type {
   HttpMethod,
   ResponseType,

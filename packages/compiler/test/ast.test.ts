@@ -212,7 +212,7 @@ describe("hasDefaultExportAST", () => {
 
 describe("extractHandler / extractHandlerExport", () => {
   it("extracts a default wrapper export (get(async () => …))", () => {
-    const src = `import { get } from "@flux/core/http";\nexport default get(async (ctx) => ctx.json({ ok: true }));\n`;
+    const src = `import { get } from "@ignus/core/http";\nexport default get(async (ctx) => ctx.json({ ok: true }));\n`;
     const parsed = parseModule(src);
 
     expect(parsed.handler).not.toBeNull();
@@ -588,9 +588,9 @@ describe("extractConstantReturn (hardening)", () => {
 
   it("extracts constants from named-export handlers", () => {
     const r = extractConstantReturn(
-      parseModule(`export const httpGet = () => "flux named export";`).ast,
+      parseModule(`export const httpGet = () => "ignus named export";`).ast,
     );
-    expect(r).toEqual(expect.objectContaining({ ok: true, value: "flux named export" }));
+    expect(r).toEqual(expect.objectContaining({ ok: true, value: "ignus named export" }));
   });
 
   it("rejects multi-return handlers (regression: was mis-hoisted)", () => {
@@ -730,7 +730,7 @@ describe("extractRouteConfigAST", () => {
     const parsed = parseModule(src, dc);
 
     expect(parsed.config).toBeUndefined();
-    expect(dc.warnings.some((w) => w.code === "FLX_CONFIG_EVAL_FAILED")).toBe(true);
+    expect(dc.warnings.some((w) => w.code === "IGN_CONFIG_EVAL_FAILED")).toBe(true);
   });
 });
 
@@ -772,7 +772,7 @@ describe("parseModule / memoization", () => {
     expect(parsed.ast.type).toBe("Program");
     expect(parsed.ast.body).toEqual([]);
     expect(parsed.handler).toBeNull();
-    expect(dc.warnings.some((w) => w.code === "FLX_PARSE_ERROR")).toBe(true);
+    expect(dc.warnings.some((w) => w.code === "IGN_PARSE_ERROR")).toBe(true);
   });
 
   it("returns an empty parse for non-string input", () => {

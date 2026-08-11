@@ -1,16 +1,16 @@
-import type { CompilerOptions } from "@flux/compiler";
+import type { CompilerOptions } from "@ignus/compiler";
 
 /**
- * Helper for userland flux.config.ts files.
+ * Helper for userland ignus.config.ts files.
  *
  * Example:
  *
  * ```ts
- * import { defineConfig } from "@flux/cli/config";
+ * import { defineConfig } from "@ignus/cli/config";
  *
  * export default defineConfig({
  *   routesDir: "src/routes",
- *   outDir: ".flux",
+ *   outDir: ".ignus",
  * });
  * ```
  */

@@ -1,7 +1,7 @@
 /**
  * @fileoverview Compiled-server routing matrix.
  *
- * Exercises the AOT-generated route table (Bun native router + flux helpers):
+ * Exercises the AOT-generated route table (Bun native router + ignus helpers):
  * static / dynamic / wildcard / nested paths, 404 / 405 + Allow, auto-OPTIONS
  * and auto-HEAD, query strings, and `ctx.route` population. Table-driven so new
  * cases are cheap to add.

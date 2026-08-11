@@ -111,7 +111,7 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
 
     if (match[1] === "" && match[2] !== "") {
       // Suffix range: bytes=-500
-      const suffix = parseInt(match[2]!, 10);
+      const suffix = parseInt(match[2] as string, 10);
       start = Math.max(0, stats.size - suffix);
       end = stats.size - 1;
     } else {

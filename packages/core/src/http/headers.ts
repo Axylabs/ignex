@@ -25,7 +25,7 @@ export const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
 
 type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
 
-type FluxHeadersInit =
+type IgnusHeadersInit =
   | ResponseHeadersInit
   | Record<string, string | undefined>
   | Array<[string, string | undefined]>;
@@ -36,7 +36,7 @@ const asResponseHeaders = (headers: Headers): ResponseHeadersInit =>
 /** Merge a base header record with any supported init shape (Headers / array / object). */
 export const mergeHeaders = (
   base: Record<string, string>,
-  init?: FluxHeadersInit,
+  init?: IgnusHeadersInit,
 ): ResponseHeadersInit => {
   const headers = new Headers(base);
 
@@ -73,7 +73,7 @@ export const mergeHeaders = (
   return asResponseHeaders(headers);
 };
 
-export const createResponseInit = (status: number, headers?: FluxHeadersInit): ResponseInit => {
+export const createResponseInit = (status: number, headers?: IgnusHeadersInit): ResponseInit => {
   if (headers === undefined) {
     return { status };
   }

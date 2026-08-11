@@ -6,7 +6,7 @@ Home of the unified type system shared between the compiler and the runtime.
 
 - ✅ `ContextUsage` (the compiler ↔ runtime AOT contract) lives here.
 - ✅ Functional core (`fp.ts`): `Result`/`Task`/`pipe`/`compose` — imported by
-  `@flux/core`, `@flux/compiler` and `@flux/native`.
+  `@ignus/core`, `@ignus/compiler` and `@ignus/native`.
 
 ## Next step
 

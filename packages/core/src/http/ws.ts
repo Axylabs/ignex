@@ -1,11 +1,12 @@
 /**
- * @fileoverview WebSocket support with typed messages and topics.
+ * @fileoverview WebSocket support: typed messages, topics, request upgrades,
+ * and a live-connection registry.
  */
 
 import type { ServerWebSocket, WebSocketHandler } from "../types";
-import type { FluxContext } from "./context";
+import type { IgnusContext } from "./context";
 
-export class FluxWS<Context = unknown, Body = unknown, Response = unknown> {
+export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
   constructor(
     public raw: ServerWebSocket<Context>,
     public data: Context,
@@ -19,6 +20,11 @@ export class FluxWS<Context = unknown, Body = unknown, Response = unknown> {
     if (typeof data !== "object" || data instanceof ArrayBuffer || data instanceof Uint8Array) {
       return this.raw.send(data as string | ArrayBuffer | Uint8Array, compress);
     }
+    return this.raw.send(JSON.stringify(data), compress);
+  }
+
+  /** Explicitly serialize `data` as JSON (unambiguous, unlike `send`). */
+  sendJson(data: unknown, compress?: boolean): number {
     return this.raw.send(JSON.stringify(data), compress);
   }
 
@@ -59,7 +65,7 @@ export class FluxWS<Context = unknown, Body = unknown, Response = unknown> {
   isSubscribed(topic: string): boolean {
     return this.raw.isSubscribed(topic);
   }
-  cork<T>(cb: (ws: FluxWS<Context, Body, Response>) => T): T {
+  cork<T>(cb: (ws: IgnusWS<Context, Body, Response>) => T): T {
     return this.raw.cork(() => cb(this));
   }
 
@@ -75,39 +81,148 @@ export class FluxWS<Context = unknown, Body = unknown, Response = unknown> {
 }
 
 export interface WSLocalHook<Context = unknown, Body = unknown, Response = unknown> {
-  open?(ws: FluxWS<Context, Body, Response>): void | Promise<void>;
-  message?(ws: FluxWS<Context, Body, Response>, message: Body): void | Promise<void>;
-  drain?(ws: FluxWS<Context, Body, Response>): void | Promise<void>;
-  close?(ws: FluxWS<Context, Body, Response>, code: number, reason: string): void | Promise<void>;
-  upgrade?: Record<string, unknown> | ((ctx: FluxContext) => unknown);
+  open?(ws: IgnusWS<Context, Body, Response>): void | Promise<void>;
+  message?(ws: IgnusWS<Context, Body, Response>, message: Body): void | Promise<void>;
+  drain?(ws: IgnusWS<Context, Body, Response>): void | Promise<void>;
+  close?(ws: IgnusWS<Context, Body, Response>, code: number, reason: string): void | Promise<void>;
+  /**
+   * Upgrade customization. Either a static object merged into the socket's
+   * `data` payload, or a function receiving the request context and returning
+   * the socket's `data` (e.g. a loaded user). Consumed by {@link upgradeWS}.
+   */
+  upgrade?: Record<string, unknown> | ((ctx: IgnusContext) => unknown);
 }
+
+export interface WSUpgradeOptions<Context> {
+  /** Explicit socket data; merged with (or overridden by) `hook.upgrade`. */
+  data?: Context;
+  /** Extra response headers for the 101 Switching Protocols response. */
+  headers?: Headers | Record<string, string>;
+}
+
+/**
+ * Upgrade a request to a WebSocket, resolving the socket `data` from
+ * `hook.upgrade` (a function result wins; a static object merges over
+ * `options.data`). Returns `false` when the runtime has no upgrade path
+ * (e.g. the interpreted path without a real `Bun.serve` handle).
+ */
+export const upgradeWS = <Context>(
+  ctx: IgnusContext,
+  hook: WSLocalHook<Context>,
+  options: WSUpgradeOptions<Context> = {},
+): boolean => {
+  const server = ctx.server;
+  if (!server?.upgrade) return false;
+
+  const upgrade = hook.upgrade;
+  let data: unknown = options.data;
+
+  if (typeof upgrade === "function") {
+    data = upgrade(ctx);
+  } else if (upgrade && typeof upgrade === "object") {
+    data = { ...(options.data as object), ...upgrade };
+  }
+
+  return server.upgrade(ctx.req, {
+    ...(data !== undefined ? { data } : {}),
+    ...(options.headers ? { headers: options.headers } : {}),
+  });
+};
+
+/**
+ * Live connection registry. Pass one to `createWSHandler` and every opened
+ * socket is tracked (and removed on close), enabling broadcast-to-all without
+ * manual socket bookkeeping.
+ */
+export interface WSConnections<Context = unknown, Body = unknown, Response = unknown> {
+  readonly size: number;
+  has(ws: IgnusWS<Context, Body, Response>): boolean;
+  add(ws: IgnusWS<Context, Body, Response>): void;
+  delete(ws: IgnusWS<Context, Body, Response>): void;
+  clear(): void;
+  /** Send a string/JSON-object message to every connected socket. */
+  broadcast(data: Response | string | ArrayBuffer, compress?: boolean): void;
+  /** Serialize + send an object to every connected socket. */
+  broadcastJson(data: unknown, compress?: boolean): void;
+}
+
+export const createWSConnections = <Context, Body, Response>(): WSConnections<
+  Context,
+  Body,
+  Response
+> => {
+  const set = new Set<IgnusWS<Context, Body, Response>>();
+
+  return {
+    get size() {
+      return set.size;
+    },
+    has: (ws) => set.has(ws),
+    add: (ws) => {
+      set.add(ws);
+    },
+    delete: (ws) => {
+      set.delete(ws);
+    },
+    clear: () => {
+      set.clear();
+    },
+    broadcast(data, compress) {
+      for (const ws of set) ws.send(data, compress);
+    },
+    broadcastJson(data, compress) {
+      for (const ws of set) ws.sendJson(data, compress);
+    },
+  };
+};
 
 export const createWSHandler = <Context, Body, Response>(
   hook: WSLocalHook<Context, Body, Response>,
-): WebSocketHandler<Context> => ({
-  open(ws) {
-    hook.open?.(new FluxWS(ws, ws.data, undefined as Body));
-  },
+  connections?: WSConnections<Context, Body, Response>,
+): WebSocketHandler<Context> => {
+  // One IgnusWS wrapper per raw socket so the SAME instance is delivered to
+  // every event (open/message/close). That identity is required for the
+  // connection registry and lets hooks stash per-socket state on `ws`.
+  const bySocket = new WeakMap<ServerWebSocket<Context>, IgnusWS<Context, Body, Response>>();
 
-  message(ws, message) {
-    let parsed: unknown = message;
-
-    if (typeof message === "string") {
-      try {
-        parsed = JSON.parse(message);
-      } catch {
-        // keep as string
-      }
+  const wrap = (ws: ServerWebSocket<Context>): IgnusWS<Context, Body, Response> => {
+    let wrapped = bySocket.get(ws);
+    if (!wrapped) {
+      wrapped = new IgnusWS(ws, ws.data, undefined as Body);
+      bySocket.set(ws, wrapped);
     }
+    return wrapped;
+  };
 
-    hook.message?.(new FluxWS(ws, ws.data, parsed as Body), parsed as Body);
-  },
+  return {
+    open(ws) {
+      const wrapped = wrap(ws);
+      connections?.add(wrapped);
+      void hook.open?.(wrapped);
+    },
 
-  drain(ws) {
-    hook.drain?.(new FluxWS(ws, ws.data, undefined as Body));
-  },
+    message(ws, message) {
+      let parsed: unknown = message;
 
-  close(ws, code, reason) {
-    hook.close?.(new FluxWS(ws, ws.data, undefined as Body), code, reason);
-  },
-});
+      if (typeof message === "string") {
+        try {
+          parsed = JSON.parse(message);
+        } catch {
+          // keep as string
+        }
+      }
+
+      void hook.message?.(wrap(ws), parsed as Body);
+    },
+
+    drain(ws) {
+      void hook.drain?.(wrap(ws));
+    },
+
+    close(ws, code, reason) {
+      const wrapped = wrap(ws);
+      void hook.close?.(wrapped, code, reason);
+      connections?.delete(wrapped);
+    },
+  };
+};

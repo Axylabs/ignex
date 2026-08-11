@@ -5,8 +5,8 @@
 import { relative } from "node:path";
 import type { CompilerOptions } from "../../types";
 
-/** The runtime import specifier for `@flux/core` (the generated server's only package dep). */
-export const CORE_PATH = "@flux/core";
+/** The runtime import specifier for `@ignus/core` (the generated server's only package dep). */
+export const CORE_PATH = "@ignus/core";
 
 export interface CodegenConfig {
   target: "bun";
@@ -25,7 +25,7 @@ export interface CodegenConfig {
 
 export const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   target: opts.target,
-  serviceName: opts.serviceName ?? "flux",
+  serviceName: opts.serviceName ?? "ignus",
   exposeErrorDetails: opts.exposeErrorDetails ?? false,
   specializeContext: opts.specializeContext ?? true,
   reusePort: opts.reusePort ?? false,

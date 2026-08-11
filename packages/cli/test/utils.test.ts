@@ -46,9 +46,9 @@ describe("resolveRoot", () => {
 });
 
 describe("CONFIG_FILES", () => {
-  it("includes flux.config.json", () => {
-    expect(CONFIG_FILES).toContain("flux.config.json");
-    expect(CONFIG_FILES).toContain("flux.config.ts");
+  it("includes ignus.config.json", () => {
+    expect(CONFIG_FILES).toContain("ignus.config.json");
+    expect(CONFIG_FILES).toContain("ignus.config.ts");
   });
 });
 
@@ -56,9 +56,9 @@ describe("loadConfig", () => {
   let dir: string;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "flux-cli-config-"));
+    dir = mkdtempSync(join(tmpdir(), "ignus-cli-config-"));
     writeFileSync(
-      join(dir, "flux.config.json"),
+      join(dir, "ignus.config.json"),
       JSON.stringify({ routesDir: "app/routes", outDir: "build" }),
     );
   });
@@ -67,14 +67,14 @@ describe("loadConfig", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("parses flux.config.json", async () => {
+  it("parses ignus.config.json", async () => {
     const config = await loadConfig(dir);
     expect(config.routesDir).toBe("app/routes");
     expect(config.outDir).toBe("build");
   });
 
   it("returns an empty object when no config exists", async () => {
-    const empty = mkdtempSync(join(tmpdir(), "flux-cli-empty-"));
+    const empty = mkdtempSync(join(tmpdir(), "ignus-cli-empty-"));
     try {
       const config = await loadConfig(empty);
       expect(config).toEqual({});

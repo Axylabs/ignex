@@ -1,5 +1,5 @@
 {
-  "name": "@flux/shared",
+  "name": "@ignus/shared",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Shared types and constants for Flux.",
+  "description": "Shared types and constants for Ignus.",
   "exports": {
     ".": "./src/index.ts"
   },

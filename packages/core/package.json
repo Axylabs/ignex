@@ -1,5 +1,5 @@
 {
-  "name": "@flux/core",
+  "name": "@ignus/core",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -16,16 +16,19 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Flux runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
+  "description": "Ignus runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
   "exports": {
     ".": "./src/index.ts",
     "./http": "./src/http/route.ts",
     "./config": "./src/platform/config.ts",
+    "./jobs": "./src/jobs.ts",
+    "./content": "./src/content/index.ts",
+    "./openapi": "./src/openapi.ts",
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@flux/native": "workspace:*",
-    "@flux/shared": "workspace:*",
+    "@ignus/native": "workspace:*",
+    "@ignus/shared": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "fast-querystring": "^1.1.2",

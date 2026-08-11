@@ -14,6 +14,7 @@ import {
   mergeHeaders,
   stripHopByHopHeaders,
 } from "../src/http/headers.js";
+import { head, options } from "../src/http/route.js";
 import {
   applySet,
   BodyParseError,
@@ -26,6 +27,20 @@ import {
   serializeCookie,
 } from "../src/index.js";
 import { ForbiddenError, NotFoundError } from "../src/platform/errors.js";
+
+describe("route DSL head/options", () => {
+  it("head attaches its schema and is invocable", () => {
+    const handler = head((ctx) => ctx.text(""), { query: { type: "object" } });
+    expect((handler as unknown as { schema?: unknown }).schema).toEqual({
+      query: { type: "object" },
+    });
+  });
+
+  it("options attaches no schema when omitted", () => {
+    const handler = options((ctx) => ctx.text(""));
+    expect((handler as unknown as { schema?: unknown }).schema).toBeUndefined();
+  });
+});
 
 describe("safeJoin", () => {
   it("resolves nested paths within the root", () => {
@@ -309,7 +324,7 @@ describe("sendFile", () => {
   let file: string;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "flux-http-"));
+    dir = mkdtempSync(join(tmpdir(), "ignus-http-"));
     file = join(dir, "hello.txt");
     writeFileSync(file, "hello world");
 

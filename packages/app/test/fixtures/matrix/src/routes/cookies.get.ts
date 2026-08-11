@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /cookies — echoes received cookie names and sets a response cookie. */
 export default get(async (ctx) => {

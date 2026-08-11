@@ -14,6 +14,7 @@
 
 import type { ExportInfo, ImportInfo, SymbolInfo } from "../types";
 import type { Program } from "../utils/ast/ast-types";
+import type { ParseResult } from "../utils/ast/parse";
 import type { ExtractedHandler } from "../utils/ast/types";
 
 /**
@@ -28,6 +29,8 @@ export interface SourceFile {
   readonly relPath: string;
   /** Raw file content. */
   readonly content: string;
+  /** The single parse this source was derived from (fresh or disk-rehydrated). */
+  readonly parse: ParseResult;
   /** Retained AST from the single discovery-time parse. */
   readonly ast: Program;
   readonly imports: readonly ImportInfo[];

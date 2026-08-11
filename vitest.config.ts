@@ -12,15 +12,21 @@ const alias = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@flux/shared": alias("packages/shared/src/index.ts"),
+      "@ignus/shared": alias("packages/shared/src/index.ts"),
       // Order matters: Vite prefix-replaces aliases, so the specific subpath
-      // must come before the package root (`@flux/core/http` must not match
-      // `@flux/core` first).
-      "@flux/core/http": alias("packages/core/src/http/route.ts"),
-      "@flux/core/*": alias("packages/core/src/*"),
-      "@flux/core": alias("packages/core/src/index.ts"),
-      "@flux/compiler": alias("packages/compiler/src/index.ts"),
-      "@flux/native": alias("packages/native/src/index.ts"),
+      // must come before the package root (`@ignus/core/http` must not match
+      // `@ignus/core` first).
+      "@ignus/core/http": alias("packages/core/src/http/route.ts"),
+      "@ignus/core/jobs": alias("packages/core/src/jobs.ts"),
+      "@ignus/core/content": alias("packages/core/src/content/index.ts"),
+      "@ignus/core/openapi": alias("packages/core/src/openapi.ts"),
+      "@ignus/core/config": alias("packages/core/src/platform/config.ts"),
+      "@ignus/core/*": alias("packages/core/src/*"),
+      "@ignus/core": alias("packages/core/src/index.ts"),
+      "@ignus/compiler": alias("packages/compiler/src/index.ts"),
+      "@ignus/native": alias("packages/native/src/index.ts"),
+      "@ignus/mcp": alias("packages/mcp/src/index.ts"),
+      "@ignus/test-utils": alias("packages/test-utils/src/index.ts"),
       castrum: alias("packages/native/src/vendor/castrum.d.ts"),
     },
   },

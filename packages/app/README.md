@@ -1,6 +1,6 @@
-# @flux/app
+# @ignus/app
 
-Example application for flux — the test + benchmark harness for the whole
+Example application for ignus — the test + benchmark harness for the whole
 framework. Every route is real code exercising a compiler or runtime feature.
 
 ## Routes (`src/routes/`)
@@ -36,7 +36,7 @@ bun run smoke        # boot the generated server + assert routes (root scripts/s
 bun run dev          # build + watch-run the generated server
 ```
 
-`builder.ts` drives `@flux/compiler` with `optimizationLevel: 3`, minify,
+`builder.ts` drives `@ignus/compiler` with `optimizationLevel: 3`, minify,
 context specialization, constant hoisting, and schema precompilation.
 
 ## Tests

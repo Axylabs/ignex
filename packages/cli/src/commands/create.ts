@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import {
   biomeTemplate,
-  fluxConfigTemplate,
   gitignoreTemplate,
   hasPluginFeatures,
+  ignusConfigTemplate,
   packageJsonTemplate,
   pluginsTemplate,
   readmeTemplate,
@@ -62,13 +62,17 @@ export async function runCreate(args: string[]): Promise<void> {
   let featuresInput = values.features as string | undefined;
   let install = values.install as boolean | undefined;
   let git = values.git as boolean | undefined;
+  // Bun's parseArgs turns `--no-x` into the literal key `no-x`; handle the
+  // negation flags explicitly so defaults are never accidentally flipped.
+  if (values["no-install"] === true) install = false;
+  if (values["no-git"] === true) git = false;
 
   if (interactive) {
     const rl = openPrompt();
 
     try {
       if (!name) {
-        name = await ask(rl, "Project name", "flux-app");
+        name = await ask(rl, "Project name", "ignus-app");
       }
 
       if (!runtimeInput) {
@@ -103,7 +107,7 @@ export async function runCreate(args: string[]): Promise<void> {
     }
   }
 
-  name = name ?? "flux-app";
+  name = name ?? "ignus-app";
 
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);
@@ -134,7 +138,7 @@ export async function runCreate(args: string[]): Promise<void> {
 
   await writeFileEnsuringDir(join(target, "package.json"), packageJsonTemplate(opts));
   await writeFileEnsuringDir(join(target, "tsconfig.json"), tsconfigTemplate(opts));
-  await writeFileEnsuringDir(join(target, "flux.config.mjs"), fluxConfigTemplate());
+  await writeFileEnsuringDir(join(target, "ignus.config.mjs"), ignusConfigTemplate());
   await writeFileEnsuringDir(join(target, "biome.json"), biomeTemplate());
   await writeFileEnsuringDir(join(target, ".gitignore"), gitignoreTemplate());
   await writeFileEnsuringDir(join(target, "README.md"), readmeTemplate(opts));

@@ -1,10 +1,10 @@
 /**
- * Parity tests for `@flux/native`.
+ * Parity tests for `@ignus/native`.
  *
  * These run against the pure-TS fallbacks by default (the addon is optional).
  * They lock the wire formats (cookie, CSRF, JWT, ETag, SSE, WS) to the native
  * addon's documented behavior, so behavior is identical with or without Rust.
- * Set `FLUX_NATIVE_PATH` (or install `castrum`) to run the same suite against
+ * Set `IGNUS_NATIVE_PATH` (or install `castrum`) to run the same suite against
  * the real addon.
  */
 import { describe, expect, it } from "vitest";

@@ -1,5 +1,5 @@
 /**
- * Flux Compiler Orchestrator — Bun 1.4 edition.
+ * Ignus Compiler Orchestrator — Bun 1.4 edition.
  *
  * The compiler follows a Svelte-style phased pipeline:
  *
@@ -15,9 +15,16 @@
  * it could not precompile validators/serializers, minify, or emit source maps.
  */
 
-import { pipeAsync } from "@flux/shared";
+import { pipeAsync } from "@ignus/shared";
 import { storeCache, tryCachedBuild } from "./cache";
-import { DiagnosticCollector, reportDiagnostics } from "./diagnostics";
+import {
+  DiagnosticCodes,
+  DiagnosticCollector,
+  errorMessage,
+  reportDiagnostics,
+} from "./diagnostics";
+import { SourceManager } from "./frontend";
+import { loadPersistedModules, persistModules } from "./frontend/persist";
 import type { Logger } from "./logger";
 import { consoleLogger } from "./logger";
 import { runAnalysis } from "./phases/analysis";
@@ -81,6 +88,8 @@ interface PipelineState {
   discovery?: ReturnType<typeof runDiscovery>;
   analysis?: ReturnType<typeof runAnalysis>;
   optimized?: ReturnType<typeof runOptimization>;
+  /** Source manager seeded with the persistent parse cache, if any. */
+  sources?: SourceManager;
   routes: readonly RouteDef[];
   code?: string;
   outPath?: string;
@@ -89,7 +98,7 @@ interface PipelineState {
 
 const discoveryStage = (s: PipelineState): PipelineState => ({
   ...s,
-  discovery: runDiscoveryPhase(s.opts, s.ctx),
+  discovery: runDiscoveryPhase(s.opts, s.ctx, s.sources),
 });
 
 const analysisStage = (s: PipelineState): PipelineState => ({
@@ -150,6 +159,19 @@ const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
       s.outPath,
       (s.optimized as ReturnType<typeof runOptimization>).meta,
     );
+
+    // Persist per-module parse results so the next build rehydrates instead of
+    // re-parsing unchanged modules (see frontend/persist.ts).
+    try {
+      if (s.discovery?.sources) {
+        persistModules(s.discovery.sources.all(), s.opts.outDir);
+      }
+    } catch (error) {
+      s.ctx.diagnostics.warn({
+        code: DiagnosticCodes.BuildCacheInvalid,
+        message: `Failed to write module parse cache: ${errorMessage(error)}`,
+      });
+    }
   }
   return s;
 };
@@ -157,9 +179,10 @@ const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
 export const runDiscoveryPhase = (
   opts: CompilerOptions,
   ctx: CompilerContext,
+  sources?: SourceManager,
 ): ReturnType<typeof runDiscovery> =>
   ctx.logger.time("discovery", () => {
-    const result = runDiscovery(opts, ctx);
+    const result = runDiscovery(opts, ctx, sources);
 
     ctx.logger.info("discovery complete", {
       files: result.files.length,
@@ -264,22 +287,30 @@ const finish = (
   };
 };
 
-export class FluxCompiler {
+export class IgnusCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
   /** Canonical async compile with validator/serializer precompilation. */
   async compileAsync(): Promise<CompileResult> {
-    const validated = validateOptions(this.input);
+    const ctx = createContext(consoleLogger(this.input.verbose ?? false));
+    const validated = validateOptions(this.input, ctx.diagnostics);
 
     if (!validated.ok) {
+      // Surface deprecation/unknown-option diagnostics even when validation
+      // fails, so option drift is visible instead of a bare throw.
+      reportDiagnostics(ctx.diagnostics.all, ctx.logger);
       throw new Error(`Compiler options invalid:\n${validated.error.join("\n")}`);
     }
 
     const opts = validated.value;
-    const ctx = createContext(consoleLogger(opts.verbose ?? false));
     const t0 = performance.now();
 
-    ctx.logger.info("flux compiler started (async)", {
+    // Seed discovery with the persistent parse cache so unchanged modules skip
+    // re-parsing on both cache-hit artifact regeneration and full rebuilds.
+    const diskCache = opts.incremental ? loadPersistedModules(opts.outDir) : new Map();
+    const sources = new SourceManager(diskCache);
+
+    ctx.logger.info("ignus compiler started (async)", {
       target: opts.target,
       optimizationLevel: opts.optimizationLevel,
       routesDir: opts.routesDir,
@@ -295,19 +326,32 @@ export class FluxCompiler {
         // Regenerate them from a fresh discovery/analysis (skipping the
         // expensive codegen + link steps) whenever artifact generation is on.
         if (opts.generateTypes || opts.generateOpenAPI || opts.generateClient) {
-          await pipeAsync({ opts, ctx, t0, routes: [] } as PipelineState)(
+          const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
             discoveryStage,
             analysisStage,
             optimizationStage,
             artifactsStage,
-          );
+          )) as PipelineState;
+
+          // Self-heal the module parse cache on cache hits too — a cache hit
+          // re-parses when the file is missing, so persist the result.
+          try {
+            if (state.discovery?.sources) {
+              persistModules(state.discovery.sources.all(), opts.outDir);
+            }
+          } catch (error) {
+            ctx.diagnostics.warn({
+              code: DiagnosticCodes.BuildCacheInvalid,
+              message: `Failed to write module parse cache: ${errorMessage(error)}`,
+            });
+          }
         }
         const elapsed = performance.now() - t0;
         return finish(cached.code, cached.outFile, ctx, elapsed, true, cached.meta);
       }
     }
 
-    const state = (await pipeAsync({ opts, ctx, t0, routes: [] } as PipelineState)(
+    const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
       discoveryStage,
       analysisStage,
       optimizationStage,
@@ -333,7 +377,7 @@ export class FluxCompiler {
 }
 
 export async function buildAsync(opts?: Partial<CompilerOptions>): Promise<CompileResult> {
-  return new FluxCompiler(opts).compileAsync();
+  return new IgnusCompiler(opts).compileAsync();
 }
 
 if (import.meta.main) {

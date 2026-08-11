@@ -6,9 +6,10 @@
  * path remains the fallback (deflate, brotli, or native unavailable).
  */
 
-import { gzipCompress, isNativeAvailable } from "@flux/native";
+import { gzipCompress, isNativeAvailable } from "@ignus/native";
+import { etagWithEncoding, isCompressible, negotiateEncoding } from "../data/content-encoding";
 import { appendVary } from "../http/headers";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 
 export interface CompressionOptions {
   threshold?: number;
@@ -16,22 +17,6 @@ export interface CompressionOptions {
   /** Use the Rust gzip path for buffered bodies (default `true`). */
   native?: boolean;
 }
-
-const COMPRESSIBLE = new Set([
-  "text/",
-  "application/json",
-  "application/javascript",
-  "application/xml",
-  "image/svg+xml",
-]);
-
-const shouldCompress = (ct: string): boolean => {
-  for (const prefix of COMPRESSIBLE) {
-    if (ct.startsWith(prefix)) return true;
-  }
-
-  return false;
-};
 
 let supportsBrotli = false;
 
@@ -46,8 +31,8 @@ try {
   supportsBrotli = false;
 }
 
-export const compression = (options: CompressionOptions = {}): FluxPlugin => {
-  const { threshold = 1024, filter = shouldCompress, native = true } = options;
+export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
+  const { threshold = 1024, filter = isCompressible, native = true } = options;
 
   return {
     name: "compression",
@@ -62,23 +47,19 @@ export const compression = (options: CompressionOptions = {}): FluxPlugin => {
       const contentLength = Number(response.headers.get("content-length") || "0");
       if (contentLength && contentLength < threshold) return response;
 
-      const acceptEncoding = ctx.headers.get("accept-encoding") || "";
-
-      const encoding =
-        supportsBrotli && acceptEncoding.includes("br")
-          ? "br"
-          : acceptEncoding.includes("gzip")
-            ? "gzip"
-            : acceptEncoding.includes("deflate")
-              ? "deflate"
-              : null;
-
+      const supported = supportsBrotli ? ["br", "gzip", "deflate"] : ["gzip", "deflate"];
+      const encoding = negotiateEncoding(ctx.headers.get("accept-encoding") || "", supported);
       if (!encoding) return response;
 
       const headers = new Headers(response.headers);
       headers.set("content-encoding", encoding);
       headers.delete("content-length");
       appendVary(headers, "Accept-Encoding");
+
+      // A compressed body is a distinct representation: suffix the ETag so
+      // caches keep compressed/uncompressed variants separate (RFC 7232).
+      const etag = headers.get("etag");
+      if (etag) headers.set("etag", etagWithEncoding(etag, encoding));
 
       // Rust gzip fast path (buffered, maximum throughput). The body is read
       // once; if compression fails we serve the same bytes uncompressed.

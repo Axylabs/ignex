@@ -1,4 +1,4 @@
-import { post } from "@flux/core/http";
+import { post } from "@ignus/core/http";
 
 export default post(async (ctx) => {
   const body = await ctx.body.json<{ name?: string }>();

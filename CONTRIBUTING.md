@@ -1,4 +1,4 @@
-# Contributing to flux-core
+# Contributing to ignus
 
 Thanks for contributing! This document covers the development workflow, quality
 gates, and how to add features without breaking the AOT contract.
@@ -25,15 +25,15 @@ bun run verify     # typecheck + lint + test in one gate (what CI runs)
 
 | Package        | Responsibility                                            |
 | -------------- | --------------------------------------------------------- |
-| `@flux/compiler` | AOT compiler: discovery → analysis → codegen → artifacts |
-| `@flux/core`     | Runtime primitives: context, lifecycle, auth, plugins…   |
-| `@flux/shared`   | Shared FP toolkit + the compiler↔runtime AOT contract     |
-| `@flux/native`   | Rust-accelerated primitives with pure-TS fallbacks        |
-| `@flux/cli`      | Developer CLI (scaffold, dev, build)                      |
+| `@ignus/compiler` | AOT compiler: discovery → analysis → codegen → artifacts |
+| `@ignus/core`     | Runtime primitives: context, lifecycle, auth, plugins…   |
+| `@ignus/shared`   | Shared FP toolkit + the compiler↔runtime AOT contract     |
+| `@ignus/native`   | Rust-accelerated primitives with pure-TS fallbacks        |
+| `@ignus/cli`      | Developer CLI (scaffold, dev, build)                      |
 | `packages/app`   | Example application used for testing and benchmarking     |
 
 All packages ship **source-only** (`exports` point at `src/*.ts`); Bun runs TS
-natively. The CLI is no exception — `bin/flux.js` imports `../src/index.ts`.
+natively. The CLI is no exception — `bin/ignus.js` imports `../src/index.ts`.
 
 ## Quality gates (CI)
 
@@ -52,7 +52,7 @@ See [docs/adding-a-feature.md](docs/adding-a-feature.md) for the step-by-step
 guide covering plugins, hooks, routes, macros, and native functions.
 
 The single most important rule: **the compiler↔runtime contract is one-way**.
-`@flux/core` owns the runtime truth (`runHooks`, `createContext`, error types,
+`@ignus/core` owns the runtime truth (`runHooks`, `createContext`, error types,
 validators). The compiler imports those — never the other way around. If a
 runtime behavior changes, bump `COMPILER_CACHE_VERSION` in
 `packages/compiler/src/cache.ts` so cached builds are invalidated.

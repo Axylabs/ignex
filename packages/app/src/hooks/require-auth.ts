@@ -2,7 +2,7 @@
  * Shared auth hook: verifies an HS256 Bearer token and attaches the claims to
  * `ctx.state.user`. Used by routes via `export const config = { hooks: [...] }`.
  */
-import { continueHook, type HookFn, haltHook, jwtVerify } from "@flux/core";
+import { continueHook, type HookFn, haltHook, jwtVerify } from "@ignus/core";
 
 export default (async (ctx) => {
   const header = ctx.headers.get("authorization") ?? "";

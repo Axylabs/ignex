@@ -3,10 +3,10 @@
  * AOT-compiled server.
  *
  * Builds the request-matrix fixture app fresh into a throwaway in-repo dir
- * (Bun resolves `@flux/*` via the root tsconfig `paths`), so this suite always
+ * (Bun resolves `@ignus/*` via the root tsconfig `paths`), so this suite always
  * exercises the CURRENT generator and never races the other matrix suites over
  * the shared `matrix/dist`. It then drives the server exclusively through the
- * generated `createApiClient` — proving the SDK surface `flux build` produces
+ * generated `createApiClient` — proving the SDK surface `ignus build` produces
  * actually works against compiled code: params, JSON bodies, header merging,
  * ROUTES-key access, and error throwing on non-2xx.
  */

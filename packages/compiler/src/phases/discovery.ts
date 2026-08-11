@@ -76,15 +76,21 @@ export const scanDirectory = (
 // each one exactly once through a {@link SourceManager}. The manager retains a
 // {@link SourceFile} per file (AST included) that every later phase consumes —
 // no phase re-reads or re-parses source.
-export const runDiscovery = (opts: CompilerOptions, ctx: CompilerContext): DiscoveryResult =>
+export const runDiscovery = (
+  opts: CompilerOptions,
+  ctx: CompilerContext,
+  sources?: SourceManager,
+): DiscoveryResult =>
   ctx.logger.time("discovery", () => {
     const files = scanDirectory(opts.routesDir, "", ctx.diagnostics);
-    const sources = new SourceManager();
+    // Reuse a caller-provided SourceManager (e.g. one seeded with the
+    // persistent parse cache) so unchanged modules skip re-parsing.
+    const manager = sources ?? new SourceManager();
     const modules: SourceFile[] = [];
 
     for (const f of files) {
       const abs = join(opts.routesDir, f);
-      const mod = sources.read(abs, f, ctx.diagnostics);
+      const mod = manager.read(abs, f, ctx.diagnostics);
       if (mod) modules.push(mod);
     }
 
@@ -92,5 +98,5 @@ export const runDiscovery = (opts: CompilerOptions, ctx: CompilerContext): Disco
       routesDir: opts.routesDir,
     });
 
-    return { files, modules, sources };
+    return { files, modules, sources: manager };
   });

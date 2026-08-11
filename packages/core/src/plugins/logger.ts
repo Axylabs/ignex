@@ -6,13 +6,13 @@
  * - exactOptionalPropertyTypes-safe pino options
  */
 import pino, { type Logger as PinoLogger } from "pino";
-import type { FluxContext } from "../http/context";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import type { IgnusContext } from "../http/context";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 
 export interface LoggerOptions {
   level?: string;
   logger?: PinoLogger;
-  skip?: (ctx: FluxContext) => boolean;
+  skip?: (ctx: IgnusContext) => boolean;
 }
 
 const REDACT_PATHS = [
@@ -38,7 +38,7 @@ const createPinoLogger = (options: LoggerOptions): PinoLogger => {
 /**
  * Build structured access-log payload.
  */
-const createLogPayload = (ctx: FluxContext, response: Response) => {
+const createLogPayload = (ctx: IgnusContext, response: Response) => {
   const duration = performance.now() - ctx.startTime;
 
   return {
@@ -51,7 +51,7 @@ const createLogPayload = (ctx: FluxContext, response: Response) => {
   };
 };
 
-export const logger = (options: LoggerOptions = {}): FluxPlugin => {
+export const logger = (options: LoggerOptions = {}): IgnusPlugin => {
   const log = createPinoLogger(options);
 
   return {

@@ -1,0 +1,23 @@
+{
+  "name": "@ignus/test-utils",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "description": "Shared test helpers + fast-check arbitraries for the ignus monorepo (dev-only, never published).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "fast-check": "^4.9.0"
+  }
+}

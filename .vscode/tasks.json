@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ignus: verify",
+      "type": "shell",
+      "command": "bun run verify",
+      "problemMatcher": [],
+      "group": { "kind": "verify", "isDefault": true },
+      "detail": "Typecheck + lint + all tests (CI gate)."
+    },
+    {
+      "label": "ignus: test",
+      "type": "shell",
+      "command": "bun run test:all",
+      "problemMatcher": [],
+      "group": "test",
+      "detail": "Run the full vitest suite."
+    },
+    {
+      "label": "ignus: build (app)",
+      "type": "shell",
+      "command": "bun run build",
+      "problemMatcher": [],
+      "group": "build",
+      "detail": "AOT-compile the example app."
+    },
+    {
+      "label": "ignus: smoke",
+      "type": "shell",
+      "command": "bun run smoke",
+      "problemMatcher": [],
+      "group": "test",
+      "detail": "Boot the compiled server and assert every route/flow."
+    },
+    {
+      "label": "ignus: dev (app)",
+      "type": "shell",
+      "command": "bun run dev",
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "Build and watch the example app."
+    }
+  ]
+}

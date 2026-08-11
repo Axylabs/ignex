@@ -5,8 +5,8 @@
 
 export type MaybePromise<T> = T | Promise<T>;
 
-// Shared method vocabulary (single source of truth in @flux/shared).
-export { HTTP_METHODS, type HttpMethod } from "@flux/shared";
+// Shared method vocabulary (single source of truth in @ignus/shared).
+export { HTTP_METHODS, type HttpMethod } from "@ignus/shared";
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {

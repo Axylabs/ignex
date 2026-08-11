@@ -6,10 +6,10 @@ const alias = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@flux/shared": alias("../shared/src/index.ts"),
-      "@flux/core": alias("../core/src/index.ts"),
-      "@flux/native": alias("../native/src/index.ts"),
-      "@flux/compiler": alias("../compiler/src/index.ts"),
+      "@ignus/shared": alias("../shared/src/index.ts"),
+      "@ignus/core": alias("../core/src/index.ts"),
+      "@ignus/native": alias("../native/src/index.ts"),
+      "@ignus/compiler": alias("../compiler/src/index.ts"),
     },
   },
   test: {

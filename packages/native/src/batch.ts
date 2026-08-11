@@ -13,7 +13,7 @@
  *
  * NOT exposed: validate* batches. Although castrum's registry shows large
  * batch wins, that benchmark compared batch vs a NATIVE-scalar loop (100 FFI
- * crossings). Against flux's fast JS regex (~50ns/email) the packing +
+ * crossings). Against ignus's fast JS regex (~50ns/email) the packing +
  * unpacking overhead makes the batch ~6x SLOWER — the JS loop wins, so the
  * scalar auto-selection (validate* → js) already picks the faster path.
  *

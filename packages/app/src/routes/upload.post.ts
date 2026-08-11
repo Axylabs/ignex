@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { post } from "@flux/core/http";
+import { post } from "@ignus/core/http";
 
 export default post(async (ctx) => {
   const file = await ctx.body.file();

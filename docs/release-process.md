@@ -1,6 +1,6 @@
 # Release Process
 
-Flux uses a source-only, Bun-first monorepo. This document is the checklist for
+Ignus uses a source-only, Bun-first monorepo. This document is the checklist for
 cutting a release. Every package is versioned independently
 (`packages/*/package.json`) with a shared root version bump as a convenience.
 
@@ -8,6 +8,8 @@ cutting a release. Every package is versioned independently
 
 1. **Bump the compiler cache version** if any generated-code path changed:
    - `COMPILER_CACHE_VERSION` in `packages/compiler/src/cache.ts`.
+   - `MODULES_CACHE_VERSION` in `packages/compiler/src/frontend/persist.ts` if the
+     persisted per-module parse-cache shape changed.
    - A stale version silently invalidates (safe) — a missed bump can serve
      stale cached builds.
 2. **Run the full gate**:
@@ -33,10 +35,13 @@ cutting a release. Every package is versioned independently
 
 ## Tag & publish
 
+Publish order (dependency order): `@ignus/shared` → `@ignus/native` →
+`@ignus/core` → `@ignus/compiler` → `@ignus/cli` → `@ignus/mcp`.
+
 ```sh
 # 1. Commit with a conventional message
 git add -A
-git commit -m "release(flux): v0.2.0"
+git commit -m "release(ignus): v0.2.0"
 
 # 2. Tag
 git tag v0.2.0
@@ -50,16 +55,16 @@ npm publish --workspace packages/compiler
 npm publish --workspace packages/cli
 ```
 
-> The CLI is source-only (`bin/flux.js` imports `../src/index.ts`), so the
+> The CLI is source-only (`bin/ignus.js` imports `../src/index.ts`), so the
 > published tarball must include `src` — it does via `files: ["bin", "src"]`.
 
 ## Post-release
 
-- Update `packages/app` and the CLI's scaffolded `@flux/*` dependency versions.
+- Update `packages/app` and the CLI's scaffolded `@ignus/*` dependency versions.
 - Bump the `castrum` addon version in `packages/native` if the Rust surface
   changed (keep `Cargo.toml` ↔ `package.json` in sync).
 - Verify a fresh `bun install` from the tarballs in a clean project
-  (`bunx flux create my-app`).
+  (`bunx ignus create my-app`).
 
 ## Security
 

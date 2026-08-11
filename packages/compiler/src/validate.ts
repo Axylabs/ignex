@@ -1,10 +1,11 @@
 /**
  * Compiler options validation.
  *
- * - Validates options against a TypeBox schema (rejects unknown keys).
+ * - Validates options against a TypeBox schema.
  * - Recognizes previously-supported options that have been removed and emits a
- *   `FLX_OPTION_DEPRECATED` warning instead of silently ignoring them.
- * - Emits `FLX_OPTION_UNKNOWN` for truly unknown keys.
+ *   `IGN_OPTION_DEPRECATED` warning instead of silently ignoring them.
+ * - Emits `IGN_OPTION_UNKNOWN` (warning) for truly unknown keys and ignores
+ *   them, so a typo or a newer-version option never hard-fails a build.
  */
 
 import { type Static, Type } from "@sinclair/typebox";
@@ -82,7 +83,7 @@ const CompilerOptionsSchema = Type.Object(
  * configs do not hard-fail.
  */
 const DEPRECATED_OPTIONS: Record<string, string> = {
-  router: "Flux always emits Bun's native router. Remove this option.",
+  router: "Ignus always emits Bun's native router. Remove this option.",
   cluster:
     "Cluster mode is configured at the runtime/Bun level, not the compiler. Remove this option.",
   inlineHooks: "Hooks are always invoked at runtime. Remove this option.",
@@ -135,10 +136,13 @@ export const validateOptions = (
     }
 
     if (!SCHEMA_KEYS.has(key)) {
-      diagnostics?.error({
+      diagnostics?.warn({
         code: DiagnosticCodes.OptionUnknown,
-        message: `Unknown compiler option: '${key}'`,
+        message: `Unknown compiler option: '${key}'. It is ignored; check for typos or a newer @ignus/compiler version.`,
       });
+      // Strip the unknown key so schema validation (additionalProperties) does
+      // not treat it as fatal — mirroring the deprecated-option behavior.
+      delete data[key];
     }
   }
 

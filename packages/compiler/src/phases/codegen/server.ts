@@ -9,7 +9,7 @@ import type { CodegenState } from "./state";
 
 /**
  * Emit the `Bun.serve` bootstrap, prune generated helpers to those actually
- * referenced, compute the minimal `@flux/core` import, and assemble the final
+ * referenced, compute the minimal `@ignus/core` import, and assemble the final
  * module string (imports → header → helpers → cache decls → functions).
  */
 export const stageServer = (state: CodegenState, opts: CompilerOptions): string => {
@@ -26,6 +26,11 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
 };`);
 
   functions.push(`if (__serverCfg.websocket) __serveOptions.websocket = __serverCfg.websocket;`);
+  if (state.wsHandlers.length > 0) {
+    // WS routes provide the server websocket handler; an app-config
+    // `websocket` (escape hatch) takes precedence.
+    functions.push(`__serveOptions.websocket ??= ${state.wsHandlers[0]};`);
+  }
   functions.push(
     `if (__serverCfg.idleTimeout) __serveOptions.idleTimeout = __serverCfg.idleTimeout;`,
   );
@@ -41,7 +46,7 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // Emit runtime helpers (pruned to what is actually referenced).
   const usedHelpers = resolveUsedHelpers(helpers);
 
-  // Prune the `@flux/core` import to only the symbols the emitted code
+  // Prune the `@ignus/core` import to only the symbols the emitted code
   // actually references: header-required symbols, per-route core deps
   // (markCore), and the transitive core deps of used generated helpers.
   const neededCore = new Set<string>(["EMPTY_LIFECYCLE"]);

@@ -36,6 +36,17 @@ export const generateRouteCode = (
   // leader emits it.
   if (route.decisions.dedupGroup) return;
 
+  if (route.source.method === "WS") {
+    // WebSocket route: upgrade the request (a normal GET handshake); the
+    // socket lifecycle is handled by the server's `websocket` option — the
+    // route module's `wsHandler`.
+    functions.push(`function ${methodHandlerName(route)}(req, params, server) {
+  const upgraded = server.upgrade(req);
+  if (!upgraded) return new Response("Upgrade failed", { status: 400 });
+}`);
+    return;
+  }
+
   const constantJson = tryNormalizeConstant(route, hasAppConfig);
 
   // Constant responses are hoisted to zero-cost frozen bodies — unless the
@@ -434,8 +445,8 @@ export const generateRouteCode = (
     // Observe-only post-handler stages: a throwing afterResponse/trace hook
     // must not corrupt an already-finalized response (matches interpreted),
     // but the error is surfaced so broken hooks are debuggable.
-    try { await runHooks(__lc.afterResponse, ctx, response); } catch (__err) { console.error("[flux] afterResponse hook error:", __err); }
-    try { await runHooks(__lc.trace, ctx, response); } catch (__err) { console.error("[flux] trace hook error:", __err); }
+    try { await runHooks(__lc.afterResponse, ctx, response); } catch (__err) { console.error("[ignus] afterResponse hook error:", __err); }
+    try { await runHooks(__lc.trace, ctx, response); } catch (__err) { console.error("[ignus] trace hook error:", __err); }
     if (__ACCESS_LOG) {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(cfg.serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));

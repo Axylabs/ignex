@@ -1,10 +1,10 @@
-import { createJwt } from "@flux/core";
-import { post } from "@flux/core/http";
+import { createJwt } from "@ignus/core";
+import { post } from "@ignus/core/http";
 
 const jwt = createJwt({
   secret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   ttlSeconds: 3600,
-  issuer: "flux-demo",
+  issuer: "ignus-demo",
 });
 
 const USERS: Record<string, string> = {

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { buildAsync } from "@flux/compiler";
+import { buildAsync } from "@ignus/compiler";
 
 await buildAsync({
   routesDir: join(import.meta.dir, "src/routes"),

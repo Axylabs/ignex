@@ -99,7 +99,7 @@ describe("resolveAppConfig", () => {
     expect(result).toBeUndefined();
   });
 
-  it("emits an FLX_IO_READ_FAILED warning when the config is unreadable", () => {
+  it("emits an IGN_IO_READ_FAILED warning when the config is unreadable", () => {
     // A directory passes existsSync but fails readFileSync → safeReadFile "".
     const { ctx, d } = mkContext();
     const result = resolveAppConfig(

@@ -19,7 +19,7 @@ export interface CodegenState {
   // Helper usage tracking (dead-code elimination of generated boilerplate).
   helpers: Emitter;
 
-  // `@flux/core` import assembly.
+  // `@ignus/core` import assembly.
   coreNames: string[];
   uniqueCore: string[];
 
@@ -29,6 +29,9 @@ export interface CodegenState {
 
   // Inlined handler bodies (self-contained modules emitted inline).
   inlineHandlers: Map<string, { body: string; isAsync: boolean; param: string }>;
+
+  // WebSocket route `wsHandler` import names (assigned to `Bun.serve.websocket`).
+  wsHandlers: string[];
 
   // Route-table accumulation.
   routeEntries: Map<string, Map<string, string>>;
@@ -49,6 +52,7 @@ export const createCodegenState = (cfg: CodegenConfig, helpers: Emitter): Codege
   hasAppConfig: false,
   appConfigAbs: undefined,
   inlineHandlers: new Map(),
+  wsHandlers: [],
   routeEntries: new Map(),
   explicitKeys: new Set(),
   allowMethodsByPattern: new Map(),

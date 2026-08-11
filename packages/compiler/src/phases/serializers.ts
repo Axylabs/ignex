@@ -94,6 +94,11 @@ export const precompileSerializers = async (
 
         // Standard Schema fallback: safe JSON.stringify serializer
         if (isStandardSchema(statusSchema)) {
+          ctx.diagnostics.warn({
+            code: DiagnosticCodes.StandardSchemaRuntime,
+            message: `Standard-Schema response for ${route.source.method} ${route.source.path} (${status}) has no build-time serializer; using JSON.stringify fallback.`,
+            file: mod.path,
+          });
           const code = `export default (input) => JSON.stringify(input);
 `;
 

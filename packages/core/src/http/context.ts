@@ -1,5 +1,5 @@
 /**
- * @fileoverview Flux Context — the per-request object and its factory.
+ * @fileoverview Ignus Context — the per-request object and its factory.
  *
  * Bun 1.4 edition. Optimizations:
  * - lazy cookie parsing (delegated to `./cookies`)
@@ -29,15 +29,24 @@ import { forwardRequest, type ProxyOptions, proxyRequest } from "./proxy";
 import { generateRequestId } from "./request-id";
 
 /**
- * Narrow, Bun-free view of the server handle exposed on {@link FluxContext}.
+ * Narrow, Bun-free view of the server handle exposed on {@link IgnusContext}.
  *
  * The generated server assigns the Bun `Server` instance here; this structural
  * subset is all the runtime reads (client IP lookup). Keeping it Bun-free lets
- * `@flux/core` typecheck under non-Bun tsconfigs (e.g. the CLI's `types:
+ * `@ignus/core` typecheck under non-Bun tsconfigs (e.g. the CLI's `types:
  * ["node"]`).
  */
-export interface FluxServer {
+export interface IgnusServer {
   requestIP(req: Request): { address: string; family?: string; port?: number } | null;
+  /**
+   * Upgrade an HTTP request to a WebSocket (Bun `Server.upgrade`). Optional
+   * so non-Bun runtimes / the interpreted path degrade to `false` in
+   * {@link upgradeWS}. The generated server assigns the real Bun server here.
+   */
+  upgrade?(
+    req: Request,
+    options?: { data?: unknown; headers?: Headers | Record<string, string> },
+  ): boolean;
 }
 
 export interface ContextOptions {
@@ -66,7 +75,7 @@ export interface ContextOptions {
   trustProxy?: boolean;
 }
 
-export interface FluxContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
+export interface IgnusContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
   readonly req: Request;
   readonly url: URL;
   readonly method: HttpMethod;
@@ -118,7 +127,7 @@ export interface FluxContext<P = Record<string, string>, Q = URLSearchParams, B 
    */
   readonly loader: DataLoaderFactory;
 
-  readonly server: FluxServer | null;
+  readonly server: IgnusServer | null;
 }
 
 const defaultCache = new HttpResponseCache({
@@ -131,7 +140,7 @@ export function createContext<P = Record<string, string>>(
   req: Request,
   params: P,
   opts: ContextOptions = {},
-): FluxContext<P, URLSearchParams> {
+): IgnusContext<P, URLSearchParams> {
   let _url: URL | undefined;
   let _query: URLSearchParams | undefined = opts.query;
 
@@ -155,11 +164,14 @@ export function createContext<P = Record<string, string>>(
 
   const cookie = createLazyCookieJar(set, () => req.headers.get("cookie"));
 
-  const ctx: FluxContext<P, URLSearchParams> = {
+  const ctx: IgnusContext<P, URLSearchParams> = {
     req,
 
     get url() {
-      return (_url ??= new URL(req.url));
+      if (_url === undefined) {
+        _url = new URL(req.url);
+      }
+      return _url;
     },
 
     method: req.method as HttpMethod,
@@ -183,7 +195,7 @@ export function createContext<P = Record<string, string>>(
         // `requestIP` is non-standard on some runtimes and may throw rather
         // than return undefined — surface it at info level instead of
         // silently masking the failure, then fall through to headers.
-        console.info("[flux] requestIP unavailable:", err);
+        console.info("[ignus] requestIP unavailable:", err);
       }
 
       // Client-supplied IP headers are spoofable; only honor them when the app
@@ -200,7 +212,10 @@ export function createContext<P = Record<string, string>>(
     params,
 
     get query() {
-      return (_query ??= this.url.searchParams) as URLSearchParams;
+      if (_query === undefined) {
+        _query = this.url.searchParams;
+      }
+      return _query as URLSearchParams;
     },
 
     body,

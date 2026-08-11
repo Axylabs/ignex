@@ -1,5 +1,5 @@
 /**
- * @fileoverview Codegen: stage 1 — `@flux/core` import assembly + per-route
+ * @fileoverview Codegen: stage 1 — `@ignus/core` import assembly + per-route
  * imports (handlers, validators, serializers, hooks, app config).
  */
 
@@ -12,6 +12,7 @@ import {
   hookIdent,
   serializerImportName,
   validatorImportName,
+  wsHandlerImportName,
 } from "./identifiers";
 import type { CodegenState } from "./state";
 
@@ -78,6 +79,19 @@ export const stageImports = (
 
   for (const route of routes) {
     const mod = modules[route.source.moduleIdx];
+
+    // WebSocket routes import their `wsHandler` export for the server's
+    // `websocket` option; they have no HTTP handler to inline or import.
+    if (route.source.method === "WS") {
+      if (mod) {
+        imports.add(
+          `import { wsHandler as ${wsHandlerImportName(route)} } from ${JSON.stringify(toImportPath(mod.path, opts))};`,
+        );
+        state.wsHandlers.push(wsHandlerImportName(route));
+      }
+      continue;
+    }
+
     const inline = route.decisions.inlineCandidate;
     if (inline) inlineHandlers.set(route.codegen.handlerRef, inline);
 

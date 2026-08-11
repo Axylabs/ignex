@@ -30,10 +30,11 @@ export const stageRouteTable = (
   };
 
   const addRouteEntry = (method: string, path: string, expr: string) => {
-    if (!routeEntries.has(path)) {
-      routeEntries.set(path, new Map());
+    const existing = routeEntries.get(path);
+    const methods = existing ?? new Map<string, string>();
+    if (!existing) {
+      routeEntries.set(path, methods);
     }
-    const methods = routeEntries.get(path)!;
     if (!methods.has(method)) {
       methods.set(method, expr);
     }
@@ -52,7 +53,10 @@ export const stageRouteTable = (
         explicitKeys.add(`${method} ${path}`);
       }
     } else {
-      explicitKeys.add(`${route.source.method} ${path}`);
+      // WS routes upgrade on a GET request — register under GET so auto
+      // HEAD/OPTIONS and 405 handling treat them like a plain GET route.
+      const keyMethod = route.source.method === "WS" ? "GET" : route.source.method;
+      explicitKeys.add(`${keyMethod} ${path}`);
     }
   }
 
@@ -70,7 +74,8 @@ export const stageRouteTable = (
         addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
       }
     } else {
-      addRouteEntry(route.source.method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
+      const method = route.source.method === "WS" ? "GET" : route.source.method;
+      addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
     }
   }
 

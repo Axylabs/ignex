@@ -1,4 +1,4 @@
-import { EMPTY_USAGE } from "@flux/shared";
+import { EMPTY_USAGE } from "@ignus/shared";
 import { describe, expect, it } from "vitest";
 import { DiagnosticCodes, DiagnosticCollector } from "../src/diagnostics";
 import type { RouteIR } from "../src/ir/route";

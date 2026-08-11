@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** Headers the fixture echoes back (names are case-insensitive on read). */
 const ECHO = [

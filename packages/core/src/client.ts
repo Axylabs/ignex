@@ -21,7 +21,7 @@ export interface ClientResponse<T> {
   body: T | null;
 }
 
-export interface FluxClient {
+export interface IgnusClient {
   readonly baseUrl: string;
   /** Perform a JSON request and return the parsed body (throws on non-2xx). */
   request<T>(method: string, path: string, body?: unknown, init?: RequestInit): Promise<T>;
@@ -34,7 +34,7 @@ export interface FluxClient {
   delete<T>(path: string, init?: RequestInit): Promise<T>;
 }
 
-export const createClient = (options: ClientOptions): FluxClient => {
+export const createClient = (options: ClientOptions): IgnusClient => {
   const base = options.baseUrl.replace(/\/+$/, "");
   const baseHeaders = options.headers ?? {};
   const fetcher = options.fetch ?? globalThis.fetch;

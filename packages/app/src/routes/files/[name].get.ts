@@ -1,5 +1,5 @@
-import { safeJoin } from "@flux/core";
-import { get } from "@flux/core/http";
+import { safeJoin } from "@ignus/core";
+import { get } from "@ignus/core/http";
 
 export default get(async (ctx) => {
   const name = ctx.params.name;

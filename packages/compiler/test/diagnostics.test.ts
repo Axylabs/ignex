@@ -66,7 +66,7 @@ describe("getCodeFrame", () => {
 describe("formatDiagnostic", () => {
   it("includes severity, location, message, and code", () => {
     const out = formatDiagnostic({
-      code: "FLX_TEST",
+      code: "IGN_TEST",
       severity: "error",
       message: "boom",
       file: "a.ts",
@@ -76,6 +76,6 @@ describe("formatDiagnostic", () => {
     expect(out).toContain("error");
     expect(out).toContain("a.ts:2:3");
     expect(out).toContain("boom");
-    expect(out).toContain("FLX_TEST");
+    expect(out).toContain("IGN_TEST");
   });
 });

@@ -33,7 +33,7 @@ export function shouldIgnore(filename: string, outDir: string, root: string): bo
     absFile.includes("/.git/") ||
     absFile.includes("/dist/") ||
     absFile.endsWith(".log") ||
-    absFile.endsWith(".flux-cache.json") ||
+    absFile.endsWith(".ignus-cache.json") ||
     LOCKFILES.has(basename)
   );
 }

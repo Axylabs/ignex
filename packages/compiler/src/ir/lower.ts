@@ -40,10 +40,16 @@ export const parseRouteFilename = (
 
   const lastPart = parts.at(-1);
   if (lastPart) {
-    const normalized = normalizeHttpMethod(lastPart);
-    if (normalized) {
-      method = normalized;
-      routeName = parts.slice(0, -1).join(".");
+    if (lastPart === "ws") {
+      // `*.ws.ts` is a WebSocket route. `ws.ts` → `/ws`, `chat.ws.ts` → `/chat`.
+      method = "WS";
+      routeName = parts.slice(0, -1).join(".") || "ws";
+    } else {
+      const normalized = normalizeHttpMethod(lastPart);
+      if (normalized) {
+        method = normalized;
+        routeName = parts.slice(0, -1).join(".");
+      }
     }
   }
 

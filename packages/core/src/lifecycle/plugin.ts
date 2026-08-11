@@ -3,7 +3,7 @@
  * Lifecycle hooks, extensibility, composable plugins.
  */
 
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import type { HookContainer, LifeCycleStore } from "../types";
 import type { HookFn } from "./hooks";
 
@@ -11,7 +11,7 @@ import type { HookFn } from "./hooks";
 // Plugin Interface
 // ============================================================================
 
-export interface FluxPlugin {
+export interface IgnusPlugin {
   readonly name: string;
   readonly version?: string;
 
@@ -20,9 +20,9 @@ export interface FluxPlugin {
   close?(): MaybePromise<void>;
 
   // Request lifecycle
-  onRequest?(ctx: FluxContext): MaybePromise<FluxContext | Response>;
-  onResponse?(ctx: FluxContext, response: Response): MaybePromise<Response>;
-  onError?(error: Error, ctx: FluxContext): MaybePromise<Response | void>;
+  onRequest?(ctx: IgnusContext): MaybePromise<IgnusContext | Response>;
+  onResponse?(ctx: IgnusContext, response: Response): MaybePromise<Response>;
+  onError?(error: Error, ctx: IgnusContext): MaybePromise<Response | void>;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -32,18 +32,18 @@ type MaybePromise<T> = T | Promise<T>;
 // ============================================================================
 
 export interface PluginContext {
-  plugins: FluxPlugin[];
+  plugins: IgnusPlugin[];
   hooks: Map<string, HookFn[]>;
   addHook(name: string, hook: HookFn): void;
   getHooks(name: string): readonly HookFn[];
-  register(plugin: FluxPlugin): void;
+  register(plugin: IgnusPlugin): void;
   initAll(): Promise<void>;
   closeAll(): Promise<void>;
 }
 
 export const createPluginContext = (): PluginContext => {
   const hooks = new Map<string, HookFn[]>();
-  const plugins: FluxPlugin[] = [];
+  const plugins: IgnusPlugin[] = [];
 
   return {
     plugins,
@@ -64,7 +64,7 @@ export const createPluginContext = (): PluginContext => {
       // leave later plugins un-initialized.
       const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
       for (const r of results) {
-        if (r.status === "rejected") console.error("[flux] plugin init failed:", r.reason);
+        if (r.status === "rejected") console.error("[ignus] plugin init failed:", r.reason);
       }
     },
     async closeAll() {
@@ -72,7 +72,7 @@ export const createPluginContext = (): PluginContext => {
       // one plugin's close failure never skips the remaining plugins' cleanup.
       const results = await Promise.allSettled([...plugins].reverse().map((p) => p.close?.()));
       for (const r of results) {
-        if (r.status === "rejected") console.error("[flux] plugin close failed:", r.reason);
+        if (r.status === "rejected") console.error("[ignus] plugin close failed:", r.reason);
       }
     },
   };
@@ -82,7 +82,7 @@ export const createPluginContext = (): PluginContext => {
 // Plugin Composition
 // ============================================================================
 
-export const composePlugins = (...plugins: FluxPlugin[]): FluxPlugin => ({
+export const composePlugins = (...plugins: IgnusPlugin[]): IgnusPlugin => ({
   name: plugins.map((p) => p.name).join("+"),
   async init() {
     for (const p of plugins) await p.init?.();
@@ -118,7 +118,7 @@ export const composePlugins = (...plugins: FluxPlugin[]): FluxPlugin => ({
 // Plugin -> Lifecycle Bridge
 // ============================================================================
 
-function isFluxPlugin(value: unknown): value is FluxPlugin {
+function isIgnusPlugin(value: unknown): value is IgnusPlugin {
   return typeof value === "object" && value !== null && "name" in value;
 }
 
@@ -154,13 +154,13 @@ export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleS
 };
 
 export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> => {
-  const list = (plugins ?? []).flat().filter(isFluxPlugin);
+  const list = (plugins ?? []).flat().filter(isIgnusPlugin);
 
   const request: HookContainer[] = list
     .filter((p) => typeof p.onRequest === "function")
     .map((p) => ({
       scope: "global" as const,
-      fn: async (ctx: FluxContext) => {
+      fn: async (ctx: IgnusContext) => {
         const result = await p.onRequest!(ctx);
         if (result instanceof Response) {
           return { response: result };
@@ -189,7 +189,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
       : [
           {
             scope: "global" as const,
-            fn: async (ctx: FluxContext, response: Response) => {
+            fn: async (ctx: IgnusContext, response: Response) => {
               let current = response;
               for (const p of onResponsePlugins) {
                 const result = await p.onResponse!(ctx, current);
@@ -204,7 +204,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .filter((p) => typeof p.onError === "function")
     .map((p) => ({
       scope: "global" as const,
-      fn: async (ctx: FluxContext, error: unknown) => {
+      fn: async (ctx: IgnusContext, error: unknown) => {
         const result = await p.onError!(
           error instanceof Error ? error : new Error(String(error)),
           ctx,
@@ -224,12 +224,12 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
 };
 
 /**
- * Wrap a single `HookFn` as a `FluxPlugin` — the shared adapter behind the
+ * Wrap a single `HookFn` as a `IgnusPlugin` — the shared adapter behind the
  * auth / csrf / session plugin factories. An optional `close` callback is wired
  * to the plugin's `close()` so resources (stores, timers) are released on app
  * shutdown.
  */
-export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): FluxPlugin => ({
+export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): IgnusPlugin => ({
   name,
   async onRequest(ctx) {
     const result = await hook(ctx);

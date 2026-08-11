@@ -4,9 +4,9 @@
  * HSTS only on HTTPS requests.
  */
 
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import { reWrapResponse } from "../http/headers";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 
 export interface SecurityOptions {
   contentSecurityPolicy?: string | false;
@@ -35,7 +35,7 @@ const DEFAULTS: SecurityOptions = {
   xssFilter: true,
 };
 
-const isHttpsRequest = (ctx: FluxContext): boolean => {
+const isHttpsRequest = (ctx: IgnusContext): boolean => {
   const forwardedProto = ctx.headers.get("x-forwarded-proto");
 
   if (forwardedProto && forwardedProto.toLowerCase().includes("https")) {
@@ -49,7 +49,7 @@ const isHttpsRequest = (ctx: FluxContext): boolean => {
   }
 };
 
-export const security = (options: SecurityOptions = {}): FluxPlugin => {
+export const security = (options: SecurityOptions = {}): IgnusPlugin => {
   const opts = { ...DEFAULTS, ...options };
 
   return {

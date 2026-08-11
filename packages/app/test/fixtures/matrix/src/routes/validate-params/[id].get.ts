@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 import { Type } from "@sinclair/typebox";
 
 /** GET /validate-params/:id — params schema (`id` coerced to number). */

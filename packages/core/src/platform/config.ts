@@ -5,7 +5,7 @@
  * field from (in order of precedence): explicit overrides → environment →
  * default.
  */
-import { fold, tryCatchOr } from "@flux/shared";
+import { fold, tryCatchOr } from "@ignus/shared";
 import { coerceBoolean } from "./coerce";
 
 export type ConfigFieldType = "string" | "number" | "boolean" | "json";

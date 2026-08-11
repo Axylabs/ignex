@@ -7,10 +7,10 @@
  * wins over If-Modified-Since, and opaque-tag comparison is weak
  * (`W/` prefix ignored). When the Rust addon is present, the check is
  * delegated to castrum's compiled `ConditionalRequest` (304 fast path);
- * otherwise the `@flux/native` fallback implements byte-identical semantics.
+ * otherwise the `@ignus/native` fallback implements byte-identical semantics.
  */
 
-import { createConditionalRequest } from "@flux/native";
+import { createConditionalRequest } from "@ignus/native";
 
 /** `true` when the request's preconditions match the given entity tags/dates. */
 export const isNotModified = (req: Request, etag?: string, lastModified?: string): boolean => {

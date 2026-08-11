@@ -11,7 +11,7 @@
  * const res = await inject(app, { method: "POST", url: "/x", body: "…" });
  * ```
  */
-import type { FluxApp } from "../../src/index.js";
+import type { IgnusApp } from "../../src/index.js";
 
 export interface InjectInit {
   method?: string;
@@ -21,7 +21,7 @@ export interface InjectInit {
   body?: BodyInit | null;
 }
 
-export const inject = async (app: FluxApp, init: InjectInit = {}): Promise<Response> => {
+export const inject = async (app: IgnusApp, init: InjectInit = {}): Promise<Response> => {
   const { method = "GET", url = "/", headers, body } = init;
   const target = /^https?:\/\//.test(url) ? url : `http://localhost${url}`;
   return app.handler(new Request(target, { method, headers, body }));

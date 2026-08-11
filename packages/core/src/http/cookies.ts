@@ -6,7 +6,7 @@
  * emits identical `set-cookie` values.
  */
 
-import { cookiePairs } from "@flux/native";
+import { cookiePairs } from "@ignus/native";
 import type { CookieOptions, ElysiaCookie } from "../types";
 import type { SetHeaders } from "./headers";
 
@@ -104,7 +104,10 @@ export class Cookie<T = string | undefined> {
   }
 
   set value(v: T) {
-    const entry = (this.jar[this.name] ??= { ...this.initial });
+    if (this.jar[this.name] === undefined) {
+      this.jar[this.name] = { ...this.initial };
+    }
+    const entry = this.jar[this.name];
     entry.value = v;
   }
 
@@ -165,7 +168,10 @@ export class Cookie<T = string | undefined> {
   }
 
   update(config: Partial<ElysiaCookie>): this {
-    const entry = (this.jar[this.name] ??= { ...this.initial });
+    if (this.jar[this.name] === undefined) {
+      this.jar[this.name] = { ...this.initial };
+    }
+    const entry = this.jar[this.name];
     Object.assign(entry, config);
     return this;
   }
@@ -181,7 +187,10 @@ export class Cookie<T = string | undefined> {
   }
 
   private _set(key: string, value: unknown) {
-    const entry = (this.jar[this.name] ??= { ...this.initial });
+    if (this.jar[this.name] === undefined) {
+      this.jar[this.name] = { ...this.initial };
+    }
+    const entry = this.jar[this.name];
     (entry as Record<string, unknown>)[key] = value;
   }
 }
@@ -191,11 +200,12 @@ export const createCookieJar = (
   store: Record<string, ElysiaCookie>,
   initial?: Partial<ElysiaCookie>,
 ): Record<string, Cookie> => {
-  if (!set.cookie) set.cookie = Object.create(null);
+  if (!set.cookie) set.cookie = Object.create(null) as Record<string, ElysiaCookie>;
+  const cookieStore: Record<string, ElysiaCookie> = set.cookie;
 
   return new Proxy(store, {
     get(_, key: string) {
-      return new Cookie(key, set.cookie!, { ...initial, ...store[key] });
+      return new Cookie(key, cookieStore, { ...initial, ...store[key] });
     },
   }) as Record<string, Cookie>;
 };
@@ -219,7 +229,8 @@ export const createLazyCookieJar = (
   getCookieHeader: () => string | null,
   initial?: Partial<ElysiaCookie>,
 ): Record<string, Cookie> => {
-  if (!set.cookie) set.cookie = Object.create(null);
+  if (!set.cookie) set.cookie = Object.create(null) as Record<string, ElysiaCookie>;
+  const cookieStore: Record<string, ElysiaCookie> = set.cookie;
 
   let parsed: Record<string, string> | undefined;
 
@@ -237,7 +248,7 @@ export const createLazyCookieJar = (
     get(_, key: string) {
       const store = ensureParsed();
 
-      return new Cookie(key, set.cookie!, {
+      return new Cookie(key, cookieStore, {
         ...initial,
         value: store[key],
       });

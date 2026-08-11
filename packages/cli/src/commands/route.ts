@@ -1,10 +1,13 @@
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { routeFileTemplate } from "../templates/route.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
-import { ask, openPrompt } from "../utils/prompt.js";
+import { ask, askConfirm, openPrompt } from "../utils/prompt.js";
 import { parseRouteInput } from "../utils/route.js";
 
 export async function runRoute(args: string[]): Promise<void> {
@@ -64,8 +67,43 @@ export async function runRoute(args: string[]): Promise<void> {
   success(`Created ${relative(process.cwd(), filePath)}`);
 
   if (values.schema) {
-    info("Schema template uses @sinclair/typebox. Install it if missing:");
-    info("  bun add @sinclair/typebox");
+    info("Schema template uses @sinclair/typebox.");
+    // Offer to add the dependency when it is not already declared, mirroring
+    // `ignus create --features examples` (which adds it for you).
+    const pkgPath = join(root, "package.json");
+    let hasTypebox = false;
+    try {
+      const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      hasTypebox = Boolean(
+        pkg.dependencies?.["@sinclair/typebox"] ?? pkg.devDependencies?.["@sinclair/typebox"],
+      );
+    } catch {
+      // No package.json — leave the hint only.
+    }
+
+    if (!hasTypebox && process.stdin.isTTY) {
+      const rl = openPrompt();
+      try {
+        const install = await askConfirm(rl, "Add @sinclair/typebox?", true);
+        if (install) {
+          const pm = detectPm(root);
+          const result = spawnSync(pm, ["add", "@sinclair/typebox"], {
+            cwd: root,
+            stdio: "inherit",
+          });
+          if (result.status === 0) {
+            success("Installed @sinclair/typebox.");
+          }
+        }
+      } finally {
+        rl.close();
+      }
+    } else if (!hasTypebox) {
+      info("  Install it if missing: bun add @sinclair/typebox");
+    }
   }
 
   if (values.named) {
@@ -74,3 +112,12 @@ export async function runRoute(args: string[]): Promise<void> {
     );
   }
 }
+
+/** Best-effort package manager detection from lockfiles, defaulting to bun. */
+const detectPm = (root: string): "bun" | "npm" | "pnpm" | "yarn" => {
+  const has = (f: string): boolean => existsSync(join(root, f));
+  if (has("pnpm-lock.yaml")) return "pnpm";
+  if (has("yarn.lock")) return "yarn";
+  if (has("package-lock.json")) return "npm";
+  return "bun";
+};

@@ -2,7 +2,7 @@
  * @fileoverview Codegen: generated runtime helper registry.
  *
  * Dependency-aware pruning of generated boilerplate. `deps` lists other
- * generated helpers a helper references; `core` lists `@flux/core` symbols a
+ * generated helpers a helper references; `core` lists `@ignus/core` symbols a
  * helper needs. Only helpers (and their transitive deps/core imports) that are
  * actually referenced end up in the output.
  */

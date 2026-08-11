@@ -107,7 +107,7 @@ describe("proxyRequest", () => {
 
     const res = await proxyRequest("http://upstream/");
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-proxy")).toBe("flux");
+    expect(res.headers.get("x-proxy")).toBe("ignus");
     expect(res.headers.get("x-custom")).toBe("1");
     expect(res.headers.has("connection")).toBe(false);
     expect(res.headers.has("content-length")).toBe(false);

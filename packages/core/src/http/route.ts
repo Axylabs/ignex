@@ -8,7 +8,7 @@
  *
  * Example:
  * ```ts
- * import { get } from "@flux/core/http";
+ * import { get } from "@ignus/core/http";
  * import { Type } from "@sinclair/typebox";
  *
  * export default get(async (ctx) => ctx.json({ q: ctx.query.q }), {
@@ -22,7 +22,7 @@
 
 import type { AnySchema, MaybePromise, StandardSchemaV1 } from "../types";
 import type { LazyBody } from "./body";
-import type { FluxContext } from "./context";
+import type { IgnusContext } from "./context";
 
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
@@ -81,7 +81,7 @@ type TypedLazyBody<B> = {
 } & LazyBody;
 
 export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
-  FluxContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
+  IgnusContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
   "body" | "query"
 > & {
   body: TypedLazyBody<InferBody<S>>;
@@ -112,7 +112,7 @@ export type RouteHandler<S extends Partial<RouteSchemas>> = (
  * Backward-compatible handler type.
  */
 export type Handler<B = unknown, Q = URLSearchParams, P = Record<string, string>> = (
-  ctx: FluxContext<P, Q, B>,
+  ctx: IgnusContext<P, Q, B>,
 ) => MaybePromise<unknown>;
 
 type AnyFunction = (...args: any[]) => any;
@@ -161,3 +161,23 @@ export const del = defineMethod<BodyRouteSchemas>();
 
 /** Path is inferred from filename. Second parameter is a schema object. */
 export const all = defineMethod<BodyRouteSchemas>();
+
+/**
+ * Path is inferred from filename. Second parameter is a schema object.
+ * `HEAD` is fully supported end-to-end: route files ending in `.head.ts` are
+ * discovered by the compiler and the runtime maps `GET` routes to automatic
+ * `HEAD` responses when no explicit `HEAD` route exists.
+ */
+export const head = defineMethod<NoBodyRouteSchemas>();
+
+/**
+ * Path is inferred from filename. Second parameter is a schema object.
+ * `OPTIONS` is fully supported end-to-end: `.options.ts` route files are
+ * discovered by the compiler and the runtime emits an automatic 204
+ * `Allow`-listing `OPTIONS` response when no explicit route exists.
+ *
+ * NOTE: there are intentionally no `connect`/`trace` helpers. Bun's native
+ * route table only accepts the standard `HTTP_METHODS` subset; shipping DSL
+ * helpers that can't be routed would create unroutable route files.
+ */
+export const options = defineMethod<NoBodyRouteSchemas>();

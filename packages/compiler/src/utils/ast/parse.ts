@@ -103,7 +103,7 @@ function tryOxcParser(source: string): unknown | undefined {
 
   const attempts = [
     () =>
-      parseSync("flux.ts", source, {
+      parseSync("ignus.ts", source, {
         sourceType: "module",
         target: "esnext",
       }),
@@ -437,8 +437,8 @@ export const isPlainJavaScriptBody = (body: string, isAsync: boolean): boolean =
     const parseSync = mod.parseSync;
     if (typeof parseSync !== "function") return false;
 
-    const wrapped = `${isAsync ? "async " : ""}function __fluxInline() { ${body} }`;
-    const result = parseSync("__flux_inline.js", wrapped, {
+    const wrapped = `${isAsync ? "async " : ""}function __ignusInline() { ${body} }`;
+    const result = parseSync("__ignus_inline.js", wrapped, {
       sourceType: "script",
       lang: "js",
     }) as { errors?: unknown[] } | null;

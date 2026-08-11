@@ -1,6 +1,6 @@
 /**
  * High-level security primitives: JWT, signed cookies, CSRF, passwords and
- * AEAD encryption — backed by the Rust addon through `@flux/native` (with
+ * AEAD encryption — backed by the Rust addon through `@ignus/native` (with
  * byte-compatible pure-TS fallbacks). Composable, stateless, safe by default.
  */
 import { randomBytes } from "node:crypto";
@@ -20,13 +20,13 @@ import {
   randomToken,
   signCookie,
   verifyCookie,
-} from "@flux/native";
+} from "@ignus/native";
 
 export type {
   JwtSignOptions,
   JwtVerifyOptions,
   PasswordHashOptions,
-} from "@flux/native";
+} from "@ignus/native";
 
 // Low-level primitives (re-exported for direct use).
 export {

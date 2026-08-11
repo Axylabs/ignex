@@ -1,12 +1,12 @@
 /**
- * Type-level tests for the schema-first route helpers (`@flux/core/http`).
+ * Type-level tests for the schema-first route helpers (`@ignus/core/http`).
  *
  * These lock the inference contract: the schema passed as the second
  * argument types `ctx.query`, `ctx.body`, and the response value. They are
  * compile-time assertions only — use `expect-type`.
  */
 
-import { get, post } from "@flux/core/http";
+import { get, head, options, post } from "@ignus/core/http";
 import { expectTypeOf } from "expect-type";
 import { describe, it } from "vitest";
 
@@ -50,5 +50,16 @@ describe("http route helper types", () => {
     // `{status, body}` is allowed and `body` is typed against the 201 schema
     // (not the union of all response schemas).
     expectTypeOf<Result>().toMatchTypeOf<Promise<{ status: 201; body: { created: boolean } }>>();
+  });
+
+  it("exposes head/options helpers with body-less schemas", () => {
+    const headHandler = head((ctx) => ctx.text(""));
+    const optionsHandler = options((ctx) => ctx.text(""));
+    type HeadCtx = Parameters<typeof headHandler>[0];
+    type OptionsCtx = Parameters<typeof optionsHandler>[0];
+    // Body is unknown (no body schema allowed on HEAD/OPTIONS) and query
+    // falls back to URLSearchParams.
+    expectTypeOf<HeadCtx>().toHaveProperty("query").toEqualTypeOf<URLSearchParams>();
+    expectTypeOf<OptionsCtx>().toHaveProperty("query").toEqualTypeOf<URLSearchParams>();
   });
 });

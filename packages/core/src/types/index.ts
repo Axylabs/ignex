@@ -11,8 +11,8 @@
  * keep working unchanged.
  */
 
-import type { ContextUsage } from "@flux/shared";
-import { EMPTY_USAGE, FULL_USAGE } from "@flux/shared";
+import type { ContextUsage } from "@ignus/shared";
+import { EMPTY_USAGE, FULL_USAGE } from "@ignus/shared";
 
 export * from "./http";
 export * from "./lifecycle";

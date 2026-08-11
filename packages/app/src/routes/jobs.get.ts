@@ -1,5 +1,5 @@
-import { createJobQueue, withRetry, withTimeout } from "@flux/core";
-import { get } from "@flux/core/http";
+import { createJobQueue, withRetry, withTimeout } from "@ignus/core";
+import { get } from "@ignus/core/http";
 
 const queue = createJobQueue({
   concurrency: 2,

@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /secure — requires `Authorization: Bearer secret-token`. */
 export default get(async (ctx) => {

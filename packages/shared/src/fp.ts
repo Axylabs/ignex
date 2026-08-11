@@ -1,8 +1,8 @@
 /**
  * Shared functional core — `Result`, `Task`, `pipe`, `compose`.
  *
- * A deliberately small, dependency-free FP toolkit used by `@flux/core` and
- * `@flux/compiler`. If you need debounce/throttle/memoize/retry, add them in a
+ * A deliberately small, dependency-free FP toolkit used by `@ignus/core` and
+ * `@ignus/compiler`. If you need debounce/throttle/memoize/retry, add them in a
  * separate optional module — they do not belong in the hot runtime paths.
  */
 

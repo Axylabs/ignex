@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** Path to the fixture sample asset, resolved relative to the generated server. */
 const SAMPLE = new URL("../assets/sample.txt", import.meta.url).pathname;

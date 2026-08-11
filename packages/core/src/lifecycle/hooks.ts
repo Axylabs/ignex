@@ -3,7 +3,7 @@
  * Composable, async middleware with scoped lifecycle.
  */
 
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import type { HookContainer, LifeCycleStore } from "../types";
 
 // ============================================================================
@@ -11,16 +11,16 @@ import type { HookContainer, LifeCycleStore } from "../types";
 // ============================================================================
 
 export type HookResult =
-  | { readonly ok: true; ctx: FluxContext }
+  | { readonly ok: true; ctx: IgnusContext }
   | { readonly ok: false; response: Response };
 
-export type HookFn = (ctx: FluxContext) => Promise<HookResult> | HookResult;
+export type HookFn = (ctx: IgnusContext) => Promise<HookResult> | HookResult;
 
 // ============================================================================
 // Hook Constructors
 // ============================================================================
 
-export const continueHook = (ctx: FluxContext): HookResult => ({ ok: true, ctx });
+export const continueHook = (ctx: IgnusContext): HookResult => ({ ok: true, ctx });
 export const haltHook = (response: Response): HookResult => ({ ok: false, response });
 
 // ============================================================================
@@ -28,9 +28,9 @@ export const haltHook = (response: Response): HookResult => ({ ok: false, respon
 // ============================================================================
 
 export const executeHooks = async (
-  ctx: FluxContext,
+  ctx: IgnusContext,
   hooks: readonly HookFn[],
-): Promise<{ ctx: FluxContext; halted?: Response }> => {
+): Promise<{ ctx: IgnusContext; halted?: Response }> => {
   let current = ctx;
   for (const hook of hooks) {
     const result = await hook(current);

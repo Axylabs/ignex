@@ -8,14 +8,14 @@
  * (`@hey-api/openapi-ts`) then turns that document into a typed SDK under
  * {@link CLIENT_OUT}.
  *
- * Delegating to `@flux/compiler` keeps this script's output from ever
- * drifting from `flux build`'s `openapi.json`.
+ * Delegating to `@ignus/compiler` keeps this script's output from ever
+ * drifting from `ignus build`'s `openapi.json`.
  */
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { CompilerOptions, RouteDef } from "@flux/compiler";
-import { generateOpenApi, parseRouteFilename } from "@flux/compiler";
+import type { CompilerOptions, RouteDef } from "@ignus/compiler";
+import { generateOpenApi, parseRouteFilename } from "@ignus/compiler";
 
 const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
 const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json";
@@ -71,7 +71,7 @@ async function main() {
     } as unknown as RouteDef);
   }
 
-  const openapi = generateOpenApi(routes, { serviceName: "flux" } as CompilerOptions);
+  const openapi = generateOpenApi(routes, { serviceName: "ignus" } as CompilerOptions);
 
   mkdirSync(dirname(OPENAPI_OUT), { recursive: true });
 

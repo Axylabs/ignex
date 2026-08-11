@@ -3,7 +3,7 @@
  * compression, logging and sessions — exercised through `createApp`.
  */
 
-import { isNativeAvailable } from "@flux/native";
+import { isNativeAvailable } from "@ignus/native";
 import { describe, expect, it, vi } from "vitest";
 import { createApp, nativePreflight } from "../src/index.js";
 import { compression } from "../src/plugins/compression.js";

@@ -5,21 +5,22 @@
  * Each factory returns a `HookFn` that resolves a user onto `ctx.state` (via
  * {@link getUser}/{@link setUser}) or halts with a 401.
  */
-import type { FluxContext } from "../http/context";
+import type { IgnusContext } from "../http/context";
 import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { MaybePromise } from "../types";
 import { createJwt, type JwtServiceOptions } from "./crypto";
 
 /** Key under which the resolved user is stored on `ctx.state`. */
-export const USER_KEY = Symbol.for("flux.user");
+export const USER_KEY = Symbol.for("ignus.user");
 
 export type AuthUser = Record<string, unknown>;
 
 /** Read the authenticated user from a context. */
-export const getUser = <T = AuthUser>(ctx: FluxContext): T | undefined => ctx.getState<T>(USER_KEY);
+export const getUser = <T = AuthUser>(ctx: IgnusContext): T | undefined =>
+  ctx.getState<T>(USER_KEY);
 
 /** Attach the authenticated user to a context. */
-export const setUser = (ctx: FluxContext, user: unknown): void => ctx.setState(USER_KEY, user);
+export const setUser = (ctx: IgnusContext, user: unknown): void => ctx.setState(USER_KEY, user);
 
 export const unauthorized = (challenge?: string): Response => {
   const headers: Record<string, string> = {};
@@ -32,7 +33,7 @@ export const unauthorized = (challenge?: string): Response => {
  * `ctx.state`; on failure the request is halted with a 401.
  */
 export const requireAuth =
-  <T>(extract: (ctx: FluxContext) => MaybePromise<T | null>): HookFn =>
+  <T>(extract: (ctx: IgnusContext) => MaybePromise<T | null>): HookFn =>
   async (ctx) => {
     const user = await extract(ctx);
     if (user == null) return haltHook(unauthorized());
@@ -45,7 +46,7 @@ export const requireAuth =
  * that work for guests and authenticated users alike.
  */
 export const optionalAuth =
-  <T>(extract: (ctx: FluxContext) => MaybePromise<T | null>): HookFn =>
+  <T>(extract: (ctx: IgnusContext) => MaybePromise<T | null>): HookFn =>
   async (ctx) => {
     const user = await extract(ctx);
     if (user != null) setUser(ctx, user);
@@ -53,7 +54,7 @@ export const optionalAuth =
   };
 
 /** Split an `Authorization` header into its (lowercased) scheme + credentials. */
-const parseAuthorizationHeader = (ctx: FluxContext): { scheme: string; credentials: string } => {
+const parseAuthorizationHeader = (ctx: IgnusContext): { scheme: string; credentials: string } => {
   const header = ctx.headers.get("authorization") ?? "";
   const space = header.indexOf(" ");
   const scheme = space < 0 ? header : header.slice(0, space);
@@ -65,20 +66,20 @@ const parseAuthorizationHeader = (ctx: FluxContext): { scheme: string; credentia
 /** Parse + verify HTTP Basic credentials (`Authorization: Basic base64(u:p)`). */
 export const basicAuth =
   (
-    verify: (username: string, password: string, ctx: FluxContext) => MaybePromise<unknown | null>,
+    verify: (username: string, password: string, ctx: IgnusContext) => MaybePromise<unknown | null>,
   ): HookFn =>
   async (ctx) => {
     const { scheme, credentials } = parseAuthorizationHeader(ctx);
 
     if (scheme !== "basic" || !credentials) {
-      return haltHook(unauthorized('Basic realm="flux"'));
+      return haltHook(unauthorized('Basic realm="ignus"'));
     }
 
     let decoded: string;
     try {
       decoded = Buffer.from(credentials, "base64").toString("utf8");
     } catch {
-      return haltHook(unauthorized('Basic realm="flux"'));
+      return haltHook(unauthorized('Basic realm="ignus"'));
     }
 
     const colon = decoded.indexOf(":");
@@ -86,7 +87,7 @@ export const basicAuth =
     const password = colon < 0 ? "" : decoded.slice(colon + 1);
 
     const user = await verify(username, password, ctx);
-    if (user == null) return haltHook(unauthorized('Basic realm="flux"'));
+    if (user == null) return haltHook(unauthorized('Basic realm="ignus"'));
     setUser(ctx, user);
     return continueHook(ctx);
   };
@@ -94,7 +95,7 @@ export const basicAuth =
 /** Parse + verify HTTP Bearer credentials (`Authorization: Bearer <token>`). */
 export const bearerAuth =
   (
-    verify: (token: string, ctx: FluxContext) => MaybePromise<unknown | null>,
+    verify: (token: string, ctx: IgnusContext) => MaybePromise<unknown | null>,
     challenge = "Bearer",
   ): HookFn =>
   async (ctx) => {

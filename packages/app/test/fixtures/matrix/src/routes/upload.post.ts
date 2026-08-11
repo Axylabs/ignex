@@ -1,4 +1,4 @@
-import { post } from "@flux/core/http";
+import { post } from "@ignus/core/http";
 
 /** POST /upload — echoes multipart file metadata (no disk writes). */
 export default post(async (ctx) => {

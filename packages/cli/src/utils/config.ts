@@ -5,11 +5,11 @@ import { warn } from "./logger.js";
 
 /** All config filenames `loadConfig` reads, in priority order. */
 export const CONFIG_FILES = [
-  "flux.config.ts",
-  "flux.config.mts",
-  "flux.config.mjs",
-  "flux.config.js",
-  "flux.config.json",
+  "ignus.config.ts",
+  "ignus.config.mts",
+  "ignus.config.mjs",
+  "ignus.config.js",
+  "ignus.config.json",
 ] as const;
 
 export async function loadConfig(root: string): Promise<Record<string, unknown>> {
@@ -41,7 +41,7 @@ export async function loadConfig(root: string): Promise<Record<string, unknown>>
       return (value ?? {}) as Record<string, unknown>;
     } catch (err) {
       if (file.endsWith(".ts") || file.endsWith(".mts")) {
-        warn(`Could not import ${file}. Use flux.config.mjs with Node, or run the CLI with Bun.`);
+        warn(`Could not import ${file}. Use ignus.config.mjs with Node, or run the CLI with Bun.`);
       } else {
         warn(`Failed to load ${file}: ${err instanceof Error ? err.message : String(err)}`);
       }

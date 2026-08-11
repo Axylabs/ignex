@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
   createTemplate as createNativeTemplate,
   renderTemplate as renderNative,
-} from "@flux/native";
+} from "@ignus/native";
 
 export type TemplateContext = Record<string, unknown>;
 export type TemplateFn = (data: TemplateContext) => string;

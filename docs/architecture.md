@@ -1,4 +1,4 @@
-# Flux Architecture
+# Ignus Architecture
 
 This document explains how the pieces fit together so you can navigate the
 codebase and make changes without breaking the AOT contract.
@@ -7,11 +7,12 @@ codebase and make changes without breaking the AOT contract.
 
 | Package          | Role                                                              | Entry           |
 | ---------------- | ----------------------------------------------------------------- | --------------- |
-| `@flux/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
-| `@flux/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
-| `@flux/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
-| `@flux/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
-| `@flux/cli`      | Developer CLI (scaffold / dev / build)                            | `src/index.ts`  |
+| `@ignus/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
+| `@ignus/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
+| `@ignus/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
+| `@ignus/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
+| `@ignus/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
+| `@ignus/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
 | `packages/app`   | Example application (routes, views, hooks) + benchmarks           | `builder.ts`    |
 
 All packages ship **source-only**: `exports` point at `src/*.ts`, and Bun runs
@@ -71,7 +72,9 @@ Two cross-cutting layers sit directly under `src/`:
 - **optimization** — constant-response detection, inline eligibility, dead-code
   pruning. Gated by `optimizationLevel` 0–3 presets.
 - **precompile** — compiles validators/serializers ahead of time. Both use the
-  shared `forEachRouteWithSchema` loop in `schema-loader.ts`.
+  shared `forEachRouteWithSchema` loop in `schema-loader.ts`; `schema-convert.ts`
+  turns Standard-Schema parts into plain JSON Schema (via `toJSONSchema`/`toJsonSchema`
+  or zod/valibot) so they can be precompiled instead of falling back to runtime.
 - **codegen/** — emits the optimized `__server.js`: native Bun routing, a
   specialized per-route context, `__applySet`/`__finalize`/`__handleError`
   helpers, and the pre/post lifecycle. `generateServer` composes named emission
@@ -85,9 +88,15 @@ Two cross-cutting layers sit directly under `src/`:
 
 The pipeline itself is composed declaratively in `src/index.ts`: each phase is
 a pure function over a `PipelineState`, threaded with `pipe` (sync path) or
-`pipeAsync` (async path) from `@flux/shared`. The whole build reads as:
+`pipeAsync` (async path) from `@ignus/shared`. The whole build reads as:
 `validate → discover → analyze → optimize → precompile → artifacts → codegen
 → link → cache`.
+
+The build writes two cache artifacts into `outDir`: `.ignus-cache.json` (the
+whole-build fingerprint) and `.ignus-modules.json` (the **persistent module
+parse cache** — `frontend/persist.ts` serializes each `SourceFile`'s
+`ParseResult`, keyed by content hash, so `SourceManager` rehydrates unchanged
+modules instead of re-parsing them on cache-hit regeneration and rebuilds).
 
 ### The AST layer (`src/utils/ast/`)
 
@@ -113,7 +122,7 @@ everything downstream is typed against the `Node` union in `ast-types.ts`.
 
 ### The AOT contract: `ContextUsage`
 
-`ContextUsage` (in `@flux/shared`) is a bitmap of which `ctx.*` members a
+`ContextUsage` (in `@ignus/shared`) is a bitmap of which `ctx.*` members a
 handler touches (`body`, `query`, `params`, `set`, `loader`, …). The compiler
 emits a context that only carries the used members; `EMPTY_USAGE` /
 `FULL_USAGE` are the extremes. When you add a new `ctx` member:
@@ -125,14 +134,14 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 
 ## Runtime lifecycle
 
-`@flux/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
+`@ignus/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
 composes the pre-handler stages (`beforeHandle` …), runs the handler, then the
 post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as a
 `pipeAsync` composition of named stages over a `LifecycleState` carrier. The
-generated server imports `runHooks`/`runLifecycle` from `@flux/core` — there is
+generated server imports `runHooks`/`runLifecycle` from `@ignus/core` — there is
 **one** implementation, not a compiled copy.
 
-`FluxContext` (`core/src/http/context.ts`) is the per-request object: read-only
+`IgnusContext` (`core/src/http/context.ts`) is the per-request object: read-only
 request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
 `body`/`cookie`/`state`, the `set` outgoing channel, and response builders
 (`json`/`text`/`redirect`/`stream`/…). `ctx.set` mutations are applied by the
@@ -151,15 +160,15 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 | `http/`       | Request/response handling                                  | context, cookies, headers, body, proxy, files, sse, ws, route DSL |
 | `data/`       | Data access, caching & validation                          | cache, dataloader, lru, query, schema, validation |
 | `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, plugin |
-| `platform/`   | App runtime infrastructure                                 | env, config, coerce, jobs, errors |
+| `platform/`  | App runtime infrastructure                                 | env, config, coerce, jobs, durable jobs (`jobs-store.ts` / `jobs-durable.ts`), errors |
 | `content/`    | Rendering & localization                                   | i18n, template |
-| `plugins/`    | Ready-made `FluxPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
+| `plugins/`    | Ready-made `IgnusPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
 | `types/`      | Unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) | — |
 
 `client.ts` and `openapi.ts` stay top-level (consumer-facing). The public
 surface is `src/index.ts` — a grouped barrel that re-exports from the domain
 folders, so the internal layout never leaks to consumers. Subpath exports:
-`@flux/core/http` → `src/http/route.ts`, `@flux/core/config` →
+`@ignus/core/http` → `src/http/route.ts`, `@ignus/core/config` →
 `src/platform/config.ts`.
 
 ## Maintainability conventions
@@ -180,7 +189,7 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   `compiler/validate.ts` (`mergeOptions` — preset application happens once),
   `compiler/phases/schema-loader.ts` (`forEachRouteWithSchema`).
 - **Compose with the FP toolkit.** `pipe`/`pipeAsync`/`fold`/`Result` from
-  `@flux/shared` are used where they make control flow explicit (the compiler
+  `@ignus/shared` are used where they make control flow explicit (the compiler
   pipeline, `runLifecycle`, `negotiateLocale`, `defineConfig`, session cookie
   decoding). The route DSL is a curried factory (`defineMethod`) so each
   `get`/`post`/… helper stays a one-liner with its own schema bound. Hot-path
@@ -192,14 +201,14 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
 
 ## Cache / determinism
 
-The compiler keeps an incremental cache (`.flux-cache.json`) fingerprinted by
+The compiler keeps an incremental cache (`.ignus-cache.json`) fingerprinted by
 `COMPILER_CACHE_VERSION` in `packages/compiler/src/cache.ts`. **Bump it
 whenever generated code changes** — a stale version silently disables the
 cache, a stale hash can serve stale output.
 
 ## Native acceleration
 
-`@flux/native` resolves the `castrum` Rust addon when available and falls back
+`@ignus/native` resolves the `castrum` Rust addon when available and falls back
 to pure-TS implementations otherwise (never throws). Both paths are locked by
 the parity suite in `packages/native/test/native.test.ts`. See
 `packages/native/README.md`.

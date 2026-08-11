@@ -14,7 +14,7 @@ import {
   createContext,
   EMPTY_LIFECYCLE,
   runLifecycle,
-} from "@flux/core";
+} from "@ignus/core";
 import { describe, expect, it } from "vitest";
 
 const req = () => new Request("http://localhost:3000/");

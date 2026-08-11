@@ -11,15 +11,15 @@ const alias = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@flux/shared": alias("../shared/src/index.ts"),
-      "@flux/native": alias("../native/src/index.ts"),
+      "@ignus/shared": alias("../shared/src/index.ts"),
+      "@ignus/native": alias("../native/src/index.ts"),
       // Order matters: Vite prefix-replaces aliases, so the specific subpath
-      // must come before the package root (`@flux/core/http` must not match
-      // `@flux/core` first) — mirrors the root vitest.config.ts.
-      "@flux/core/http": alias("../core/src/http/route.ts"),
-      "@flux/core": alias("../core/src/index.ts"),
+      // must come before the package root (`@ignus/core/http` must not match
+      // `@ignus/core` first) — mirrors the root vitest.config.ts.
+      "@ignus/core/http": alias("../core/src/http/route.ts"),
+      "@ignus/core": alias("../core/src/index.ts"),
       // Keep the Rust addon out of unit tests (fallbacks only) unless
-      // FLUX_NATIVE_PATH is explicitly set — matches the root config.
+      // IGNUS_NATIVE_PATH is explicitly set — matches the root config.
       castrum: alias("../native/src/vendor/castrum.d.ts"),
     },
   },

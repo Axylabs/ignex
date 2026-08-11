@@ -48,7 +48,7 @@ test("default route template uses export default", () => {
   const parsed = parseRouteInput("hello.get");
   const code = routeFileTemplate(parsed);
 
-  expect(code).toContain('import { get } from "@flux/core/http";');
+  expect(code).toContain('import { get } from "@ignus/core/http";');
   expect(code).toContain('export default get(() => new Response("OK"));');
   expect(code).not.toContain("export const httpGet");
 });
@@ -57,7 +57,7 @@ test("named route template uses export const httpGet", () => {
   const parsed = parseRouteInput("hello.get");
   const code = routeFileTemplate(parsed, { named: true });
 
-  expect(code).toContain('import { get } from "@flux/core/http";');
+  expect(code).toContain('import { get } from "@ignus/core/http";');
   expect(code).toContain('export const httpGet = get(() => new Response("OK"));');
   expect(code).not.toContain("export default");
 });

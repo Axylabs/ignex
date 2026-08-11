@@ -13,11 +13,18 @@
 
 import { readFileSync } from "node:fs";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
-import { clearParseCache, parseModule } from "../utils/ast";
+import { clearParseCache, type ParseResult, parseModule } from "../utils/ast";
+import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
 export class SourceManager {
   private readonly sources = new Map<string, SourceFile>();
+  /** Persisted parse results keyed by content hash (loaded once from disk). */
+  private readonly diskCache: ReadonlyMap<string, ParseResult>;
+
+  constructor(diskCache?: ReadonlyMap<string, ParseResult>) {
+    this.diskCache = diskCache ?? new Map();
+  }
 
   /**
    * Read a file from disk and parse it once, returning the retained
@@ -62,11 +69,16 @@ export class SourceManager {
     const existing = this.sources.get(relPath);
     if (existing) return existing;
 
-    const parsed = parseModule(content, diagnostics);
+    // Rehydrate from the persistent parse cache when the content hash matches,
+    // so unchanged modules skip re-parsing on incremental builds. A content
+    // change misses the cache and parses from source as usual.
+    const diskParsed = this.diskCache.get(hashString(content));
+    const parsed = diskParsed ?? parseModule(content, diagnostics);
     const file: SourceFile = {
       path: absPath,
       relPath,
       content,
+      parse: parsed,
       ast: parsed.ast,
       imports: parsed.imports,
       exports: parsed.exports,

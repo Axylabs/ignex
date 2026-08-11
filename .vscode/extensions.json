@@ -1,0 +1,3 @@
+{
+  "recommendations": ["biomejs.biome", "oxc.oxlint-vscode", "oven-sh.bun-vscode", "vitest.explorer"]
+}

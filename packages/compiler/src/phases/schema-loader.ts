@@ -13,8 +13,25 @@ import { pathToFileURL } from "node:url";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
 import type { CompilerContext, ModuleInfo, RouteDef } from "../types";
 import { hashString } from "../utils/hash";
+import { convertSchemaDoc } from "./schema-convert";
+
+/** Cap for the module precompilation cache (FIFO) so long-lived dev servers don't grow unboundedly. */
+const MODULE_CACHE_MAX = 256;
 
 const moduleCache = new Map<string, unknown>();
+
+const cacheModule = (key: string, value: unknown): void => {
+  if (moduleCache.size >= MODULE_CACHE_MAX) {
+    const oldest = moduleCache.keys().next().value;
+    if (oldest !== undefined) moduleCache.delete(oldest);
+  }
+  moduleCache.set(key, value);
+};
+
+/** Expose a reset for tests and long-lived processes. */
+export const clearModuleCache = (): void => {
+  moduleCache.clear();
+};
 
 const contentHash = (absPath: string): string => {
   try {
@@ -54,7 +71,7 @@ export const loadRouteModule = async (
     const schema = mod?.schema ?? inlineSchema;
     const normalized = schema === undefined ? mod : { ...mod, schema };
 
-    moduleCache.set(key, normalized);
+    cacheModule(key, normalized);
 
     return normalized;
   } catch (error) {
@@ -128,7 +145,12 @@ export const forEachRouteWithSchema = async (
       continue;
     }
 
-    nextRoutes.push((await process(route, mod, schema as Record<string, unknown>)) ?? route);
+    // Convert Standard-Schema parts to plain JSON Schema once at build time so
+    // precompiled validators/serializers (and OpenAPI via `schemaDoc`) see
+    // plain JSON Schema instead of a `~standard` runtime-only object.
+    const convertedSchema = await convertSchemaDoc(schema as Record<string, unknown>);
+
+    nextRoutes.push((await process(route, mod, convertedSchema)) ?? route);
   }
 
   return nextRoutes;

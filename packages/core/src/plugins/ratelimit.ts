@@ -9,11 +9,24 @@
  * limiter with the same behavior.
  */
 
-import { createRateLimiter } from "@flux/native";
+import { createRateLimiter } from "@ignus/native";
 import { LRUCache } from "../data/lru";
-import type { FluxContext } from "../http/context";
+import {
+  checkFixedWindow,
+  checkSlidingWindow,
+  checkTokenBucket,
+  type FixedWindowEntry,
+  freshFixedWindow,
+  freshSlidingWindow,
+  freshTokenBucket,
+  type RateDecision,
+  type RateLimitAlgorithm,
+  type SlidingWindowEntry,
+  type TokenBucketEntry,
+} from "../data/ratelimit";
+import type { IgnusContext } from "../http/context";
 import { reWrapResponse } from "../http/headers";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 import { firstForwardedIp } from "../platform/coerce";
 
 export interface RateLimitOptions {
@@ -21,18 +34,26 @@ export interface RateLimitOptions {
   maxRequests?: number;
   storeMax?: number;
   trustProxy?: boolean;
-  keyGenerator?: (ctx: FluxContext) => string;
-  skip?: (ctx: FluxContext) => boolean;
+  keyGenerator?: (ctx: IgnusContext) => string;
+  skip?: (ctx: IgnusContext) => boolean;
   message?: string;
   /**
+   * Limiting algorithm. `fixed-window` (default) is the classic reset-per-
+   * window; `sliding-window` smooths it with a weighted previous window;
+   * `token-bucket` allows bursts up to `maxRequests` and refills continuously.
+   */
+  algorithm?: RateLimitAlgorithm;
+  /**
    * Use the native Rust rate limiter when the addon is present (default
-   * `false`). Falls back to the TS implementation without the addon.
+   * `false`). The native backend is fixed-window only; other algorithms use
+   * the TS state machines. Falls back to the TS implementation without the
+   * addon.
    */
   native?: boolean;
 }
 
-interface WindowEntry {
-  count: number;
+interface RateState {
+  remaining: number;
   resetTime: number;
 }
 
@@ -42,7 +63,7 @@ interface RateState {
   resetTime: number;
 }
 
-export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
+export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
   const {
     windowMs = 60_000,
     maxRequests = 100,
@@ -50,10 +71,11 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
     trustProxy = false,
     skip,
     message = "Too many requests",
+    algorithm = "fixed-window",
     native = false,
   } = options;
 
-  const defaultKeyGenerator = (ctx: FluxContext): string => {
+  const defaultKeyGenerator = (ctx: IgnusContext): string => {
     if (trustProxy) {
       const xff = ctx.headers.get("x-forwarded-for");
 
@@ -76,7 +98,7 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
 
   const store = nativeLimiter
     ? null
-    : new LRUCache<string, WindowEntry>({
+    : new LRUCache<string, FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry>({
         max: storeMax,
         ttlMs: windowMs,
       });
@@ -118,24 +140,27 @@ export const rateLimit = (options: RateLimitOptions = {}): FluxPlugin => {
         return ctx;
       }
 
-      let entry = store!.get(key);
+      const config = { windowMs, maxRequests };
+      const stored = store!.get(key);
 
-      if (!entry || entry.resetTime <= now) {
-        entry = { count: 0, resetTime: now + windowMs };
-        store!.set(key, entry, { ttlMs: windowMs });
+      let decision: RateDecision;
+
+      if (algorithm === "sliding-window") {
+        const base = (stored as SlidingWindowEntry | undefined) ?? freshSlidingWindow(now);
+        decision = checkSlidingWindow(config, base, now);
+      } else if (algorithm === "token-bucket") {
+        const base = (stored as TokenBucketEntry | undefined) ?? freshTokenBucket(now, maxRequests);
+        decision = checkTokenBucket(config, base, now);
+      } else {
+        const base = (stored as FixedWindowEntry | undefined) ?? freshFixedWindow(now, windowMs);
+        decision = checkFixedWindow(config, base, now);
       }
 
-      entry.count++;
+      store!.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
 
-      store!.set(key, entry, {
-        ttlMs: Math.max(0, entry.resetTime - now),
-      });
+      const state: RateState = { remaining: decision.remaining, resetTime: decision.resetMs };
 
-      const state: RateState = { remaining: maxRequests - entry.count, resetTime: entry.resetTime };
-
-      if (entry.count > maxRequests) {
-        return limitResponse(state);
-      }
+      if (!decision.allowed) return limitResponse(state);
 
       ctx.setState("__ratelimit", state);
 

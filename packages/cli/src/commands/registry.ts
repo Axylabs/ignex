@@ -2,7 +2,7 @@
  * @fileoverview Command registry — the single place CLI commands are declared.
  *
  * Each command carries its name, aliases, description, the flag docs shown in
- * `flux help`, and its `run` function. `main` in `src/index.ts` dispatches by
+ * `ignus help`, and its `run` function. `main` in `src/index.ts` dispatches by
  * looking up this registry (no hard-coded switch), so adding a command is a
  * one-line addition here.
  */
@@ -11,13 +11,14 @@ import { runBuild } from "./build.js";
 import { runCreate } from "./create.js";
 import { runDev } from "./dev.js";
 import { runInfo } from "./info.js";
+import { runMcp } from "./mcp.js";
 import { runRoute } from "./route.js";
 
 export interface Command {
   name: string;
   aliases?: readonly string[];
   description: string;
-  /** Flag docs / usage shown under this command in `flux help`. */
+  /** Flag docs / usage shown under this command in `ignus help`. */
   options?: string;
   run(args: string[]): Promise<void>;
 }
@@ -48,6 +49,8 @@ export const commands: readonly Command[] = [
   --no-spawn                    Build/watch only, do not run server
   --outDir <dir>                Compiler output directory
   --routesDir <dir>             Route directory
+  --minify                      Enable minification if supported
+  --sourcemap                   Enable sourcemaps if supported
   --verbose                     Verbose compiler logs`,
     run: runDev,
   },
@@ -60,7 +63,7 @@ export const commands: readonly Command[] = [
   --minify                      Enable minification if supported
   --sourcemap                   Enable sourcemaps if supported
   --verbose                     Verbose compiler logs
-  --watch                       Alias for flux dev`,
+  --watch                       Alias for ignus dev`,
     run: runBuild,
   },
   {
@@ -80,6 +83,13 @@ export const commands: readonly Command[] = [
     description: "Show app/compiler info",
     run: runInfo,
   },
+  {
+    name: "mcp",
+    description: "Run the Model Context Protocol server (stdio)",
+    options: `  Exposes agent tools: build, route, info, doctor, openapi, dev
+  Run via an MCP client (e.g. npx @modelcontextprotocol/inspector ignus mcp)`,
+    run: runMcp,
+  },
 ];
 
 /** Look a command up by name or alias. */
@@ -89,9 +99,9 @@ export const findCommand = (name: string): Command | undefined =>
 const ALIAS_LABEL = (aliases: readonly string[] | undefined): string =>
   aliases && aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
 
-/** Render the full `flux help` text from the registry. */
+/** Render the full `ignus help` text from the registry. */
 export const renderHelp = (): string => {
-  const usage = commands.map((c) => `  flux ${c.name} [options]`).join("\n");
+  const usage = commands.map((c) => `  ignus ${c.name} [options]`).join("\n");
   const list = commands
     .map((c) => `  ${c.name}${ALIAS_LABEL(c.aliases)}   ${c.description}`)
     .join("\n");
@@ -102,7 +112,7 @@ export const renderHelp = (): string => {
     .join("\n\n");
 
   return `
-@flux/cli
+@ignus/cli
 
 Usage:
 ${usage}
@@ -113,10 +123,10 @@ ${list}
 ${options}
 
 Examples:
-  flux create my-app --runtime bun --features openapi,files,tests --pm bun
-  flux dev packages/app
-  flux build packages/app --minify
-  flux route products/[id].get --schema
-  flux route upload.post --method post
+  ignus create my-app --runtime bun --features openapi,files,tests --pm bun
+  ignus dev packages/app
+  ignus build packages/app --minify
+  ignus route products/[id].get --schema
+  ignus route upload.post --method post
 `;
 };

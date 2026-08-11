@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 /** GET /proxy — proxies to the `?target=` URL (used by proxy integration tests). */
 export default get(async (ctx) => {

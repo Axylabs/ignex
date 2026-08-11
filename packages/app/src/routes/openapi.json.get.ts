@@ -1,4 +1,4 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 export default get(async () => {
   const file = Bun.file("dist/openapi.json");

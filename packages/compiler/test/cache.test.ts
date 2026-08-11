@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { mergeOptions } from "../src/index";
 import { silentLogger } from "../src/logger";
 
 const makeLayout = () => {
-  const outDir = mkdtempSync(join(tmpdir(), "flux-cache-"));
+  const outDir = mkdtempSync(join(tmpdir(), "ignus-cache-"));
   const routesDir = join(outDir, "routes");
   mkdirSync(routesDir, { recursive: true });
   writeFileSync(join(routesDir, "index.get.ts"), "export default () => 'hi';\n");
@@ -57,6 +57,20 @@ describe("incremental cache", () => {
     const outPath = join(outDir, "server.js");
 
     await writeFile(outPath, "export default {};\n");
+    // A real build also writes the companion artifacts the entry imports /
+    // accompanies them with — recreate them so the integrity check passes.
+    for (const rel of [
+      "manifest.json",
+      "routes.d.ts",
+      "client.ts",
+      "client.d.ts",
+      "openapi.json",
+    ]) {
+      await writeFile(join(outDir, rel), "{}");
+    }
+    mkdirSync(join(outDir, "validators"), { recursive: true });
+    mkdirSync(join(outDir, "serializers"), { recursive: true });
+
     await storeCache(opts, ctx, outPath);
 
     const hit = await tryCachedBuild(opts, ctx);
@@ -76,6 +90,36 @@ describe("incremental cache", () => {
     await storeCache(opts, ctx, outPath);
 
     writeFileSync(join(routesDir, "index.get.ts"), "export default () => 'new';\n");
+
+    const hit = await tryCachedBuild(opts, ctx);
+    expect(hit).toBeUndefined();
+  });
+
+  it("misses the cache when a companion artifact is deleted", async () => {
+    const { opts, outDir } = makeOpts();
+    const ctx = makeCtx();
+    const outPath = join(outDir, "server.js");
+
+    await writeFile(outPath, "export default {};\n");
+    for (const rel of [
+      "manifest.json",
+      "routes.d.ts",
+      "client.ts",
+      "client.d.ts",
+      "openapi.json",
+    ]) {
+      await writeFile(join(outDir, rel), "{}");
+    }
+    const validatorsDir = join(outDir, "validators");
+    const serializersDir = join(outDir, "serializers");
+    mkdirSync(validatorsDir, { recursive: true });
+    mkdirSync(serializersDir, { recursive: true });
+
+    await storeCache(opts, ctx, outPath);
+
+    // Deleting the precompiled validators (imported by the generated server)
+    // must invalidate the cache — the entry would otherwise import a missing file.
+    rmSync(validatorsDir, { recursive: true, force: true });
 
     const hit = await tryCachedBuild(opts, ctx);
     expect(hit).toBeUndefined();

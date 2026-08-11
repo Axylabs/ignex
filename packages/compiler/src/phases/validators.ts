@@ -50,21 +50,28 @@ export const precompileValidators = async (
     return routes;
   }
 
-  const ajv = new Ajv({
-    allErrors: true,
-    strict: false,
-    coerceTypes: true,
-    removeAdditional: true,
-    useDefaults: true,
-    code: {
-      source: true,
-      esm: false,
-    },
-  });
-
-  addFormats(ajv);
+  /** Fresh Ajv per route: preserves `$id` (which anchors `$ref` resolution)
+   * while avoiding duplicate-`$id` collisions across routes in a shared
+   * instance. Schema compilation is the expensive part; instance creation is
+   * negligible for a build-time tool. */
+  const createAjv = (): Ajv => {
+    const instance = new Ajv({
+      allErrors: true,
+      strict: false,
+      coerceTypes: true,
+      removeAdditional: true,
+      useDefaults: true,
+      code: {
+        source: true,
+        esm: false,
+      },
+    });
+    addFormats(instance);
+    return instance;
+  };
 
   const compileSchemaPart = (
+    ajv: Ajv,
     schemaPart: unknown,
     onFail?: (reason: string) => void,
   ): string | null => {
@@ -93,7 +100,9 @@ export const precompileValidators = async (
       return null;
     }
 
-    delete cloned.$id;
+    // Keep `$id` — it anchors internal `$ref` resolution. The per-route Ajv
+    // instance above prevents cross-route duplicate-`$id` collisions, so we no
+    // longer need to strip it (which broke relative `$ref`s).
 
     try {
       const validate = ajv.compile(cloned);
@@ -124,6 +133,7 @@ if (typeof module !== "undefined" && module.exports && typeof module.exports ===
     ctx,
     (route) => route.analysis.hasValidation,
     async (route, mod, schemaDoc) => {
+      const ajv = createAjv();
       const validators: Record<string, string> = {};
 
       for (const kind of VALIDATOR_KINDS) {
@@ -133,7 +143,15 @@ if (typeof module !== "undefined" && module.exports && typeof module.exports ===
           continue;
         }
 
-        const code = compileSchemaPart(schemaPart, (reason) => {
+        if (isStandardSchema(schemaPart)) {
+          ctx.diagnostics.warn({
+            code: DiagnosticCodes.StandardSchemaRuntime,
+            message: `Standard-Schema '${kind}' for ${route.source.method} ${route.source.path} is validated at runtime (no build-time codegen for its vendor yet).`,
+            file: mod.path,
+          });
+        }
+
+        const code = compileSchemaPart(ajv, schemaPart, (reason) => {
           ctx.diagnostics.warn({
             code: DiagnosticCodes.ValidatorCompileFailed,
             message: `Validator precompilation failed for ${route.source.method} ${route.source.path} (${kind}); falling back to runtime validation. ${reason}`,

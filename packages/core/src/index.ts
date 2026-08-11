@@ -1,7 +1,7 @@
 /**
- * @fileoverview Flux Core — public entry.
+ * @fileoverview Ignus Core — public entry.
  *
- * This barrel is the single public surface of `@flux/core`. Internally the
+ * This barrel is the single public surface of `@ignus/core`. Internally the
  * implementation is grouped by use case into domain folders so each concern
  * stays small and discoverable:
  *
@@ -11,16 +11,16 @@
  *   lifecycle/  — hooks, lifecycle, plugin
  *   platform/   — env, config, jobs, errors
  *   content/    — i18n, template
- *   plugins/    — ready-made FluxPlugin factories
+ *   plugins/    — ready-made IgnusPlugin factories
  *
- * Consumers import everything from `@flux/core` (or `@flux/core/http` for the
+ * Consumers import everything from `@ignus/core` (or `@ignus/core/http` for the
  * route DSL) — the folder layout is an internal implementation detail.
  */
 
-// ── unified execution API (@flux/native) ────────────────────────
+// ── unified execution API (@ignus/native) ────────────────────────
 // The single runtime-switch facade: `backend.*` binds every primitive to its
 // fastest implementation (castrum native on Bun vs pure-TS fallback), driven
-// by the `SELECTION` table in @flux/native. `SELECTION` is read-only data —
+// by the `SELECTION` table in @ignus/native. `SELECTION` is read-only data —
 // treat it as a snapshot, not something to mutate.
 export {
   backend,
@@ -30,7 +30,7 @@ export {
   type ExecutionOpStatus,
   type ExecutionStatus,
   executionStatus,
-  type FluxExecution,
+  type IgnusExecution,
   implFor,
   initNative,
   isNativeAvailable,
@@ -38,7 +38,7 @@ export {
   type OpName,
   SELECTION,
   useNative,
-} from "@flux/native";
+} from "@ignus/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
 export {
   always,
@@ -62,13 +62,21 @@ export {
   tryCatchOr,
   unwrapOr,
   unwrapOrElse,
-} from "@flux/shared";
+} from "@ignus/shared";
 // ── client / openapi (consumer-facing) ──────────────────────────
-export type { ClientOptions, ClientResponse, FluxClient } from "./client";
+export type { ClientOptions, ClientResponse, IgnusClient } from "./client";
 export { createClient } from "./client";
 // ── content ─────────────────────────────────────────────────────
-export type { Catalog, Catalogs, I18n, I18nOptions } from "./content/i18n";
-export { createI18n, interpolate, negotiateLocale } from "./content/i18n";
+export type { Catalog, Catalogs, I18n, I18nOptions, LoadCatalogDirOptions } from "./content/i18n";
+export {
+  createI18n,
+  createI18nFromDir,
+  interpolate,
+  LOCALE_KEY,
+  loadCatalogDir,
+  negotiateLocale,
+  withI18n,
+} from "./content/i18n";
 export type { TemplateContext, TemplateFn, TemplateRegistry } from "./content/template";
 export {
   createTemplate,
@@ -78,7 +86,14 @@ export {
   withLayout,
 } from "./content/template";
 // ── data ────────────────────────────────────────────────────────
-export { cacheControl, entityTag, HttpResponseCache, withBrowserCache } from "./data/cache";
+export {
+  cacheControl,
+  entityTag,
+  HttpResponseCache,
+  parseCacheControl,
+  withBrowserCache,
+} from "./data/cache";
+export { etagWithEncoding, isCompressible, negotiateEncoding } from "./data/content-encoding";
 export type {
   BatchLoadFn,
   DataLoader,
@@ -88,12 +103,13 @@ export type {
 export { createDataLoader } from "./data/dataloader";
 export { LRUCache } from "./data/lru";
 export { parseQuery, parseQueryFromURL } from "./data/query";
+export type { RateLimitAlgorithm } from "./data/ratelimit";
 export { compileValidator, validateAsync, validateOrThrow } from "./data/schema";
 export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./data/validation";
 // ── http ────────────────────────────────────────────────────────
 export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody } from "./http/body";
-export type { ContextOptions, FluxContext, FluxServer } from "./http/context";
+export type { ContextOptions, IgnusContext, IgnusServer } from "./http/context";
 export { createContext } from "./http/context";
 export { Cookie, createCookieJar, parseCookieString, serializeCookie } from "./http/cookies";
 export { safeJoin, sendFile, streamDownload } from "./http/files";
@@ -101,7 +117,14 @@ export type { SetHeaders } from "./http/headers";
 export { applySet } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
 export { formatSSE, sse } from "./http/sse";
-export { createWSHandler, FluxWS } from "./http/ws";
+export {
+  createWSConnections,
+  createWSHandler,
+  IgnusWS,
+  upgradeWS,
+  type WSConnections,
+  type WSUpgradeOptions,
+} from "./http/ws";
 // ── lifecycle ───────────────────────────────────────────────────
 export type { HookFn, HookResult } from "./lifecycle/hooks";
 export {
@@ -112,7 +135,7 @@ export {
   mergeHookArrays,
   mergeLifeCycle,
 } from "./lifecycle/hooks";
-export type { AppOptions, FluxApp } from "./lifecycle/lifecycle";
+export type { AppOptions, IgnusApp } from "./lifecycle/lifecycle";
 export {
   buildPostStages,
   buildPreStages,
@@ -122,10 +145,11 @@ export {
   runHooks,
   runLifecycle,
 } from "./lifecycle/lifecycle";
-export type { FluxPlugin, PluginContext } from "./lifecycle/plugin";
+export type { IgnusPlugin, PluginContext } from "./lifecycle/plugin";
 export {
   composePlugins,
   createPluginContext,
+  hookToPlugin,
   pluginContextToLifecycle,
   pluginsToLifeCycle,
 } from "./lifecycle/plugin";
@@ -152,6 +176,15 @@ export {
 } from "./platform/errors";
 export type { Job, JobQueue, JobQueueOptions, ScheduleOptions } from "./platform/jobs";
 export { createJobQueue, withRetry, withTimeout } from "./platform/jobs";
+export type {
+  DurableJobQueue,
+  DurableJobQueueOptions,
+  DurableJobSpec,
+  JobHandler,
+} from "./platform/jobs-durable";
+export { createDurableJobQueue } from "./platform/jobs-durable";
+export type { JobStatus, JobStore, StoredJob } from "./platform/jobs-store";
+export { createFileJobStore, createSqliteJobStore, newJobId } from "./platform/jobs-store";
 // ── plugins ─────────────────────────────────────────────────────
 export {
   auth,
@@ -166,7 +199,7 @@ export { cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { logger } from "./plugins/logger";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
-export { rateLimit } from "./plugins/ratelimit";
+export { type RateLimitOptions, rateLimit } from "./plugins/ratelimit";
 export { security } from "./plugins/security";
 export { session } from "./plugins/session";
 // ── security ────────────────────────────────────────────────────
@@ -220,6 +253,7 @@ export type {
 export {
   createMemorySessionStore,
   createSessionManager,
+  createSqliteSessionStore,
   getSession,
   withSession,
 } from "./security/session";

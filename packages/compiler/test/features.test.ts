@@ -79,7 +79,7 @@ describe("compiler features", () => {
     expect(custom.precompileValidators).toBe(false);
   });
 
-  it("emits FLX_HOOK_MISSING when a referenced hook does not exist", async () => {
+  it("emits IGN_HOOK_MISSING when a referenced hook does not exist", async () => {
     const { routesDir, outDir } = materializeFixture("basic");
     const result = await buildAsync({
       routesDir,
@@ -89,7 +89,7 @@ describe("compiler features", () => {
       hooksDir: join(outDir, "missing-hooks"),
     });
     // basic fixture routes have no `hooks` config, so no warning should appear.
-    expect(result.warnings.filter((w) => w.code === "FLX_HOOK_MISSING")).toHaveLength(0);
+    expect(result.warnings.filter((w) => w.code === "IGN_HOOK_MISSING")).toHaveLength(0);
   });
 
   it("never runs plugin afterHandle on raw (non-Response) results (regression)", async () => {

@@ -3,7 +3,7 @@
  * Streaming responses with proper formatting.
  */
 
-import { sseEncode } from "@flux/native";
+import { sseEncode } from "@ignus/native";
 
 export interface SSEOptions {
   event?: string;

@@ -39,39 +39,41 @@ export interface Diagnostic {
  */
 export const DiagnosticCodes = {
   /** A route/hook/app-config module failed to parse. */
-  ParseError: "FLX_PARSE_ERROR",
+  ParseError: "IGN_PARSE_ERROR",
   /** A filesystem read during discovery failed. */
-  IoReadFailed: "FLX_IO_READ_FAILED",
+  IoReadFailed: "IGN_IO_READ_FAILED",
   /** A directory scan during discovery failed. */
-  IoScanFailed: "FLX_IO_SCAN_FAILED",
+  IoScanFailed: "IGN_IO_SCAN_FAILED",
   /** A module could not be dynamically imported for precompilation. */
-  ModuleLoadFailed: "FLX_MODULE_LOAD_FAILED",
+  ModuleLoadFailed: "IGN_MODULE_LOAD_FAILED",
   /** Two routes resolve to the same method + path. */
-  RouteConflict: "FLX_ROUTE_CONFLICT",
+  RouteConflict: "IGN_ROUTE_CONFLICT",
   /** A dynamic route pattern is ambiguous at runtime. */
-  AmbiguousRoute: "FLX_AMBIGUOUS_ROUTE",
+  AmbiguousRoute: "IGN_AMBIGUOUS_ROUTE",
   /** A route was detected as dead and excluded from the build. */
-  DeadRoute: "FLX_ROUTE_DEAD",
+  DeadRoute: "IGN_ROUTE_DEAD",
   /** A schema failed Ajv standalone compilation; validation was dropped. */
-  ValidatorCompileFailed: "FLX_VALIDATOR_COMPILE_FAILED",
+  ValidatorCompileFailed: "IGN_VALIDATOR_COMPILE_FAILED",
   /** Response schema serialization fell back to JSON.stringify. */
-  SerializerFallback: "FLX_SERIALIZER_FALLBACK",
+  SerializerFallback: "IGN_SERIALIZER_FALLBACK",
+  /** A Standard-Schema part has no build-time codegen and is validated/serialized at runtime. */
+  StandardSchemaRuntime: "IGN_STANDARD_SCHEMA_RUNTIME",
   /** A route `config` export could not be evaluated at build time. */
-  ConfigEvalFailed: "FLX_CONFIG_EVAL_FAILED",
+  ConfigEvalFailed: "IGN_CONFIG_EVAL_FAILED",
   /** A route references a hook module that does not exist or has no default export. */
-  HookMissing: "FLX_HOOK_MISSING",
+  HookMissing: "IGN_HOOK_MISSING",
   /** Writing a generated artifact failed. */
-  ArtifactWriteFailed: "FLX_ARTIFACT_WRITE_FAILED",
+  ArtifactWriteFailed: "IGN_ARTIFACT_WRITE_FAILED",
   /** A compiler option is deprecated and no longer affects output. */
-  OptionDeprecated: "FLX_OPTION_DEPRECATED",
+  OptionDeprecated: "IGN_OPTION_DEPRECATED",
   /** An unknown compiler option was passed and ignored. */
-  OptionUnknown: "FLX_OPTION_UNKNOWN",
+  OptionUnknown: "IGN_OPTION_UNKNOWN",
   /** The sync compile path cannot honor async-only features. */
-  SyncLimited: "FLX_SYNC_LIMITED",
+  SyncLimited: "IGN_SYNC_LIMITED",
   /** The linker (Bun.build) failed to produce an output file. */
-  LinkFailed: "FLX_LINK_FAILED",
+  LinkFailed: "IGN_LINK_FAILED",
   /** The build cache was unusable and was invalidated. */
-  BuildCacheInvalid: "FLX_BUILD_CACHE_INVALID",
+  BuildCacheInvalid: "IGN_BUILD_CACHE_INVALID",
 } as const;
 
 export type DiagnosticCode = (typeof DiagnosticCodes)[keyof typeof DiagnosticCodes];

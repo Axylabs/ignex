@@ -13,6 +13,10 @@ export { escapeRegExp, wildcardNames };
 
 export const handlerImportName = (route: RouteDef): string => `handler_${route.codegen.handlerRef}`;
 
+/** Import name for a WS route module's `wsHandler` export. */
+export const wsHandlerImportName = (route: RouteDef): string =>
+  `wsHandler_${route.codegen.handlerRef}`;
+
 export const methodHandlerName = (route: RouteDef): string =>
   `${route.source.method}_${route.codegen.handlerRef}`;
 

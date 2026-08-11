@@ -14,7 +14,7 @@ import {
   TooManyRequestsError,
   UnauthorizedError,
   ValidationError,
-} from "@flux/core";
+} from "@ignus/core";
 import { describe, expect, it } from "vitest";
 
 describe("isHttpError", () => {

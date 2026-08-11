@@ -1,10 +1,10 @@
-import { get } from "@flux/core/http";
+import { get } from "@ignus/core/http";
 
 export default get(() => {
   const html = `<!doctype html>
 <html>
   <head>
-    <title>Flux API Reference</title>
+    <title>Ignus API Reference</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>

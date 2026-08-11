@@ -1,14 +1,14 @@
 /**
- * Parity tests for the native BATCH surface (`@flux/native` `batch`).
+ * Parity tests for the native BATCH surface (`@ignus/native` `batch`).
  *
  * The batch path is one packed FFI call for many items; it must agree
  * per-item with the scalar surface. Runs against the real addon when
- * available (`FLUX_NATIVE_PATH` / castrum installed), else the pure-TS
+ * available (`IGNUS_NATIVE_PATH` / castrum installed), else the pure-TS
  * per-item fallback — either way the batch and scalar results must match
  * bit-for-bit.
  */
 
-import { batch, crc32, fnv1a64, jsonValid } from "@flux/native";
+import { batch, crc32, fnv1a64, jsonValid } from "@ignus/native";
 import { describe, expect, it } from "vitest";
 
 const enc = new TextEncoder();

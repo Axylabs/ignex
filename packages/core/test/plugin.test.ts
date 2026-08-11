@@ -8,7 +8,7 @@ import {
   createContext,
   createPluginContext,
   pluginContextToLifecycle,
-} from "@flux/core";
+} from "@ignus/core";
 import { describe, expect, it } from "vitest";
 
 const req = () => new Request("http://localhost:3000/");
@@ -113,8 +113,8 @@ describe("pluginsToLifeCycle", () => {
 describe("pluginContextToLifecycle", () => {
   it("converts hooks registered on the plugin context into lifecycle stages", () => {
     const ctx = createPluginContext();
-    const fluxCtx = createContext(req(), {});
-    ctx.addHook("beforeHandle", async () => ({ ok: true, ctx: fluxCtx }));
+    const ignusCtx = createContext(req(), {});
+    ctx.addHook("beforeHandle", async () => ({ ok: true, ctx: ignusCtx }));
 
     const lc = pluginContextToLifecycle(ctx);
     expect(lc.beforeHandle).toHaveLength(1);

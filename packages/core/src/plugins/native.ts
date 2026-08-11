@@ -3,18 +3,18 @@
  *
  * Embeds castrum's Rust ingress pipeline (CORS, rate-limit, IP-trust,
  * body-guard, JSON-schema) as a request stage via
- * `@flux/native#createNativePipeline` — the "route manager" bridge.
+ * `@ignus/native#createNativePipeline` — the "route manager" bridge.
  *
  * When the Rust addon is NOT installed this plugin is a complete no-op and
- * the normal flux lifecycle runs untouched, so it is safe to enable
+ * the normal ignus lifecycle runs untouched, so it is safe to enable
  * everywhere. When native IS available, the 8-stage pipeline runs BEFORE the
  * app handler on `onRequest` and short-circuits with its terminal response
  * (e.g. 204 CORS preflight, 429, 413, 400/422) when it decides to.
  */
 
-import { createNativePipeline, isNativeAvailable, type NativePipeline } from "@flux/native";
-import type { FluxContext } from "../http/context";
-import type { FluxPlugin } from "../lifecycle/plugin";
+import { createNativePipeline, isNativeAvailable, type NativePipeline } from "@ignus/native";
+import type { IgnusContext } from "../http/context";
+import type { IgnusPlugin } from "../lifecycle/plugin";
 
 export interface NativePreflightOptions {
   /**
@@ -29,7 +29,7 @@ export interface NativePreflightOptions {
 /**
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
-export const nativePreflight = (opts: NativePreflightOptions = {}): FluxPlugin => {
+export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin => {
   const { options, enabled = true } = opts;
   // `undefined` = not yet resolved; `null` = unavailable.
   let pipeline: NativePipeline | null | undefined;
@@ -50,7 +50,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): FluxPlugin =
       }
     },
 
-    async onRequest(ctx: FluxContext) {
+    async onRequest(ctx: IgnusContext) {
       if (!enabled || !isNativeAvailable()) return ctx;
 
       if (pipeline === undefined) {
