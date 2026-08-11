@@ -19,6 +19,15 @@ export declare class TemplateRenderer {
   render(context: any): Uint8Array;
 }
 
+/**
+ * Benchmark-driven native-vs-TS decision, OWNED BY CASTRUM (generated from
+ * `scripts/select-native.ts --write` into `src/selection.json`, embedded in
+ * the addon). Consumers read this ONCE at load time and bind each op to a
+ * fixed implementation — never swapping native↔js at runtime.
+ * Returns `"native"` | `"js"` | `null`.
+ */
+export declare function opImpl(op: string): "native" | "js" | null;
+
 export interface EncodingPrefResult {
   encoding: string;
   q: number;
@@ -148,6 +157,19 @@ export declare function validateEmail(input: Uint8Array): boolean;
 export declare function validateUuid(input: Uint8Array): boolean;
 export declare function validateIpv4(input: Uint8Array): boolean;
 export declare function validateIpv6(input: Uint8Array): boolean;
+
+// ── Packed BATCH entry points (one FFI call for many items) ─────
+// Wire format for input: `[u32 count]{[u32 len][bytes]}`. Outputs:
+//   bitset fns: `[u32 count][bitset bytes]` (bit i = item i valid)
+//   crc32:      `[u32 count][u32 …]`
+//   fnv1a64:    `[u32 count][i64 …]` (bit-identical to the u64 scalar)
+export declare function validateEmailBatchPacked(input: Uint8Array): Uint8Array;
+export declare function validateUuidBatchPacked(input: Uint8Array): Uint8Array;
+export declare function validateIpv4BatchPacked(input: Uint8Array): Uint8Array;
+export declare function validateIpv6BatchPacked(input: Uint8Array): Uint8Array;
+export declare function jsonValidBatchPacked(input: Uint8Array): Uint8Array;
+export declare function crc32BatchPacked(input: Uint8Array): Uint8Array;
+export declare function fnv1A64BatchPacked(input: Uint8Array): Uint8Array;
 
 // ── Compiled-once napi classes (the raw addon surface) ──────────
 

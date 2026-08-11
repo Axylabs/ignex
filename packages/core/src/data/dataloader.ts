@@ -20,6 +20,16 @@ export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
   cacheKeyFn?: (key: Key) => CacheKey;
   /** Schedule a batch dispatch. Default: `queueMicrotask`. */
   batchScheduleFn?: (callback: () => void) => void;
+  /**
+   * Cache per-key `Error` values so a consistently-failing key is NOT
+   * re-batched on every request. Default `false` (standard DataLoader
+   * semantics — errors are re-fetched so a transient failure can recover).
+   * Enable for hot paths where a failing key would otherwise hammer the
+   * batch function (e.g. a poisoned cache key). Cached errors are cleared by
+   * {@link DataLoader.clear} / {@link DataLoader.clearAll} like any other
+   * entry.
+   */
+  cacheErrors?: boolean;
 }
 
 export interface DataLoader<Key, Value> {
@@ -74,6 +84,10 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   const cacheKeyFn = options.cacheKeyFn ?? (identity as (key: Key) => CacheKey);
   const batchScheduleFn =
     options.batchScheduleFn ?? ((callback: () => void): void => queueMicrotask(callback));
+  // Separate error cache (a rejected `Error` is not a `Value`). Keeps the
+  // value cache type-clean and lets `cacheErrors` be independent of `cache`.
+  const cacheErrors = options.cacheErrors ?? false;
+  const errorCache: Map<CacheKey, Error> | null = cacheErrors ? new Map() : null;
 
   let currentBatch: Batch<Key, Value, CacheKey> | null = null;
 
@@ -107,6 +121,11 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
       const cacheKey = cacheKeyFn(key);
 
       if (value instanceof Error) {
+        // Standard DataLoader: a per-key Error rejects only that key and is
+        // NOT cached. With `cacheErrors` we cache it so a repeat load rejects
+        // from the error cache instead of re-batching (avoids hammering the
+        // batch function for a permanently-failing key).
+        if (errorCache) errorCache.set(cacheKey, value);
         for (const subscriber of cb?.subscribers ?? []) subscriber.reject(value);
         continue;
       }
@@ -137,6 +156,11 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   const load = (key: Key): Promise<Value> => {
     const cacheKey = cacheKeyFn(key);
 
+    if (errorCache) {
+      const cachedErr = errorCache.get(cacheKey);
+      if (cachedErr) return Promise.reject(cachedErr);
+    }
+
     if (cache) {
       // `has()` distinguishes a legitimately-`undefined` cached value from a
       // miss, so a batch result that resolves to `undefined` is cached and not
@@ -163,6 +187,9 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   };
 
   const loadMany = (keys: readonly Key[]): Promise<readonly Value[]> =>
+    // Standard DataLoader semantics: output order/duplicates mirror the input
+    // array; concurrent duplicate keys still hit the per-batch dedup (each
+    // unique key reaches batchLoadFn once per batch).
     Promise.all(keys.map((key) => load(key)));
 
   const api: DataLoader<Key, Value> = {
@@ -174,10 +201,14 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
     },
     clear(key) {
       if (cache) cache.delete(cacheKeyFn(key));
+      errorCache?.delete(cacheKeyFn(key));
       return api;
     },
     clearAll() {
       cache?.clear();
+      errorCache?.clear();
+      // NOTE: an in-flight batch still resolves into the cache after a
+      // clearAll (benign — the values were valid when fetched).
       return api;
     },
   };

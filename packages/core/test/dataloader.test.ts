@@ -90,6 +90,61 @@ describe("createDataLoader", () => {
     expect(results[2]).toMatchObject({ status: "fulfilled", value: 9 });
   });
 
+  it("re-batches a failing key by default (errors are NOT cached)", async () => {
+    const batchFn = vi.fn(async (keys: readonly number[]) =>
+      keys.map((k) => (k === 2 ? new Error("missing") : k * 3)),
+    );
+    const loader = createDataLoader(batchFn);
+
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    // Default semantics: the failing key is re-fetched (2 batches), so a
+    // transient failure can recover.
+    expect(batchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("cacheErrors:true caches a per-key error so repeat loads do not re-batch", async () => {
+    const batchFn = vi.fn(async (keys: readonly number[]) =>
+      keys.map((k) => (k === 2 ? new Error("missing") : k * 3)),
+    );
+    const loader = createDataLoader(batchFn, { cacheErrors: true });
+
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    // Cached error → single batch; the failing key never re-batches.
+    expect(batchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("cacheErrors:true does not cache non-error keys (they still hit the value cache)", async () => {
+    const batchFn = vi.fn(async (keys: readonly number[]) =>
+      keys.map((k) => (k === 2 ? new Error("missing") : k * 3)),
+    );
+    const loader = createDataLoader(batchFn, { cacheErrors: true });
+
+    // One batch: [1, 2] → value 3 + cached error.
+    const first = await Promise.allSettled([loader.load(1), loader.load(2)]);
+    expect(first[0]).toMatchObject({ status: "fulfilled", value: 3 });
+    expect(first[1]).toMatchObject({ status: "rejected" });
+
+    // Repeat loads hit the value cache (1) and the error cache (2) — no re-batch.
+    await expect(loader.load(1)).resolves.toBe(3);
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    expect(batchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("cacheErrors:true clear() clears a cached error (next load re-batches)", async () => {
+    const batchFn = vi.fn(async (keys: readonly number[]) =>
+      keys.map((k) => (k === 2 ? new Error("missing") : k * 3)),
+    );
+    const loader = createDataLoader(batchFn, { cacheErrors: true });
+
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    loader.clear(2);
+    await expect(loader.load(2)).rejects.toThrow("missing");
+    expect(batchFn).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects all pending loads when batchLoadFn throws", async () => {
     const batchFn = async (): Promise<readonly number[]> => {
       throw new Error("db down");

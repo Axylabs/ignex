@@ -302,15 +302,26 @@ export const passwordHash = (
         : null;
     return fromBytes(nv.passwordHash(p, s, opts));
   }
-  return passwordHashScrypt(p, s);
+  return passwordHashFallback(p, s);
 };
 
 export const passwordVerify = (password: string, phc: string): boolean => {
-  if (phc.startsWith("$scrypt$")) return passwordVerifyScrypt(toBytes(password), phc);
+  if (phc.startsWith("$scrypt$")) return passwordVerifyFallback(toBytes(password), phc);
   const nv = nativeFor("passwordVerify");
   if (nv) return nv.passwordVerify(toBytes(password), toBytes(phc));
   return false;
 };
+
+/** Pure-TS password hash (`$scrypt$` PHC) used when native is unavailable. */
+export const passwordHashFallback = (
+  password: Uint8Array,
+  salt: Uint8Array,
+  _options?: PasswordHashOptions,
+): string => passwordHashScrypt(password, salt);
+
+/** Pure-TS password verify (`$scrypt$` PHC) used when native is unavailable. */
+export const passwordVerifyFallback = (password: Uint8Array, phc: string): boolean =>
+  passwordVerifyScrypt(password, phc);
 
 const passwordHashScrypt = (password: Uint8Array, salt: Uint8Array): string => {
   const derived = scryptSync(password, salt, 32, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });

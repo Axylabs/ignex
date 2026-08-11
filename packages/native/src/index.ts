@@ -13,6 +13,7 @@
  * (each still consults the same table).
  */
 
+export { batch, type NativeBatch } from "./batch";
 export {
   aeadDecrypt,
   aeadDecryptFallback,
@@ -32,7 +33,9 @@ export {
   jwtVerifyFallback,
   type PasswordHashOptions,
   passwordHash,
+  passwordHashFallback,
   passwordVerify,
+  passwordVerifyFallback,
   randomToken,
   randomTokenFallback,
   signCookie,
@@ -97,6 +100,7 @@ export {
   type NativeInitOptions,
   type NativeInitResult,
 } from "./loader";
+export { packBatch, pairsToObject, readPairsPacked } from "./packed";
 export {
   brotliCompress,
   brotliDecompress,
@@ -128,4 +132,13 @@ export { backendName, useNative } from "./runtime";
 export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
-export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./validation";
+export {
+  validateEmail,
+  validateEmailFallback,
+  validateIpv4,
+  validateIpv4Fallback,
+  validateIpv6,
+  validateIpv6Fallback,
+  validateUuid,
+  validateUuidFallback,
+} from "./validation";

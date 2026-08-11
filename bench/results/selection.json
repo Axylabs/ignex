@@ -1,0 +1,328 @@
+{
+  "generatedAt": "2026-08-11T18:01:20.709Z",
+  "mode": "NATIVE",
+  "winThreshold": 1.05,
+  "lossThreshold": 0.95,
+  "results": [
+    {
+      "op": "fnv1a64",
+      "nativeOps": 2135383,
+      "fallbackOps": 175381,
+      "nativeRatio": 12.176,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "crc32",
+      "nativeOps": 2270484,
+      "fallbackOps": 3091775,
+      "nativeRatio": 0.734,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "hmacSha256",
+      "nativeOps": 484686,
+      "fallbackOps": 505203,
+      "nativeRatio": 0.959,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "hmacSha256Verify",
+      "nativeOps": 1606341,
+      "fallbackOps": 470631,
+      "nativeRatio": 3.413,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "signCookie",
+      "nativeOps": 351735,
+      "fallbackOps": 313098,
+      "nativeRatio": 1.123,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "verifyCookie",
+      "nativeOps": 308944,
+      "fallbackOps": 302729,
+      "nativeRatio": 1.021,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "csrfToken",
+      "nativeOps": 471623,
+      "fallbackOps": 58964,
+      "nativeRatio": 7.999,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "csrfVerify",
+      "nativeOps": 469599,
+      "fallbackOps": 325382,
+      "nativeRatio": 1.443,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "jwtSign",
+      "nativeOps": 246393,
+      "fallbackOps": 162414,
+      "nativeRatio": 1.517,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "jwtVerify",
+      "nativeOps": 211820,
+      "fallbackOps": 173608,
+      "nativeRatio": 1.22,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "randomToken",
+      "nativeOps": 826512,
+      "fallbackOps": 71229,
+      "nativeRatio": 11.604,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "passwordHash",
+      "nativeOps": 56,
+      "fallbackOps": 33,
+      "nativeRatio": 1.726,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "passwordVerify",
+      "nativeOps": 491423,
+      "fallbackOps": 34,
+      "nativeRatio": 14507.621,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "aeadEncrypt",
+      "nativeOps": 495349,
+      "fallbackOps": 442215,
+      "nativeRatio": 1.12,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "aeadDecrypt",
+      "nativeOps": 508500,
+      "fallbackOps": 390124,
+      "nativeRatio": 1.303,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "queryPairs",
+      "nativeOps": 189923,
+      "fallbackOps": 320110,
+      "nativeRatio": 0.593,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "cookiePairs",
+      "nativeOps": 106257,
+      "fallbackOps": 578025,
+      "nativeRatio": 0.184,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "formPairs",
+      "nativeOps": 154646,
+      "fallbackOps": 333631,
+      "nativeRatio": 0.464,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "etag",
+      "nativeOps": 713754,
+      "fallbackOps": 2546515,
+      "nativeRatio": 0.28,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "multipartParse",
+      "nativeOps": 92635,
+      "fallbackOps": 112717,
+      "nativeRatio": 0.822,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "parseMediaType",
+      "nativeOps": 608838,
+      "fallbackOps": 1646127,
+      "nativeRatio": 0.37,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "parseAcceptEncoding",
+      "nativeOps": 406223,
+      "fallbackOps": 856046,
+      "nativeRatio": 0.475,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "createConditionalRequest",
+      "nativeOps": 2527094,
+      "fallbackOps": 9901882,
+      "nativeRatio": 0.255,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "createAcceptNegotiator",
+      "nativeOps": 1623919,
+      "fallbackOps": 948737,
+      "nativeRatio": 1.712,
+      "wired": "js",
+      "recommended": "castrum"
+    },
+    {
+      "op": "jsonValid",
+      "nativeOps": 2279157,
+      "fallbackOps": 3055336,
+      "nativeRatio": 0.746,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "jsonPatch",
+      "nativeOps": 168375,
+      "fallbackOps": 626800,
+      "nativeRatio": 0.269,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "gzipCompress",
+      "nativeOps": 72369,
+      "fallbackOps": 12398,
+      "nativeRatio": 5.837,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "gzipDecompress",
+      "nativeOps": 253886,
+      "fallbackOps": 13412,
+      "nativeRatio": 18.929,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "brotliCompress",
+      "nativeOps": 31587,
+      "fallbackOps": 10914,
+      "nativeRatio": 2.894,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "brotliDecompress",
+      "nativeOps": 129360,
+      "fallbackOps": 14613,
+      "nativeRatio": 8.852,
+      "wired": "castrum",
+      "recommended": "castrum"
+    },
+    {
+      "op": "sseEncode",
+      "nativeOps": 281024,
+      "fallbackOps": 2461371,
+      "nativeRatio": 0.114,
+      "wired": "js",
+      "recommended": "js"
+    },
+    {
+      "op": "wsFrameEncode",
+      "nativeOps": 440906,
+      "fallbackOps": 3975211,
+      "nativeRatio": 0.111,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "wsFrameDecode",
+      "nativeOps": 423517,
+      "fallbackOps": 1982638,
+      "nativeRatio": 0.214,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "wsAcceptKey",
+      "nativeOps": 314809,
+      "fallbackOps": 473037,
+      "nativeRatio": 0.666,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "validateEmail",
+      "nativeOps": 583135,
+      "fallbackOps": 19533237,
+      "nativeRatio": 0.03,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "validateUuid",
+      "nativeOps": 584085,
+      "fallbackOps": 17910492,
+      "nativeRatio": 0.033,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "validateIpv4",
+      "nativeOps": 671809,
+      "fallbackOps": 26133251,
+      "nativeRatio": 0.026,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "validateIpv6",
+      "nativeOps": 641705,
+      "fallbackOps": 2966744,
+      "nativeRatio": 0.216,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "createRateLimiter",
+      "nativeOps": 1285039,
+      "fallbackOps": 19771140,
+      "nativeRatio": 0.065,
+      "wired": "castrum",
+      "recommended": "js"
+    },
+    {
+      "op": "renderTemplate",
+      "nativeOps": 218013,
+      "fallbackOps": 525395,
+      "nativeRatio": 0.415,
+      "wired": "castrum",
+      "recommended": "js"
+    }
+  ]
+}
