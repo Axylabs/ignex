@@ -52,8 +52,11 @@ jobs:
       - name: Build (AOT compile example app)
         run: bun run build
 
-      - name: Smoke (boot server + assert routes)
+      - name: Smoke (boot server + assert all routes/flows)
         run: bun run smoke
+
+      - name: Smoke (fallback mode — no native addon in this job)
+        run: bun run smoke:fallback
 
       - name: Upload coverage report
         if: always()
