@@ -5,6 +5,8 @@
  * than their JS equivalents on the addon's benchmark registry, so we prefer
  * native and keep a pure-TS implementation that is bit-for-bit identical.
  */
+
+import { bunCrc32 } from "./bun";
 import { nativeFor } from "./runtime";
 import { crc32 as crc32Fallback, toBytes } from "./util";
 
@@ -31,6 +33,8 @@ export const crc32 = (input: string | Uint8Array): number => {
   const bytes = toBytes(input);
   const n = nativeFor("crc32");
   if (n) return n.crc32(bytes);
+  // Under Bun, `Bun.hash.crc32` (C++ SIMD) beats both Rust and the TS table.
+  if (bunCrc32) return bunCrc32(bytes);
   return crc32Fallback(bytes);
 };
 

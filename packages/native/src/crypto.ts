@@ -11,6 +11,7 @@
  * - AEAD:           AES-256-GCM, ciphertext ‖ 16-byte tag
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
+import { bunHmacSha256 } from "./bun";
 import { nativeFor } from "./runtime";
 import {
   b64urlDecode,
@@ -58,6 +59,8 @@ export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array):
   const d = toBytes(data);
   const nv = nativeFor("hmacSha256");
   if (nv) return toPlain(nv.hmacSha256(k, d));
+  // Under Bun, `Bun.CryptoHasher` is mildly faster than Rust for scalar HMAC.
+  if (bunHmacSha256) return bunHmacSha256(k, d);
   return hmacSha256Bytes(k, d);
 };
 
@@ -272,7 +275,11 @@ export const randomTokenFallback = (byteLen: number): string => {
   if (len > MAX_TOKEN_BYTES) {
     throw new Error(`random_token: byte_len ${byteLen} exceeds max ${MAX_TOKEN_BYTES}`);
   }
-  return hexEncode(randomBytes(len));
+  // `crypto.getRandomValues` (webcrypto) is the fast, portable CSPRNG — native
+  // in Bun and Node — and beats the Rust addon for token-sized output.
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return hexEncode(bytes);
 };
 
 const SCRYPT_N = 16384;

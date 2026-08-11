@@ -13,6 +13,7 @@ import {
   gunzipSync,
   gzipSync,
 } from "node:zlib";
+import { bunGunzipSync, bunGzipSync } from "./bun";
 import { nativeFor } from "./runtime";
 import { fromBytes, toBytes, toPlain } from "./util";
 
@@ -20,12 +21,18 @@ import { fromBytes, toBytes, toPlain } from "./util";
 
 export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
   const n = nativeFor("gzipCompress");
-  return toPlain(n ? n.gzipCompress(data, level) : gzipSync(data, { level }));
+  if (n) return toPlain(n.gzipCompress(data, level));
+  // Under Bun, `Bun.gzipSync` beats the Rust addon (~2.0x) — never ship slower
+  // than Bun's native.
+  if (bunGzipSync) return toPlain(bunGzipSync(data, level));
+  return toPlain(gzipSync(data, { level }));
 };
 
 export const gzipDecompress = (data: Uint8Array): Uint8Array => {
   const n = nativeFor("gzipDecompress");
-  return toPlain(n ? n.gzipDecompress(data) : gunzipSync(data));
+  if (n) return toPlain(n.gzipDecompress(data));
+  if (bunGunzipSync) return toPlain(bunGunzipSync(data));
+  return toPlain(gunzipSync(data));
 };
 
 export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array => {

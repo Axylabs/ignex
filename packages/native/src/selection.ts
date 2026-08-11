@@ -83,12 +83,31 @@ export type OpName =
   | "validateUuid";
 
 /**
+ * Ops where Bun's NATIVE built-in beats the Rust addon (mirrors castrum's
+ * `docs/bun-builtins-decision-matrix.md` + `src/selection.ts` BUN_WINS). Under
+ * Bun these bind to `"js"` so the Bun-aware fallback is used (Bun.gzipSync,
+ * Bun.hash.crc32, Bun.CryptoHasher, crypto.getRandomValues) — never something
+ * slower than what Bun natively provides. Under Node the base decision stands
+ * (Rust wins there).
+ */
+const BUN_WINS: ReadonlySet<string> = new Set([
+  "gzipCompress",
+  "gzipDecompress",
+  "crc32",
+  "randomToken",
+  "hmacSha256",
+]);
+
+const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+
+/**
  * The decision for `op`, read from castrum's benchmark-generated `opImpl`
- * (the single source of truth, owned by the addon library). Bound once at
- * module load — the implementation never changes for the life of the process.
+ * (the single source of truth, owned by the addon library) plus the runtime
+ * Bun refinement above. Bound once at module load — the implementation never
+ * changes for the life of the process.
  */
 export const implFor = (op: OpName): ExecutionBackend =>
-  getNative()?.opImpl?.(op) === "native" ? "castrum" : "js";
+  isBun() && BUN_WINS.has(op) ? "js" : getNative()?.opImpl?.(op) === "native" ? "castrum" : "js";
 
 /** All selectable op names (for completeness audits / iteration). */
 export const OPS: readonly OpName[] = [
