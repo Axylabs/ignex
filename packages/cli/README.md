@@ -18,6 +18,23 @@ flux info [root]                   Dump cwd / runtime / config as JSON
 
 Run `flux --help` for the full option reference.
 
+## Dev mode (`flux dev`)
+
+`flux dev` compiles the project, spawns the generated server and watches for
+changes:
+
+- **Auto-restart with backoff** — a crashing server is restarted (250 ms →
+  5 s exponential backoff); after 5 rapid crash-on-boot restarts it gives up
+  and waits for a file change (e.g. when the port is already in use).
+- **No EADDRINUSE races** — the old server is stopped and awaited before the
+  new one spawns, so the port is always released first.
+- **Stale-build feedback** — a failed rebuild prints that the running server is
+  serving the previous build; a successful build prints "server is up to date".
+- **`--no-spawn`** compiles + watches only (no server process).
+- **`--verbose`** surfaces compiler phase timings and debug logs.
+- `flux build --watch` forwards `--minify` / `--sourcemap` / `--verbose` to the
+  compiler and runs the same watch flow.
+
 ## Development
 
 ```sh

@@ -11,7 +11,7 @@ import { basename, join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions } from "../types";
 
-const formatBuildLogs = (input: unknown): string => {
+export const formatBuildLogs = (input: unknown): string => {
   const logs: any[] = Array.isArray(input)
     ? input
     : input && typeof input === "object" && "logs" in input
@@ -116,7 +116,9 @@ export const runLinkerAsync = async (
       message: `Bun.build threw an exception: ${errorMessage(err)}${details}`,
     });
 
-    throw new Error(`Bun.build threw an exception:\n${errorMessage(err)}${details}`);
+    // Reported as an error diagnostic; the pipeline's final `hasErrors` check
+    // surfaces the structured summary (no mid-pipeline throw).
+    return outPath;
   }
 
   if (!result.success) {
@@ -129,7 +131,9 @@ export const runLinkerAsync = async (
       message: `Bun.build failed: ${message}`,
     });
 
-    throw new Error(`Bun.build failed:\n${message}`);
+    // Reported as an error diagnostic; the pipeline's final `hasErrors` check
+    // surfaces the structured summary (no mid-pipeline throw).
+    return outPath;
   }
 
   const builtPath: string | undefined = result.outputs?.[0]?.path;

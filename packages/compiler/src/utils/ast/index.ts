@@ -46,6 +46,7 @@ export {
   clearParseCache,
   estimateNodeCount,
   handlerBodyReferencesImports,
+  handlerBodyReferencesModuleScope,
   hasConfigExportAST,
   hasSchemaExportAST,
   importedLocalNames,
@@ -55,7 +56,7 @@ export {
 } from "./parse";
 export { flattenMember, isPureBodyAST } from "./purity";
 export { type InferredResponseType, inferResponseTypeAST } from "./response";
-export { extractSymbolsAST } from "./symbols";
+export { collectTopLevelBindingNames, extractSymbolsAST } from "./symbols";
 export type { ExtractedHandler } from "./types";
 export { buildContextMapping, detectUsage } from "./usage";
 export { nodeEnd, nodeStart, walk, walkSome, walkUntil } from "./walk";

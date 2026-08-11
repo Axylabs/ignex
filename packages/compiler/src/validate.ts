@@ -43,15 +43,11 @@ const CompilerOptionsSchema = Type.Object(
 
     hooksDir: Type.Optional(Type.String({ minLength: 1 })),
 
-    enableTracing: Type.Optional(Type.Boolean()),
+    verbose: Type.Optional(Type.Boolean()),
     enableAccessLog: Type.Optional(Type.Boolean()),
     enableTraceHeaders: Type.Optional(Type.Boolean()),
-    enableLifecycle: Type.Optional(Type.Boolean()),
-    enableStrictMethods: Type.Optional(Type.Boolean()),
-    enableFastBodyParsing: Type.Optional(Type.Boolean()),
 
     serviceName: Type.Optional(Type.String({ minLength: 1 })),
-    requestIdHeader: Type.Optional(Type.String({ minLength: 1 })),
     exposeErrorDetails: Type.Optional(Type.Boolean()),
 
     maxJsonBytes: Type.Optional(Type.Integer({ minimum: 0 })),

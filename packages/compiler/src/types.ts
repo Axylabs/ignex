@@ -8,12 +8,14 @@
  */
 
 import type { ContextUsage } from "@flux/shared";
-import { EMPTY_USAGE, FULL_USAGE } from "@flux/shared";
+import { FULL_USAGE } from "@flux/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
+import type { SourceFile } from "./frontend/source-file";
+import type { SourceManager } from "./frontend/source-manager";
+import type { RouteIR } from "./ir/route";
 import type { Logger } from "./logger";
 
 export type { ContextUsage, Diagnostic, Logger };
-export const EMPTY_CONTEXT_USAGE = EMPTY_USAGE;
 export const FULL_CONTEXT_USAGE = FULL_USAGE;
 export interface AppConfigInfo {
   readonly path: string;
@@ -91,15 +93,11 @@ export interface CompilerOptions {
 
   readonly hooksDir?: string;
 
-  readonly enableTracing?: boolean;
+  readonly verbose?: boolean;
   readonly enableAccessLog?: boolean;
   readonly enableTraceHeaders?: boolean;
-  readonly enableLifecycle?: boolean;
-  readonly enableStrictMethods?: boolean;
-  readonly enableFastBodyParsing?: boolean;
 
   readonly serviceName?: string;
-  readonly requestIdHeader?: string;
   readonly exposeErrorDetails?: boolean;
 
   readonly maxJsonBytes?: number;
@@ -212,16 +210,12 @@ export const createDefaultOptions = (): CompilerOptions => ({
   enableHandlerDeduplication: true,
   sourceMap: false,
   minify: false,
+  verbose: false,
 
-  enableTracing: true,
   enableAccessLog: false,
   enableTraceHeaders: false,
-  enableLifecycle: true,
-  enableStrictMethods: true,
-  enableFastBodyParsing: false,
 
   serviceName: "flux",
-  requestIdHeader: "x-request-id",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
 
   generateTypes: true,
@@ -277,21 +271,11 @@ export interface ExportInfo {
   readonly symbolRef?: string;
 }
 
-export interface ModuleInfo {
-  readonly path: string;
-  readonly relPath: string;
-  readonly content: string;
-  readonly imports: readonly ImportInfo[];
-  readonly exports: readonly ExportInfo[];
-  readonly symbols: readonly SymbolInfo[];
-  readonly hasDefaultExport: boolean;
-  /** Module exports a route handler (default or named) — participates in the route graph. */
-  readonly hasHandlerExport: boolean;
-  /** Named export identifier to import when the handler cannot be inlined. */
-  readonly handlerExportName?: string;
-  readonly schemaExport?: string;
-  readonly configExport?: string;
-}
+/**
+ * @deprecated Use {@link SourceFile} (source frontend). Kept as a type alias
+ * for back-compat while phases migrate to the standard source layer.
+ */
+export type ModuleInfo = SourceFile;
 
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
 
@@ -308,46 +292,11 @@ export interface RouteSerializers {
   readonly byStatus?: Record<string, string>;
 }
 
-export interface RouteDef {
-  readonly bodyContentType?: string;
-  readonly method: HttpMethod;
-  readonly cache?: RouteCacheConfig;
-  readonly path: string;
-  readonly file: string;
-  readonly moduleIdx: number;
-  readonly handlerRef: string;
-  readonly paramNames: readonly string[];
-  readonly isDynamic: boolean;
-  readonly isStatic: boolean;
-  readonly segmentCount: number;
-  readonly isAsync: boolean;
-  readonly shouldInline: boolean;
-  readonly responseType: ResponseType;
-  readonly hasValidation: boolean;
-  readonly hotnessScore: number;
-  readonly dedupGroup?: string;
-  readonly hooks: readonly string[];
-  readonly isConstantResponse: boolean;
-  readonly constantResponse?: string;
-  readonly usage: ContextUsage;
-  /**
-   * Named export identifier to import when the handler is not inlined
-   * (e.g. `httpGet` in `export const httpGet = get(...)`). Absent for
-   * default-export handlers.
-   */
-  readonly handlerExportName?: string;
-
-  // New optional AOT metadata
-  readonly config?: Record<string, unknown>;
-  readonly validators?: RouteValidators;
-  readonly serializers?: RouteSerializers;
-  /**
-   * The route's resolved schema parts (`body`/`query`/`params`/`headers`/
-   * `cookie`/`response`), attached during validator precompilation and used
-   * by OpenAPI generation.
-   */
-  readonly schemaDoc?: Record<string, unknown>;
-}
+/**
+ * @deprecated Use {@link RouteIR} (compiler IR). Kept as a type alias for
+ * back-compat while phases migrate to the standard IR representation.
+ */
+export type RouteDef = RouteIR;
 
 export interface HookDef {
   readonly name: string;
@@ -359,6 +308,8 @@ export interface HookDef {
 export interface DiscoveryResult {
   readonly files: readonly string[];
   readonly modules: readonly ModuleInfo[];
+  /** Source manager owning every read + parsed source file for this build. */
+  readonly sources: SourceManager;
 }
 
 export interface AnalysisResult {

@@ -20,12 +20,7 @@
  */
 
 export { CORE_PATH, type CodegenConfig, getConfig, toImportPath } from "./config";
-export {
-  getCacheConfig,
-  getInlineCandidate,
-  transpileHandlerBody,
-  tryNormalizeConstant,
-} from "./decisions";
+export { getCacheConfig, tryNormalizeConstant } from "./decisions";
 export { stageHeader, stageInlinedHandlers } from "./header";
 export { HELPER_SOURCES, HELPERS, indentBody, resolveUsedHelpers } from "./helpers";
 export {

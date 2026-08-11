@@ -59,8 +59,25 @@ export interface WsFrame {
   payload: Uint8Array;
 }
 
+export interface RateCheck {
+  allowed: boolean;
+  remaining: number;
+  resetMs: number;
+}
+
+/** Sharded fixed-window per-key rate limiter (native). */
+export declare class RateLimiter {
+  constructor(limit: number, windowMs: number, maxEntries?: number | null);
+  check(key: string, nowMs: number): RateCheck;
+  checkKey(key: number, nowMs: number): RateCheck;
+}
+
 export declare function fnv1a64(input: Uint8Array): bigint;
 export declare function crc32(input: Uint8Array): number;
+/** Initialize the rayon worker pool (honored only before first pool use). */
+export declare function initThreadPool(threads: number): number;
+/** Current rayon worker count (0 until the pool initializes). */
+export declare function rayonNumThreads(): number;
 export declare function hmacSha256(key: Uint8Array, data: Uint8Array): Uint8Array;
 export declare function hmacSha256Verify(
   key: Uint8Array,
@@ -131,3 +148,34 @@ export declare function validateEmail(input: Uint8Array): boolean;
 export declare function validateUuid(input: Uint8Array): boolean;
 export declare function validateIpv4(input: Uint8Array): boolean;
 export declare function validateIpv6(input: Uint8Array): boolean;
+
+// ── Compiled-once napi classes (the raw addon surface) ──────────
+
+export declare class ConditionalRequest {
+  constructor(etagValue: Uint8Array, lastModifiedSecs?: number | null);
+  isNotModified(ifNoneMatch: Uint8Array | null, ifModifiedSince: Uint8Array | null): boolean;
+}
+
+export declare class AcceptNegotiator {
+  constructor(supported: Array<string>);
+  negotiate(header: Uint8Array): string | null;
+}
+
+export declare class FormParser {
+  constructor(capacity?: number | null);
+  parse(input: Uint8Array): Uint8Array;
+  parseInto(input: Uint8Array, output: Uint8Array): number;
+}
+
+export declare class SchemaValidator {
+  constructor(schemaBytes: Uint8Array);
+  validate(input: Uint8Array): boolean;
+  validateBatchPackedCount(packed: Uint8Array): number;
+  validateBatchPackedBitset(packed: Uint8Array): Uint8Array;
+  validateBatchStreaming(batchBytes: Uint8Array): number;
+}
+
+export declare function formParsePacked(input: Uint8Array): Uint8Array;
+
+/** Castrum ingress pipeline factory (TS-layer export — the "route manager" adapter). */
+export declare function createPipeline(options?: unknown): unknown;

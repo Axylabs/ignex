@@ -8,7 +8,7 @@
  * - AbortSignal.timeout based cancellation
  */
 
-import { HOP_BY_HOP_HEADERS } from "./headers";
+import { stripHopByHopHeaders } from "./headers";
 
 type FetchRequestInit = NonNullable<Parameters<typeof fetch>[1]>;
 
@@ -26,39 +26,47 @@ export interface ProxyOptions extends Omit<FetchRequestInit, "body"> {
  * that must be recomputed for upstream.
  */
 const sanitizeRequestHeaders = (headers: Headers): Headers => {
-  const out = new Headers(headers);
-
-  for (const h of HOP_BY_HOP_HEADERS) out.delete(h);
-
+  const out = stripHopByHopHeaders(headers);
   out.delete("host");
-
   return out;
 };
 
 /**
  * Remove hop-by-hop headers from upstream response.
  */
-const sanitizeResponseHeaders = (headers: Headers): Headers => {
-  const out = new Headers(headers);
-
-  for (const h of HOP_BY_HOP_HEADERS) out.delete(h);
-
-  return out;
-};
+const sanitizeResponseHeaders = (headers: Headers): Headers => stripHopByHopHeaders(headers);
 
 /**
  * Create a combined timeout + optional caller signal.
+ *
+ * Uses `AbortSignal.timeout`/`AbortSignal.any` where available (they propagate
+ * to the response body stream too, so a slow-drip upstream is cut at the total
+ * deadline); falls back to a manual timer + `AbortController` otherwise.
  */
 const createProxySignal = (opts: ProxyOptions): AbortSignal => {
-  const timeoutSignal = AbortSignal.timeout(opts.timeoutMs ?? 10_000);
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const caller = opts.signal;
 
-  if (!opts.signal) return timeoutSignal;
-
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any([opts.signal, timeoutSignal]);
+  if (typeof AbortSignal.timeout === "function") {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    if (!caller) return timeoutSignal;
+    return typeof AbortSignal.any === "function"
+      ? AbortSignal.any([caller, timeoutSignal])
+      : timeoutSignal;
   }
 
-  return timeoutSignal;
+  // Defensive fallback for runtimes without AbortSignal.timeout.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("Upstream timeout")), timeoutMs);
+  if (caller) {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    if (caller.aborted) onAbort();
+    else caller.addEventListener("abort", onAbort, { once: true });
+  }
+  return controller.signal;
 };
 
 /**
@@ -118,6 +126,16 @@ export async function proxyRequest(
     const upstream = await fetch(target.toString(), init);
 
     const responseHeaders = sanitizeResponseHeaders(upstream.headers);
+
+    // `fetch` auto-decompresses the upstream body, so forwarding the original
+    // content-encoding/content-length would describe a body we no longer have
+    // (the client would fail to decompress it — Z_DATA_ERROR). Drop both when
+    // the upstream was compressed.
+    if (upstream.headers.get("content-encoding")) {
+      responseHeaders.delete("content-encoding");
+      responseHeaders.delete("content-length");
+    }
+
     responseHeaders.set("x-proxy", "flux");
 
     return new Response(upstream.body, {

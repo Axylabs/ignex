@@ -4,10 +4,9 @@
  * The analysis pass is grouped by concern into focused modules:
  *   ./fs          — shared file reads
  *   ./app-config  — `app.config.ts` detection
- *   ./route-graph — `RouteDef` factory + graph building
+ *   ./route-graph — `RouteIR` factory + graph building
  *   ./conflicts   — dead / duplicate / ambiguous route detection
  *   ./hooks       — route hook resolution
- *   ./stats       — route counters
  *
  * `runAnalysis` composes these pure helpers; consumers import the whole phase
  * from `../phases/analysis` (this facade).
@@ -20,7 +19,6 @@ export { collectHookNames, resolveHook, resolveHooks } from "./hooks";
 export {
   buildHandlerRef,
   buildRouteGraph,
-  computeMethodIndex,
   createRouteDef,
   detectConstantResponse,
   findHandlerSymbol,
@@ -29,7 +27,6 @@ export {
   parseRouteFile,
   resolveRouteModule,
 } from "./route-graph";
-export { countConstant, countDynamic, countRoutes, countStatic } from "./stats";
 
 import { DiagnosticCodes } from "../../diagnostics";
 import type {
@@ -49,15 +46,15 @@ export const runAnalysis = (
   ctx: CompilerContext,
 ): AnalysisResult =>
   ctx.logger.time("analysis", () => {
-    const routes = buildRouteGraph(discovery.files, discovery.modules, ctx.diagnostics);
+    const routes = buildRouteGraph(discovery.files, discovery.modules);
     const { alive, dead } = detectDeadRoutes(routes, discovery.modules);
 
     if (dead.length > 0) {
       for (const r of dead) {
         ctx.diagnostics.warn({
           code: DiagnosticCodes.DeadRoute,
-          message: `Route eliminated (dead or duplicate): ${r.method} ${r.path}`,
-          file: r.file,
+          message: `Route eliminated (dead or duplicate): ${r.source.method} ${r.source.path}`,
+          file: r.source.file,
         });
       }
     }
@@ -70,17 +67,19 @@ export const runAnalysis = (
     // of routes sharing the same module (shared-handler pressure).
     const shared = new Map<number, number>();
     for (const route of alive) {
-      shared.set(route.moduleIdx, (shared.get(route.moduleIdx) ?? 0) + 1);
+      shared.set(route.source.moduleIdx, (shared.get(route.source.moduleIdx) ?? 0) + 1);
     }
     const routesWithHotness = alive.map((route) => {
-      const mod = modules[route.moduleIdx];
+      const mod = modules[route.source.moduleIdx];
       const handlerSym = mod ? findHandlerSymbol(mod) : undefined;
-      const score = (handlerSym?.hotness ?? 0) + (shared.get(route.moduleIdx) ?? 1);
-      return score === route.hotnessScore ? route : { ...route, hotnessScore: score };
+      const score = (handlerSym?.hotness ?? 0) + (shared.get(route.source.moduleIdx) ?? 1);
+      return score === route.analysis.hotnessScore
+        ? route
+        : { ...route, analysis: { ...route.analysis, hotnessScore: score } };
     });
 
-    const hooks = resolveHooks(routesWithHotness, opts.hooksDir, ctx);
-    const appConfig = resolveAppConfig(opts);
+    const hooks = resolveHooks(routesWithHotness, opts.hooksDir, discovery.sources, ctx);
+    const appConfig = resolveAppConfig(opts, discovery.sources, ctx);
 
     if (appConfig) {
       ctx.logger.info(`App config found: ${appConfig.relPath}`, {

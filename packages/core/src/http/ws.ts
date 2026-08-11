@@ -2,12 +2,8 @@
  * @fileoverview WebSocket support with typed messages and topics.
  */
 
-import { wsAcceptKey } from "@flux/native";
 import type { ServerWebSocket, WebSocketHandler } from "../types";
 import type { FluxContext } from "./context";
-
-/** Compute the RFC 6455 Sec-WebSocket-Accept value (native-accelerated). */
-export const acceptWsKey = (key: string): string => wsAcceptKey(key);
 
 export class FluxWS<Context = unknown, Body = unknown, Response = unknown> {
   constructor(
@@ -84,8 +80,6 @@ export interface WSLocalHook<Context = unknown, Body = unknown, Response = unkno
   drain?(ws: FluxWS<Context, Body, Response>): void | Promise<void>;
   close?(ws: FluxWS<Context, Body, Response>, code: number, reason: string): void | Promise<void>;
   upgrade?: Record<string, unknown> | ((ctx: FluxContext) => unknown);
-  body?: Body;
-  response?: Response;
 }
 
 export const createWSHandler = <Context, Body, Response>(

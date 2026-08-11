@@ -6,13 +6,20 @@ fallbacks**. Every function ships two ways: an auto-preferring wrapper
 
 ## How it works
 
-- `src/loader.ts` lazily loads the `castrum` Rust addon (`FLUX_NATIVE_PATH`
-  overrides the resolution). It **never throws** — if the addon is missing, the
-  module captures `native = null` and every wrapper falls back to pure TS.
+- `src/loader.ts` **first-class**: loads the castrum `.node` NAPI binary
+  directly via `require()`/`process.dlopen` (Node-API modules can't be
+  ESM-`import`ed under Bun), resolved from the castrum package directory —
+  bypassing the root tsconfig `paths` stub that would otherwise hijack a bare
+  `import("castrum")` at runtime. It **never throws** — if the addon is
+  missing, `native = null` and every wrapper falls back to pure TS.
 - Each module captures `const native = getNative()` once at import; the
-  fallback runs when `native` is null.
-- `FLUX_NATIVE_PATH` points at the `.node` binary when you want the real addon
-  (used by `packages/native/test/native.test.ts` for parity runs).
+  fallback runs when `native` is null (or when the measured-faster JS path is
+  preferred — see `docs/native-acceleration.md`).
+- `FLUX_NATIVE_PATH` overrides resolution (a `.node` path is `require`d, a
+  module specifier is imported). `FLUX_NATIVE=off` disables the addon.
+- `loadCastrumModule()` loads the castrum TS entry for the route-manager
+  (`createNativePipeline`) bridge.
+- Verify: `bun -e 'const m = await import("./src/index.ts"); console.log(m.isNativeAvailable())'`.
 
 ## Module map (`src/`)
 

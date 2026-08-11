@@ -34,6 +34,33 @@ const nodeSize = (node: Node): number => {
   return Math.max(0, end - start);
 };
 
+/**
+ * Names of every top-level binding in a module (`const`/`let`/`var`, functions
+ * and classes, including `export const/function/class` forms). Used by the
+ * inliner to detect handler bodies that close over module scope.
+ */
+export function collectTopLevelBindingNames(ast: Program): string[] {
+  const names: string[] = [];
+
+  for (const stmt of ast.body ?? []) {
+    const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
+    if (!decl) continue;
+
+    if (decl.type === "VariableDeclaration") {
+      for (const d of decl.declarations ?? []) {
+        const name = bindingName(d.id);
+        if (name) names.push(name);
+      }
+    } else if (decl.type === "FunctionDeclaration" && decl.id?.name) {
+      names.push(decl.id.name);
+    } else if (decl.type === "ClassDeclaration" && decl.id?.name) {
+      names.push(decl.id.name);
+    }
+  }
+
+  return names;
+}
+
 /** Extract module symbols with a lightweight intra-module call graph. */
 export function extractSymbolsAST(_source: string, ast: Program): SymbolInfo[] {
   const defs = new Map<string, SymbolDef>();

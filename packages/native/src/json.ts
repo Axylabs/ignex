@@ -19,6 +19,38 @@ export const jsonValid = (input: string | Uint8Array): boolean => {
   }
 };
 
+// ── JSON Schema validation (native-or-null bridge) ──────────────
+
+export interface SchemaValidator {
+  /** `true` when `input` is a JSON document valid against the compiled schema. */
+  validate(input: string | Uint8Array): boolean;
+  /** Validate a packed batch of JSON documents → number of valid items. */
+  validateBatchPackedCount(packed: Uint8Array): number;
+}
+
+/**
+ * Compile a JSON Schema into a native validator (castrum `SchemaValidator`,
+ * backed by `fast_schema` + the `jsonschema` crate).
+ *
+ * Returns `null` when the Rust addon is unavailable — callers (e.g.
+ * `@flux/core` runtime validation) keep their own TS validator (Ajv) as the
+ * fallback instead of duplicating a full JSON-Schema engine here. Native
+ * validation is proven fastest for large schemas / batch workloads; prefer
+ * the TS validator for small one-off documents.
+ */
+export const createSchemaValidator = (schema: string | Uint8Array): SchemaValidator | null => {
+  if (!native) return null;
+  const inst = new native.SchemaValidator(toBytes(schema));
+  return {
+    validate(input) {
+      return inst.validate(toBytes(input));
+    },
+    validateBatchPackedCount(packed) {
+      return inst.validateBatchPackedCount(packed);
+    },
+  };
+};
+
 /** Apply an RFC 6902 JSON Patch to a JSON document; returns the patched JSON. */
 export const jsonPatch = (doc: string, patch: string): string => {
   if (native) return fromBytes(native.jsonPatch(toBytes(doc), toBytes(patch)));

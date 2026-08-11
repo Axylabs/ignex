@@ -13,7 +13,6 @@ import { err, isOk, ok, type Result } from "@flux/shared";
 import type { FluxContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
-import type { MaybePromise } from "../types";
 
 export type SessionData = Record<string, unknown>;
 
@@ -105,6 +104,8 @@ export interface SessionManager {
   loadOrCreate(ctx: FluxContext): Promise<Session>;
   /** Build the request hook that attaches the session to the context. */
   middleware(options?: { createIfMissing?: boolean }): HookFn;
+  /** Close the backing store (releases sweep timers). Called on app shutdown. */
+  close?(): void;
 }
 
 const SESSION_KEY = Symbol.for("flux.session");
@@ -236,7 +237,13 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     };
   };
 
-  return { load, loadOrCreate, middleware };
+  // Release the backing store's sweep timer on app shutdown so a long-lived
+  // manager doesn't accumulate intervals.
+  const close = (): void => {
+    store?.close?.();
+  };
+
+  return { load, loadOrCreate, middleware, close };
 };
 
 /** Alias for `createSessionManager(...).middleware(...)` — ergonomic hook. */
@@ -244,5 +251,3 @@ export const withSession = (
   options: SessionManagerOptions,
   middlewareOptions?: { createIfMissing?: boolean },
 ): HookFn => createSessionManager(options).middleware(middlewareOptions);
-
-export type SessionLoader = MaybePromise<Session | null>;

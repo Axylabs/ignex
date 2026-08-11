@@ -4,12 +4,13 @@
  * Emits Ajv standalone validators for route schemas.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
+import { writeGuarded } from "./artifacts";
 import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
 const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as const;
@@ -17,10 +18,10 @@ const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as cons
 type ValidatorKind = (typeof VALIDATOR_KINDS)[number];
 
 const validatorImportName = (route: RouteDef, kind: ValidatorKind): string =>
-  `validate_${route.handlerRef}_${kind}`;
+  `validate_${route.codegen.handlerRef}_${kind}`;
 
 const validatorFileName = (route: RouteDef, kind: ValidatorKind): string =>
-  `${route.handlerRef}.${kind}.cjs`;
+  `${route.codegen.handlerRef}.${kind}.cjs`;
 
 export const precompileValidators = async (
   routes: readonly RouteDef[],
@@ -115,7 +116,7 @@ try {
     routes,
     modules,
     ctx,
-    (route) => route.hasValidation,
+    (route) => route.analysis.hasValidation,
     async (route, mod, schemaDoc) => {
       const validators: Record<string, string> = {};
 
@@ -129,7 +130,7 @@ try {
         const code = compileSchemaPart(schemaPart, (reason) => {
           ctx.diagnostics.warn({
             code: DiagnosticCodes.ValidatorCompileFailed,
-            message: `Validator precompilation failed for ${route.method} ${route.path} (${kind}); falling back to runtime validation. ${reason}`,
+            message: `Validator precompilation failed for ${route.source.method} ${route.source.path} (${kind}); falling back to runtime validation. ${reason}`,
             file: mod.path,
           });
         });
@@ -139,21 +140,24 @@ try {
         }
 
         const file = validatorFileName(route, kind);
-        writeFileSync(join(validatorsDir, file), code);
+        writeGuarded(join(validatorsDir, file), code, ctx, file);
 
         validators[kind] = validatorImportName(route, kind);
       }
 
       if (Object.keys(validators).length > 0) {
-        ctx.logger.info(`Precompiled validators for ${route.method} ${route.path}`);
+        ctx.logger.info(`Precompiled validators for ${route.source.method} ${route.source.path}`);
       }
 
       // Keep the resolved schema on the route so OpenAPI generation can emit
       // real request/response schemas even when no validator compiled.
       return {
         ...route,
-        ...(Object.keys(validators).length > 0 ? { validators: validators as any } : {}),
-        schemaDoc,
+        decisions: {
+          ...route.decisions,
+          ...(Object.keys(validators).length > 0 ? { validators: validators as any } : {}),
+          schemaDoc,
+        },
       };
     },
   );

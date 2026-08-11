@@ -3,13 +3,14 @@ import { pathToFileURL } from "node:url";
 import { exists, readTextFile } from "./fs.js";
 import { warn } from "./logger.js";
 
-const CONFIG_FILES = [
+/** All config filenames `loadConfig` reads, in priority order. */
+export const CONFIG_FILES = [
   "flux.config.ts",
   "flux.config.mts",
   "flux.config.mjs",
   "flux.config.js",
   "flux.config.json",
-];
+] as const;
 
 export async function loadConfig(root: string): Promise<Record<string, unknown>> {
   for (const file of CONFIG_FILES) {

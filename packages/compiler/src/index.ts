@@ -134,7 +134,9 @@ const linkStageSync = (s: PipelineState): PipelineState => ({
 });
 
 const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
-  if (s.opts.incremental && s.outPath) {
+  // Never cache a failed build — analysis/linker errors surface via the final
+  // `hasErrors` check; caching them would poison the next incremental build.
+  if (s.opts.incremental && s.outPath && !s.ctx.diagnostics.hasErrors) {
     await storeCache(
       s.opts,
       s.ctx,
@@ -272,7 +274,7 @@ export class FluxCompiler {
     }
 
     const opts = validated.value;
-    const ctx = createContext(consoleLogger());
+    const ctx = createContext(consoleLogger(opts.verbose ?? false));
     const t0 = performance.now();
 
     if (opts.precompileValidators || opts.precompileSerializers) {
@@ -313,7 +315,7 @@ export class FluxCompiler {
     }
 
     const opts = validated.value;
-    const ctx = createContext(consoleLogger());
+    const ctx = createContext(consoleLogger(opts.verbose ?? false));
     const t0 = performance.now();
 
     ctx.logger.info("flux compiler started (async)", {

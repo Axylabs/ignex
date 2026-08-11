@@ -13,5 +13,5 @@ export const session = (options: SessionPluginOptions): FluxPlugin => {
   const manager = createSessionManager(options);
   const hook = manager.middleware({ createIfMissing: options.createIfMissing ?? false });
 
-  return hookToPlugin("session", hook);
+  return hookToPlugin("session", hook, () => manager.close?.());
 };

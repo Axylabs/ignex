@@ -7,13 +7,20 @@
  * halt, or `{ ctx }` to continue with a new context). `serve` wraps
  * `Bun.serve`; `stop` drains and runs `onStop`/`stop` hooks.
  */
+import { initNative } from "@flux/native";
 import { pipeAsync } from "@flux/shared";
-import { createContext, type FluxContext } from "../http/context";
+import type { HttpResponseCache } from "../data/cache";
+import { type ContextOptions, createContext, type FluxContext } from "../http/context";
 import { applySet } from "../http/headers";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
-import { mergeLifeCycle } from "./guard";
-import { createPluginContext, type FluxPlugin, pluginsToLifeCycle } from "./plugin";
+import { mergeLifeCycle } from "./hooks";
+import {
+  createPluginContext,
+  type FluxPlugin,
+  pluginContextToLifecycle,
+  pluginsToLifeCycle,
+} from "./plugin";
 
 export interface AppOptions {
   /** Lifecycle hooks (merged after plugin hooks). */
@@ -25,6 +32,13 @@ export interface AppOptions {
   onStop?(): MaybePromise<void>;
   /** Expose error details in 500 responses. */
   exposeErrors?: boolean;
+  /**
+   * App-scoped response cache for `ctx.cache()`. Defaults to a shared
+   * process-wide cache; pass one here to scope cache entries per app.
+   */
+  cache?: HttpResponseCache;
+  /** Trust `x-real-ip` / `x-forwarded-for` when `server.requestIP` is unavailable. */
+  trustProxy?: boolean;
 }
 
 export interface FluxApp {
@@ -70,7 +84,14 @@ export const createApp = (options: AppOptions): FluxApp => {
   const pluginContext = createPluginContext();
   for (const p of options.plugins ?? []) pluginContext.register(p);
 
-  const pluginLifecycle = pluginsToLifeCycle(options.plugins ?? []);
+  // Mirror the compiler-generated server: `addHook`-registered hooks (from
+  // legacy callable/`setup` plugins) are converted first, then plugin methods
+  // (onRequest/onResponse/onError), then user lifecycle — so `addHook`-based
+  // plugins actually run under the interpreted runtime too.
+  const pluginLifecycle = mergeLifeCycle(
+    pluginContextToLifecycle(pluginContext) as LifeCycleStore,
+    pluginsToLifeCycle(options.plugins ?? []) as LifeCycleStore,
+  );
   const lifecycle = mergeLifeCycle(pluginLifecycle as LifeCycleStore, options.lifecycle ?? {});
 
   const exposeErrors = options.exposeErrors ?? false;
@@ -83,6 +104,10 @@ export const createApp = (options: AppOptions): FluxApp => {
   const init = async (): Promise<void> => {
     if (initialized) return;
     initialized = true;
+    // Eagerly pre-warm the Rust addon (rayon pool + dlopen) at boot instead
+    // of lazily on the first request. Load-time cost is acceptable; runtime
+    // latency is not. No-op without the addon.
+    initNative();
     await pluginContext.initAll();
   };
 
@@ -91,10 +116,18 @@ export const createApp = (options: AppOptions): FluxApp => {
       lifecycle,
       preStages,
       postStages,
-      createContext(req, {}),
+      createContext(req, {}, buildContextOptions()),
       options.handler,
       exposeErrors,
     );
+
+  // exactOptionalPropertyTypes: only set optional fields that are defined.
+  const buildContextOptions = (): ContextOptions => {
+    const ctxOptions: ContextOptions = {};
+    if (options.cache !== undefined) ctxOptions.cache = options.cache;
+    if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
+    return ctxOptions;
+  };
 
   return {
     lifecycle,
@@ -120,18 +153,30 @@ export const createApp = (options: AppOptions): FluxApp => {
           stop(closeActive?: boolean): void;
         };
       };
-      // Run plugin init hooks before accepting requests (best-effort).
-      void init();
+      // Run plugin init hooks before accepting requests (best-effort). A
+      // rejected init must not become an unhandled rejection / crash the app.
+      void init().catch((err) => {
+        console.error("[flux] plugin init failed:", err);
+      });
       server = serve({ fetch: handler, port, hostname, ...rest });
-      void options.onStart?.();
+      void Promise.resolve(options.onStart?.()).catch((err) => {
+        console.error("[flux] onStart failed:", err);
+      });
       return server;
     },
 
     async stop(stopOptions = {}) {
       const hooks = [...lifecycle.stop, ...(options.onStop ? [options.onStop] : [])];
-      for (const hook of hooks) {
-        const fn = typeof hook === "function" ? hook : hook.fn;
-        if (typeof fn === "function") await fn();
+      // Run every stop hook even if one throws, so closeAll() always runs and
+      // resources (stores, intervals, connections) are not leaked.
+      const results = await Promise.allSettled(
+        hooks.map(async (hook) => {
+          const fn = typeof hook === "function" ? hook : hook.fn;
+          if (typeof fn === "function") await fn();
+        }),
+      );
+      for (const r of results) {
+        if (r.status === "rejected") console.error("[flux] stop hook failed:", r.reason);
       }
       server?.stop(stopOptions.closeActive ?? false);
       server = null;
@@ -231,6 +276,19 @@ export const runLifecycle = async (
     return s;
   };
 
+  const traceStage = async (s: LifecycleState): Promise<LifecycleState> => {
+    if (s.halted || s.response === undefined) return s;
+    // `trace` is the final observe-only stage (declared after `afterResponse`
+    // in LifeCycleStore); it receives the finalized response and can never
+    // replace or corrupt it.
+    try {
+      await runHooks(lc.trace ?? [], s.ctx, s.response);
+    } catch {
+      // swallow — observability must never break a request
+    }
+    return s;
+  };
+
   const applySetStage = async (s: LifecycleState): Promise<Response> =>
     // A pre-halt returns the response untouched; otherwise apply the
     // accumulated `set` mutations (headers/status/cookie) — matches the
@@ -255,6 +313,7 @@ export const runLifecycle = async (
       handle,
       postStages,
       afterResponse,
+      traceStage,
       applySetStage,
     )) as Response;
   } catch (err) {

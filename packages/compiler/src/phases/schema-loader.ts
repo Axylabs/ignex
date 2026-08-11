@@ -109,14 +109,18 @@ export const forEachRouteWithSchema = async (
       continue;
     }
 
-    const mod = modules[route.moduleIdx];
+    const mod = modules[route.source.moduleIdx];
 
     if (!mod?.schemaExport) {
       nextRoutes.push(route);
       continue;
     }
 
-    const routeModule = await loadRouteModule(mod.path, ctx.diagnostics, route.handlerExportName);
+    const routeModule = await loadRouteModule(
+      mod.path,
+      ctx.diagnostics,
+      route.analysis.handlerExportName,
+    );
     const schema = routeModule?.schema;
 
     if (!schema || typeof schema !== "object") {

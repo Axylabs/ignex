@@ -1,18 +1,12 @@
-import { resolve } from "node:path";
-import { parseArgs } from "node:util";
+import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 
 export async function runInfo(args: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args,
-    options: {
-      root: { type: "string" },
-    },
-    allowPositionals: true,
-    strict: false,
+  const { values, positionals } = parseCliArgs(args, {
+    root: { type: "string" },
   });
 
-  const root = resolve((values.root as string | undefined) ?? positionals[0] ?? ".");
+  const root = resolveRoot(values, positionals);
   const config = await loadConfig(root);
 
   console.log(

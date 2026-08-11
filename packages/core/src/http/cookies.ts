@@ -68,15 +68,25 @@ export const serializeCookie = (
   return serialized.length === 1 ? serialized[0] : serialized;
 };
 
+/** Maximum number of cookies parsed from a single header (DoS guard). */
+const MAX_COOKIES = 100;
+/** Maximum length of the Cookie header we'll parse (DoS guard). */
+const MAX_COOKIE_HEADER_BYTES = 8192;
+
 export const parseCookieString = (cookieString: string | null): Record<string, string> => {
   if (!cookieString) return {};
+  // Refuse to parse an absurdly large cookie header.
+  if (cookieString.length > MAX_COOKIE_HEADER_BYTES) return {};
 
   const out: Record<string, string> = {};
+  let count = 0;
 
   // Native-accelerated (proven ~2.5x), with a pure-TS fallback. The native
   // parser trims but does not URL-decode, so we keep the existing decode step.
   for (const [key, value] of cookiePairs(cookieString)) {
+    if (count >= MAX_COOKIES) break;
     out[key] = decodeCookieValue(value);
+    count += 1;
   }
 
   return out;
@@ -231,6 +241,19 @@ export const createLazyCookieJar = (
         ...initial,
         value: store[key],
       });
+    },
+    // Lazy parsing is transparent to enumeration: `Object.keys(ctx.cookie)`
+    // / `for…in` trigger a parse and list the received cookie names (matches
+    // the eager `Record<string, Cookie>` type the API promises).
+    ownKeys() {
+      return Reflect.ownKeys(ensureParsed());
+    },
+    getOwnPropertyDescriptor(_, key: string | symbol) {
+      const store = ensureParsed();
+      if (typeof key === "string" && key in store) {
+        return { value: store[key], enumerable: true, configurable: true };
+      }
+      return undefined;
     },
   }) as Record<string, Cookie>;
 };

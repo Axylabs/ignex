@@ -9,7 +9,7 @@
 
 import { fnv1a64 } from "@flux/native";
 import { isNotModified } from "../http/conditional";
-import { HOP_BY_HOP_HEADERS, reWrapResponse } from "../http/headers";
+import { reWrapResponse, stripHopByHopHeaders } from "../http/headers";
 import { LRUCache } from "./lru";
 
 export interface CacheControlOptions {
@@ -125,16 +125,7 @@ export interface CachedHttpResponse {
 }
 
 function sanitizeHeaders(headers: Headers): [string, string][] {
-  const out: [string, string][] = [];
-
-  headers.forEach((value, key) => {
-    const lower = key.toLowerCase();
-    if (!HOP_BY_HOP_HEADERS.has(lower)) {
-      out.push([key, value]);
-    }
-  });
-
-  return out;
+  return Array.from(stripHopByHopHeaders(headers).entries());
 }
 
 function isCacheableResponse(response: Response): boolean {
@@ -150,6 +141,8 @@ function isCacheableResponse(response: Response): boolean {
 export class HttpResponseCache {
   private lru: LRUCache<string, CachedHttpResponse>;
   private maxBodyBytes: number;
+  /** In-flight factories keyed by cache key — single-flight (thundering-herd) guard. */
+  private inflight = new Map<string, Promise<Response>>();
 
   constructor(opts: HttpResponseCacheOptions = {}) {
     this.maxBodyBytes = opts.maxBodyBytes ?? 1_048_576;
@@ -256,7 +249,23 @@ export class HttpResponseCache {
 
     if (hit) return hit;
 
-    const response = await factory();
-    return this.set(key, response, opts);
+    // Single-flight: coalesce concurrent cold misses on the same key so the
+    // origin is hit once. Concurrent callers await the same in-flight factory
+    // instead of each re-fetching (thundering-herd protection).
+    const inFlight = this.inflight.get(key);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+      try {
+        const response = await factory();
+        await this.set(key, response, opts);
+        return response;
+      } finally {
+        this.inflight.delete(key);
+      }
+    })();
+
+    this.inflight.set(key, promise);
+    return promise;
   }
 }

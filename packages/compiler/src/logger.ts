@@ -44,26 +44,3 @@ export const consoleLogger = (verbose = false): Logger => ({
     return result;
   },
 });
-
-/** Enterprise-grade JSON logger for CI/CD pipelines. */
-export const jsonLogger = (verbose = false): Logger => ({
-  debug(msg, meta) {
-    if (verbose) console.log(JSON.stringify({ level: "debug", msg, ...meta }));
-  },
-  info(msg, meta) {
-    console.log(JSON.stringify({ level: "info", msg, ...meta }));
-  },
-  warn(msg, meta) {
-    console.log(JSON.stringify({ level: "warn", msg, ...meta }));
-  },
-  error(msg, meta) {
-    console.log(JSON.stringify({ level: "error", msg, ...meta }));
-  },
-  time(label, fn) {
-    const t0 = performance.now();
-    const result = fn();
-    const elapsed = (performance.now() - t0).toFixed(2);
-    console.log(JSON.stringify({ level: "metric", phase: label, durationMs: parseFloat(elapsed) }));
-    return result;
-  },
-});

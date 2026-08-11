@@ -204,15 +204,15 @@ single Bun server entry plus typed/OpenAPI artifacts:
 
 1. **Discovery** — scans `routesDir`, parses each module to an AST (oxc-parser with
    Bun fallbacks), and extracts imports, exports, symbols, and handlers.
-2. **Analysis** — turns filenames into `RouteDef`s, detects constant responses,
+2. **Analysis** — lowers filenames into `RouteIR`s, detects constant responses,
    context usage, dead/ambiguous routes, and resolves hooks and `app.config`.
 3. **Optimization** — marks inline-eligible handlers and deduplicates identical
    constant responses (per HTTP method).
 4. **Precompilation** — emits Ajv standalone validators (`.cjs`) and
    `fast-json-stringify` serializers (`.mjs`).
-5. **Codegen** — emits the server through an indentation-aware emitter with
-   dependency-aware pruning of unused runtime helpers, conservative handler
-   inlining, and route-specialized contexts.
+5. **Codegen** — emits the server as a deterministic string with
+   dependency-aware pruning of unused runtime helpers (tracked by the
+   `Emitter`), conservative handler inlining, and route-specialized contexts.
 6. **Linker** — writes the entry raw, or `Bun.build`s it when `minify`/`sourceMap`
    is requested.
 7. **Artifacts** — `routes.d.ts`, `client.d.ts`, `openapi.json`, `manifest.json`.
@@ -286,7 +286,7 @@ bun run test            # full vitest suite (all packages)
 | Area | What's included |
 | --- | --- |
 | Routing | File-system routing, AOT-compiled into Bun's native router; dynamic/catch-all params; auto HEAD/OPTIONS; 404/405. |
-| Middleware | Lifecycle hooks, guards, plugins (`cors`, `compression`, `security`, `logger`, `rateLimit`), macros. |
+| Middleware | Lifecycle hooks, guards, plugins (`cors`, `compression`, `security`, `logger`, `rateLimit`). |
 | Validation | Precompiled Ajv standalone validators (body/query/params/headers/cookie) + runtime Standard-Schema + JSON-Schema fallback. |
 | Serialization | Precompiled `fast-json-stringify` response serializers per status code. |
 | Auth & security | JWT (HS256), Basic/Bearer auth hooks, signed cookies, CSRF guard, password hashing (argon2id/scrypt), AEAD encryption, HMAC. |

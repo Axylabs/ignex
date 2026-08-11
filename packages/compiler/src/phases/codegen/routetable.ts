@@ -5,7 +5,13 @@
  */
 
 import type { CompilerOptions, RouteDef } from "../../types";
-import { allowRegExp, BUN_ALL_METHODS, routeHandlerName, wildcardNames } from "./identifiers";
+import {
+  allowRegExp,
+  BUN_ALL_METHODS,
+  routeHandlerName,
+  wildcardNames,
+  wildcardPrefix,
+} from "./identifiers";
 import { generateRouteCode } from "./routes";
 import type { CodegenState } from "./state";
 
@@ -38,15 +44,15 @@ export const stageRouteTable = (
   for (const route of routes) {
     generateRouteCode(state, route, opts);
 
-    const path = route.path;
-    wildcardsByPath.set(path, wildcardNames(route.path));
+    const path = route.source.path;
+    wildcardsByPath.set(path, wildcardNames(route.source.path));
 
-    if (route.method === "ALL") {
+    if (route.source.method === "ALL") {
       for (const method of BUN_ALL_METHODS) {
         explicitKeys.add(`${method} ${path}`);
       }
     } else {
-      explicitKeys.add(`${route.method} ${path}`);
+      explicitKeys.add(`${route.source.method} ${path}`);
     }
   }
 
@@ -54,30 +60,32 @@ export const stageRouteTable = (
   for (const route of routes) {
     helpers.markUsed("__wrap");
 
-    const path = route.path;
-    const wildcards = JSON.stringify(wildcardNames(route.path));
+    const path = route.source.path;
+    const wildcards = JSON.stringify(wildcardNames(route.source.path));
+    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
     const handler = routeHandlerName(route);
 
-    if (route.method === "ALL") {
+    if (route.source.method === "ALL") {
       for (const method of BUN_ALL_METHODS) {
-        addRouteEntry(method, path, `__wrap(${handler}, ${wildcards})`);
+        addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
       }
     } else {
-      addRouteEntry(route.method, path, `__wrap(${handler}, ${wildcards})`);
+      addRouteEntry(route.source.method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
     }
   }
 
   // Third pass: automatic HEAD for GET routes.
   for (const route of routes) {
-    if (route.method !== "GET" && route.method !== "ALL") continue;
+    if (route.source.method !== "GET" && route.source.method !== "ALL") continue;
 
-    const path = route.path;
-    const wildcards = JSON.stringify(wildcardNames(route.path));
+    const path = route.source.path;
+    const wildcards = JSON.stringify(wildcardNames(route.source.path));
+    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
     const headKey = `HEAD ${path}`;
 
     if (!explicitKeys.has(headKey)) {
       helpers.markUsed("__head");
-      addRouteEntry("HEAD", path, `__head(${routeHandlerName(route)}, ${wildcards})`);
+      addRouteEntry("HEAD", path, `__head(${routeHandlerName(route)}, ${wildcards}, ${prefix})`);
     }
   }
 
@@ -85,10 +93,11 @@ export const stageRouteTable = (
   for (const path of allowMethodsByPattern.keys()) {
     const key = `OPTIONS ${path}`;
     const wildcards = JSON.stringify(wildcardsByPath.get(path) ?? []);
+    const prefix = JSON.stringify(wildcardPrefix(path));
 
     if (!explicitKeys.has(key)) {
       helpers.markUsed("__optionsHandler");
-      addRouteEntry("OPTIONS", path, `__wrap(__optionsHandler, ${wildcards})`);
+      addRouteEntry("OPTIONS", path, `__wrap(__optionsHandler, ${wildcards}, ${prefix})`);
     }
   }
 

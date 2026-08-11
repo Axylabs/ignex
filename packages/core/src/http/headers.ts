@@ -100,6 +100,17 @@ export const HOP_BY_HOP_HEADERS: ReadonlySet<string> = new Set([
   "content-length",
 ]);
 
+/**
+ * Return a new `Headers` with hop-by-hop headers removed (they must never be
+ * forwarded or cached). Single source of truth for hop-by-hop sanitizing —
+ * shared by `http/proxy` and `data/cache`.
+ */
+export const stripHopByHopHeaders = (headers: Headers): Headers => {
+  const out = new Headers(headers);
+  for (const h of HOP_BY_HOP_HEADERS) out.delete(h);
+  return out;
+};
+
 /** Append a `Vary` value de-duplicated against the existing header (case-insensitive). */
 export const appendVary = (headers: Headers, value: string): void => {
   const existing = headers.get("vary");

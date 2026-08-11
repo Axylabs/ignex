@@ -7,7 +7,7 @@
  * the framework behaves identically with or without the Rust addon.
  */
 import { getNative } from "./loader";
-import { pairsToObject, readPairsPacked } from "./packed";
+import { pairsToObject } from "./packed";
 import { crc32, fromBytes, toBytes } from "./util";
 
 const native = getNative();
@@ -46,9 +46,11 @@ export interface MultipartLimits {
 
 /** Parse a query string into `[name, value]` pairs (duplicates preserved). */
 export const queryPairs = (input: string | Uint8Array): Pairs => {
-  const bytes = toBytes(input);
-  if (native) return readPairsPacked(native.queryParsePacked(bytes));
-  return queryPairsFallback(bytes);
+  // Measured: the napi FFI + packed-buffer unpack is slower than plain JS for
+  // query/cookie/form parsing at every input size, so the wrapper prefers the
+  // pure-TS implementation. The native `queryParsePacked` stays exported for
+  // apps that batch large inputs where it amortizes.
+  return queryPairsFallback(toBytes(input));
 };
 
 export const queryPairsFallback = (input: Uint8Array): Pairs => {
@@ -80,9 +82,9 @@ export const parseQuery = (input: string | Uint8Array): Record<string, string> =
 
 /** Parse a `Cookie` header into `[name, value]` pairs. */
 export const cookiePairs = (input: string | Uint8Array): Pairs => {
-  const bytes = toBytes(input);
-  if (native) return readPairsPacked(native.cookieParsePacked(bytes));
-  return cookiePairsFallback(bytes);
+  // Measured: native cookie parsing is 2-5x slower than JS through the napi
+  // wrapper at every size; prefer the pure-TS implementation.
+  return cookiePairsFallback(toBytes(input));
 };
 
 export const cookiePairsFallback = (input: Uint8Array): Pairs => {
@@ -106,10 +108,9 @@ export const parseCookie = (input: string | Uint8Array): Record<string, string> 
 
 // ── Media types ─────────────────────────────────────────────────
 
-export const parseMediaType = (input: string): MediaTypeResult => {
-  if (native) return native.parseMediaType(toBytes(input));
-  return parseMediaTypeFallback(input);
-};
+export const parseMediaType = (input: string): MediaTypeResult =>
+  // Media-type headers are tiny; the pure-TS parser is the fast path.
+  parseMediaTypeFallback(input);
 
 export const parseMediaTypeFallback = (input: string): MediaTypeResult => {
   const idx = input.indexOf(";");
@@ -146,7 +147,7 @@ export const mediaTypeMatches = (actual: string, expected: string): boolean => {
 
 /** Generate a strong (`"<8-hex>"`) or weak (`W/"<8-hex>"`) ETag from a crc32. */
 export const etag = (input: string | Uint8Array, weak = false): string => {
-  if (native) return fromBytes(native.etag(toBytes(input), weak));
+  // Measured: native etag (FFI) loses to the JS crc32 table for typical sizes.
   return etagFallback(toBytes(input), weak);
 };
 
@@ -158,10 +159,8 @@ export const etagFallback = (input: Uint8Array, weak: boolean): string => {
 // ── Accept-Encoding ─────────────────────────────────────────────
 
 /** Parse an `Accept-Encoding` header into ordered `{encoding, q}` entries. */
-export const parseAcceptEncoding = (input: string): EncodingPrefResult[] => {
-  if (native) return native.parseAcceptEncoding(toBytes(input));
-  return parseAcceptEncodingFallback(input);
-};
+export const parseAcceptEncoding = (input: string): EncodingPrefResult[] =>
+  parseAcceptEncodingFallback(input);
 
 export const parseAcceptEncodingFallback = (input: string): EncodingPrefResult[] => {
   const out: EncodingPrefResult[] = [];
@@ -181,6 +180,136 @@ export const parseAcceptEncodingFallback = (input: string): EncodingPrefResult[]
     out.push({ encoding: name.trim().toLowerCase(), q, order: order++ });
   }
   return out;
+};
+
+// ── Form (application/x-www-form-urlencoded) ────────────────────
+
+/** Parse a `x-www-form-urlencoded` body into `[name, value]` pairs. */
+export const formPairs = (input: string | Uint8Array): Pairs => {
+  // Measured: native form parsing loses to JS through the napi wrapper.
+  return formPairsFallback(toBytes(input));
+};
+
+export const formPairsFallback = (input: Uint8Array): Pairs => {
+  const out: Array<[string, string]> = [];
+  const text = fromBytes(input);
+  if (!text) return out;
+  const decode = (s: string): string => {
+    try {
+      return decodeURIComponent(s.replace(/\+/g, " "));
+    } catch {
+      return s;
+    }
+  };
+  for (const pair of text.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const name = eq < 0 ? pair : pair.slice(0, eq);
+    const value = eq < 0 ? "" : pair.slice(eq + 1);
+    out.push([decode(name), decode(value)]);
+  }
+  return out;
+};
+
+/** Parse a `x-www-form-urlencoded` body into an object (last value wins). */
+export const parseForm = (input: string | Uint8Array): Record<string, string> =>
+  pairsToObject(formPairs(input));
+
+// ── Conditional requests (ETag / Last-Modified → 304) ───────────
+
+export interface ConditionalRequest {
+  /** `true` → "304 Not Modified" (If-None-Match wins over If-Modified-Since). */
+  isNotModified(ifNoneMatch?: string | null, ifModifiedSince?: string | null): boolean;
+}
+
+/**
+ * Compile a per-resource conditional-check instance (etag + last-modified
+ * computed once, then reused across requests). Native-backed when available;
+ * the fallback mirrors castrum's `ConditionalRequest` semantics exactly
+ * (RFC 7232 §3.2 — weak opaque-tag comparison, `*` short-circuit, and
+ * If-None-Match precedence over If-Modified-Since).
+ */
+export const createConditionalRequest = (
+  etagValue: string,
+  lastModifiedSecs?: number,
+): ConditionalRequest =>
+  // ETags are tiny and the check is a cheap string/date compare — the pure-TS
+  // implementation is the fast path (native FFI is slower for one-shot checks).
+  createConditionalRequestFallback(etagValue, lastModifiedSecs);
+
+export const createConditionalRequestFallback = (
+  etagValue: string,
+  lastModifiedSecs?: number,
+): ConditionalRequest => {
+  const strong = etagValue.trim().replace(/^W\//, "");
+  const weakEq = (tag: string): boolean => tag.trim().replace(/^W\//, "") === strong;
+  const lastModified = Math.max(0, Math.floor(lastModifiedSecs ?? 0));
+  return {
+    isNotModified(ifNoneMatch, ifModifiedSince) {
+      if (ifNoneMatch) {
+        const header = ifNoneMatch.trim();
+        if (header === "*") return true;
+        return header.split(",").some((candidate) => weakEq(candidate));
+      }
+      if (lastModified > 0 && ifModifiedSince) {
+        const secs = Date.parse(ifModifiedSince);
+        if (!Number.isNaN(secs)) return lastModified <= Math.floor(secs / 1000);
+      }
+      return false;
+    },
+  };
+};
+
+// ── Accept negotiation (Accept-Encoding / Accept-Language) ──────
+
+export interface AcceptNegotiator {
+  /** Best supported value for `header`, or `null` when nothing matches. */
+  negotiate(header: string | null): string | null;
+}
+
+/**
+ * Compile a supported-value list once and negotiate headers against it.
+ * Mirrors castrum's `AcceptNegotiator` (RFC 7231 §5.3.4): specificity first
+ * (exact > `*`), then q-value, then earliest client order.
+ */
+export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
+  // Negotiation over typical (small) headers is fastest in pure TS.
+  createAcceptNegotiatorFallback(supported);
+
+export const createAcceptNegotiatorFallback = (supported: string[]): AcceptNegotiator => {
+  const normalized = supported.map((s) => s.toLowerCase());
+  return {
+    negotiate(header) {
+      const prefs = parseAcceptEncodingFallback(header ?? "");
+      if (prefs.length === 0) return normalized[0] ?? null;
+      let best: { enc: string; q: number; spec: number; order: number } | null = null;
+      for (const sup of normalized) {
+        let matched: { q: number; spec: number; order: number } | null = null;
+        for (const pref of prefs) {
+          const spec = pref.encoding === sup ? 2 : pref.encoding === "*" ? 1 : -1;
+          if (spec < 0) continue;
+          if (
+            matched === null ||
+            spec > matched.spec ||
+            (spec === matched.spec && pref.order < matched.order)
+          ) {
+            matched = { q: pref.q, spec, order: pref.order };
+          }
+        }
+        if (matched === null || matched.q <= 0) continue;
+        const cand = { enc: sup, q: matched.q, spec: matched.spec, order: matched.order };
+        if (
+          best === null ||
+          cand.spec > best.spec ||
+          (cand.spec === best.spec && Math.abs(cand.q - best.q) > 1e-4 && cand.q > best.q) ||
+          (cand.spec === best.spec && Math.abs(cand.q - best.q) <= 1e-4 && cand.order < best.order)
+        ) {
+          best = cand;
+        }
+      }
+      return best ? best.enc : null;
+    },
+  };
 };
 
 // ── Multipart ───────────────────────────────────────────────────

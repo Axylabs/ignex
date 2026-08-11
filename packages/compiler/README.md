@@ -28,7 +28,7 @@ never silently swallowed.
 | Phase | Responsibility |
 | --- | --- |
 | **Discovery** | Recursively scan `routesDir`, parse each module to an AST (oxc-parser → Bun fallbacks), extract imports/exports/symbols/handlers. |
-| **Analysis** | Build `RouteDef`s from filenames (`[param]`, `[...rest]`, method suffixes), detect constant responses, dead/ambiguous routes and conflicts, resolve hooks and `app.config`. |
+| **Analysis** | Lower `RouteIR`s from filenames (`[param]`, `[...rest]`, method suffixes), detect constant responses, dead/ambiguous routes and conflicts, resolve hooks and `app.config`. |
 | **Optimization** | Mark inline-eligible handlers, deduplicate identical constant responses (per method), compute truthful metrics. |
 | **Precompile** | Ajv standalone validators (`.cjs`) and `fast-json-stringify` serializers (`.mjs`) per route/schema part. |
 | **Codegen** | Emit the server entry through an indentation-aware `Emitter` with dependency-aware pruning of generated runtime helpers (dead-code elimination). |
@@ -92,7 +92,7 @@ interface CompileResult {
 | `generateTypes` / `generateOpenAPI` / `generateClient` | `true` | Emit `routes.d.ts`, `openapi.json`, `client.d.ts`. |
 | `strictRouteConflicts` | `false` | Throw on duplicate routes. |
 | `maxJsonBytes` / `maxTextBytes` / `maxFormBytes` / `maxFileBytes` | — | Body size limits. |
-| `serviceName`, `requestIdHeader`, `exposeErrorDetails`, `reusePort`, … | — | Server/feature flags. |
+| `serviceName`, `exposeErrorDetails`, `reusePort`, … | — | Server/feature flags. |
 
 ### Deprecated / removed options
 

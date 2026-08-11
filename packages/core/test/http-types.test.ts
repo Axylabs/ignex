@@ -38,4 +38,17 @@ describe("http route helper types", () => {
       Promise<Response | { ok: number }> | Response | { ok: number }
     >();
   });
+
+  it("models the {status, body} multi-status wrapper per status", () => {
+    const handler = get(() => ({ status: 201 as const, body: { created: true } }), {
+      response: {
+        200: { static: { name: "", level: 0 } },
+        201: { static: { created: true } },
+      },
+    });
+    type Result = ReturnType<typeof handler>;
+    // `{status, body}` is allowed and `body` is typed against the 201 schema
+    // (not the union of all response schemas).
+    expectTypeOf<Result>().toMatchTypeOf<Promise<{ status: 201; body: { created: boolean } }>>();
+  });
 });

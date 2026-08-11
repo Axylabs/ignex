@@ -24,9 +24,17 @@ export class HTTPError extends Error {
   }
 
   toResponse(headers?: Record<string, string>): Response {
-    return Response.json(this.toJSON(), {
+    // Body is memoized by `status|code|message` so repeated error envelopes
+    // (the common case) skip JSON.stringify + object allocation entirely.
+    // When `details` is present the body is unique — build it fresh.
+    const body =
+      this.details === undefined
+        ? cachedErrorBody(this.status, this.code, this.message)
+        : JSON.stringify(this.toJSON());
+    return new Response(body, {
       status: this.status,
-      headers: { "content-type": "application/json", ...headers },
+      headers:
+        headers === undefined ? JSON_HEADERS : { "content-type": "application/json", ...headers },
     });
   }
 }
@@ -126,41 +134,45 @@ export class InvalidCookieSignature extends HTTPError {
 // Error → Response Mapping
 // ============================================================================
 
+/** Shared JSON content-type header for error envelopes (no per-call alloc). */
+const JSON_HEADERS = { "content-type": "application/json" };
+
+/** Deterministic body for the generic internal error (no detail leak). */
+const INTERNAL_ERROR_BODY = JSON.stringify({
+  error: "Internal Server Error",
+  status: 500,
+  code: "INTERNAL_ERROR",
+});
+
+/** Memoized error-envelope JSON bodies keyed by `status|code|message`. */
+const bodyCache = new Map<string, string>();
+const BODY_CACHE_MAX = 64;
+
+const cachedErrorBody = (status: number, code: string | undefined, message: string): string => {
+  const key = `${status}|${code ?? ""}|${message}`;
+  const hit = bodyCache.get(key);
+  if (hit !== undefined) return hit;
+  const body = JSON.stringify({ error: message, status, code });
+  if (bodyCache.size >= BODY_CACHE_MAX) {
+    const first = bodyCache.keys().next().value;
+    if (first !== undefined) bodyCache.delete(first);
+  }
+  bodyCache.set(key, body);
+  return body;
+};
+
 export const errorToResponse = (err: unknown, exposeDetails = false): Response => {
   if (err instanceof HTTPError) return err.toResponse();
 
   const message = exposeDetails && err instanceof Error ? err.message : "Internal Server Error";
-  return Response.json({ error: message, status: 500, code: "INTERNAL_ERROR" }, { status: 500 });
+
+  // Hottest path: generic 500 without detail exposure — fully pre-baked.
+  if (message === "Internal Server Error") {
+    return new Response(INTERNAL_ERROR_BODY, { status: 500, headers: JSON_HEADERS });
+  }
+
+  return new Response(cachedErrorBody(500, "INTERNAL_ERROR", message), {
+    status: 500,
+    headers: JSON_HEADERS,
+  });
 };
-
-// ============================================================================
-// Status Map (Type-safe status codes)
-// ============================================================================
-
-export const StatusMap = {
-  Continue: 100,
-  "Switching Protocols": 101,
-  Processing: 102,
-  OK: 200,
-  Created: 201,
-  Accepted: 202,
-  "No Content": 204,
-  "Partial Content": 206,
-  "Multiple Choices": 300,
-  "Moved Permanently": 301,
-  Found: 302,
-  "Not Modified": 304,
-  "Bad Request": 400,
-  Unauthorized: 401,
-  Forbidden: 403,
-  "Not Found": 404,
-  "Method Not Allowed": 405,
-  Conflict: 409,
-  Gone: 410,
-  "Too Many Requests": 429,
-  "Internal Server Error": 500,
-  "Bad Gateway": 502,
-  "Service Unavailable": 503,
-} as const;
-
-export type StatusMapKey = keyof typeof StatusMap;

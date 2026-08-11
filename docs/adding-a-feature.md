@@ -7,7 +7,7 @@ your feature type, keep the one-way dependency rule, and always run the gates.
 
 1. Read [architecture.md](architecture.md) — especially the one-way dependency
    rule and the `ContextUsage` AOT contract.
-2. Find the smallest surface that can be tested: the compiler has 82 AST unit
+2. Find the smallest surface that can be tested: the compiler has AST unit
    tests, core has lifecycle/security/features tests, native has a parity
    suite. Add tests alongside your feature.
 3. Run `bun run verify` before and after.
@@ -52,7 +52,7 @@ Hooks run in one of the named stages in `LifeCycleStore`
 `mapResponse` / `afterResponse` / `trace` / `error` / `stop`).
 
 1. If it's an existing stage: write a `HookFn` and register it, or create a
-   macro/factory like `requireAuth` in `core/src/security/auth.ts`.
+   factory like `requireAuth` in `core/src/security/auth.ts`.
 2. If you need a **new stage**: add it to `LifeCycleStore` in
    `core/src/types/` (lifecycle types), extend `PRE_HANDLER_STAGES` /
    `POST_HANDLER_STAGES` in `core/src/lifecycle/lifecycle.ts`, update
@@ -65,10 +65,13 @@ Hooks run in one of the named stages in `LifeCycleStore`
 ## C: Add a route type / helper
 
 `packages/core/src/http/route.ts` defines the schema-first helpers
-(`get`, `post`, …), exposed as the `@flux/core/http` subpath.
+(`get`, `post`, …), exposed as the `@flux/core/http` subpath. Each helper is a
+one-line instantiation of the `defineMethod` curried factory with its schema
+bound.
 
-1. Add the method helper mirroring `get`/`post` with the right schema bounds
-   (`NoBodyRouteSchemas` for GET/DELETE, `BodyRouteSchemas` for body methods).
+1. Add the method helper by instantiating the factory with the right schema
+   bounds (`NoBodyRouteSchemas` for GET/DELETE, `BodyRouteSchemas` for body
+   methods): `export const get = defineMethod<NoBodyRouteSchemas>();`.
 2. Keep the signature `fn, schema?` — the route path is inferred from the
    filename by the compiler, never passed here.
 3. Add an `expect-type` test asserting the inferred `ctx.params/query/body`.
@@ -105,7 +108,9 @@ This is the one that crosses the compiler boundary — follow it precisely.
 
 1. Add the phase module under `packages/compiler/src/phases/` and wire it into
    the composed pipeline in `src/index.ts` (add a stage to `compileAsync`'s
-   `pipeAsync` chain) at the correct point.
+   `pipeAsync` chain) at the correct point. If the pass needs source (routes,
+   app config, hooks), read it through the build's `SourceManager` (parse
+   once) and consume `SourceFile`/`RouteIR` — never re-read source directly.
 2. Keep phases **pure and testable**: accept inputs, return outputs, report via
    the `DiagnosticCollector` (FLX_* codes in `src/diagnostics.ts`).
 3. If the phase changes emitted code, bump `COMPILER_CACHE_VERSION`.

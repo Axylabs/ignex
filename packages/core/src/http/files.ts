@@ -133,7 +133,13 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
     headers.set("content-range", `bytes ${start}-${end}/${stats.size}`);
     headers.set("content-length", String(end - start + 1));
 
-    return new Response(file.slice(start, end + 1), {
+    // Buffer the (bounded) range: Bun 1.4's `response.body` getter re-streams
+    // the FULL file when a sliced BunFile-backed Response is re-wrapped (e.g.
+    // plugins/applySet add headers or cookies), which would corrupt the 206
+    // body. A materialized range is small and survives re-wrapping.
+    const sliced = await file.slice(start, end + 1).arrayBuffer();
+
+    return new Response(sliced, {
       status: 206,
       headers,
     });

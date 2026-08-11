@@ -57,7 +57,6 @@ export interface TSchema {
   required?: string[];
   additionalProperties?: boolean | TSchema;
   noValidate?: boolean;
-  elysiaMeta?: string;
 }
 
 export type AnySchema = TSchema | StandardSchemaV1;
@@ -74,15 +73,6 @@ export interface RouteSchema {
   response?: unknown;
 }
 
-export interface InputSchema<Name extends string = string> {
-  body?: AnySchema | Name;
-  headers?: AnySchema | Name;
-  query?: AnySchema | Name;
-  params?: AnySchema | Name;
-  cookie?: AnySchema | Name;
-  response?: { [status: number]: AnySchema | Name };
-}
-
 export interface CookieOptions {
   domain?: string;
   expires?: Date;
@@ -93,7 +83,6 @@ export interface CookieOptions {
   partitioned?: boolean;
   sameSite?: true | false | "lax" | "strict" | "none";
   secure?: boolean;
-  secrets?: string | null | (string | null)[];
 }
 
 export interface ElysiaCookie extends CookieOptions {

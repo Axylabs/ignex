@@ -128,9 +128,3 @@ export const jwtAuth = (options: JwtAuthOptions): HookFn => {
     challenge ? "Bearer" : undefined,
   );
 };
-
-/** Authenticate a request using a custom bearer-token verifier. */
-export const tokenAuth = (
-  verify: (token: string) => MaybePromise<unknown | null>,
-  challenge = true,
-): HookFn => bearerAuth((token) => verify(token), challenge ? "Bearer" : undefined);

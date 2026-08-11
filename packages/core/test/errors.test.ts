@@ -67,4 +67,32 @@ describe("error classes", () => {
     expect(new BadRequestError().toResponse().status).toBe(400);
     expect(new MethodNotAllowedError().toResponse().status).toBe(405);
   });
+
+  it("pre-bakes identical error envelopes (deterministic + memoized body)", async () => {
+    // Same error twice → identical body string on the wire, no re-alloc.
+    const a = errorToResponse(new Error("boom"));
+    const b = errorToResponse(new Error("boom"));
+    const aBody = await a.text();
+    const bBody = await b.text();
+    expect(aBody).toBe(bBody);
+    expect(aBody).toBe(
+      JSON.stringify({ error: "Internal Server Error", status: 500, code: "INTERNAL_ERROR" }),
+    );
+    expect(a.headers.get("content-type")).toBe("application/json");
+
+    // Memoized HTTPError envelope: repeated default 404 is byte-stable.
+    const c = errorToResponse(new NotFoundError());
+    const d = errorToResponse(new NotFoundError());
+    const cBody = await c.text();
+    const dBody = await d.text();
+    expect(cBody).toBe(dBody);
+    expect(cBody).toBe(JSON.stringify({ error: "Not Found", status: 404, code: "NOT_FOUND" }));
+    expect(c.status).toBe(404);
+
+    // With details the body is unique but still correct.
+    const e = errorToResponse(new ValidationError("bad", { name: ["required"] }));
+    const parsed = (await e.json()) as { details: { errors: { name: string[] } } };
+    expect(e.status).toBe(422);
+    expect(parsed.details.errors.name).toEqual(["required"]);
+  });
 });

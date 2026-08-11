@@ -47,12 +47,27 @@ discovery → analysis → optimization → precompile → codegen → linker �
 Each phase is a focused module under `src/phases/` (large phases are further
 split into concern folders — `analysis/` and `codegen/`):
 
-- **discovery** — finds route files, classifies them by method/path
-  (`products/[id].get.ts` → `GET /products/:id`).
-- **analysis/** — parses each module (memoized), builds the route graph, and
-  computes the `RouteDef` (usage bitmap, response type, hooks, schemas). Split
-  into `route-graph.ts`, `conflicts.ts`, `hooks.ts`, `app-config.ts`, `stats.ts`
-  and the `runAnalysis` orchestrator in `index.ts`.
+- **discovery** — finds route files (deterministically sorted), classifies
+  them by method/path (`products/[id].get.ts` → `GET /products/:id`), and
+  reads + parses each one exactly once through the source frontend.
+- **analysis/** — lowers discovered sources into `RouteIR`s and computes the
+  semantic facts (usage bitmap, response type, hooks, schemas). Split into
+  `route-graph.ts`, `conflicts.ts`, `hooks.ts`, `app-config.ts` and the
+  `runAnalysis` orchestrator in `index.ts`.
+
+Two cross-cutting layers sit directly under `src/`:
+
+- **`frontend/`** — the source layer. `SourceManager` reads + parses every
+  file the build touches (routes, app config, hooks) exactly once and retains
+  a `SourceFile` (AST included); later phases consume `SourceFile` handles
+  instead of re-reading/re-parsing source. `ModuleInfo` is a deprecated alias
+  of `SourceFile`.
+- **`ir/`** — the route intermediate representation. `lowerRoute` lowers a
+  filename + `SourceFile` into a `RouteIR` with four owned sections — `source`
+  (immutable filename facts), `analysis` (semantic facts), `decisions`
+  (optimizer/precompile output), `codegen` (generated identifiers). Each phase
+  reads/writes only its own section; `RouteDef` is a deprecated alias of
+  `RouteIR`.
 - **optimization** — constant-response detection, inline eligibility, dead-code
   pruning. Gated by `optimizationLevel` 0–3 presets.
 - **precompile** — compiles validators/serializers ahead of time. Both use the
@@ -135,8 +150,8 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 | `security/`   | Request security & trust                                   | auth, csrf, crypto, session |
 | `http/`       | Request/response handling                                  | context, cookies, headers, body, proxy, files, sse, ws, route DSL |
 | `data/`       | Data access, caching & validation                          | cache, dataloader, lru, query, schema, validation |
-| `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, guard, plugin, macro, derive |
-| `platform/`   | App runtime infrastructure                                 | env, config, trace, cluster, jobs, errors |
+| `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, plugin |
+| `platform/`   | App runtime infrastructure                                 | env, config, coerce, jobs, errors |
 | `content/`    | Rendering & localization                                   | i18n, template |
 | `plugins/`    | Ready-made `FluxPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
 | `types/`      | Unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) | — |
@@ -157,16 +172,20 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   module (`../http/context`), not the barrel, to avoid import cycles.
 - **Single source of truth.** Cross-cutting helpers live in exactly one place:
   `http/conditional.ts` (ETag/If-Modified-Since), `http/headers.ts`
-  (hop-by-hop set, `appendVary`, `reWrapResponse`), `http/cookies.ts`
-  (`writeCookie`), `security/auth.ts` (`parseAuthorizationHeader`),
-  `lifecycle/plugin.ts` (`hookToPlugin`), `http/request-id.ts` (request ids),
+  (hop-by-hop set, `appendVary`, `reWrapResponse`, `stripHopByHopHeaders`),
+  `http/cookies.ts` (`writeCookie`), `security/auth.ts`
+  (`parseAuthorizationHeader`), `lifecycle/plugin.ts` (`hookToPlugin`),
+  `lifecycle/hooks.ts` (`mergeHookArrays`, `mergeLifeCycle`),
+  `http/request-id.ts` (request ids), `platform/coerce.ts` (`coerceBoolean`),
   `compiler/validate.ts` (`mergeOptions` — preset application happens once),
   `compiler/phases/schema-loader.ts` (`forEachRouteWithSchema`).
 - **Compose with the FP toolkit.** `pipe`/`pipeAsync`/`fold`/`Result` from
   `@flux/shared` are used where they make control flow explicit (the compiler
   pipeline, `runLifecycle`, `negotiateLocale`, `defineConfig`, session cookie
-  decoding). Hot-path request code stays plain where composition would obscure
-  short-circuiting semantics — prefer readability over ceremony.
+  decoding). The route DSL is a curried factory (`defineMethod`) so each
+  `get`/`post`/… helper stays a one-liner with its own schema bound. Hot-path
+  request code stays plain where composition would obscure short-circuiting
+  semantics — prefer readability over ceremony.
 - **Prune dead code.** Removed paths are deleted, not commented out (e.g.
   `ModuleInfo.callGraph`/`dataFlow`, `RouteDef.signatureHash`/`handlerSize`,
   the legacy `BodyParser` helpers).

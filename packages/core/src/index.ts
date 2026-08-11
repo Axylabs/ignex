@@ -8,8 +8,8 @@
  *   security/   — auth, csrf, crypto, session        (request security & trust)
  *   http/       — context, body, proxy, files, sse, ws, route DSL
  *   data/       — cache, dataloader, lru, query, schema, validation
- *   lifecycle/  — hooks, lifecycle, guard, plugin, macro, derive
- *   platform/   — env, config, trace, cluster, jobs, errors
+ *   lifecycle/  — hooks, lifecycle, plugin
+ *   platform/   — env, config, jobs, errors
  *   content/    — i18n, template
  *   plugins/    — ready-made FluxPlugin factories
  *
@@ -78,15 +78,8 @@ export { safeJoin, sendFile, streamDownload } from "./http/files";
 export type { SetHeaders } from "./http/headers";
 export { applySet } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
-export { formatSSE, sse, sseFromStream } from "./http/sse";
-export { acceptWsKey, createWSHandler, FluxWS } from "./http/ws";
-export {
-  createDerivePipeline,
-  createResolvePipeline,
-  deriveDb,
-  deriveUser,
-} from "./lifecycle/derive";
-export { createGuard, mergeLifeCycle } from "./lifecycle/guard";
+export { formatSSE, sse } from "./http/sse";
+export { createWSHandler, FluxWS } from "./http/ws";
 
 // ── lifecycle ───────────────────────────────────────────────────
 export type { HookFn, HookResult } from "./lifecycle/hooks";
@@ -96,6 +89,7 @@ export {
   executeHooks,
   haltHook,
   mergeHookArrays,
+  mergeLifeCycle,
 } from "./lifecycle/hooks";
 export type { AppOptions, FluxApp } from "./lifecycle/lifecycle";
 export {
@@ -107,14 +101,6 @@ export {
   runHooks,
   runLifecycle,
 } from "./lifecycle/lifecycle";
-export {
-  authMacro,
-  cacheMacro,
-  createMacroRegistry,
-  csrfMacro,
-  jwtMacro,
-  sessionMacro,
-} from "./lifecycle/macro";
 export type { FluxPlugin, PluginContext } from "./lifecycle/plugin";
 export {
   composePlugins,
@@ -124,7 +110,6 @@ export {
 } from "./lifecycle/plugin";
 export { generateOpenAPI } from "./openapi";
 // ── platform ────────────────────────────────────────────────────
-export { serveCluster } from "./platform/cluster";
 export type { Config, ConfigField, ConfigFieldType, ConfigSchema } from "./platform/config";
 export { defineConfig } from "./platform/config";
 export { env, envBool, envFloat, envInt, envJson, envSecret, loadEnv } from "./platform/env";
@@ -140,14 +125,12 @@ export {
   MethodNotAllowedError,
   NotFoundError,
   ParseError,
-  StatusMap,
   TooManyRequestsError,
   UnauthorizedError,
   ValidationError,
 } from "./platform/errors";
 export type { Job, JobQueue, JobQueueOptions, ScheduleOptions } from "./platform/jobs";
 export { createJobQueue, withRetry, withTimeout } from "./platform/jobs";
-export { createTraceContext, finishTrace, startTrace } from "./platform/trace";
 // ── plugins ─────────────────────────────────────────────────────
 export {
   auth,
@@ -161,6 +144,7 @@ export { compression } from "./plugins/compression";
 export { cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { logger } from "./plugins/logger";
+export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
 export { rateLimit } from "./plugins/ratelimit";
 export { security } from "./plugins/security";
 export { session } from "./plugins/session";
@@ -174,7 +158,6 @@ export {
   optionalAuth,
   requireAuth,
   setUser,
-  tokenAuth,
   USER_KEY,
   unauthorized,
 } from "./security/auth";
@@ -225,14 +208,11 @@ export type {
   AnySchema,
   ContextUsage,
   CookieOptions,
-  DefinitionBase,
   HookContainer,
   HttpMethod,
-  InputSchema,
   LifeCycleStore,
   RouteSchema,
   ServerWebSocket,
-  SingletonBase,
   StandardSchemaV1,
   Static,
   TSchema,

@@ -46,6 +46,9 @@ jobs:
       - name: Test + coverage thresholds
         run: bun run test:coverage
 
+      - name: Native bench sanity (fallback mode — no addon in this job)
+        run: bun run bench:native
+
       - name: Build (AOT compile example app)
         run: bun run build
 
@@ -60,3 +63,47 @@ jobs:
           path: coverage/
           retention-days: 14
           if-no-files-found: ignore
+
+  # Real-addon parity: build the castrum NAPI addon and run the native suites
+  # against it (nativePreflight terminal responses, RateLimiter, parity vectors).
+  # `continue-on-error` keeps the pipeline green if the castrum repo URL or
+  # build environment is unavailable — remove once the repo is confirmed.
+  native-parity:
+    name: Native parity (real addon)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: Checkout flux-core
+        uses: actions/checkout@v4
+
+      - name: Checkout castrum (Rust addon)
+        uses: actions/checkout@v4
+        with:
+          # Repo from castrum's package.json `repository` field.
+          repository: Axylabs/flux-rs
+          path: castrum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install flux dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build castrum addon
+        working-directory: castrum
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Native parity + benchmark (real addon)
+        env:
+          FLUX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: |
+          bun run test:native:real
+          bun scripts/native-bench.ts

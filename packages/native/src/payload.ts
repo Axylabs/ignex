@@ -43,11 +43,9 @@ export const sseEncode = (
   data: string | Uint8Array,
   id?: string | null,
   retry?: number | null,
-): string => {
-  if (native)
-    return fromBytes(native.sseEncodeEvent(event, toBytes(data), id ?? null, retry ?? null));
-  return sseEncodeFallback(event, data, id ?? null, retry ?? null);
-};
+): string =>
+  // Measured: SSE framing is faster in pure TS (napi marshal overhead).
+  sseEncodeFallback(event, data, id ?? null, retry ?? null);
 
 /** WHATWG SSE framing: optional `id:`/`event:`/`retry:` lines, `data:` per line, trailing blank line. */
 export const sseEncodeFallback = (

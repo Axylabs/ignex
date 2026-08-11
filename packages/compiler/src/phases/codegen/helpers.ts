@@ -147,14 +147,31 @@ export const HELPER_SOURCES: Record<string, string> = {
   if (isServerLike(b)) return b;
   return undefined;
 }`,
-  __wrap: `function __wrap(handler, wildcards = []) {
+  __wrap: `function __wrap(handler, wildcards = [], prefix) {
   return async function (req, a, b) {
     let params = __extractParams(req, a, b);
 
-    if (wildcards.length && params && params["*"] != null) {
-      params = { ...params };
-      for (const name of wildcards) {
-        params[name] = params["*"];
+    if (wildcards.length) {
+      let capture = params && params["*"];
+
+      // Bun does not expose wildcard captures in req.params on some versions
+      // (verified on Bun 1.4); derive the captured suffix from the URL by
+      // stripping the route's static prefix when it is known.
+      if (capture == null && prefix) {
+        try {
+          const pathname = new URL(req.url).pathname;
+          if (pathname.startsWith(prefix)) {
+            capture = decodeURIComponent(pathname.slice(prefix.length));
+          }
+        } catch {
+          // leave capture undefined — no wildcard value is available
+        }
+      }
+
+      if (capture != null) {
+        const extra = {};
+        for (const name of wildcards) extra[name] = capture;
+        params = { ...(params ?? {}), ...extra };
       }
     }
 
@@ -169,8 +186,8 @@ export const HELPER_SOURCES: Record<string, string> = {
     }
   };
 }`,
-  __head: `function __head(handler, wildcards = []) {
-  const wrapped = __wrap(handler, wildcards);
+  __head: `function __head(handler, wildcards = [], prefix) {
+  const wrapped = __wrap(handler, wildcards, prefix);
 
   return async function (req, a, b) {
     const res = await wrapped(req, a, b);

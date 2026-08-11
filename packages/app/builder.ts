@@ -12,9 +12,7 @@ await buildAsync({
   minify: true,
   sourceMap: false,
 
-  enableTracing: false,
   enableAccessLog: false,
-  enableStrictMethods: false,
 
   generateTypes: true,
   generateOpenAPI: true,

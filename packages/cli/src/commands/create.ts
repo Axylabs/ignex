@@ -1,7 +1,5 @@
 import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
-import { parseArgs } from "node:util";
 import {
   biomeTemplate,
   fluxConfigTemplate,
@@ -39,26 +37,22 @@ import {
   wsExampleTemplate,
 } from "../templates/routes.js";
 import { FEATURE_NAMES, type Feature } from "../types.js";
+import { parseCliArgs } from "../utils/args.js";
 import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, step, success, warn } from "../utils/logger.js";
-
-type Readline = ReturnType<typeof createInterface>;
+import { ask, askConfirm, openPrompt } from "../utils/prompt.js";
+import { normalizeRuntime } from "../utils/runtime.js";
 
 export async function runCreate(args: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args,
-    options: {
-      name: { type: "string" },
-      runtime: { type: "string" },
-      pm: { type: "string" },
-      features: { type: "string" },
-      install: { type: "boolean" },
-      git: { type: "boolean" },
-      yes: { type: "boolean" },
-      force: { type: "boolean" },
-    },
-    allowPositionals: true,
-    strict: false,
+  const { values, positionals } = parseCliArgs(args, {
+    name: { type: "string" },
+    runtime: { type: "string" },
+    pm: { type: "string" },
+    features: { type: "string" },
+    install: { type: "boolean" },
+    git: { type: "boolean" },
+    yes: { type: "boolean" },
+    force: { type: "boolean" },
   });
 
   const interactive = Boolean(process.stdin.isTTY && !values.yes);
@@ -71,10 +65,7 @@ export async function runCreate(args: string[]): Promise<void> {
   let git = values.git as boolean | undefined;
 
   if (interactive) {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
+    const rl = openPrompt();
 
     try {
       if (!name) {
@@ -288,26 +279,6 @@ Place shared hooks here.
 
   console.log(`  ${pm} run dev`);
   console.log();
-}
-
-function ask(rl: Readline, question: string, fallback: string): Promise<string> {
-  return rl.question(`${question} (${fallback}): `).then((answer) => {
-    const trimmed = answer.trim();
-    return trimmed.length > 0 ? trimmed : fallback;
-  });
-}
-
-async function askConfirm(rl: Readline, question: string, fallback: boolean): Promise<boolean> {
-  const suffix = fallback ? "(Y/n)" : "(y/N)";
-  const answer = (await rl.question(`${question} ${suffix} `)).trim().toLowerCase();
-
-  if (!answer) return fallback;
-
-  return answer.startsWith("y");
-}
-
-function normalizeRuntime(input?: string): "bun" | "node" {
-  return input?.toLowerCase() === "node" ? "node" : "bun";
 }
 
 function normalizePm(input: string | undefined, runtime: "bun" | "node"): string {

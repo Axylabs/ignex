@@ -254,6 +254,7 @@ export const jwtVerifyFallback = (
 const MAX_TOKEN_BYTES = 16 * 1024 * 1024;
 
 export const randomToken = (byteLen: number): string => {
+  // Native returns the token as hex-string BYTES (not raw random bytes).
   if (native) return fromBytes(native.randomToken(byteLen));
   return randomTokenFallback(byteLen);
 };

@@ -88,7 +88,21 @@ export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
   query: InferQuery<S>;
 };
 
-type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<Response | InferResponse<S>>;
+type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
+  Response | InferResponse<S> | StatusBodyResult<S>
+>;
+
+/**
+ * Multi-status response wrapper `{ status, body }` — the compiled runtime
+ * serializes `body` against the response schema for the matching status (each
+ * status key maps to its own schema, so `status: 201` types `body` as the
+ * 201 schema's output, not the union).
+ */
+type StatusBodyResult<S extends Partial<RouteSchemas>> = S extends { response: infer R }
+  ? R extends Record<number, unknown>
+    ? { [K in keyof R]: { status: K; body: InferSchema<R[K]> } }[keyof R]
+    : { status: number; body: InferResponse<S> }
+  : { status: number; body: InferResponse<S> };
 
 export type RouteHandler<S extends Partial<RouteSchemas>> = (
   ctx: RouteContext<S>,
@@ -119,50 +133,31 @@ const attachSchema = <T extends AnyFunction>(fn: T, schemaOrPath?: unknown): T =
   return fn;
 };
 
-/** Path is inferred from filename. Second parameter is a schema object. */
-export function get<const S extends NoBodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+/**
+ * Route-method factory. Each exported helper (`get`/`post`/…) is a one-line
+ * instantiation of this curried factory; the bound schema constraint is what
+ * differs — body-less methods use `NoBodyRouteSchemas`, body methods use
+ * `BodyRouteSchemas`. Per-method type inference is preserved.
+ */
+const defineMethod =
+  <S extends Partial<RouteSchemas>>() =>
+  <const T extends S>(fn: RouteHandler<T>, schema?: T): RouteHandler<T> =>
+    attachSchema(fn, schema);
 
 /** Path is inferred from filename. Second parameter is a schema object. */
-export function post<const S extends BodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+export const get = defineMethod<NoBodyRouteSchemas>();
 
 /** Path is inferred from filename. Second parameter is a schema object. */
-export function put<const S extends BodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+export const post = defineMethod<BodyRouteSchemas>();
 
 /** Path is inferred from filename. Second parameter is a schema object. */
-export function patch<const S extends BodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+export const put = defineMethod<BodyRouteSchemas>();
 
 /** Path is inferred from filename. Second parameter is a schema object. */
-export function del<const S extends BodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+export const patch = defineMethod<BodyRouteSchemas>();
 
 /** Path is inferred from filename. Second parameter is a schema object. */
-export function all<const S extends BodyRouteSchemas = {}>(
-  fn: RouteHandler<S>,
-  schema?: S,
-): RouteHandler<S> {
-  return attachSchema(fn, schema);
-}
+export const del = defineMethod<BodyRouteSchemas>();
+
+/** Path is inferred from filename. Second parameter is a schema object. */
+export const all = defineMethod<BodyRouteSchemas>();

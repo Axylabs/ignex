@@ -13,12 +13,10 @@ export const FEATURE_NAMES = [
   "cluster",
   "auth",
   "sessions",
-  "csrf",
   "templates",
   "env",
   "jobs",
   "i18n",
-  "client",
   "examples",
   "tests",
 ] as const;

@@ -11,17 +11,6 @@
 
 import { fnv1a64 } from "@flux/native";
 
-export const fnv1a = (str: string): number => {
-  let hash = 0x811c9dc5;
-
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-
-  return hash >>> 0;
-};
-
 /**
  * FNV-1a 64-bit string hash, native-accelerated (~11x faster than the JS
  * loop) and deterministic whether or not the Rust addon is present. Used for

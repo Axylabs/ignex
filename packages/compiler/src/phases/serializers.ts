@@ -4,10 +4,11 @@
  * Emits specialized JSON serializers for route response schemas.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
+import { writeGuarded } from "./artifacts";
 import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
 const pickResponseSchema = (responseSchema: any): any => {
@@ -75,7 +76,7 @@ export const precompileSerializers = async (
     routes,
     modules,
     ctx,
-    (route) => route.responseType === "json" || route.usage.json === true,
+    (route) => route.analysis.responseType === "json" || route.analysis.usage.json === true,
     async (route, mod, schema) => {
       const multiStatus = getStatusSchemas(schema.response);
       const responseSchema = pickResponseSchema(schema.response);
@@ -88,15 +89,15 @@ export const precompileSerializers = async (
       const schemasToCompile = multiStatus ?? { "200": responseSchema };
 
       for (const [status, statusSchema] of Object.entries(schemasToCompile)) {
-        const fileName = `${route.handlerRef}.${status}.mjs`;
-        const importName = `serialize_${route.handlerRef}_${status}`;
+        const fileName = `${route.codegen.handlerRef}.${status}.mjs`;
+        const importName = `serialize_${route.codegen.handlerRef}_${status}`;
 
         // Standard Schema fallback: safe JSON.stringify serializer
         if (isStandardSchema(statusSchema)) {
           const code = `export default (input) => JSON.stringify(input);
 `;
 
-          writeFileSync(join(serializersDir, fileName), code);
+          writeGuarded(join(serializersDir, fileName), code, ctx, fileName);
           byStatus[status] = importName;
           continue;
         }
@@ -107,7 +108,7 @@ export const precompileSerializers = async (
         } catch (error) {
           ctx.diagnostics.warn({
             code: DiagnosticCodes.SerializerFallback,
-            message: `Response schema clone failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
+            message: `Response schema clone failed for ${route.source.method} ${route.source.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
             file: mod.path,
           });
           continue;
@@ -125,20 +126,20 @@ const serialize = fastJson(schema);
 export default serialize;
 `;
 
-          writeFileSync(join(serializersDir, fileName), code);
+          writeGuarded(join(serializersDir, fileName), code, ctx, fileName);
           byStatus[status] = importName;
         } catch (error) {
           // If schema compilation fails, fall back to JSON.stringify
           ctx.diagnostics.warn({
             code: DiagnosticCodes.SerializerFallback,
-            message: `Response schema compilation failed for ${route.method} ${route.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
+            message: `Response schema compilation failed for ${route.source.method} ${route.source.path} (${status}): ${errorMessage(error)}; using JSON.stringify fallback.`,
             file: mod.path,
           });
 
           const code = `export default (input) => JSON.stringify(input);
 `;
 
-          writeFileSync(join(serializersDir, fileName), code);
+          writeGuarded(join(serializersDir, fileName), code, ctx, fileName);
           byStatus[status] = importName;
         }
       }
@@ -147,13 +148,16 @@ export default serialize;
         return null;
       }
 
-      ctx.logger.info(`Precompiled serializer for ${route.method} ${route.path}`);
+      ctx.logger.info(`Precompiled serializer for ${route.source.method} ${route.source.path}`);
 
       return {
         ...route,
-        serializers: {
-          json: byStatus["200"] ?? Object.values(byStatus)[0],
-          byStatus,
+        decisions: {
+          ...route.decisions,
+          serializers: {
+            json: byStatus["200"] ?? Object.values(byStatus)[0],
+            byStatus,
+          },
         },
       };
     },

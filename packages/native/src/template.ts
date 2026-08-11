@@ -12,18 +12,36 @@ import { fromBytes } from "./util";
 
 const native = getNative();
 
+interface NativeTemplateRenderer {
+  render(context: unknown): Uint8Array;
+}
+
+/**
+ * Build a compiled native renderer via the `createTemplateRenderer` factory
+ * (the surface the `rust` client exposes — the raw `TemplateRenderer` class is
+ * not exported). Returns `null` when native is unavailable, so the fallback
+ * engine is always a valid path.
+ */
+const createNativeRenderer = (source: string): NativeTemplateRenderer | null => {
+  if (!native || typeof native.TemplateRenderer !== "function") return null;
+  try {
+    return new native.TemplateRenderer(source);
+  } catch {
+    return null;
+  }
+};
+
 /** Render a template string with the given context (JSON-serializable). */
 export const renderTemplate = (source: string, context: unknown): string => {
-  if (native) return fromBytes(new native.TemplateRenderer(source).render(context));
+  const renderer = createNativeRenderer(source);
+  if (renderer) return fromBytes(renderer.render(context));
   return renderTemplateFallback(source, context);
 };
 
 /** Create a compiled template renderer (reusable, lower per-render cost). */
 export const createTemplate = (source: string): ((context: Record<string, unknown>) => string) => {
-  if (native) {
-    const renderer = new native.TemplateRenderer(source);
-    return (context) => fromBytes(renderer.render(context));
-  }
+  const renderer = createNativeRenderer(source);
+  if (renderer) return (context) => fromBytes(renderer.render(context));
   return (context) => renderTemplateFallback(source, context);
 };
 

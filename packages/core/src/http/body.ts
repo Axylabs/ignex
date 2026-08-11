@@ -9,6 +9,7 @@
  * - req.arrayBuffer()
  */
 
+import { formPairs, isNativeAvailable } from "@flux/native";
 import { HTTPError } from "../platform/errors";
 
 /**
@@ -152,6 +153,48 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
     }
   }
 
+  const textByteLength = (text: string): number => new TextEncoder().encode(text ?? "").byteLength;
+
+  /**
+   * Enforce size limits on the parsed value. The `content-length` pre-check in
+   * `assertSize` is bypassed by chunked transfer encoding (no content-length
+   * header), so an unbounded `req.text()/json()/formData()` would otherwise
+   * buffer arbitrarily large payloads. This post-parse guard closes that hole.
+   */
+  function assertParsedSize(target: BodyKind, parsed: unknown, max?: number): void {
+    if (!max) return;
+
+    let size = 0;
+
+    switch (target) {
+      case "text":
+        size = textByteLength(parsed as string);
+        break;
+      case "json":
+        size = textByteLength(JSON.stringify(parsed) ?? "");
+        break;
+      case "arrayBuffer":
+        size = (parsed as ArrayBuffer).byteLength;
+        break;
+      case "blob":
+        size = (parsed as Blob).size;
+        break;
+      case "formData": {
+        forEachFormDataEntry(parsed as FormData, (value) => {
+          if (typeof value === "string") size += textByteLength(value);
+          else if (isFile(value)) size += value.size;
+        });
+        break;
+      }
+      default:
+        return;
+    }
+
+    if (size > max) {
+      throw new BodyParseError("Payload too large", 413);
+    }
+  }
+
   function convert<T>(target: BodyKind): T {
     if (kind === target) return value as T;
 
@@ -230,6 +273,7 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
 
     pending = parser()
       .then((v) => {
+        assertParsedSize(target, v, max);
         kind = target;
         value = v;
         pending = null;
@@ -277,7 +321,10 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "json",
       async () => {
         try {
-          return (await req.json()) as T;
+          // Read raw text first so the parsed size can be measured against
+          // maxJsonBytes regardless of whether content-length was present.
+          const text = await req.text();
+          return JSON.parse(text) as T;
         } catch {
           throw new BodyParseError("Invalid JSON body", 400);
         }
@@ -329,6 +376,19 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "formData",
       async () => {
         try {
+          // application/x-www-form-urlencoded: use the Rust addon's packed
+          // form parser when present (byte-identical output — duplicates and
+          // order preserved so later conversions behave exactly like Bun's
+          // native FormData). Falls back to Bun when native is unavailable.
+          const ct = (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
+
+          if (ct === "application/x-www-form-urlencoded" && isNativeAvailable()) {
+            const text = await req.text();
+            const fd = new FormData();
+            for (const [name, value] of formPairs(text)) fd.append(name, value);
+            return fd as unknown as FormData;
+          }
+
           return (await req.formData()) as unknown as FormData;
         } catch {
           throw new BodyParseError("Invalid form/multipart body", 400);

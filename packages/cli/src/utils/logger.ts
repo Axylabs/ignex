@@ -29,3 +29,8 @@ export function error(message: string): void {
 export function step(message: string): void {
   console.log(`${cyan("→")} ${message}`);
 }
+
+/** Format an unknown thrown value into a printable error string. */
+export function formatError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

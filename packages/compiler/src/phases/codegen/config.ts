@@ -10,8 +10,6 @@ export const CORE_PATH = "@flux/core";
 
 export interface CodegenConfig {
   target: "bun";
-  tracing: boolean;
-  lifecycle: boolean;
   serviceName: string;
   exposeErrorDetails: boolean;
   specializeContext: boolean;
@@ -27,8 +25,6 @@ export interface CodegenConfig {
 
 export const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   target: opts.target,
-  tracing: opts.enableTracing ?? false,
-  lifecycle: opts.enableLifecycle ?? true,
   serviceName: opts.serviceName ?? "flux",
   exposeErrorDetails: opts.exposeErrorDetails ?? false,
   specializeContext: opts.specializeContext ?? true,

@@ -33,45 +33,9 @@ export class Emitter {
     return this.core.has(name);
   }
 
-  indent(): void {
-    this.depth++;
-  }
-
-  dedent(): void {
-    if (this.depth > 0) this.depth--;
-  }
-
   /** Emit a single line at the current indentation. */
   line(text = ""): this {
     this.out.push(`${this.indentUnit.repeat(this.depth)}${text}`);
-    return this;
-  }
-
-  /** Emit a blank line. */
-  blank(): this {
-    this.out.push("");
-    return this;
-  }
-
-  /** Emit a `//` comment line. */
-  comment(text: string): this {
-    this.line(`// ${text}`);
-    return this;
-  }
-
-  /** Emit a block: `open {`, indented body, `close`. */
-  block(open: string, body: () => void, close = "}"): this {
-    this.line(`${open} {`);
-    this.indent();
-    body();
-    this.dedent();
-    this.line(close);
-    return this;
-  }
-
-  /** Emit a multi-line raw template without re-indentation. */
-  raw(text: string): this {
-    this.out.push(text);
     return this;
   }
 

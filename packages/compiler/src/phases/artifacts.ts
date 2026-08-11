@@ -11,7 +11,12 @@ import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, RouteDef } from "../types";
 
-const writeGuarded = (file: string, content: string, ctx: CompilerContext, label: string): void => {
+export const writeGuarded = (
+  file: string,
+  content: string,
+  ctx: CompilerContext,
+  label: string,
+): void => {
   try {
     writeFileSync(file, content);
     ctx.logger.info(`Generated ${label}`);
@@ -43,27 +48,28 @@ export const generateRouteTypes = (routes: readonly RouteDef[]): string => {
 
   const byPath = new Map<string, RouteDef[]>();
   for (const route of routes) {
-    const group = byPath.get(route.path);
+    const routePath = route.source.path;
+    const group = byPath.get(routePath);
     if (group) group.push(route);
-    else byPath.set(route.path, [route]);
+    else byPath.set(routePath, [route]);
   }
 
   for (const [path, defs] of byPath) {
     lines.push(`  ${JSON.stringify(path)}: {`);
 
     for (const route of defs) {
-      const method = route.method.toLowerCase();
+      const method = route.source.method.toLowerCase();
       lines.push(`    ${method}: {`);
 
-      if (route.paramNames.length > 0) {
-        lines.push(`      params: ${tsParamType(route.paramNames)};`);
+      if (route.source.paramNames.length > 0) {
+        lines.push(`      params: ${tsParamType(route.source.paramNames)};`);
       }
 
-      if (route.usage.query) {
+      if (route.analysis.usage.query) {
         lines.push("      query: Record<string, string | string[]>;");
       }
 
-      if (route.usage.body) {
+      if (route.analysis.usage.body) {
         lines.push("      body: unknown;");
       }
 
@@ -104,10 +110,12 @@ export declare function createApiClient(baseUrl?: string, init?: RequestInit): F
  */
 export const generateClient = (routes: readonly RouteDef[]): string => {
   const routeEntries = routes
-    .filter((r) => r.method !== "ALL")
+    .filter((r) => r.source.method !== "ALL")
     .map(
       (r) =>
-        `  ${JSON.stringify(`${r.method.toLowerCase()} ${r.path}`)}: ${JSON.stringify(r.path)},`,
+        `  ${JSON.stringify(`${r.source.method.toLowerCase()} ${r.source.path}`)}: ${JSON.stringify(
+          r.source.path,
+        )},`,
     )
     .join("\n");
 
@@ -236,13 +244,13 @@ export const generateOpenApi = (
   const paths: Record<string, Record<string, unknown>> = {};
 
   for (const route of routes) {
-    if (route.method === "ALL") continue;
+    if (route.source.method === "ALL") continue;
 
-    const openApiPath = toOpenApiPath(route.path);
+    const openApiPath = toOpenApiPath(route.source.path);
     paths[openApiPath] ??= {};
 
     const operation: Record<string, unknown> = {
-      operationId: `${route.method.toLowerCase()}_${openApiPath.replace(/[{}/]/g, "_")}`,
+      operationId: `${route.source.method.toLowerCase()}_${openApiPath.replace(/[{}/]/g, "_")}`,
       responses: {
         "200": {
           description: "Successful response",
@@ -250,19 +258,19 @@ export const generateOpenApi = (
       },
     };
 
-    const detail = (route.config as any)?.detail;
+    const detail = (route.analysis.config as any)?.detail;
     if (detail && typeof detail === "object") {
       Object.assign(operation, detail);
     }
 
-    const schemaDoc = route.schemaDoc as Record<string, unknown> | undefined;
+    const schemaDoc = route.decisions.schemaDoc as Record<string, unknown> | undefined;
     const parameters: unknown[] = [];
 
-    if (route.paramNames.length > 0) {
+    if (route.source.paramNames.length > 0) {
       if (schemaDoc?.params && typeof schemaDoc.params === "object") {
-        parameters.push(...schemaToParameters(schemaDoc.params, "path", route.paramNames));
+        parameters.push(...schemaToParameters(schemaDoc.params, "path", route.source.paramNames));
       } else {
-        for (const name of route.paramNames) {
+        for (const name of route.source.paramNames) {
           parameters.push({ name, in: "path", required: true, schema: { type: "string" } });
         }
       }
@@ -288,7 +296,7 @@ export const generateOpenApi = (
           },
         },
       };
-    } else if (route.usage.body) {
+    } else if (route.analysis.usage.body) {
       operation.requestBody = {
         content: {
           "application/json": {
@@ -319,7 +327,7 @@ export const generateOpenApi = (
       operation.responses = responses;
     }
 
-    paths[openApiPath][route.method.toLowerCase()] = operation;
+    paths[openApiPath][route.source.method.toLowerCase()] = operation;
   }
 
   return {
@@ -341,18 +349,18 @@ export const generateManifest = (
   target: opts.target,
   optimizationLevel: opts.optimizationLevel,
   routes: routes.map((r) => ({
-    method: r.method,
-    path: r.path,
-    file: r.file,
-    isStatic: r.isStatic,
-    isDynamic: r.isDynamic,
-    segmentCount: r.segmentCount,
-    isConstantResponse: r.isConstantResponse,
-    responseType: r.responseType,
-    hotnessScore: r.hotnessScore,
-    paramNames: r.paramNames,
-    hooks: r.hooks,
-    usage: r.usage,
+    method: r.source.method,
+    path: r.source.path,
+    file: r.source.file,
+    isStatic: r.source.isStatic,
+    isDynamic: r.source.isDynamic,
+    segmentCount: r.source.segmentCount,
+    isConstantResponse: r.analysis.isConstantResponse,
+    responseType: r.analysis.responseType,
+    hotnessScore: r.analysis.hotnessScore,
+    paramNames: r.source.paramNames,
+    hooks: r.analysis.hooks,
+    usage: r.analysis.usage,
   })),
 });
 

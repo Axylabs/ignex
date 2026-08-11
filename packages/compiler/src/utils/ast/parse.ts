@@ -25,7 +25,7 @@ import { bindingName, type Node, type Program } from "./ast-types";
 import { extractRouteConfigAST } from "./config";
 import { extractHandlerExport, extractHandlerExportName, isHandlerInitNode } from "./handler";
 import { extractExportsAST, extractImportsAST } from "./imports";
-import { extractSymbolsAST } from "./symbols";
+import { collectTopLevelBindingNames, extractSymbolsAST } from "./symbols";
 import type { ExtractedHandler } from "./types";
 import { walk, walkSome } from "./walk";
 
@@ -370,19 +370,48 @@ export const importedLocalNames = (imports: readonly ImportInfo[]): string[] => 
  * handler body. Imports that only feed the wrapper call / schema / config
  * (e.g. `export const httpGet = get(...)`) do not block inlining the handler
  * body — the wrapper is dropped and only the body is inlined.
+ *
+ * Uses the handler retained on the {@link SourceFile} (no re-parse).
  */
 export const handlerBodyReferencesImports = (
-  mod: Pick<ModuleInfo, "content" | "imports">,
+  mod: Pick<ModuleInfo, "imports" | "handler">,
 ): boolean => {
   if (mod.imports.length === 0) return false;
 
-  const body = parseModule(mod.content).handler?.body;
+  const body = mod.handler?.body;
   if (!body) return true; // can't prove safe — treat as referenced
 
   const locals = importedLocalNames(mod.imports);
   if (locals.length === 0) return false;
 
   const escaped = locals.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`\\b(?:${escaped.join("|")})\\b`);
+  return re.test(body);
+};
+
+/**
+ * True when the extracted handler body references a top-level binding declared
+ * in its own module (other than the handler itself or imports, which
+ * {@link handlerBodyReferencesImports} covers). Inlining drops module scope,
+ * so a body closing over a module-level `let`/`const`/function/class would
+ * throw `ReferenceError` when embedded into the generated server.
+ *
+ * Conservative by design: a word-boundary regex match (even a false positive
+ * from string content or a shadowed local) only disables inlining — it never
+ * produces wrong output.
+ */
+export const handlerBodyReferencesModuleScope = (
+  mod: Pick<ModuleInfo, "ast" | "handler" | "handlerExportName">,
+): boolean => {
+  const body = mod.handler?.body;
+  if (!body) return false;
+
+  const names = collectTopLevelBindingNames(mod.ast);
+  const selfName = mod.handlerExportName;
+  const others = selfName ? names.filter((n) => n !== selfName) : names;
+  if (others.length === 0) return false;
+
+  const escaped = others.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const re = new RegExp(`\\b(?:${escaped.join("|")})\\b`);
   return re.test(body);
 };

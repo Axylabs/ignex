@@ -2,58 +2,24 @@
  * Generated-server integration tests.
  *
  * Boots the AOT-compiled server (`dist/__server.js`) on an ephemeral port and
- * exercises the core routes end-to-end. Builds the app first if the output is
- * missing (e.g. a fresh-clone test run), so the test is self-contained.
+ * exercises the core routes end-to-end. Uses the shared {@link bootServer}
+ * harness (compile-if-missing + spawn + readiness poll) so every integration
+ * suite boots the same way.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type BootedServer, bootServer } from "./helpers/boot";
 
 const APP_DIR = new URL("../", import.meta.url).pathname;
-const SERVER = `${APP_DIR}dist/__server.js`;
-const PORT = 3100 + Math.floor(Math.random() * 200);
-const BASE = `http://127.0.0.1:${PORT}`;
 
-let proc: ReturnType<typeof spawn> | null = null;
-
-/** AOT-compile the app if the generated server is not present. */
-const ensureBuilt = (): void => {
-  if (existsSync(SERVER)) return;
-  const build = spawnSync("bun", ["builder.ts"], {
-    cwd: APP_DIR,
-    stdio: "ignore",
-  });
-  if (build.status !== 0) {
-    throw new Error(`app build failed with code ${build.status}`);
-  }
-};
+let BASE = "";
+let srv: BootedServer;
 
 beforeAll(async () => {
-  ensureBuilt();
-
-  proc = spawn("bun", ["dist/__server.js"], {
-    cwd: APP_DIR,
-    env: { ...process.env, PORT: String(PORT) },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${BASE}/health`);
-      if (res.status === 200) return;
-    } catch {
-      // not up yet — keep polling
-    }
-    await delay(200);
-  }
-  throw new Error("generated server did not become ready");
+  srv = await bootServer(APP_DIR);
+  BASE = srv.base;
 });
 
-afterAll(() => {
-  proc?.kill("SIGTERM");
-});
+afterAll(() => srv.close());
 
 describe("generated server (integration)", () => {
   it("serves GET /health with a JSON body", async () => {
@@ -76,5 +42,117 @@ describe("generated server (integration)", () => {
   it("404s unknown routes", async () => {
     const res = await fetch(`${BASE}/does-not-exist`);
     expect(res.status).toBe(404);
+  });
+
+  it("405s a method not allowed on an existing path", async () => {
+    const res = await fetch(`${BASE}/health`, { method: "POST", body: "x" });
+    expect(res.status).toBe(405);
+  });
+
+  it("parses a JSON POST body (auth login)", async () => {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { token?: string };
+    expect(typeof body.token).toBe("string");
+    expect((body.token ?? "").split(".")).toHaveLength(3);
+  });
+
+  it("returns 401 for invalid credentials", async () => {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "wrong" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns a JSON error envelope for a malformed JSON body", async () => {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not-json",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("protects a JWT-gated route (401 without a token)", async () => {
+    const res = await fetch(`${BASE}/auth/me`);
+    expect(res.status).toBe(401);
+  });
+
+  it("authenticates a Bearer token through the compiled server", async () => {
+    const login = await fetch(`${BASE}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret" }),
+    });
+    const { token } = (await login.json()) as { token: string };
+
+    const res = await fetch(`${BASE}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user?: { sub?: string; role?: string } };
+    expect(body.user?.sub).toBe("admin");
+    expect(body.user?.role).toBe("admin");
+  });
+
+  it("sets a session cookie via the session plugin", async () => {
+    const res = await fetch(`${BASE}/session`);
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("sid=");
+    expect(setCookie).toContain("HttpOnly");
+  });
+
+  it("persists a session across requests using the cookie", async () => {
+    const first = await fetch(`${BASE}/session`);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const second = await fetch(`${BASE}/session`, { headers: { cookie } });
+    expect(second.status).toBe(200);
+    const body = (await second.json()) as { visits?: number };
+    expect(body.visits).toBeGreaterThan(1);
+  });
+
+  it("serves i18n and jobs routes", async () => {
+    const i18n = await fetch(`${BASE}/i18n?lang=es`);
+    expect(i18n.status).toBe(200);
+    const jobs = await fetch(`${BASE}/jobs`);
+    expect(jobs.status).toBe(200);
+  });
+
+  it("applies security headers", async () => {
+    const res = await fetch(`${BASE}/health`);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+  });
+
+  it("answers a CORS preflight", async () => {
+    const res = await fetch(`${BASE}/health`, {
+      method: "OPTIONS",
+      headers: { origin: "http://example.com" },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://example.com");
+  });
+
+  it("compresses a large response with gzip", async () => {
+    const res = await fetch(`${BASE}/openapi.json`, {
+      headers: { "accept-encoding": "gzip" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("serves a constant (zero-runtime) route", async () => {
+    const res = await fetch(`${BASE}/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBeTruthy();
   });
 });

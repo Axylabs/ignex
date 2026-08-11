@@ -7,37 +7,49 @@
 
 import type { RouteDef } from "../../types";
 
-export const handlerImportName = (route: RouteDef): string => `handler_${route.handlerRef}`;
+export const handlerImportName = (route: RouteDef): string => `handler_${route.codegen.handlerRef}`;
 
-export const methodHandlerName = (route: RouteDef): string => `${route.method}_${route.handlerRef}`;
+export const methodHandlerName = (route: RouteDef): string =>
+  `${route.source.method}_${route.codegen.handlerRef}`;
 
-export const constantBodyVar = (route: RouteDef): string => `BODY_${route.handlerRef}`;
+export const constantBodyVar = (route: RouteDef): string => `BODY_${route.codegen.handlerRef}`;
 
-export const constantInitVar = (route: RouteDef): string => `INIT_${route.handlerRef}`;
+export const constantInitVar = (route: RouteDef): string => `INIT_${route.codegen.handlerRef}`;
 
 export const hookIdent = (name: string): string => `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
 
-export const cacheVar = (route: RouteDef): string => `CACHE_${route.handlerRef}`;
+export const cacheVar = (route: RouteDef): string => `CACHE_${route.codegen.handlerRef}`;
 
 export const coreHandlerName = (route: RouteDef, hasCache: boolean): string =>
-  hasCache ? `core_${route.handlerRef}` : methodHandlerName(route);
+  hasCache ? `core_${route.codegen.handlerRef}` : methodHandlerName(route);
 
 export const validatorImportName = (route: RouteDef, kind: string): string =>
-  `validate_${route.handlerRef}_${kind}`;
+  `validate_${route.codegen.handlerRef}_${kind}`;
 
 export const serializerImportName = (route: RouteDef, status: string): string =>
-  `serialize_${route.handlerRef}_${status}`;
+  `serialize_${route.codegen.handlerRef}_${status}`;
 
 export const routeReplyFn = (route: RouteDef): string => {
-  if (route.responseType === "text") return "textReply";
-  if (route.responseType === "html") return "htmlReply";
-  if (route.responseType === "stream") return "streamReply";
+  if (route.analysis.responseType === "text") return "textReply";
+  if (route.analysis.responseType === "html") return "htmlReply";
+  if (route.analysis.responseType === "stream") return "streamReply";
   return "jsonReply";
 };
 
 /** Extract `*name` wildcard identifiers from a path. */
 export const wildcardNames = (path: string): string[] =>
   Array.from(path.matchAll(/\*([A-Za-z0-9_]+)/g)).map((m) => m[1] as string);
+
+/**
+ * Static URL prefix before the first wildcard segment (e.g. `/files/` for
+ * `/files/*path`). Bun does not expose wildcard captures in `req.params` on
+ * some versions (verified on Bun 1.4), so the generated `__wrap` derives the
+ * captured suffix by stripping this prefix from the request path.
+ */
+export const wildcardPrefix = (path: string): string => {
+  const idx = path.indexOf("*");
+  return idx === -1 ? "" : path.slice(0, idx);
+};
 
 // ── Route-table naming ───────────────────────────────────────────
 
@@ -61,4 +73,6 @@ export const allowRegExp = (path: string): string => {
 
 /** Handler name used in the route table, honoring deduplication. */
 export const routeHandlerName = (route: RouteDef): string =>
-  route.dedupGroup ? `${route.method}_${route.dedupGroup}` : methodHandlerName(route);
+  route.decisions.dedupGroup
+    ? `${route.source.method}_${route.decisions.dedupGroup}`
+    : methodHandlerName(route);

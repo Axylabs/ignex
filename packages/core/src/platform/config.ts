@@ -6,6 +6,7 @@
  * default.
  */
 import { fold } from "@flux/shared";
+import { coerceBoolean } from "./coerce";
 
 export type ConfigFieldType = "string" | "number" | "boolean" | "json";
 
@@ -40,10 +41,7 @@ const coerce = (field: ConfigField, raw: string | undefined): unknown => {
       return Number.isNaN(n) ? field.default : n;
     }
     case "boolean": {
-      const normalized = raw.trim().toLowerCase();
-      if (["1", "true", "yes", "on"].includes(normalized)) return true;
-      if (["0", "false", "no", "off"].includes(normalized)) return false;
-      return field.default;
+      return coerceBoolean(raw) ?? field.default;
     }
     case "json": {
       try {

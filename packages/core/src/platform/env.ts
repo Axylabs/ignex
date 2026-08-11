@@ -2,6 +2,7 @@
  * Environment & typed config — dotenv loading + typed accessors.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { coerceBoolean } from "./coerce";
 
 /** Parse a dotenv-style line into `[key, value]` (or `null`). */
 const parseLine = (line: string): [string, string] | null => {
@@ -72,10 +73,7 @@ export const envFloat = (key: string, fallback?: number): number => {
 export const envBool = (key: string, fallback = false): boolean => {
   const raw = get(key);
   if (raw === undefined) return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
+  return coerceBoolean(raw) ?? fallback;
 };
 
 /** Read + parse a JSON env var. */

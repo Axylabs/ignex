@@ -45,6 +45,24 @@ export interface ContextOptions {
   bodyInstance?: LazyBody;
   params?: Record<string, string>;
   set?: Partial<SetHeaders>;
+  /**
+   * Matched route pattern (e.g. `/users/:id`). The AOT-compiled server
+   * threads the pattern it matched; the interpreted `createApp` path has no
+   * router and leaves this unset ("").
+   */
+  route?: string;
+  /**
+   * App-scoped response cache. When omitted, `ctx.cache` shares a single
+   * process-wide cache across every app in the process (keyed by method+URL).
+   * Pass a dedicated `HttpResponseCache` per app to scope entries.
+   */
+  cache?: HttpResponseCache;
+  /**
+   * Trust `x-real-ip` / `x-forwarded-for` when `server.requestIP` is
+   * unavailable. Off by default — blindly trusting client-supplied headers is
+   * spoofable (it feeds rate limiting / access logs).
+   */
+  trustProxy?: boolean;
 }
 
 export interface FluxContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
@@ -149,7 +167,7 @@ export function createContext<P = Record<string, string>>(
       return this.url.pathname;
     },
 
-    route: "",
+    route: opts.route ?? "",
     headers: req.headers,
     requestId: generateRequestId(),
     startTime: performance.now(),
@@ -164,7 +182,15 @@ export function createContext<P = Record<string, string>>(
         // ignore
       }
 
-      return req.headers.get("x-real-ip") || "anonymous";
+      // Client-supplied IP headers are spoofable; only honor them when the app
+      // explicitly opts into trusting a proxy in front.
+      if (opts.trustProxy) {
+        const forwarded =
+          req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+        if (forwarded) return forwarded;
+      }
+
+      return "anonymous";
     },
 
     params,
@@ -241,13 +267,21 @@ export function createContext<P = Record<string, string>>(
     },
 
     cache(factory: () => Promise<Response>, cacheOpts = {}) {
-      return defaultCache.getOrSet(req, factory, cacheOpts);
+      return (opts.cache ?? defaultCache).getOrSet(req, factory, cacheOpts);
     },
 
     loader: createDataLoader,
 
     redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
-      return Response.redirect(url, status);
+      // Build the redirect manually rather than `Response.redirect()`: the
+      // standard helper requires an *absolute* URL and throws on relative
+      // `Location` values in some runtimes (e.g. undici under vitest), while
+      // relative redirects are the common case (`/login`, `/home`). Setting
+      // the Location header directly is runtime-agnostic (matches Fastify).
+      return new Response(null, {
+        status,
+        headers: { location: url },
+      });
     },
 
     server: null,

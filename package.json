@@ -20,6 +20,7 @@
     "test:core": "vitest run packages/core/test",
     "test:compiler": "bun run --cwd packages/compiler test",
     "test:native": "bun run --cwd packages/native test",
+    "test:native:real": "bunx vitest run packages/native/test --no-file-parallelism",
     "test:cli": "bun run --cwd packages/cli test",
     "test:shared": "vitest run packages/shared/test",
     "build": "bun run --cwd packages/app build",
@@ -29,6 +30,7 @@
     "compile": "bun build dist/__server.js --compile --minify --target=bun --outfile=flux-server",
     "openapi:client": "bun scripts/generate-openapi-client.ts",
     "bench": "bun scripts/benchmark.ts",
+    "bench:native": "bun scripts/native-bench.ts",
     "bench:products": "oha http://localhost:3000/products/123"
   },
   "devDependencies": {

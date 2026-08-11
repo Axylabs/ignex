@@ -34,7 +34,7 @@ export const generateRouteCode = (
 
   // Deduplicated (non-leader) routes reuse the leader's handler; only the
   // leader emits it.
-  if (route.dedupGroup) return;
+  if (route.decisions.dedupGroup) return;
 
   const constantJson = tryNormalizeConstant(route, hasAppConfig);
 
@@ -63,7 +63,7 @@ export const generateRouteCode = (
     return;
   }
 
-  const hasHooks = route.hooks.length > 0;
+  const hasHooks = route.analysis.hooks.length > 0;
 
   const hasGlobalLifecycle = !!hasAppConfig;
 
@@ -77,21 +77,21 @@ export const generateRouteCode = (
     cfg.enableAccessLog ||
     hasHooks ||
     hasGlobalLifecycle ||
-    route.hasValidation ||
-    route.usage.cookie ||
-    route.usage.set ||
-    route.usage.proxy ||
-    route.usage.forward ||
-    route.usage.cache ||
-    route.usage.loader ||
-    route.usage.sendFile ||
-    route.usage.file;
+    route.analysis.hasValidation ||
+    route.analysis.usage.cookie ||
+    route.analysis.usage.set ||
+    route.analysis.usage.proxy ||
+    route.analysis.usage.forward ||
+    route.analysis.usage.cache ||
+    route.analysis.usage.loader ||
+    route.analysis.usage.sendFile ||
+    route.analysis.usage.file;
 
-  const hasParamsValidator = !!route.validators?.params;
-  const hasQueryValidator = !!route.validators?.query;
-  const hasHeadersValidator = !!route.validators?.headers;
-  const hasBodyValidator = !!route.validators?.body;
-  const hasCookieValidator = !!route.validators?.cookie;
+  const hasParamsValidator = !!route.decisions.validators?.params;
+  const hasQueryValidator = !!route.decisions.validators?.query;
+  const hasHeadersValidator = !!route.decisions.validators?.headers;
+  const hasBodyValidator = !!route.decisions.validators?.body;
+  const hasCookieValidator = !!route.decisions.validators?.cookie;
 
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);
@@ -107,7 +107,9 @@ export const generateRouteCode = (
   if (needsFull) {
     helpers.markCore("runHooks");
     helpers.markCore("createContext");
-    pre.push(`let ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS });`);
+    pre.push(
+      `let ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)} });`,
+    );
     pre.push(`ctx.server = server;`);
     pre.push(`{
   // start → request → parse → transform run before validation; beforeHandle
@@ -122,7 +124,7 @@ export const generateRouteCode = (
     // before the handler (see `rBefore` in the generated route fn below).
     // Removing the previous pre-validation copy eliminated a double run.
     if (
-      route.hasValidation ||
+      route.analysis.hasValidation ||
       hasParamsValidator ||
       hasQueryValidator ||
       hasHeadersValidator ||
@@ -149,7 +151,9 @@ export const generateRouteCode = (
 
       pre.push(
         `const __schema = ${
-          route.hasValidation ? `__schemaFor(schema_${route.handlerRef})` : `undefined`
+          route.analysis.hasValidation
+            ? `__schemaFor(schema_${route.codegen.handlerRef})`
+            : `undefined`
         };`,
       );
 
@@ -232,13 +236,13 @@ export const generateRouteCode = (
 }`);
     }
 
-    const needUrl = route.usage.url || (route.usage.query && !hasQueryValidator);
+    const needUrl = route.analysis.usage.url || (route.analysis.usage.query && !hasQueryValidator);
 
     if (needUrl) {
       pre.push(`const url = new URL(req.url);`);
     }
 
-    if (route.usage.query || hasQueryValidator) {
+    if (route.analysis.usage.query || hasQueryValidator) {
       if (hasQueryValidator) {
         helpers.markUsed("validationError");
         helpers.markCore("parseQueryFromURL");
@@ -251,7 +255,7 @@ export const generateRouteCode = (
       }
     }
 
-    if (route.usage.headers || hasHeadersValidator) {
+    if (route.analysis.usage.headers || hasHeadersValidator) {
       if (hasHeadersValidator) {
         helpers.markUsed("validationError");
         pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
@@ -261,7 +265,7 @@ export const generateRouteCode = (
       }
     }
 
-    if (route.usage.body || hasBodyValidator) {
+    if (route.analysis.usage.body || hasBodyValidator) {
       helpers.markCore("createLazyBody");
 
       if (hasBodyValidator) {
@@ -279,17 +283,17 @@ export const generateRouteCode = (
       }
     }
 
-    if (route.usage.state) {
+    if (route.analysis.usage.state) {
       pre.push(`const state = new Map();`);
     }
 
-    if (route.usage.set || route.usage.cookie) {
+    if (route.analysis.usage.set || route.analysis.usage.cookie) {
       pre.push(`const __set = { headers: Object.create(null), cookie: Object.create(null) };`);
     } else {
       pre.push(`const __set = __EMPTY_SET;`);
     }
 
-    if (route.usage.cookie) {
+    if (route.analysis.usage.cookie) {
       helpers.markCore("createCookieJar");
       helpers.markCore("parseCookieString");
       pre.push(
@@ -300,84 +304,84 @@ export const generateRouteCode = (
     const props: string[] = [];
     props.push(`set: __set`);
 
-    if (route.usage.params || hasParamsValidator) {
+    if (route.analysis.usage.params || hasParamsValidator) {
       props.push(`params: __params`);
     }
 
-    if (route.usage.body || hasBodyValidator) {
+    if (route.analysis.usage.body || hasBodyValidator) {
       props.push(`body`);
     }
 
-    if (route.usage.query || hasQueryValidator) {
+    if (route.analysis.usage.query || hasQueryValidator) {
       props.push(`query`);
     }
 
-    if (route.usage.headers || hasHeadersValidator) {
+    if (route.analysis.usage.headers || hasHeadersValidator) {
       props.push(`headers: req.headers`);
     }
 
-    if (route.usage.req) {
+    if (route.analysis.usage.req) {
       props.push(`req`);
     }
 
-    if (route.usage.url) {
+    if (route.analysis.usage.url) {
       props.push(`url`);
     }
 
-    if (route.usage.server) {
+    if (route.analysis.usage.server) {
       props.push(`server`);
     }
 
-    if (route.usage.state) {
+    if (route.analysis.usage.state) {
       props.push(`state`);
       props.push(`getState: (key) => state.get(key)`);
       props.push(`setState: (key, value) => { state.set(key, value); }`);
     }
 
-    if (route.usage.json) {
+    if (route.analysis.usage.json) {
       helpers.markUsed("jsonReply");
       props.push(`json: jsonReply`);
     }
-    if (route.usage.text) {
+    if (route.analysis.usage.text) {
       helpers.markUsed("textReply");
       props.push(`text: textReply`);
     }
-    if (route.usage.html) {
+    if (route.analysis.usage.html) {
       helpers.markUsed("htmlReply");
       props.push(`html: htmlReply`);
     }
-    if (route.usage.stream) {
+    if (route.analysis.usage.stream) {
       helpers.markUsed("streamReply");
       props.push(`stream: streamReply`);
     }
-    if (route.usage.redirect) {
+    if (route.analysis.usage.redirect) {
       helpers.markUsed("redirectReply");
       props.push(`redirect: redirectReply`);
     }
-    if (route.usage.empty) {
+    if (route.analysis.usage.empty) {
       helpers.markUsed("emptyReply");
       props.push(`empty: emptyReply`);
     }
-    if (route.usage.status) {
+    if (route.analysis.usage.status) {
       helpers.markUsed("statusReply");
       props.push(`status: statusReply`);
     }
 
-    if (route.usage.sendFile) {
+    if (route.analysis.usage.sendFile) {
       helpers.markCore("sendFile");
       props.push(`sendFile: (path, opts) => sendFile(path, { req, ...opts })`);
     }
 
-    if (route.usage.cookie) {
+    if (route.analysis.usage.cookie) {
       props.push(`cookie: __cookieJar`);
     }
 
-    if (route.usage.proxy) {
+    if (route.analysis.usage.proxy) {
       helpers.markCore("proxyRequest");
       props.push(`proxy: (target, opts) => proxyRequest(target, { req, ...opts })`);
     }
 
-    if (route.usage.forward) {
+    if (route.analysis.usage.forward) {
       helpers.markCore("forwardRequest");
       props.push(`forward: (target, opts) => forwardRequest(req, target, opts)`);
     }
@@ -388,15 +392,16 @@ export const generateRouteCode = (
         : `${handlerImportName(route)}({ ${props.join(", ")} })`;
   }
 
-  const serializersVar = route.serializers?.byStatus
-    ? `{ ${Object.entries(route.serializers.byStatus)
+  const serializersVar = route.decisions.serializers?.byStatus
+    ? `{ ${Object.entries(route.decisions.serializers.byStatus)
         .map(([s, n]) => `${JSON.stringify(s)}: ${n}`)
         .join(", ")} }`
-    : route.serializers?.json
-      ? `{ "200": ${route.serializers.json} }`
+    : route.decisions.serializers?.json
+      ? `{ "200": ${route.decisions.serializers.json} }`
       : "undefined";
 
-  const routeHookVar = route.hooks.length > 0 ? `[${route.hooks.map(hookIdent).join(", ")}]` : `[]`;
+  const routeHookVar =
+    route.analysis.hooks.length > 0 ? `[${route.analysis.hooks.map(hookIdent).join(", ")}]` : `[]`;
 
   const coreFn = `async function ${coreName}(req, params, server) {
   let ctx;
@@ -426,7 +431,10 @@ export const generateRouteCode = (
     const mapped = await runHooks(__lc.mapResponse, ctx, response);
     ctx = mapped.ctx ?? ctx;
     response = mapped.response ?? response;
-    await runHooks(__lc.afterResponse, ctx, response);
+    // Observe-only post-handler stages: a throwing afterResponse/trace hook
+    // must not corrupt an already-finalized response (matches interpreted).
+    try { await runHooks(__lc.afterResponse, ctx, response); } catch {}
+    try { await runHooks(__lc.trace, ctx, response); } catch {}
     if (__ACCESS_LOG) {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(cfg.serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));

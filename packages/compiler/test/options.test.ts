@@ -33,4 +33,12 @@ describe("validateOptions", () => {
     expect(result.ok).toBe(false);
     expect(d.errors.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
   });
+
+  it("rejects removed (formerly dead) options", () => {
+    const d = new DiagnosticCollector();
+    const result = validateOptions({ ...valid, enableStrictMethods: true } as never, d);
+
+    expect(result.ok).toBe(false);
+    expect(d.errors.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
+  });
 });

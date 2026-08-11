@@ -1,38 +1,29 @@
 import { join, relative, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
-import { parseArgs } from "node:util";
 import { routeFileTemplate } from "../templates/route.js";
+import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { ask, openPrompt } from "../utils/prompt.js";
 import { parseRouteInput } from "../utils/route.js";
 
 export async function runRoute(args: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args,
-    options: {
-      root: { type: "string" },
-      dir: { type: "string" },
-      method: { type: "string" },
-      schema: { type: "boolean" },
-      named: { type: "boolean" },
-      force: { type: "boolean" },
-    },
-    allowPositionals: true,
-    strict: false,
+  const { values, positionals } = parseCliArgs(args, {
+    root: { type: "string" },
+    dir: { type: "string" },
+    method: { type: "string" },
+    schema: { type: "boolean" },
+    named: { type: "boolean" },
+    force: { type: "boolean" },
   });
 
-  const root = resolve((values.root as string | undefined) ?? ".");
+  const root = resolveRoot(values, positionals);
 
   let input = positionals[0];
 
   if (!input && process.stdin.isTTY) {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    input = await rl.question("Route path (e.g. products/[id].get): ");
+    const rl = openPrompt();
+    input = await ask(rl, "Route path (e.g. products/[id].get)");
     rl.close();
   }
 

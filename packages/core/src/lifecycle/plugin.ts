@@ -60,11 +60,20 @@ export const createPluginContext = (): PluginContext => {
       plugins.push(plugin);
     },
     async initAll() {
-      for (const p of plugins) await p.init?.();
+      // Run every plugin's init even if one fails; report failures but don't
+      // leave later plugins un-initialized.
+      const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
+      for (const r of results) {
+        if (r.status === "rejected") console.error("[flux] plugin init failed:", r.reason);
+      }
     },
     async closeAll() {
-      // Reverse (onion) order: last registered closes first.
-      for (const p of [...plugins].reverse()) await p.close?.();
+      // Reverse (onion) order: last registered closes first. allSettled ensures
+      // one plugin's close failure never skips the remaining plugins' cleanup.
+      const results = await Promise.allSettled([...plugins].reverse().map((p) => p.close?.()));
+      for (const r of results) {
+        if (r.status === "rejected") console.error("[flux] plugin close failed:", r.reason);
+      }
     },
   };
 };
@@ -163,21 +172,33 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
       },
     }));
 
-  const afterHandle: HookContainer[] = [...list]
-    // onResponse is the onion "way out" phase: run in reverse so the last
-    // plugin wraps the previous ones' response — identical to composePlugins.
-    .reverse()
-    .filter((p) => typeof p.onResponse === "function")
-    .map((p) => ({
-      scope: "global" as const,
-      fn: async (ctx: FluxContext, response: Response) => {
-        const result = await p.onResponse!(ctx, response);
-        if (result instanceof Response) {
-          return { response: result };
-        }
-        return {};
-      },
-    }));
+  const onResponsePlugins = [...list].reverse().filter((p) => typeof p.onResponse === "function");
+
+  // `onResponse` is the onion "way out" phase: the LAST-registered plugin wraps
+  // the previous ones' response — identical to `composePlugins`.
+  //
+  // IMPORTANT: all onResponse plugins are composed into ONE afterHandle hook.
+  // `runHooks` halts the chain when a hook returns `{ response }`, so if each
+  // plugin were its own hook only the first would ever run (security would
+  // silently swallow compression + cors). Composing them threads the response
+  // through every plugin regardless of whether they return a new Response or
+  // `undefined` (pass-through).
+  const afterHandle: HookContainer[] =
+    onResponsePlugins.length === 0
+      ? []
+      : [
+          {
+            scope: "global" as const,
+            fn: async (ctx: FluxContext, response: Response) => {
+              let current = response;
+              for (const p of onResponsePlugins) {
+                const result = await p.onResponse!(ctx, current);
+                if (result instanceof Response) current = result;
+              }
+              return { response: current };
+            },
+          },
+        ];
 
   const error: HookContainer[] = list
     .filter((p) => typeof p.onError === "function")
@@ -204,12 +225,15 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
 
 /**
  * Wrap a single `HookFn` as a `FluxPlugin` — the shared adapter behind the
- * auth / csrf / session plugin factories.
+ * auth / csrf / session plugin factories. An optional `close` callback is wired
+ * to the plugin's `close()` so resources (stores, timers) are released on app
+ * shutdown.
  */
-export const hookToPlugin = (name: string, hook: HookFn): FluxPlugin => ({
+export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): FluxPlugin => ({
   name,
   async onRequest(ctx) {
     const result = await hook(ctx);
     return result.ok ? result.ctx : result.response;
   },
+  ...(close ? { close } : {}),
 });

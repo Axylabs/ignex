@@ -63,11 +63,14 @@ export class LRUCache<K extends {}, V> {
   constructor(private readonly opts: LRUCacheOptions<K, V> = {}) {
     this.lru = new LRU<K, Entry<V>>({
       max: opts.max ?? 1000,
-      sizeCalculation: (entry) => Math.max(1, entry.bytes),
+      // `maxSize`/`sizeCalculation` are only wired when maxBytes is set —
+      // lru-cache v11 throws if sizeCalculation is provided without maxSize.
+      ...(opts.maxBytes !== undefined
+        ? { maxSize: opts.maxBytes, sizeCalculation: (entry) => Math.max(1, entry.bytes) }
+        : {}),
       dispose: (entry, key) => {
         opts.onEvict?.(key, entry.value);
       },
-      ...(opts.maxBytes !== undefined ? { maxSize: opts.maxBytes } : {}),
     });
   }
 

@@ -138,8 +138,10 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
     const cacheKey = cacheKeyFn(key);
 
     if (cache) {
-      const cached = cache.get(cacheKey);
-      if (cached !== undefined) return Promise.resolve(cached);
+      // `has()` distinguishes a legitimately-`undefined` cached value from a
+      // miss, so a batch result that resolves to `undefined` is cached and not
+      // re-fetched on subsequent loads.
+      if (cache.has(cacheKey)) return Promise.resolve(cache.get(cacheKey) as Value);
     }
 
     const batch = getCurrentBatch();

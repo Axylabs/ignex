@@ -7,7 +7,6 @@ import { existsSync } from "node:fs";
 import type { CompilerOptions, HookDef, ModuleInfo, RouteDef } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
-import { getInlineCandidate } from "./decisions";
 import {
   handlerImportName,
   hookIdent,
@@ -59,8 +58,8 @@ export const stageImports = (
   }
 
   for (const route of routes) {
-    if (route.usage.proxy) coreNames.push("proxyRequest");
-    if (route.usage.forward) coreNames.push("forwardRequest");
+    if (route.analysis.usage.proxy) coreNames.push("proxyRequest");
+    if (route.analysis.usage.forward) coreNames.push("forwardRequest");
   }
 
   state.uniqueCore = [...new Set(coreNames)].sort();
@@ -72,53 +71,57 @@ export const stageImports = (
   }
 
   // Handlers from fully self-contained modules are inlined instead of
-  // imported, producing a more self-contained server entry.
+  // imported, producing a more self-contained server entry. The inline
+  // candidates were resolved by the optimization phase — codegen only reads
+  // the finalized decision.
   const inlineHandlers = state.inlineHandlers;
 
   for (const route of routes) {
-    const mod = modules[route.moduleIdx];
-    const inline = getInlineCandidate(route, mod, opts);
-    if (inline) inlineHandlers.set(route.handlerRef, inline);
+    const mod = modules[route.source.moduleIdx];
+    const inline = route.decisions.inlineCandidate;
+    if (inline) inlineHandlers.set(route.codegen.handlerRef, inline);
 
-    if (mod && !inlineHandlers.has(route.handlerRef)) {
-      const named = route.handlerExportName;
+    if (mod && !inlineHandlers.has(route.codegen.handlerRef)) {
+      const named = route.analysis.handlerExportName;
       const spec = named ? `{ ${named} as ${handlerImportName(route)} }` : handlerImportName(route);
       imports.add(`import ${spec} from ${JSON.stringify(toImportPath(mod.path, opts))};`);
-      if (route.hasValidation) {
+      if (route.analysis.hasValidation) {
         imports.add(
-          `import * as schema_${route.handlerRef} from ${JSON.stringify(
+          `import * as schema_${route.codegen.handlerRef} from ${JSON.stringify(
             toImportPath(mod.path, opts),
           )};`,
         );
       }
     }
 
-    if (route.validators) {
+    if (route.decisions.validators) {
       const kinds = ["body", "query", "params", "headers", "cookie"] as const;
 
       for (const kind of kinds) {
-        if (route.validators[kind]) {
+        if (route.decisions.validators[kind]) {
           imports.add(
             `import ${validatorImportName(
               route,
               kind,
-            )} from "./validators/${route.handlerRef}.${kind}.cjs";`,
+            )} from "./validators/${route.codegen.handlerRef}.${kind}.cjs";`,
           );
         }
       }
     }
 
-    if (route.serializers?.byStatus) {
-      for (const [status, importName] of Object.entries(route.serializers.byStatus)) {
-        imports.add(`import ${importName} from "./serializers/${route.handlerRef}.${status}.mjs";`);
+    if (route.decisions.serializers?.byStatus) {
+      for (const [status, importName] of Object.entries(route.decisions.serializers.byStatus)) {
+        imports.add(
+          `import ${importName} from "./serializers/${route.codegen.handlerRef}.${status}.mjs";`,
+        );
       }
-    } else if (route.serializers?.json) {
+    } else if (route.decisions.serializers?.json) {
       imports.add(
-        `import ${serializerImportName(route, "200")} from "./serializers/${route.handlerRef}.200.mjs";`,
+        `import ${serializerImportName(route, "200")} from "./serializers/${route.codegen.handlerRef}.200.mjs";`,
       );
     }
 
-    for (const hookName of route.hooks) {
+    for (const hookName of route.analysis.hooks) {
       const hook = hooks.get(hookName);
 
       if (hook) {

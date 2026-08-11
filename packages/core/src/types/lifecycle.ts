@@ -3,8 +3,6 @@
  * decoration shapes. Re-exported through `./index` (the unified type umbrella).
  */
 
-import type { AnySchema } from "./http";
-
 export type LifeCycleType = "global" | "scoped" | "local";
 
 export interface HookContainer<T = (...args: any[]) => any> {
@@ -43,18 +41,6 @@ export const EMPTY_LIFECYCLE: LifeCycleStore = {
   error: [],
   stop: [],
 };
-
-export interface SingletonBase {
-  decorator: Record<string, unknown>;
-  store: Record<string, unknown>;
-  derive: Record<string, unknown>;
-  resolve: Record<string, unknown>;
-}
-
-export interface DefinitionBase {
-  type: Record<string, AnySchema>;
-  error: Record<string, Error>;
-}
 
 export interface DocumentDecoration {
   summary?: string;

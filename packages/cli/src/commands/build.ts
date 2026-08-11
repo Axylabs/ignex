@@ -1,21 +1,16 @@
-import { parseArgs } from "node:util";
+import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { buildProject } from "../utils/compiler.js";
-import { error, info, success } from "../utils/logger.js";
+import { error, formatError, info, success } from "../utils/logger.js";
 
 export async function runBuild(args: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args,
-    options: {
-      root: { type: "string" },
-      outDir: { type: "string" },
-      routesDir: { type: "string" },
-      minify: { type: "boolean" },
-      sourcemap: { type: "boolean" },
-      verbose: { type: "boolean" },
-      watch: { type: "boolean" },
-    },
-    allowPositionals: true,
-    strict: false,
+  const { values, positionals } = parseCliArgs(args, {
+    root: { type: "string" },
+    outDir: { type: "string" },
+    routesDir: { type: "string" },
+    minify: { type: "boolean" },
+    sourcemap: { type: "boolean" },
+    verbose: { type: "boolean" },
+    watch: { type: "boolean" },
   });
 
   if (values.watch) {
@@ -24,7 +19,7 @@ export async function runBuild(args: string[]): Promise<void> {
     return;
   }
 
-  const root = (values.root as string | undefined) ?? positionals[0] ?? ".";
+  const root = resolveRoot(values, positionals);
 
   info(`Building ${root}`);
 
@@ -32,7 +27,7 @@ export async function runBuild(args: string[]): Promise<void> {
     await buildProject(root, values as Record<string, unknown>);
     success("Build complete");
   } catch (err) {
-    error(err instanceof Error ? err.message : String(err));
+    error(formatError(err));
     process.exitCode = 1;
   }
 }

@@ -14,21 +14,31 @@ import {
   brotliCompress,
   brotliDecompress,
   crc32,
+  createAcceptNegotiator,
+  createConditionalRequest,
+  createNativePipeline,
+  createRateLimiter,
+  createRateLimiterFallback,
+  createSchemaValidator,
   csrfToken,
   csrfVerify,
   etag,
   fnv1a64,
   fnv1a64Fallback,
+  formPairs,
   gzipCompress,
   gzipDecompress,
   hmacSha256,
   hmacSha256Verify,
+  initNative,
+  isNativeAvailable,
   jsonPatch,
   jsonValid,
   jwtSign,
   jwtVerify,
   mediaTypeMatches,
   parseAcceptEncoding,
+  parseForm,
   parseMediaType,
   parseQuery,
   passwordHash,
@@ -142,9 +152,9 @@ describe("random tokens & passwords", () => {
     expect(randomToken(32)).toHaveLength(64);
   });
 
-  it("password hash/verify round-trips on the scrypt path", () => {
+  it("password hash/verify round-trips (argon2id native / scrypt fallback)", () => {
     const phc = passwordHash("hunter2", "static-salt-0123456789");
-    expect(phc.startsWith("$scrypt$")).toBe(true);
+    expect(phc.startsWith("$argon2id$") || phc.startsWith("$scrypt$")).toBe(true);
     expect(passwordVerify("hunter2", phc)).toBe(true);
     expect(passwordVerify("wrong", phc)).toBe(false);
   });
@@ -190,6 +200,86 @@ describe("http", () => {
       { encoding: "deflate", q: 0.9, order: 1 },
       { encoding: "*", q: 0.5, order: 2 },
     ]);
+  });
+});
+
+describe("form parsing", () => {
+  it("parses x-www-form-urlencoded bodies (decoding + last-wins)", () => {
+    expect(formPairs("a=1&b=two%20words&c=&a=2")).toEqual([
+      ["a", "1"],
+      ["b", "two words"],
+      ["c", ""],
+      ["a", "2"],
+    ]);
+    expect(parseForm("a=1&b=two%20words&c=&a=2")).toEqual({ a: "2", b: "two words", c: "" });
+    expect(parseForm("x=hello+world")).toEqual({ x: "hello world" });
+    expect(parseForm("")).toEqual({});
+  });
+});
+
+describe("conditional requests", () => {
+  it("304 semantics match castrum ConditionalRequest (RFC 7232)", () => {
+    const cond = createConditionalRequest('"abc123"', 1_700_000_000);
+    // If-None-Match: exact, weak-prefixed, and `*` all match.
+    expect(cond.isNotModified('"abc123"')).toBe(true);
+    expect(cond.isNotModified('W/"abc123"')).toBe(true);
+    expect(cond.isNotModified('"other", "abc123"')).toBe(true);
+    expect(cond.isNotModified("*")).toBe(true);
+    // Mismatch → not modified is false, and IMS is ignored when INM present.
+    expect(cond.isNotModified('"other"', "Sun, 06 Nov 1994 08:49:37 GMT")).toBe(false);
+    // No INM → IMS decides (>= lastModified).
+    const ims = new Date(1_700_000_000 * 1000).toUTCString();
+    expect(cond.isNotModified(null, ims)).toBe(true);
+    expect(cond.isNotModified(null, "Sun, 06 Nov 1994 08:49:37 GMT")).toBe(false);
+  });
+
+  it("lastModifiedSecs 0 disables If-Modified-Since", () => {
+    const cond = createConditionalRequest('"abc"', 0);
+    const ims = new Date(1_700_000_000 * 1000).toUTCString();
+    expect(cond.isNotModified(null, ims)).toBe(false);
+  });
+});
+
+describe("accept negotiation", () => {
+  it("negotiates by specificity, then q, then client order", () => {
+    const neg = createAcceptNegotiator(["gzip", "br"]);
+    // Exact beats wildcard at equal q.
+    expect(neg.negotiate("gzip, *;q=0.1")).toBe("gzip");
+    // Wildcard only matches the first supported entry.
+    expect(neg.negotiate("*;q=1")).toBe("gzip");
+    // q ordering picks br when the wildcard (gzip) is deprioritized.
+    expect(neg.negotiate("br;q=0.9, *;q=0.5")).toBe("br");
+    // q=0 excludes.
+    expect(neg.negotiate("gzip;q=0, *;q=1")).toBe("br");
+    // Unsupported → null.
+    expect(neg.negotiate("deflate")).toBeNull();
+    // Empty header → first supported.
+    expect(neg.negotiate("")).toBe("gzip");
+  });
+});
+
+describe("json schema", () => {
+  it("returns a validator when native is available (null otherwise)", () => {
+    const v = createSchemaValidator(
+      '{"type":"object","properties":{"a":{"type":"number"}},"required":["a"]}',
+    );
+    if (v) {
+      expect(v.validate('{"a":1}')).toBe(true);
+      expect(v.validate('{"a":"x"}')).toBe(false);
+    } else {
+      expect(v).toBeNull();
+    }
+  });
+});
+
+describe("pipeline bridge", () => {
+  it("resolves to null when the native pipeline is unavailable (never throws)", async () => {
+    const pipeline = await createNativePipeline({});
+    if (isNativeAvailable()) {
+      expect(pipeline).not.toBeNull();
+    } else {
+      expect(pipeline).toBeNull();
+    }
   });
 });
 
@@ -247,11 +337,73 @@ describe("templates", () => {
   });
 });
 
+describe("loader / eager init", () => {
+  it("initNative is idempotent and never throws", () => {
+    const first = initNative();
+    const second = initNative({ threads: 1 });
+    expect(first.available).toBe(isNativeAvailable());
+    expect(second.available).toBe(first.available);
+    // available=true implies a positive (or zero) rayon thread count
+    if (first.available) {
+      expect(first.rayonThreads).toBeGreaterThanOrEqual(0);
+    } else {
+      expect(first.rayonThreads).toBe(0);
+    }
+  });
+});
+
+describe("rate limiter", () => {
+  it("allows up to limit then denies, and resets after the window", () => {
+    const now = Date.now();
+    const nativeLim = createRateLimiter({ limit: 2, windowMs: 60_000 });
+    const fallbackLim = createRateLimiterFallback({ limit: 2, windowMs: 60_000 });
+
+    // Both paths: 2 allowed, 3rd denied, different key unaffected.
+    for (const lim of [nativeLim, fallbackLim]) {
+      expect(lim.check("a", now).allowed).toBe(true);
+      expect(lim.check("a", now).allowed).toBe(true);
+      expect(lim.check("a", now).allowed).toBe(false);
+      expect(lim.check("b", now).allowed).toBe(true);
+      const denied = lim.check("a", now);
+      expect(denied.remaining).toBe(0);
+      expect(denied.resetMs).toBeGreaterThan(now);
+    }
+  });
+
+  it("recovers after the window elapses (both paths)", () => {
+    const now = Date.now();
+    for (const lim of [
+      createRateLimiter({ limit: 1, windowMs: 60_000 }),
+      createRateLimiterFallback({ limit: 1, windowMs: 60_000 }),
+    ]) {
+      expect(lim.check("k", now).allowed).toBe(true);
+      expect(lim.check("k", now).allowed).toBe(false);
+      // After two full windows the budget resets.
+      expect(lim.check("k", now + 120_000).allowed).toBe(true);
+    }
+  });
+
+  it("zero limit denies everything; independent instances are isolated", () => {
+    const zero = createRateLimiter({ limit: 0, windowMs: 60_000 });
+    expect(zero.check("x", Date.now()).allowed).toBe(false);
+    expect(
+      createRateLimiterFallback({ limit: 0, windowMs: 60_000 }).check("x", Date.now()).allowed,
+    ).toBe(false);
+
+    const a = createRateLimiter({ limit: 1, windowMs: 60_000 });
+    const b = createRateLimiter({ limit: 1, windowMs: 60_000 });
+    expect(a.check("same", Date.now()).allowed).toBe(true);
+    expect(b.check("same", Date.now()).allowed).toBe(true);
+  });
+});
+
 describe("validation", () => {
   it("validates common inputs", () => {
     expect(validateEmail("a@b.com")).toBe(true);
     expect(validateEmail("nope")).toBe(false);
-    expect(validateUuid("123e4567-e89b-12d3-a456-426614174000")).toBe(true);
+    // Native parity: castrum accepts version-4 UUIDs only.
+    expect(validateUuid("123e4567-e89b-42d3-a456-426614174000")).toBe(true);
+    expect(validateUuid("123e4567-e89b-12d3-a456-426614174000")).toBe(false);
     expect(validateUuid("not-a-uuid")).toBe(false);
     expect(validateIpv4("192.168.0.1")).toBe(true);
     expect(validateIpv4("999.1.1.1")).toBe(false);
