@@ -74,6 +74,15 @@ describe("body pure helpers", () => {
     expect(() => assertParsedSize("text", "hi", 4)).not.toThrow();
   });
 
+  it("assertParsedSize prefers raw wire bytes over re-serializing for json", () => {
+    // rawBytes over the limit → 413 even though the parsed value is tiny.
+    expect(() => assertParsedSize("json", { a: 1 }, 10, 50)).toThrow(BodyParseError);
+    expect(() => assertParsedSize("json", { a: 1 }, 100, 50)).not.toThrow();
+    // Without rawBytes the re-serialized value is measured (7 bytes) as before.
+    expect(() => assertParsedSize("json", { a: 1 }, 5)).toThrow(BodyParseError);
+    expect(() => assertParsedSize("json", { a: 1 }, 10)).not.toThrow();
+  });
+
   it("convertBody json → text → arrayBuffer → blob", () => {
     const state = { kind: "json" as const, value: { a: 1 } };
     const text = convertBody(state, "text");
@@ -186,6 +195,21 @@ describe("createLazyBody round-trips", () => {
     const req = new Request("http://x/", { method: "POST", body: fd });
     const body = createLazyBody(req, { maxFileBytes: 10 });
     await expect(body.file("f")).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("guards JSON against the RAW wire bytes (whitespace-heavy body) — no re-serialize", async () => {
+    // A JSON body whose raw wire bytes exceed maxJsonBytes due to whitespace
+    // must be rejected even though the parsed (normalized) value is small —
+    // the guard measures wire bytes, not the re-serialized value.
+    const body = createLazyBody(jsonReq(JSON.stringify({ a: 1 }) + " ".repeat(60_000)), {
+      maxJsonBytes: 50_000,
+    });
+    await expect(body.json()).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("accepts a JSON body under the raw byte limit", async () => {
+    const body = createLazyBody(jsonReq('{"a":1}'), { maxJsonBytes: 50_000 });
+    expect(await body.json()).toEqual({ a: 1 });
   });
 });
 

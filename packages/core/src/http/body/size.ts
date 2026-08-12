@@ -55,11 +55,24 @@ export function measureParsedSize(kind: BodyKind, parsed: unknown): number {
  * content-length header), so an unbounded `req.text()/json()/formData()`
  * would otherwise buffer arbitrarily large payloads. This post-parse guard
  * closes that hole.
+ *
+ * For `json`, `rawBytes` (the raw wire-byte length captured at parse time)
+ * takes precedence over re-serializing the parsed value — measuring the wire
+ * bytes is free AND is the correct size to guard (consistent with the
+ * content-length pre-check).
  */
-export function assertParsedSize(target: BodyKind, parsed: unknown, max?: number): void {
+export function assertParsedSize(
+  target: BodyKind,
+  parsed: unknown,
+  max?: number,
+  rawBytes?: number,
+): void {
   if (!max) return;
 
-  if (measureParsedSize(target, parsed) > max) {
+  const size =
+    target === "json" && rawBytes && rawBytes > 0 ? rawBytes : measureParsedSize(target, parsed);
+
+  if (size > max) {
     throw new BodyParseError("Payload too large", 413);
   }
 }

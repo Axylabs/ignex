@@ -25,7 +25,7 @@ import {
   isFile,
 } from "./form-data";
 import { resolveLimits } from "./limits";
-import { assertContentLength, assertParsedSize } from "./size";
+import { assertContentLength, assertParsedSize, textByteLength } from "./size";
 import type { BodyKind, LazyBody, LazyBodyOptions } from "./types";
 
 /**
@@ -41,6 +41,12 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
 
   let kind: BodyKind = "none";
   let value: unknown;
+
+  // Raw wire-byte length of the parsed body, captured at parse time so the
+  // post-parse size guard never has to re-serialize (JSON.stringify) the
+  // parsed value to measure it — the wire bytes are the correct size to guard
+  // (consistent with the content-length pre-check) and measuring them is free.
+  let parsedRawBytes = 0;
 
   let pending: Promise<unknown> | null = null;
   let pendingKind: BodyKind | null = null;
@@ -61,7 +67,7 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
 
     pending = parser()
       .then((v) => {
-        assertParsedSize(target, v, max);
+        assertParsedSize(target, v, max, parsedRawBytes);
         kind = target;
         value = v;
         pending = null;
@@ -110,8 +116,11 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       async () => {
         try {
           // Read raw text first so the parsed size can be measured against
-          // maxJsonBytes regardless of whether content-length was present.
+          // maxJsonBytes regardless of whether content-length was present. The
+          // raw wire-byte length is captured here for the size guard — see
+          // `parsedRawBytes`/`assertParsedSize`.
           const text = await req.text();
+          parsedRawBytes = textByteLength(text);
           return JSON.parse(text) as T;
         } catch {
           throw new BodyParseError("Invalid JSON body", 400);
