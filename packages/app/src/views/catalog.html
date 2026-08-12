@@ -1,0 +1,5 @@
+<ul>
+{% for item in items %}
+<li data-id="{{ item.id }}"><h2>{{ item.name }}</h2><span>${{ item.price }}</span><p>{{ item.description }}</p></li>
+{% endfor %}
+</ul>

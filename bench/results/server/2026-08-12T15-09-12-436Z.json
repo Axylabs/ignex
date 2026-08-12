@@ -1,0 +1,396 @@
+{
+  "generatedAt": "2026-08-12T15:09:12.436Z",
+  "bun": "1.4.0",
+  "durationSec": 3,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": [
+    "GET /health",
+    "POST /api/orders (bulk JSON+schema)",
+    "GET /api/search (60 params)",
+    "GET /api/me (30 cookies+sess)",
+    "GET /api/reports/42 (JWT)",
+    "GET /catalog (120-item template)",
+    "GET /api/big (256KB gzip)"
+  ],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 3,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 649.5,
+          "rps": 216.5,
+          "avgMs": 15.232661195067998,
+          "p50Ms": 14.001398999999992,
+          "p95Ms": 26.614943000000494,
+          "p99Ms": 39.967909999999165
+        },
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 652,
+          "rps": 217.33333333333334,
+          "avgMs": 15.949173312255272,
+          "p50Ms": 14.72209500000099,
+          "p95Ms": 27.022232000001395,
+          "p99Ms": 38.43188649999911
+        },
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 651,
+          "rps": 217,
+          "avgMs": 15.354959777221836,
+          "p50Ms": 14.304677500000707,
+          "p95Ms": 24.443269499999133,
+          "p99Ms": 34.7297755000003
+        },
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 651,
+          "rps": 217,
+          "avgMs": 15.54178692583155,
+          "p50Ms": 14.38868149999962,
+          "p95Ms": 25.957028499999296,
+          "p99Ms": 34.094206000000895
+        },
+        {
+          "label": "GET /api/reports/42 (JWT)",
+          "requests": 649.5,
+          "rps": 216.5,
+          "avgMs": 15.502813198030392,
+          "p50Ms": 14.40777000000071,
+          "p95Ms": 25.050571500000842,
+          "p99Ms": 37.576398999999356
+        },
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 649,
+          "rps": 216.33333333333331,
+          "avgMs": 16.31106198957677,
+          "p50Ms": 15.22335000000021,
+          "p95Ms": 26.41741999999931,
+          "p99Ms": 37.93782149999902
+        },
+        {
+          "label": "GET /api/big (256KB gzip)",
+          "requests": 649,
+          "rps": 216.33333333333334,
+          "avgMs": 17.30366792580697,
+          "p50Ms": 16.346808000001147,
+          "p95Ms": 26.737404999999626,
+          "p99Ms": 38.566928499999676
+        }
+      ],
+      "totalRequests": 4551,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 3,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 703,
+          "rps": 234.33333333333331,
+          "avgMs": 13.87857894533397,
+          "p50Ms": 12.87425199999916,
+          "p95Ms": 25.595321000000695,
+          "p99Ms": 30.766014500000438
+        },
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 703,
+          "rps": 234.33333333333334,
+          "avgMs": 14.69364249571978,
+          "p50Ms": 13.942150999999285,
+          "p95Ms": 24.11428000000069,
+          "p99Ms": 31.145041499999934
+        },
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 703.5,
+          "rps": 234.5,
+          "avgMs": 14.362600511810227,
+          "p50Ms": 13.630224499998349,
+          "p95Ms": 22.910334499999408,
+          "p99Ms": 29.849210999999286
+        },
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 704,
+          "rps": 234.66666666666669,
+          "avgMs": 14.396218357681763,
+          "p50Ms": 13.657406000001174,
+          "p95Ms": 22.791254000001118,
+          "p99Ms": 31.678498499999478
+        },
+        {
+          "label": "GET /api/reports/42 (JWT)",
+          "requests": 703.5,
+          "rps": 234.5,
+          "avgMs": 14.424060670325765,
+          "p50Ms": 13.532204500001626,
+          "p95Ms": 22.613779499999964,
+          "p99Ms": 32.2311209999998
+        },
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 703.5,
+          "rps": 234.5,
+          "avgMs": 14.95494881092272,
+          "p50Ms": 14.390086999999767,
+          "p95Ms": 23.721850500000983,
+          "p99Ms": 31.130915000000186
+        },
+        {
+          "label": "GET /api/big (256KB gzip)",
+          "requests": 702,
+          "rps": 234,
+          "avgMs": 15.866722285705091,
+          "p50Ms": 15.078797500000746,
+          "p95Ms": 23.810367999999016,
+          "p99Ms": 33.4479980000001
+        }
+      ],
+      "totalRequests": 4922.5,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 3,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 7514.5,
+          "rps": 2504.833333333333,
+          "avgMs": 1.341677222133886,
+          "p50Ms": 1.2228030000005674,
+          "p95Ms": 2.533493000000817,
+          "p99Ms": 3.577593500000148
+        },
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 7515.5,
+          "rps": 2505.166666666667,
+          "avgMs": 1.340273494116202,
+          "p50Ms": 1.2356390000013562,
+          "p95Ms": 2.5127990000000864,
+          "p99Ms": 3.5684045000007245
+        },
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 7515.5,
+          "rps": 2505.1666666666665,
+          "avgMs": 1.3397530734750718,
+          "p50Ms": 1.217133000001013,
+          "p95Ms": 2.5339814999997543,
+          "p99Ms": 3.5490689999996903
+        },
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 7516.5,
+          "rps": 2505.5,
+          "avgMs": 1.365362947023503,
+          "p50Ms": 1.2430384999988746,
+          "p95Ms": 2.5313255000000936,
+          "p99Ms": 3.6730274999999892
+        },
+        {
+          "label": "GET /api/reports/42 (JWT)",
+          "requests": 7513.5,
+          "rps": 2504.5,
+          "avgMs": 1.3675882261676386,
+          "p50Ms": 1.262172499999906,
+          "p95Ms": 2.5208270000002813,
+          "p99Ms": 3.60823100000016
+        },
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 7511.5,
+          "rps": 2503.8333333333335,
+          "avgMs": 1.3273722761035363,
+          "p50Ms": 1.217238000001089,
+          "p95Ms": 2.490081499999178,
+          "p99Ms": 3.5762290000002395
+        },
+        {
+          "label": "GET /api/big (256KB gzip)",
+          "requests": 7512,
+          "rps": 2504,
+          "avgMs": 1.510404284160867,
+          "p50Ms": 1.401498499999434,
+          "p95Ms": 2.6377244999985123,
+          "p99Ms": 3.679784999999356
+        }
+      ],
+      "totalRequests": 52599,
+      "totalErrors": 40293
+    }
+  ],
+  "comparison": [
+    {
+      "label": "GET /health",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2504.833333333333,
+      "otherRps": 216.5,
+      "rpsRatio": 11.569668976135487,
+      "referenceP50Ms": 1.2228030000005674,
+      "otherP50Ms": 14.001398999999992,
+      "p50Ratio": 0.08733434423235621
+    },
+    {
+      "label": "POST /api/orders (bulk JSON+schema)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2505.166666666667,
+      "otherRps": 217.33333333333334,
+      "rpsRatio": 11.526840490797547,
+      "referenceP50Ms": 1.2356390000013562,
+      "otherP50Ms": 14.72209500000099,
+      "p50Ratio": 0.08393092151635165
+    },
+    {
+      "label": "GET /api/search (60 params)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2505.1666666666665,
+      "otherRps": 217,
+      "rpsRatio": 11.544546850998463,
+      "referenceP50Ms": 1.217133000001013,
+      "otherP50Ms": 14.304677500000707,
+      "p50Ratio": 0.08508636423302467
+    },
+    {
+      "label": "GET /api/me (30 cookies+sess)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2505.5,
+      "otherRps": 217,
+      "rpsRatio": 11.546082949308756,
+      "referenceP50Ms": 1.2430384999988746,
+      "otherP50Ms": 14.38868149999962,
+      "p50Ratio": 0.08639002121208308
+    },
+    {
+      "label": "GET /api/reports/42 (JWT)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2504.5,
+      "otherRps": 216.5,
+      "rpsRatio": 11.568129330254042,
+      "referenceP50Ms": 1.262172499999906,
+      "otherP50Ms": 14.40777000000071,
+      "p50Ratio": 0.08760359861379269
+    },
+    {
+      "label": "GET /catalog (120-item template)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2503.8333333333335,
+      "otherRps": 216.33333333333331,
+      "rpsRatio": 11.57395993836672,
+      "referenceP50Ms": 1.217238000001089,
+      "otherP50Ms": 15.22335000000021,
+      "p50Ratio": 0.07995861620478227
+    },
+    {
+      "label": "GET /api/big (256KB gzip)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 2504,
+      "otherRps": 216.33333333333334,
+      "rpsRatio": 11.57473035439137,
+      "referenceP50Ms": 1.401498499999434,
+      "otherP50Ms": 16.346808000001147,
+      "p50Ratio": 0.08573530073879473
+    },
+    {
+      "label": "GET /health",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2504.833333333333,
+      "otherRps": 234.33333333333331,
+      "rpsRatio": 10.68918918918919,
+      "referenceP50Ms": 1.2228030000005674,
+      "otherP50Ms": 12.87425199999916,
+      "p50Ratio": 0.09498050838220715
+    },
+    {
+      "label": "POST /api/orders (bulk JSON+schema)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2505.166666666667,
+      "otherRps": 234.33333333333334,
+      "rpsRatio": 10.690611664295876,
+      "referenceP50Ms": 1.2356390000013562,
+      "otherP50Ms": 13.942150999999285,
+      "p50Ratio": 0.08862613810461668
+    },
+    {
+      "label": "GET /api/search (60 params)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2505.1666666666665,
+      "otherRps": 234.5,
+      "rpsRatio": 10.683013503909025,
+      "referenceP50Ms": 1.217133000001013,
+      "otherP50Ms": 13.630224499998349,
+      "p50Ratio": 0.0892966216368014
+    },
+    {
+      "label": "GET /api/me (30 cookies+sess)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2505.5,
+      "otherRps": 234.66666666666669,
+      "rpsRatio": 10.67684659090909,
+      "referenceP50Ms": 1.2430384999988746,
+      "otherP50Ms": 13.657406000001174,
+      "p50Ratio": 0.09101570971813884
+    },
+    {
+      "label": "GET /api/reports/42 (JWT)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2504.5,
+      "otherRps": 234.5,
+      "rpsRatio": 10.680170575692964,
+      "referenceP50Ms": 1.262172499999906,
+      "otherP50Ms": 13.532204500001626,
+      "p50Ratio": 0.09327175775386444
+    },
+    {
+      "label": "GET /catalog (120-item template)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2503.8333333333335,
+      "otherRps": 234.5,
+      "rpsRatio": 10.677327647476902,
+      "referenceP50Ms": 1.217238000001089,
+      "otherP50Ms": 14.390086999999767,
+      "p50Ratio": 0.08458864772680726
+    },
+    {
+      "label": "GET /api/big (256KB gzip)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 2504,
+      "otherRps": 234,
+      "rpsRatio": 10.7008547008547,
+      "referenceP50Ms": 1.401498499999434,
+      "otherP50Ms": 15.078797500000746,
+      "p50Ratio": 0.09294497787369083
+    }
+  ]
+}

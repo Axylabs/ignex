@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-08-12T15:24:29.400Z",
+  "bun": "1.4.0",
+  "durationSec": 2,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": ["GET /catalog (120-item template)"],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 2102,
+          "rps": 1051,
+          "avgMs": 22.98137239399228,
+          "p50Ms": 21.36113549999959,
+          "p95Ms": 33.053662499999405,
+          "p99Ms": 45.33160850000036
+        }
+      ],
+      "totalRequests": 2102,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 2234,
+          "rps": 1117,
+          "avgMs": 21.62407729679348,
+          "p50Ms": 20.850938499999756,
+          "p95Ms": 25.281479500000387,
+          "p99Ms": 42.94839649999949
+        }
+      ],
+      "totalRequests": 2234,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /catalog (120-item template)",
+          "requests": 47975,
+          "rps": 23987.5,
+          "avgMs": 1.0007162482618879,
+          "p50Ms": 0.8351059999995414,
+          "p95Ms": 1.7810374999999112,
+          "p99Ms": 2.3262839999997595
+        }
+      ],
+      "totalRequests": 47975,
+      "totalErrors": 0
+    }
+  ],
+  "comparison": [
+    {
+      "label": "GET /catalog (120-item template)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 23987.5,
+      "otherRps": 1051,
+      "rpsRatio": 22.82350142721218,
+      "referenceP50Ms": 0.8351059999995414,
+      "otherP50Ms": 21.36113549999959,
+      "p50Ratio": 0.03909464457072319
+    },
+    {
+      "label": "GET /catalog (120-item template)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 23987.5,
+      "otherRps": 1117,
+      "rpsRatio": 21.474932855863923,
+      "referenceP50Ms": 0.8351059999995414,
+      "otherP50Ms": 20.850938499999756,
+      "p50Ratio": 0.040051242777371925
+    }
+  ]
+}

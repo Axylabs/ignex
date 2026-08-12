@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-08-12T15:22:14.656Z",
+  "bun": "1.4.0",
+  "durationSec": 2,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": ["GET /health"],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 38610.5,
+          "rps": 19305.25,
+          "avgMs": 1.2466118902708452,
+          "p50Ms": 1.0178775000010774,
+          "p95Ms": 2.299999499999558,
+          "p99Ms": 3.8572380000002795
+        }
+      ],
+      "totalRequests": 38610.5,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 37267,
+          "rps": 18633.5,
+          "avgMs": 1.2881634982715364,
+          "p50Ms": 1.1038619999994808,
+          "p95Ms": 2.342801500000405,
+          "p99Ms": 3.419419000000289
+        }
+      ],
+      "totalRequests": 37267,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /health",
+          "requests": 173421.5,
+          "rps": 86710.75,
+          "avgMs": 0.27661924405872096,
+          "p50Ms": 0.24721749999935128,
+          "p95Ms": 0.5342604999996183,
+          "p99Ms": 0.7821264999993218
+        }
+      ],
+      "totalRequests": 173421.5,
+      "totalErrors": 0
+    }
+  ],
+  "comparison": [
+    {
+      "label": "GET /health",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 86710.75,
+      "otherRps": 19305.25,
+      "rpsRatio": 4.491563175820049,
+      "referenceP50Ms": 0.24721749999935128,
+      "otherP50Ms": 1.0178775000010774,
+      "p50Ratio": 0.24287549336643124
+    },
+    {
+      "label": "GET /health",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 86710.75,
+      "otherRps": 18633.5,
+      "rpsRatio": 4.6534869992218315,
+      "referenceP50Ms": 0.24721749999935128,
+      "otherP50Ms": 1.1038619999994808,
+      "p50Ratio": 0.22395688953824625
+    }
+  ]
+}

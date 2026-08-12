@@ -22,7 +22,7 @@
  *   WARMUP      — warm-up seconds before the timed window per mode (default 1)
  *   CONCURRENCY — parallel connections (default 32)
  *   REPEATS     — number of interleaved A/B rounds (default 3)
- *   MODE        — "native" | "fallback" | "both" (default "both")
+ *   MODE        — "native" | "fallback" | "raw-bun" | "both" | "all" (default "all")
  *   MODE_FIRST  — "native" (default) | "fallback": which mode runs first
  *   SKIP_BUILD  — "1" to skip the AOT build (assumes dist/__server.js is fresh)
  *   ROUTES      — comma-separated route labels to bench (default: all)
@@ -30,6 +30,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { bearerToken, cookieHeader, ordersBody, searchQuery } from "../bench/real-data";
 
 const PORT = Number(process.env.PORT ?? 3100);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -39,9 +40,10 @@ const DURATION_S = Number(process.env.DURATION ?? 3);
 const WARMUP_S = Number(process.env.WARMUP ?? 1);
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 32);
 const REPEATS = Math.max(1, Number(process.env.REPEATS ?? 3));
-const MODE = (process.env.MODE ?? "both").toLowerCase();
-const MODE_FIRST = (process.env.MODE_FIRST ?? "native").toLowerCase();
+const MODE = (process.env.MODE ?? "all").toLowerCase();
 const SKIP_BUILD = process.env.SKIP_BUILD === "1";
+
+type Mode = "native" | "fallback" | "raw-bun";
 
 interface RouteSpec {
   label: string;
@@ -51,18 +53,33 @@ interface RouteSpec {
   body?: string;
 }
 
+// Real-workload routes: bulk JSON+schema, many-param query, many cookies+session,
+// JWT per request, template-heavy page, large gzip response (+ /health sanity).
 const ROUTES: RouteSpec[] = [
   { label: "GET /health", path: "/health" },
-  { label: "GET / (constant)", path: "/" },
-  { label: "GET /products/123", path: "/products/123" },
-  { label: "GET /i18n (es)", path: "/i18n", headers: { "accept-language": "es" } },
-  { label: "GET /page (template)", path: "/page" },
   {
-    label: "POST /products/add",
-    path: "/products/add",
+    label: "POST /api/orders (bulk JSON+schema)",
+    path: "/api/orders",
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "widget" }),
+    body: ordersBody(80),
+  },
+  { label: "GET /api/search (60 params)", path: `/api/search?${searchQuery(60)}` },
+  {
+    label: "GET /api/me (30 cookies+sess)",
+    path: "/api/me",
+    headers: { cookie: cookieHeader(30) },
+  },
+  {
+    label: "GET /api/reports/42 (JWT)",
+    path: "/api/reports/42",
+    headers: { authorization: `Bearer ${bearerToken()}` },
+  },
+  { label: "GET /catalog (120-item template)", path: "/catalog" },
+  {
+    label: "GET /api/big (256KB gzip)",
+    path: "/api/big",
+    headers: { "accept-encoding": "gzip" },
   },
 ];
 
@@ -104,7 +121,7 @@ interface RouteResult {
 }
 
 interface ModeResult {
-  mode: "native" | "fallback";
+  mode: Mode;
   warmupSec: number;
   durationSec: number;
   repeats: number;
@@ -115,11 +132,13 @@ interface ModeResult {
 
 interface RouteComparison {
   label: string;
-  nativeRps: number;
-  fallbackRps: number;
+  referenceMode: Mode;
+  otherMode: Mode;
+  referenceRps: number;
+  otherRps: number;
   rpsRatio: number;
-  nativeP50Ms: number;
-  fallbackP50Ms: number;
+  referenceP50Ms: number;
+  otherP50Ms: number;
   p50Ratio: number;
 }
 
@@ -131,12 +150,14 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
   const runWindow = async (ms: number, record: boolean): Promise<void> => {
     await Promise.all(
       Array.from({ length: CONCURRENCY }, async (_, wi) => {
+        // Pin each worker to ONE route so routes measure independently
+        // (a mixed round-robin client gets throttled by the heaviest route
+        // and flattens every route to the same rate). Per-route concurrency
+        // is ~CONCURRENCY / routes.length.
+        const spec = routes[wi % routes.length];
+        if (!spec) return;
         const deadline = Date.now() + ms;
-        let idx = wi % routes.length;
         while (Date.now() < deadline) {
-          const spec = routes[idx % routes.length];
-          idx += 1;
-          if (!spec) continue;
           const start = performance.now();
           try {
             const init: RequestInit = { method: spec.method ?? "GET" };
@@ -164,7 +185,7 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
 }
 
 /** Boot the server for `mode`, run one load window, tear it down, return results. */
-async function runOnce(mode: "native" | "fallback"): Promise<{
+async function runOnce(mode: Mode): Promise<{
   routes: RouteResult[];
   errors: number;
 }> {
@@ -174,12 +195,16 @@ async function runOnce(mode: "native" | "fallback"): Promise<{
     ...(mode === "fallback" ? { IGNUS_NATIVE: "off" } : {}),
   };
 
-  const proc = Bun.spawn(["bun", "dist/__server.js"], {
-    cwd: APP_DIR,
-    env,
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  const isRawBun = mode === "raw-bun";
+  const proc = Bun.spawn(
+    isRawBun ? ["bun", "bench/servers/raw-bun-server.ts"] : ["bun", "dist/__server.js"],
+    {
+      cwd: isRawBun ? new URL("../", import.meta.url).pathname : APP_DIR,
+      env,
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+  );
 
   const waitForServer = async (timeoutMs: number): Promise<void> => {
     const deadline = Date.now() + timeoutMs;
@@ -230,10 +255,7 @@ async function runOnce(mode: "native" | "fallback"): Promise<{
 }
 
 /** Median-aggregate `repeats` route results for one mode. */
-function aggregate(
-  mode: "native" | "fallback",
-  runs: Array<{ routes: RouteResult[]; errors: number }>,
-): ModeResult {
+function aggregate(mode: Mode, runs: Array<{ routes: RouteResult[]; errors: number }>): ModeResult {
   const perRoute = new Map<string, RouteResult[]>();
   for (const run of runs) {
     for (const r of run.routes) {
@@ -270,25 +292,27 @@ function aggregate(
   };
 }
 
-function buildComparison(native: ModeResult, fallback: ModeResult): RouteComparison[] {
-  const nativeMap = new Map(native.routes.map((r) => [r.label, r]));
-  const fallbackMap = new Map(fallback.routes.map((r) => [r.label, r]));
+function buildComparison(reference: ModeResult, other: ModeResult): RouteComparison[] {
+  const refMap = new Map(reference.routes.map((r) => [r.label, r]));
+  const otherMap = new Map(other.routes.map((r) => [r.label, r]));
 
-  return Array.from(nativeMap.keys()).map((label) => {
-    const n = nativeMap.get(label);
-    const f = fallbackMap.get(label);
-    const nativeRps = n?.rps ?? 0;
-    const fallbackRps = f?.rps ?? 0;
-    const nativeP50 = n?.p50Ms ?? 0;
-    const fallbackP50 = f?.p50Ms ?? 0;
+  return Array.from(refMap.keys()).map((label) => {
+    const ref = refMap.get(label);
+    const oth = otherMap.get(label);
+    const referenceRps = ref?.rps ?? 0;
+    const otherRps = oth?.rps ?? 0;
+    const referenceP50 = ref?.p50Ms ?? 0;
+    const otherP50 = oth?.p50Ms ?? 0;
     return {
       label,
-      nativeRps,
-      fallbackRps,
-      rpsRatio: fallbackRps > 0 ? nativeRps / fallbackRps : Number.NaN,
-      nativeP50Ms: nativeP50,
-      fallbackP50Ms: fallbackP50,
-      p50Ratio: fallbackP50 > 0 ? nativeP50 / fallbackP50 : Number.NaN,
+      referenceMode: reference.mode,
+      otherMode: other.mode,
+      referenceRps,
+      otherRps,
+      rpsRatio: otherRps > 0 ? referenceRps / otherRps : Number.NaN,
+      referenceP50Ms: referenceP50,
+      otherP50Ms: otherP50,
+      p50Ratio: otherP50 > 0 ? referenceP50 / otherP50 : Number.NaN,
     };
   });
 }
@@ -320,20 +344,28 @@ async function buildApp(): Promise<void> {
 async function main(): Promise<void> {
   if (!SKIP_BUILD) await buildApp();
 
-  const both = MODE === "both";
-  const first: "native" | "fallback" = MODE_FIRST === "fallback" ? "fallback" : "native";
-  const second: "native" | "fallback" = first === "native" ? "fallback" : "native";
-  const modes: Array<"native" | "fallback"> = both
-    ? [first, second]
-    : [MODE as "native" | "fallback"];
+  const ALL_MODES: Mode[] = ["native", "fallback", "raw-bun"];
+  const resolveModes = (): Mode[] => {
+    switch (MODE) {
+      case "native":
+      case "fallback":
+      case "raw-bun":
+        return [MODE as Mode];
+      case "both":
+        return ["native", "fallback"];
+      default:
+        return ALL_MODES;
+    }
+  };
+  const modes = resolveModes();
+  const first = modes[0] ?? "native";
 
   console.log(
     `benchmarking ${routes.length} routes: duration=${DURATION_S}s warmup=${WARMUP_S}s concurrency=${CONCURRENCY} repeats=${REPEATS} modes=${modes.join(",")}`,
   );
 
-  // Interleave: each repeat runs both modes (native-first on odd repeats,
-  // fallback-first on even repeats) to cancel order/drift effects.
-  const byMode = new Map<"native" | "fallback", Array<{ routes: RouteResult[]; errors: number }>>();
+  // Interleave: each repeat reverses the mode order to cancel order/drift.
+  const byMode = new Map<Mode, Array<{ routes: RouteResult[]; errors: number }>>();
   for (const m of modes) byMode.set(m, []);
 
   for (let i = 0; i < REPEATS; i++) {
@@ -349,10 +381,16 @@ async function main(): Promise<void> {
   const results: ModeResult[] = modes.map((m) => aggregate(m, byMode.get(m) ?? []));
   for (const r of results) printSummary(r);
 
-  let comparison: RouteComparison[] | undefined;
-  if (results.length === 2) {
-    const [native, fallback] = results;
-    if (native && fallback) comparison = buildComparison(native, fallback);
+  // Compare every mode against the raw-Bun reference (falls back to "native"
+  // when raw-bun isn't part of the run).
+  const referenceMode: Mode = results.some((r) => r.mode === "raw-bun") ? "raw-bun" : "native";
+  const reference = results.find((r) => r.mode === referenceMode);
+  const comparison: RouteComparison[] = [];
+  if (reference) {
+    for (const other of results) {
+      if (other.mode === referenceMode) continue;
+      comparison.push(...buildComparison(reference, other));
+    }
   }
 
   const report: {
@@ -362,7 +400,8 @@ async function main(): Promise<void> {
     warmupSec: number;
     concurrency: number;
     repeats: number;
-    modeFirst: "native" | "fallback";
+    modeFirst: Mode;
+    referenceMode: Mode;
     routes: string[];
     modes: ModeResult[];
     comparison?: RouteComparison[];
@@ -374,22 +413,33 @@ async function main(): Promise<void> {
     concurrency: CONCURRENCY,
     repeats: REPEATS,
     modeFirst: first,
+    referenceMode,
     routes: routes.map((r) => r.label),
     modes: results,
-    ...(comparison === undefined ? {} : { comparison }),
+    ...(comparison.length === 0 ? {} : { comparison }),
   };
 
-  if (comparison) {
-    console.log("\n=== native vs fallback (median of medians) ===");
-    console.log(
-      `${"route".padEnd(22)} nativeRps   fallbackRps  ratio   nativeP50  fallbackP50  p50Ratio`,
-    );
+  if (comparison.length > 0) {
+    const byOther = new Map<Mode, RouteComparison[]>();
     for (const c of comparison) {
-      const ratioText = Number.isFinite(c.rpsRatio) ? c.rpsRatio.toFixed(2) : "  n/a";
-      const p50Text = Number.isFinite(c.p50Ratio) ? c.p50Ratio.toFixed(2) : "  n/a";
+      const arr = byOther.get(c.otherMode) ?? [];
+      arr.push(c);
+      byOther.set(c.otherMode, arr);
+    }
+    for (const [otherMode, rows] of byOther) {
       console.log(
-        `${c.label.padEnd(22)} ${c.nativeRps.toFixed(1).padStart(8)}  ${c.fallbackRps.toFixed(1).padStart(10)}  ${ratioText.padStart(6)}   ${c.nativeP50Ms.toFixed(2).padStart(7)}ms  ${c.fallbackP50Ms.toFixed(2).padStart(9)}ms  ${p50Text.padStart(6)}`,
+        `\n=== ${otherMode} vs ${referenceMode} (rps ratio; >1 = faster than ${referenceMode}) ===`,
       );
+      console.log(
+        `${"route".padEnd(34)} ${referenceMode}Rps  ${otherMode}Rps  ratio   ${referenceMode}P50  ${otherMode}P50`,
+      );
+      for (const c of rows) {
+        const ratioText = Number.isFinite(c.rpsRatio) ? c.rpsRatio.toFixed(2) : "  n/a";
+        const p50Text = Number.isFinite(c.p50Ratio) ? c.p50Ratio.toFixed(2) : "  n/a";
+        console.log(
+          `${c.label.padEnd(34)} ${c.referenceRps.toFixed(1).padStart(8)}  ${c.otherRps.toFixed(1).padStart(9)}  ${ratioText.padStart(6)}   ${c.referenceP50Ms.toFixed(2).padStart(8)}ms  ${c.otherP50Ms.toFixed(2).padStart(8)}ms  ${p50Text.padStart(6)}`,
+        );
+      }
     }
   }
 

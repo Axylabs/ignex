@@ -61,15 +61,31 @@ export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
       const etag = headers.get("etag");
       if (etag) headers.set("etag", etagWithEncoding(etag, encoding));
 
-      // Rust gzip fast path (buffered, maximum throughput). The body is read
-      // once; if compression fails we serve the same bytes uncompressed.
+      // Buffer the body ONCE so the REAL size is known and tiny responses are
+      // skipped — compressing a 36-byte body is pure waste (the re-wrap +
+      // gzip path dominates the response cost). This also lets us emit an
+      // accurate content-length (Bun does not set one automatically).
+      let body: Uint8Array;
+      try {
+        body = new Uint8Array(await response.arrayBuffer());
+      } catch {
+        return response;
+      }
+
+      if (body.byteLength < threshold) {
+        // Not worth compressing — serve the identical bytes uncompressed.
+        headers.delete("content-encoding");
+        headers.set("content-length", String(body.byteLength));
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      }
+
+      // Rust gzip fast path (buffered). The body is already read once; if
+      // compression fails we serve the same bytes uncompressed.
       if (native && encoding === "gzip" && isNativeAvailable()) {
-        let body: Uint8Array;
-        try {
-          body = new Uint8Array(await response.arrayBuffer());
-        } catch {
-          return response;
-        }
         try {
           const compressed = gzipCompress(body) as unknown as BodyInit;
           headers.set(
@@ -84,7 +100,7 @@ export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
         } catch {
           headers.delete("content-encoding");
           headers.set("content-length", String(body.byteLength));
-          return new Response(body as unknown as BodyInit, {
+          return new Response(body, {
             status: response.status,
             statusText: response.statusText,
             headers,
@@ -98,9 +114,12 @@ export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
         return response;
       }
 
-      // NOTE: the body is REPLACED with the compressed stream, so we cannot
-      // reuse `reWrapResponse` (which keeps the original body).
-      const compressed = response.body.pipeThrough(new CS(encoding));
+      // Streaming compression over the already-buffered bytes.
+      const bodyStream = new Response(body).body;
+      if (!bodyStream) {
+        return response;
+      }
+      const compressed = bodyStream.pipeThrough(new CS(encoding));
 
       return new Response(compressed, {
         status: response.status,
