@@ -23,10 +23,27 @@ export const plugins: IgnusPlugin[] = [
   session({ secret: SESSION_SECRET, createIfMissing: true }),
   // Native pre-flight pipeline (castrum Rust ingress): one FFI call per
   // request enforces the default URL/header/query limits before the app
-  // handler runs (and can enforce CORS/rate-limit/JSON-schema via `options`).
-  // `readBody` stays false so the framework owns the request body. A safe
-  // no-op when the Rust addon is absent (or with IGNUS_NATIVE=off).
-  nativePreflight(),
+  // handler runs. The `runtime.securityHeaders` list pre-bakes the app's
+  // security headers into the Rust pipeline at boot (`init()`), so
+  // terminal/error responses (413, 400/422, 429, CORS-forbidden) carry the
+  // same security posture as the OK path WITHOUT a JS lifecycle round-trip.
+  // CORS preflight (OPTIONS) stays with the JS `cors()` plugin because it
+  // echoes the per-request origin. `readBody` stays false so the framework
+  // owns the request body. A safe no-op when the Rust addon is absent (or
+  // with IGNUS_NATIVE=off).
+  nativePreflight({
+    runtime: {
+      // Baked into castrum's terminal/error header templates (frameOptions,
+      // nosniff, referrerPolicy). HSTS is deliberately excluded: the JS
+      // security() plugin only ever sends it over HTTPS, and terminal
+      // responses are never HTTPS-terminated here.
+      securityHeaders: [
+        ["x-frame-options", "DENY"],
+        ["x-content-type-options", "nosniff"],
+        ["referrer-policy", "no-referrer"],
+      ],
+    },
+  }),
 ];
 
 const i18n = createI18n(

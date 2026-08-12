@@ -22,6 +22,14 @@ export interface NativePreflightOptions {
    * (e.g. `cors`, `rateLimit`, `schema`, `limits`).
    */
   options?: Record<string, unknown>;
+  /**
+   * Runtime hooks passed through to castrum's `createPipeline` — notably
+   * `securityHeaders` (`[name, value][]`), which pre-bakes the app's security
+   * headers into the pipeline's terminal/error templates at construction, so
+   * terminal responses (413, 400/422, 429, CORS-forbidden) carry them from Rust
+   * without a JS lifecycle round-trip.
+   */
+  runtime?: Record<string, unknown>;
   /** When `false` the plugin is a no-op (default `true`). */
   enabled?: boolean;
   /**
@@ -36,7 +44,7 @@ export interface NativePreflightOptions {
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
 export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin => {
-  const { options, enabled = true, readBody = false } = opts;
+  const { options, runtime, enabled = true, readBody = false } = opts;
   // `undefined` = not yet resolved; `null` = unavailable.
   let pipeline: NativePipeline | null | undefined;
 
@@ -52,7 +60,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
     async init() {
       if (!enabled || !isNativeAvailable()) return;
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline({ options, readBody });
+        pipeline = await createNativePipeline({ options, runtime, readBody });
       }
     },
 
@@ -60,7 +68,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
       if (!enabled || !isNativeAvailable()) return ctx;
 
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline({ options, readBody });
+        pipeline = await createNativePipeline({ options, runtime, readBody });
       }
       if (!pipeline) return ctx;
 

@@ -304,6 +304,43 @@ describe("pipeline bridge", () => {
     const text = await req.text();
     expect(JSON.parse(text)).toEqual({ name: "widget" });
   });
+
+  it("pre-bakes runtime.securityHeaders into terminal responses (native)", async () => {
+    // The app's security headers must reach castrum's baked terminal/error
+    // templates via `runtime.securityHeaders` (NOT `options.security`, which
+    // only drives the legacy fast-templates path) so error responses carry
+    // them from Rust without a JS lifecycle round-trip.
+    const pipeline = await createNativePipeline({
+      runtime: {
+        securityHeaders: [
+          ["x-frame-options", "DENY"],
+          ["x-content-type-options", "nosniff"],
+          ["referrer-policy", "no-referrer"],
+        ],
+      },
+      options: { cors: { allowOrigin: ["*"] } },
+    });
+    if (!pipeline || !isNativeAvailable()) return; // native-only assertion
+
+    const preflight = new Request("http://x/static", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://app.example.com",
+        "access-control-request-method": "GET",
+      },
+    });
+
+    const { terminal, response } = await pipeline.preprocess(preflight);
+
+    expect(terminal).toBe(true);
+    expect(response?.status).toBe(204);
+    // Pre-baked security headers present on the Rust terminal response.
+    expect(response?.headers.get("x-frame-options")).toBe("DENY");
+    expect(response?.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response?.headers.get("referrer-policy")).toBe("no-referrer");
+    // castrum echoes the per-request origin on the preflight (memoized).
+    expect(response?.headers.get("access-control-allow-origin")).toBe("https://app.example.com");
+  });
 });
 
 describe("json", () => {

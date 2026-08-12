@@ -79,6 +79,14 @@ export interface NativePipelineOptions {
   /** Ingress options (cors/rateLimit/schema/limits) for castrum's createPipeline. */
   options?: unknown;
   /**
+   * Runtime hooks for castrum's createPipeline — notably `securityHeaders`
+   * (ordered `[name, value][]`) and `enableSecurityHeaders`, which pre-bake the
+   * app's security headers into the pipeline's baked terminal/error templates
+   * at construction time so error responses (413, 400/422, 429, CORS-forbidden)
+   * carry them without a JS lifecycle round-trip.
+   */
+  runtime?: unknown;
+  /**
    * When `true` the pipeline reads the request body (guarded). Default `false`:
    * the framework owns the body, so the pipeline must NOT consume the stream
    * (castrum's createPipeline defaults `readBody` to true).
@@ -106,8 +114,10 @@ export const createNativePipeline = async (
     // flag (castrum defaults it to true — force it off so the framework owns
     // the request body and the app can still read it afterwards). Passing the
     // options flat would silently disable rate-limit/CORS/schema/limits.
+    // `runtime` carries the pre-baked security headers for terminal responses.
     const pipeline = mod.createPipeline?.({
       options: pipelineOptions.options,
+      runtime: pipelineOptions.runtime,
       readBody: pipelineOptions.readBody ?? false,
     });
     instance =

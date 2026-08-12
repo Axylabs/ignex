@@ -157,3 +157,60 @@ isolated** (`scripts/bench-server-routes.ts`) so routes don't throttle each othe
   body in **38µs vs runtime-ajv 87µs (2.3×)**, but the compiled server uses a
   precompiled standalone ajv validator, so the wire-in needs a precompiled-vs-
   fast_schema comparison before committing to it.
+
+## Round 3 — plugin-cost breakdown + pre-baking plugin policies into Rust (2026-08-12)
+
+### Where the ~0.7 ms plugin overhead actually goes (native, /health, isolated)
+Measured by varying the plugin set in `packages/app/src/app.config.ts` (the
+`0.33 ms` baseline already includes the i18n lifecycle middleware):
+
+| Config | p50 | Δ |
+| --- | --- | --- |
+| core only (`plugins: []`) + i18n lifecycle | 0.33 ms | — |
+| + `cors()` + `security()` | 0.52 ms | +0.19 ms |
+| + `compression()` (alone) | 0.57 ms | +0.24 ms |
+| full (cors, compression, security, session, native-preflight) | ~1.0 ms | session ≈ +0.25 ms |
+
+**Key finding:** castrum's OK-path headers are *already* frozen pre-baked
+templates (32 header-variant templates selected by the Rust `headerVariant`
+bitmask — `src/ingress/headers/baked-templates.ts`). The `cors()`/`security()`
+cost is therefore **JS lifecycle-hook dispatch + response re-wrapping**
+(`reWrapResponse`/`appendVary`), **not header-string building**. Moving those
+plugins into Rust would not remove the re-wrap cost until the pipeline exposes
+its computed headers so the response can be assembled without a JS re-wrap.
+
+### What moved into Rust (native terminal pre-bake)
+- `createPipeline` (castrum) bakes security headers from
+  **`runtime.securityHeaders`** into its terminal/error templates — not from
+  `options.security` (that only drives the legacy `buildFastTemplates` path).
+- Added a `runtime` pass-through to `@ignus/native` (`NativePipelineOptions`) and
+  to `nativePreflight({ runtime })`, and configured the app to pre-bake
+  `x-frame-options: DENY`, `x-content-type-options: nosniff`,
+  `referrer-policy: no-referrer` at boot (`init()`).
+- Result: when the pipeline terminates (CORS preflight, 429, 413, 400/422),
+  the terminal response is served **fully from Rust** with the same security
+  posture as the OK path, no JS lifecycle round-trip. Covered by a new test in
+  `packages/native/test/native.test.ts` (asserts a castrum CORS-preflight 204
+  carries the pre-baked security headers + echoed `access-control-allow-origin`).
+
+### Honest limits of this approach
+- The OK-path ~0.7 ms (session ≈0.25 ms, compression ≈0.24 ms, cors+security
+  ≈0.19 ms) is lifecycle/re-wrap + session cookie work, so it does **not** move
+  with the pipeline. The benchmark routes never hit a terminal response, so the
+  bench numbers are unchanged (native ≈ 1.09 ms /health ≈ the committed 1.02 ms
+  baseline — no regression; note the bench box thermal-throttles, absolute
+  numbers varied 7–19K rps for identical code on 2026-08-12).
+- ignus's own body-size 413 (`BODY_PARSE_ERROR`, `http/body.ts`) fires before the
+  pipeline when `readBody:false`, so that path is not Rust-served yet.
+- Castrum's baked OK templates do not emit `access-control-allow-origin` (it is
+  added dynamically per request on terminal CORS via `responseHeaders`). Moving
+  the OK-path CORS header emission into Rust still requires a castrum change;
+  the JS `cors()` plugin remains the OK-path source of truth.
+
+### Next steps (documented, not yet done)
+1. Compare castrum `fast_schema` vs the compiled precompiled-ajv validator on the
+   real 80-lineItem order body before wiring schema into the pipeline.
+2. Expose parsed cookies / pipeline decisions in `PipelineResult` to cut the
+   session plugin's ~0.25 ms per-request cookie work.
+3. Move the body-size guard into the pipeline (or share `content-length` checks)
+   so 413s come from Rust with the pre-baked security headers.
