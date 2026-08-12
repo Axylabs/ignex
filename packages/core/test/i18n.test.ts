@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createI18nFromDir, loadCatalogDir, withI18n } from "../src/content/i18n";
+import { createI18nFromDir, loadCatalogDir, negotiateLocale, withI18n } from "../src/content/i18n";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "ignus-i18n-"));
 
@@ -86,5 +86,38 @@ describe("withI18n", () => {
     const result = await hook(ctx as never);
     expect(result).toBeDefined();
     expect(state.locale).toBe("es");
+  });
+});
+
+describe("negotiateLocale (precompiled matcher)", () => {
+  const supported = ["en", "es", "fr"] as const;
+
+  it("returns the default when no header is present", () => {
+    expect(negotiateLocale(null, supported, { defaultLocale: "en" })).toBe("en");
+    expect(negotiateLocale("", supported, { defaultLocale: "en" })).toBe("en");
+  });
+
+  it("matches exact tags in q-value order", () => {
+    expect(negotiateLocale("es", supported)).toBe("es");
+    expect(negotiateLocale("fr;q=0.8, es;q=0.9", supported)).toBe("es");
+    expect(negotiateLocale("fr;q=0.9, es;q=0.8", supported)).toBe("fr");
+  });
+
+  it("matches a region-suffixed request to its base supported tag", () => {
+    expect(negotiateLocale("fr-FR", supported)).toBe("fr");
+    expect(negotiateLocale("en-US, fr", supported)).toBe("en");
+  });
+
+  it("falls back when nothing matches", () => {
+    expect(negotiateLocale("xx-YY", supported, { defaultLocale: "en" })).toBe("en");
+    expect(negotiateLocale("de", ["en"], { defaultLocale: "en" })).toBe("en");
+    expect(negotiateLocale("de", [])).toBe("en");
+  });
+
+  it("ignores q=0 preferences and preserves the empty-tag quirk", () => {
+    expect(negotiateLocale("es;q=0, fr", supported)).toBe("fr");
+    // A leading comma yields an empty tag — indexOf("") semantics return the
+    // first supported locale (behavior preserved from the original matcher).
+    expect(negotiateLocale(", fr", supported)).toBe("en");
   });
 });

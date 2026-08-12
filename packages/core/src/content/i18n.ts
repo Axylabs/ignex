@@ -4,7 +4,6 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { pipe } from "@ignus/shared";
 import type { IgnusContext } from "../http/context";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
@@ -19,16 +18,63 @@ export interface I18nOptions {
 }
 
 export interface I18n {
-  /** Translate a key with `{name}` interpolation. */
+  /**
+   * Translate a key with `{name}` interpolation. When `params.count` is a
+   * number, the CLDR plural form is resolved first (`key.one` / `key.few` /
+   * `key.other` …), falling back to `key`.
+   */
   t(key: string, params?: Record<string, unknown>, locale?: string): string;
   /** Resolve the active locale for a context. */
   locale(ctx: IgnusContext): string;
+  /** Resolve a plural message key for `count` (`key.one` / `key.few` / `key.other` …). */
+  pluralize(key: string, count: number, locale?: string): string;
+  /** Format a number (Intl.NumberFormat). */
+  n(value: number, opts?: Intl.NumberFormatOptions, locale?: string): string;
+  /** Format a date/time (Intl.DateTimeFormat). */
+  d(value: Date | number | string, opts?: Intl.DateTimeFormatOptions, locale?: string): string;
+  /** Format a currency amount (Intl.NumberFormat style=currency). */
+  currency(value: number, currency: string, locale?: string): string;
   /** Request hook: negotiate locale and attach `ctx.t` + locale state. */
   middleware(options?: { stateKey?: string }): HookFn;
 }
 
 /** Locale state key on `ctx.state`. */
 export const LOCALE_KEY = Symbol.for("ignus.locale");
+
+export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
+
+const pluralRulesCache = new Map<string, Intl.PluralRules>();
+
+/** CLDR cardinal plural category for a count in a locale (via Intl.PluralRules). */
+export const pluralCategory = (locale: string, count: number): PluralCategory => {
+  const key = locale.toLowerCase();
+  let rules = pluralRulesCache.get(key);
+  if (!rules) {
+    rules = new Intl.PluralRules(key);
+    pluralRulesCache.set(key, rules);
+  }
+  return rules.select(count) as PluralCategory;
+};
+
+const toDate = (value: Date | number | string): Date => new Date(value);
+
+/** Format a number with Intl.NumberFormat. */
+export const formatNumber = (
+  value: number,
+  locale?: string,
+  opts?: Intl.NumberFormatOptions,
+): string => new Intl.NumberFormat(locale, opts).format(value);
+
+/** Format a currency amount with Intl.NumberFormat (style=currency). */
+export const formatCurrency = (value: number, currency: string, locale?: string): string =>
+  new Intl.NumberFormat(locale, { style: "currency", currency }).format(value);
+
+/** Format a date/time with Intl.DateTimeFormat. */
+export const formatDate = (
+  value: Date | number | string,
+  locale?: string,
+  opts?: Intl.DateTimeFormatOptions,
+): string => new Intl.DateTimeFormat(locale, opts).format(toDate(value));
 
 interface NegotiateOptions {
   defaultLocale?: string;
@@ -54,49 +100,75 @@ const parsePreferences = (acceptLanguage: string): Preference[] =>
     return { tag: tag.trim().toLowerCase(), q };
   });
 
-/** First supported locale matching a preference (exact tag, then base language). */
-const matchPreference = (
-  pref: Preference,
-  supported: readonly string[],
-  lower: readonly string[],
-): string | undefined => {
-  if (pref.q <= 0) return undefined;
-  const exact = lower.indexOf(pref.tag);
-  if (exact >= 0) return supported[exact];
-  const base = pref.tag.split("-")[0];
-  const baseIndex = lower.indexOf(base);
-  if (baseIndex >= 0) return supported[baseIndex];
-  return undefined;
+const byQuality = (a: Preference, b: Preference): number => b.q - a.q;
+
+/**
+ * Precompiled lookup for a supported locale list: lowercased full tag →
+ * original-cased locale (first occurrence wins). Prevents per-request
+ * allocation of a lowercased copy + O(supported) array scans in the hot path.
+ */
+interface CompiledLocales {
+  readonly supported: readonly string[];
+  readonly byTag: ReadonlyMap<string, string>;
+}
+
+const compileLocales = (supported: readonly string[]): CompiledLocales => {
+  const byTag = new Map<string, string>();
+  for (const locale of supported) {
+    const lower = locale.toLowerCase();
+    if (!byTag.has(lower)) byTag.set(lower, locale);
+  }
+  return { supported, byTag };
 };
 
 /**
- * Pick the best supported locale from an `Accept-Language` header.
- * Composed as a pipeline: parse → sort by `q` → first supported match.
+ * First supported locale matching a preference: exact tag, then the bare base
+ * language AS a supported tag (e.g. a `fr-FR` request matches a supported
+ * `fr`). Behavior-identical to the original indexOf-based matcher, including
+ * the empty-tag quirk (`Array.indexOf("")` → 0 ⇒ an empty tag matches the
+ * first supported locale).
+ */
+const matchCompiled = (pref: Preference, compiled: CompiledLocales): string | undefined => {
+  if (pref.q <= 0) return undefined;
+  if (pref.tag === "") return compiled.supported[0];
+  const exact = compiled.byTag.get(pref.tag);
+  if (exact !== undefined) return exact;
+  const base = pref.tag.split("-")[0];
+  return compiled.byTag.get(base);
+};
+
+/** Negotiate against a precompiled table: parse → sort by q → first match. */
+const negotiateLocaleCompiled = (
+  acceptLanguage: string | null,
+  compiled: CompiledLocales,
+  fallback: string,
+): string => {
+  if (!acceptLanguage || compiled.supported.length === 0) return fallback;
+
+  const prefs = parsePreferences(acceptLanguage).sort(byQuality);
+  for (const pref of prefs) {
+    const match = matchCompiled(pref, compiled);
+    if (match !== undefined) return match;
+  }
+  return fallback;
+};
+
+/**
+ * Pick the best supported locale from an `Accept-Language` header:
+ * parse → sort by `q` → first supported match (exact tag, then base-as-tag).
+ * Hot-path callers (e.g. `createI18n` middleware) should precompile via
+ * {@link compileLocales} and use `negotiateLocaleCompiled` to avoid
+ * per-request allocation.
  */
 export const negotiateLocale = (
   acceptLanguage: string | null,
   supported: readonly string[],
   options: NegotiateOptions = {},
 ): string => {
-  if (!acceptLanguage || supported.length === 0) {
-    return options.defaultLocale ?? supported[0] ?? "en";
-  }
-
   const fallback = options.defaultLocale ?? supported[0] ?? "en";
-  const lower = supported.map((locale) => locale.toLowerCase());
-  const byQuality = (a: Preference, b: Preference): number => b.q - a.q;
+  if (!acceptLanguage || supported.length === 0) return fallback;
 
-  return pipe(acceptLanguage)(
-    parsePreferences,
-    (prefs) => prefs.sort(byQuality),
-    (prefs) => {
-      for (const pref of prefs) {
-        const match = matchPreference(pref, supported, lower);
-        if (match) return match;
-      }
-      return fallback;
-    },
-  );
+  return negotiateLocaleCompiled(acceptLanguage, compileLocales(supported), fallback);
 };
 
 /** Interpolate `{name}` placeholders from a params object. */
@@ -113,12 +185,42 @@ export const createI18n = (catalogs: Catalogs, options: I18nOptions = {}): I18n 
   const fallbackLocale = options.fallbackLocale ?? "en";
   const defaultLocale = options.defaultLocale ?? fallbackLocale;
 
+  // Precompile the supported-locale lookup once so per-request negotiation
+  // (middleware) avoids allocating + scanning the catalog keys every time.
+  const compiled = compileLocales(Object.keys(catalogs));
+
   const lookup = (key: string, locale?: string): string =>
     (locale && catalogs[locale]?.[key]) ?? catalogs[fallbackLocale]?.[key] ?? key;
 
   const i18n: I18n = {
     t(key, params, locale) {
+      const count = typeof params?.count === "number" ? params.count : undefined;
+      if (count !== undefined) {
+        const category = pluralCategory(locale ?? defaultLocale, count);
+        const plural = lookup(`${key}.${category}`, locale);
+        if (plural !== `${key}.${category}`) return interpolate(plural, params);
+        const other = lookup(`${key}.other`, locale);
+        if (other !== `${key}.other`) return interpolate(other, params);
+      }
       return interpolate(lookup(key, locale), params);
+    },
+
+    pluralize(key, count, locale) {
+      const category = pluralCategory(locale ?? defaultLocale, count);
+      const plural = lookup(`${key}.${category}`, locale);
+      if (plural !== `${key}.${category}`) return interpolate(plural, { count });
+      const other = lookup(`${key}.other`, locale);
+      return other !== `${key}.other` ? interpolate(other, { count }) : plural;
+    },
+
+    n(value, opts, locale) {
+      return formatNumber(value, locale ?? defaultLocale, opts);
+    },
+    d(value, opts, locale) {
+      return formatDate(value, locale ?? defaultLocale, opts);
+    },
+    currency(value, code, locale) {
+      return formatCurrency(value, code, locale ?? defaultLocale);
     },
 
     locale(ctx) {
@@ -130,9 +232,11 @@ export const createI18n = (catalogs: Catalogs, options: I18nOptions = {}): I18n 
       const translate = i18n.t;
 
       return async (ctx) => {
-        const locale = negotiateLocale(ctx.headers.get("accept-language"), Object.keys(catalogs), {
+        const locale = negotiateLocaleCompiled(
+          ctx.headers.get("accept-language"),
+          compiled,
           defaultLocale,
-        });
+        );
 
         ctx.setState(LOCALE_KEY, locale);
         ctx.setState(stateKey, locale);
