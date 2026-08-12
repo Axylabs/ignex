@@ -32,6 +32,10 @@ interface ModeResult {
 }
 
 interface Report {
+  durationSec: number;
+  warmupSec: number;
+  concurrency: number;
+  repeats: number;
   modes: ModeResult[];
 }
 
@@ -56,14 +60,25 @@ const latestNative = routeRps(latest, "native");
 const latestFallback = routeRps(latest, "fallback");
 const baselineNative = routeRps(baseline, "native");
 
+// Absolute req/s is only comparable to the baseline when the run parameters
+// (duration/warmup/concurrency/repeats) match; the native-vs-fallback check is
+// parameter-independent (both modes run in the same latest.json).
+const paramsMatch =
+  latest.durationSec === baseline.durationSec &&
+  latest.warmupSec === baseline.warmupSec &&
+  latest.concurrency === baseline.concurrency &&
+  latest.repeats === baseline.repeats;
+
 const failures: string[] = [];
 
 for (const [label, nativeRps] of latestNative) {
-  const base = baselineNative.get(label);
-  if (base !== undefined && base > 0 && nativeRps < base * (1 - NATIVE_RPS_REGRESSION)) {
-    failures.push(
-      `${label}: native ${nativeRps.toFixed(1)} rps regressed >${(NATIVE_RPS_REGRESSION * 100).toFixed(0)}% vs baseline ${base.toFixed(1)}`,
-    );
+  if (paramsMatch) {
+    const base = baselineNative.get(label);
+    if (base !== undefined && base > 0 && nativeRps < base * (1 - NATIVE_RPS_REGRESSION)) {
+      failures.push(
+        `${label}: native ${nativeRps.toFixed(1)} rps regressed >${(NATIVE_RPS_REGRESSION * 100).toFixed(0)}% vs baseline ${base.toFixed(1)}`,
+      );
+    }
   }
 
   const fallbackRps = latestFallback.get(label);
@@ -76,6 +91,12 @@ for (const [label, nativeRps] of latestNative) {
       `${label}: native ${nativeRps.toFixed(1)} rps fell >${(NATIVE_VS_FALLBACK_DEGRADE * 100).toFixed(0)}% behind fallback ${fallbackRps.toFixed(1)}`,
     );
   }
+}
+
+if (!paramsMatch) {
+  console.log(
+    `note: latest run params (dur=${latest.durationSec} warmup=${latest.warmupSec} conc=${latest.concurrency} reps=${latest.repeats}) differ from baseline (dur=${baseline.durationSec} warmup=${baseline.warmupSec} conc=${baseline.concurrency} reps=${baseline.repeats}) — only the native-vs-fallback check applied.`,
+  );
 }
 
 if (failures.length > 0) {

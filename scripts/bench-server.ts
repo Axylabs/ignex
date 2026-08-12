@@ -27,7 +27,6 @@
  *   SKIP_BUILD  — "1" to skip the AOT build (assumes dist/__server.js is fresh)
  *   ROUTES      — comma-separated route labels to bench (default: all)
  */
-import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -129,8 +128,8 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
   const latencies = new Map<string, number[]>();
   let errors = 0;
 
-  const runWindow = (ms: number, record: boolean): Promise<void> =>
-    Promise.all(
+  const runWindow = async (ms: number, record: boolean): Promise<void> => {
+    await Promise.all(
       Array.from({ length: CONCURRENCY }, async (_, wi) => {
         const deadline = Date.now() + ms;
         let idx = wi % routes.length;
@@ -157,6 +156,7 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
         }
       }),
     );
+  };
 
   if (WARMUP_S > 0) await runWindow(WARMUP_S * 1000, false);
   await runWindow(DURATION_S * 1000, true);
@@ -174,15 +174,12 @@ async function runOnce(mode: "native" | "fallback"): Promise<{
     ...(mode === "fallback" ? { IGNUS_NATIVE: "off" } : {}),
   };
 
-  const proc = spawn("bun", ["dist/__server.js"], {
+  const proc = Bun.spawn(["bun", "dist/__server.js"], {
     cwd: APP_DIR,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdout: "ignore",
+    stderr: "ignore",
   });
-
-  let procOutput = "";
-  proc.stdout.on("data", (d: Buffer) => (procOutput += d.toString()));
-  proc.stderr.on("data", (d: Buffer) => (procOutput += d.toString()));
 
   const waitForServer = async (timeoutMs: number): Promise<void> => {
     const deadline = Date.now() + timeoutMs;
@@ -195,7 +192,7 @@ async function runOnce(mode: "native" | "fallback"): Promise<{
       }
       await delay(150);
     }
-    throw new Error(`server did not become ready in ${timeoutMs}ms\n${procOutput}`);
+    throw new Error(`server did not become ready in ${timeoutMs}ms`);
   };
 
   try {
@@ -207,9 +204,13 @@ async function runOnce(mode: "native" | "fallback"): Promise<{
 
   const { latencies, errors } = await runLoad();
 
-  proc.kill("SIGTERM");
+  proc.kill(); // SIGTERM — graceful
   await delay(300);
-  if (proc.exitCode === null) proc.kill("SIGKILL");
+  try {
+    proc.kill("SIGKILL"); // force-kill if still alive; no-op if already exited
+  } catch {
+    // already exited
+  }
 
   const routeResults: RouteResult[] = routes.map((spec) => {
     const arr = (latencies.get(spec.label) ?? []).sort((a, b) => a - b);
@@ -305,13 +306,15 @@ function printSummary(m: ModeResult): void {
 
 async function buildApp(): Promise<void> {
   console.log("building app (AOT)...");
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("bun", ["builder.ts"], { cwd: APP_DIR, stdio: "inherit" });
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`AOT build failed (exit ${code ?? "unknown"})`));
-    });
+  const proc = Bun.spawn(["bun", "builder.ts"], {
+    cwd: APP_DIR,
+    stdout: "inherit",
+    stderr: "inherit",
   });
+  const code = await proc.exited;
+  if (code !== 0) {
+    throw new Error(`AOT build failed (exit ${code})`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -346,6 +349,12 @@ async function main(): Promise<void> {
   const results: ModeResult[] = modes.map((m) => aggregate(m, byMode.get(m) ?? []));
   for (const r of results) printSummary(r);
 
+  let comparison: RouteComparison[] | undefined;
+  if (results.length === 2) {
+    const [native, fallback] = results;
+    if (native && fallback) comparison = buildComparison(native, fallback);
+  }
+
   const report: {
     generatedAt: string;
     bun: string;
@@ -367,16 +376,15 @@ async function main(): Promise<void> {
     modeFirst: first,
     routes: routes.map((r) => r.label),
     modes: results,
+    ...(comparison === undefined ? {} : { comparison }),
   };
 
-  if (results.length === 2) {
-    const [native, fallback] = results;
-    if (native && fallback) report.comparison = buildComparison(native, fallback);
+  if (comparison) {
     console.log("\n=== native vs fallback (median of medians) ===");
     console.log(
       `${"route".padEnd(22)} nativeRps   fallbackRps  ratio   nativeP50  fallbackP50  p50Ratio`,
     );
-    for (const c of report.comparison) {
+    for (const c of comparison) {
       const ratioText = Number.isFinite(c.rpsRatio) ? c.rpsRatio.toFixed(2) : "  n/a";
       const p50Text = Number.isFinite(c.p50Ratio) ? c.p50Ratio.toFixed(2) : "  n/a";
       console.log(
