@@ -107,3 +107,53 @@ is still pure JS is **off this benchmark's radar** (interpreted-path runtime Ajv
 opt-in pino access-log, scalar pair parsing that JS wins). See
 `docs/native-acceleration.md` (2026-08-12 section) for the measured gate
 decisions on those.
+
+## Deep-dive: real-workload vs a raw Bun.serve baseline — 2026-08-12 (later)
+
+Why the trivial-route bench hid the real costs. A new **raw-Bun baseline**
+(`bench/servers/raw-bun-server.ts`, plain `Bun.serve` doing the same work) and
+**6 real-data routes** (bulk JSON+schema, 60-param query, 30 cookies+session,
+HS256 JWT, 120-item template, 256KB gzip) were added, measured **per-route
+isolated** (`scripts/bench-server-routes.ts`) so routes don't throttle each other
+(a round-robin client gets flattened by the heaviest route).
+
+### Findings (all measured)
+
+1. **Core ignus runtime ≈ raw-Bun.** With no plugins, `/health` = 62K rps
+   (0.33ms) vs raw-Bun 85K (0.25ms) — the framework core is 1.36× of raw Bun.
+2. **The compression plugin was the dominant cost.** Bun sets **no
+   `content-length`** on any `Response`, so the plugin's `threshold` pre-check
+   never fired and EVERY response (even a 36-byte `/health`) was buffered +
+   compressed; under concurrency that path cost **~2.3ms/request** (gzip + re-wrap
+   on the single event-loop core). Isolated micro-bench: `Bun.gzipSync(36B)` is
+   7.5µs — the cost is the re-wrapped-response path, not the gzip math.
+3. **Fix:** buffer once, apply the threshold on the REAL size, skip tiny bodies,
+   set `content-length`. `/health` 3.16ms → 1.02ms.
+4. **Rust is at parity, not "underperforming":** native ≈ fallback on every route.
+   The pipeline (Rust ingress, no configured stages) measures ~0ms overhead. The
+   compiled server's per-request cost is dominated by Bun-side work (compression,
+   JSON.parse, plugins) that Rust cannot beat through FFI, plus a ~0.7ms plugin
+   overhead (compression re-wrap ~0.24 + cors/security/session/i18n ~0.45).
+5. **Static-content routes were CPU-bound under concurrency** (minijinja render +
+   per-request gzip serialize on one core); raw-Bun won by precomputing. Fix:
+   compile-once + precompress (`/catalog`, `/api/big`).
+
+### Post-fix per-route (native, 24 conn, isolated; ratio = native/raw-Bun)
+
+| Route | raw-Bun rps (p50) | native rps (p50) | ratio |
+| --- | --- | --- | --- |
+| GET /health | 84,678 (0.25ms) | 16,968 (1.19ms) | 0.20 |
+| POST /api/orders (bulk JSON+schema) | 18,003 (1.19ms) | 7,377 (2.83ms) | 0.41 |
+| GET /api/search (60 params) | 17,316 (1.24ms) | 8,886 (2.26ms) | 0.51 |
+| GET /api/me (30 cookies+sess) | 43,902 (0.45ms) | 10,059 (2.04ms) | 0.23 |
+| GET /api/reports/42 (JWT) | 57,684 (0.34ms) | 16,127 (1.23ms) | 0.28 |
+| GET /catalog (120-item template) | 23,612 (0.84ms) | 19,170 (0.99ms) | **0.81** |
+| GET /api/big (256KB gzip) | 4,479 (5.32ms) | 3,885 (5.89ms) | **0.87** |
+
+- Static-content routes (catalog, big) went from 0.04–0.08× → **0.81–0.87×**
+  (precompute pattern). All dynamic routes improved 2–4× from the compression fix.
+- The remaining dynamic-route gap is the **~0.7ms framework overhead** (plugins) +
+  real work; on `/api/orders` castrum `fast_schema` validates the 80-lineItem
+  body in **38µs vs runtime-ajv 87µs (2.3×)**, but the compiled server uses a
+  precompiled standalone ajv validator, so the wire-in needs a precompiled-vs-
+  fast_schema comparison before committing to it.

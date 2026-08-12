@@ -65,7 +65,7 @@ export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
       // skipped — compressing a 36-byte body is pure waste (the re-wrap +
       // gzip path dominates the response cost). This also lets us emit an
       // accurate content-length (Bun does not set one automatically).
-      let body: Uint8Array;
+      let body: Uint8Array<ArrayBuffer>;
       try {
         body = new Uint8Array(await response.arrayBuffer());
       } catch {
@@ -115,7 +115,7 @@ export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
       }
 
       // Streaming compression over the already-buffered bytes.
-      const bodyStream = new Response(body).body;
+      const bodyStream = new Response(body as unknown as BodyInit).body;
       if (!bodyStream) {
         return response;
       }

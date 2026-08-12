@@ -60,6 +60,23 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
 
 **Wired this round (safe wins):**
 
+- **Compression plugin threshold fix (the single biggest win).** Bun sets no
+  `content-length` on any `Response`, so the plugin's `threshold` pre-check never
+  fired and every response (even a 36-byte `/health`) was buffered + compressed —
+  under concurrency that path cost **~2.3ms/request**. The plugin now buffers the
+  body once, applies the threshold on the REAL size, skips tiny bodies, and sets
+  `content-length`. `/health` 3.16ms → 1.02ms (2.7×).
+- **Static large responses: compile-once + precompress.** `/catalog` (120-item
+  template) and `/api/big` (256KB JSON) were single-thread CPU-bound under
+  concurrency (render + gzip serialize on one core); raw-Bun won by precomputing.
+  They now render/compress once at module load and serve the cached bytes
+  (`content-encoding` set → compression plugin skips). 0.04–0.08× → 0.81–0.87×
+  of raw-Bun.
+- **Real-workload benchmark:** `bench/real-data.ts` fixtures, 6 real-data app
+  routes, `bench/servers/raw-bun-server.ts` (naive baseline), and per-route
+  isolated measurement (`scripts/bench-server-routes.ts`). See
+  `docs/performance-baseline-2026-08.md` for the full table.
+
 - **Native preflight pipeline is now a default request stage** (`nativePreflight()`
   in the example app, previously opt-in). One castrum FFI call per request enforces
   the default URL/header/query limits before the app handler (and can enforce
