@@ -339,6 +339,10 @@ describe("nativePreflight", () => {
     const app = createApp({
       plugins: [
         nativePreflight({
+          // The pipeline owns the body in this mode so it can enforce the
+          // size guard; the framework-safe default is readBody:false (the
+          // app reads the body itself and enforces limits via http/body.ts).
+          readBody: true,
           options: { maxBodyBytes: 1024, enableBodySizeGuard: true },
         }),
       ],
