@@ -34,6 +34,7 @@
     "bench": "bun scripts/benchmark.ts",
     "bench:native": "bun scripts/native-bench.ts",
     "bench:server": "bun scripts/bench-server.ts",
+    "bench:server:check": "bun scripts/check-server-bench.ts",
     "bench:products": "oha http://localhost:3000/products/123"
   },
   "devDependencies": {

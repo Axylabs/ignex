@@ -76,3 +76,34 @@ Large inputs (≥128 bytes) so the adaptive native path engages. `ratio = native
 3. Standalone native `RateLimiter` (from `rust/ingress/rate_limit.rs`) + core `rateLimit`
    bridge — per-request fixed-window state in Rust.
 4. Re-measure after each wiring to keep the matrix honest.
+
+## End-to-end compiled-server benchmark (`bun run bench:server`) — 2026-08-12
+
+A repeatable, interleaved median-of-3 HTTP load bench of the **AOT-compiled**
+`packages/app/dist/__server.js` (native-on vs `IGNUS_NATIVE=off`), reporting
+per-route req/s + p50/p95/p99. Results in `bench/results/server/{latest,<ts>}.json`.
+Methodology: modes are interleaved (alternating which runs first) and the reported
+numbers are the median across repeats — this cancels the order/thermal noise that
+made naive single-run A/B readings meaningless on a laptop (one-off runs showed
+fake "native −20%" and "−2.9x" results).
+
+**After Phase 1 wiring (preflight pipeline as default stage + body-guard + i18n):
+native ≈ fallback.** Representative medians (DURATION=3, WARMUP=1, CONCURRENCY=32):
+
+| Route | native rps | fallback rps | rps ratio | native p50 | fallback p50 |
+| --- | --- | --- | --- | --- | --- |
+| GET /health | 841.7 | 858.0 | 0.98 | 5.23ms | 5.24ms |
+| GET / (constant) | 843.3 | 857.7 | 0.98 | 5.14ms | 5.08ms |
+| GET /products/123 | 838.3 | 859.0 | 0.98 | 5.29ms | 5.37ms |
+| GET /i18n (es) | 837.3 | 860.3 | 0.97 | 5.28ms | 5.31ms |
+| GET /page (template) | 838.3 | 862.0 | 0.97 | 8.09ms | 8.09ms |
+| POST /products/add | 839.7 | 863.3 | 0.97 | 5.03ms | 5.23ms |
+
+Takeaway: the compiled server (Bun native router + precompiled standalone
+validators + `fast-json-stringify` serializers + JS-wins selections) is already
+near-optimal; the native layer runs at parity and adds per-request native
+enforcement (URL/header limits) for free. The remaining per-request CPU work that
+is still pure JS is **off this benchmark's radar** (interpreted-path runtime Ajv,
+opt-in pino access-log, scalar pair parsing that JS wins). See
+`docs/native-acceleration.md` (2026-08-12 section) for the measured gate
+decisions on those.

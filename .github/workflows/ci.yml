@@ -110,3 +110,53 @@ jobs:
         run: |
           bun run test:native:real
           bun scripts/native-bench.ts
+
+  # End-to-end compiled-server regression gate (native on vs fallback).
+  # Benchmarks the AOT-compiled app server and compares native req/s against
+  # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).
+  # continue-on-error: perf on shared runners is noisy; once thresholds are tuned
+  # on this runner, drop continue-on-error to make it a hard gate.
+  server-bench:
+    name: Server bench gate (real addon)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: Checkout ignus
+        uses: actions/checkout@v4
+
+      - name: Checkout castrum (Rust addon)
+        uses: actions/checkout@v4
+        with:
+          repository: Axylabs/flux-rs
+          path: castrum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ignus dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build castrum addon
+        working-directory: castrum
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: End-to-end server bench (native vs fallback)
+        env:
+          IGNUS_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+          REPEATS: "2"
+          DURATION: "2"
+          WARMUP: "1"
+        run: bun scripts/bench-server.ts
+
+      - name: Regression gate
+        env:
+          IGNUS_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun scripts/check-server-bench.ts

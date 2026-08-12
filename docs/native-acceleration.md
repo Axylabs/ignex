@@ -49,6 +49,61 @@ purely an acceleration layer — importing it **never throws**.
 | `IGNUS_NATIVE_PATH` | Override the addon (a `.node` path or module specifier). |
 | `IGNUS_NATIVE` | `off` disables the addon even when installed (parity debugging); unset/`auto` uses it when present. |
 
+## 2026-08-12 — wiring + measured gate decisions
+
+End-to-end measurement (`bun run bench:server`) of the AOT-compiled server
+(native-on vs `IGNUS_NATIVE=off`, interleaved median-of-3) shows the current
+native integration is **at parity** with fallback (rps ratio ~0.97–1.00, p50
+ratio ~0.96–1.02 across all routes) — the native layer neither loses nor wins at
+the compiled-server level. All per-op decisions below are therefore made on
+micro-benchmark + semantic-fit evidence, not on assumptions.
+
+**Wired this round (safe wins):**
+
+- **Native preflight pipeline is now a default request stage** (`nativePreflight()`
+  in the example app, previously opt-in). One castrum FFI call per request enforces
+  the default URL/header/query limits before the app handler (and can enforce
+  CORS/rate-limit/JSON-schema via `options`). **Bridge fix:** castrum's
+  `createPipeline` defaults `readBody: true` — it reads the request body and
+  consumes the stream, which breaks the framework's later lazy body reads.
+  `createNativePipeline` now forces `readBody: false` (framework owns the body),
+  exposed as `NativePipelineOptions.readBody` + the plugin option. No-op without
+  the addon; smoke 44/44 in both modes.
+- **Body JSON size guard** (`http/body.ts`) now measures the **raw wire bytes**
+  captured at parse time instead of re-serializing every parsed body with
+  `JSON.stringify` to measure it — free and more correct (whitespace-heavy
+  bodies are now correctly rejected; consistent with the `content-length`
+  pre-check).
+- **Accept-Language locale matcher** (`content/i18n.ts`) precompiles a
+  lowercased-tag → locale `Map` once per `createI18n` (was re-lowercasing the
+  supported list + allocating `Object.keys(catalogs)` on every request).
+
+**Measured and NOT wired (gate decisions):**
+
+- **Rust structured-log writer — not built.** Spike (Bun): `JSON.stringify` of
+  the 6-field access-log payload is **0.26µs**; `pino.info` full line is **0.76µs**;
+  `new Date().toISOString()` is **0.40µs**. A Rust kv→JSON writer must pack the
+  fields + cross FFI + return a buffer — realistically **≥0.5–0.8µs** — so it
+  cannot beat `JSON.stringify` for small payloads (FFI marshaling alone exceeds
+  the whole JS cost). Rust would only win for large/nested payloads, which the
+  access-log path never produces. pino stays; no regression risk.
+- **castrum `SchemaValidator` — not wired into runtime Ajv.** Measured: ajv
+  accepts `{"id":"5"}` for `type: number` (coerces to 5), castrum `fast_schema`
+  **rejects** it (string ≠ number). The framework's Ajv is configured with
+  `coerceTypes/removeAdditional/useDefaults`, so the native zero-DOM validator
+  (validate-only, no mutation) is semantically incompatible as a drop-in or a
+  pre-gate — it would reject requests the framework currently accepts and
+  transforms. Throughput is also not a win on the interpreted path (native
+  ~1.69µs vs ajv ~0.04µs on already-valid objects). **Recommendation:** expose a
+  per-schema "pure validation" opt-out of coercion; only then route those
+  schemas through `createSchemaValidator`.
+- **Native batch pair parsing — remains blocked.** Scalar `queryPairs` /
+  `cookiePairs` / `formPairs` are measured JS-wins (x0.96 / x0.65 / x0.88); the
+  batched `*BatchPacked` APIs (where Rust would win at scale) are unreliable
+  under Bun canary (see "Batch APIs" note). Fixing the castrum batch layer and
+  wiring `batch.queryParse`/`cookieParse`/`formParse` for bulk endpoints is the
+  recommended follow-up.
+
 ## What's wired today (measured — native where it wins)
 
 > **The selection table (`packages/native/src/selection.ts`) is the single
