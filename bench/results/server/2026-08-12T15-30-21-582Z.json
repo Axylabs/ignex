@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-08-12T15:30:21.582Z",
+  "bun": "1.4.0",
+  "durationSec": 2,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": ["GET /api/search (60 params)"],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 17771,
+          "rps": 8885.5,
+          "avgMs": 2.714990041173518,
+          "p50Ms": 2.259211500000447,
+          "p95Ms": 4.73279049999951,
+          "p99Ms": 7.507385000000795
+        }
+      ],
+      "totalRequests": 17771,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 16431.5,
+          "rps": 8215.75,
+          "avgMs": 2.9838599278146902,
+          "p50Ms": 2.388708999999835,
+          "p95Ms": 5.470819999999549,
+          "p99Ms": 10.407964000000902
+        }
+      ],
+      "totalRequests": 16431.5,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/search (60 params)",
+          "requests": 34631.5,
+          "rps": 17315.75,
+          "avgMs": 1.3862624714422564,
+          "p50Ms": 1.238067499999488,
+          "p95Ms": 2.396964999999909,
+          "p99Ms": 2.9182389999996303
+        }
+      ],
+      "totalRequests": 34631.5,
+      "totalErrors": 0
+    }
+  ],
+  "comparison": [
+    {
+      "label": "GET /api/search (60 params)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 17315.75,
+      "otherRps": 8885.5,
+      "rpsRatio": 1.9487648415958585,
+      "referenceP50Ms": 1.238067499999488,
+      "otherP50Ms": 2.259211500000447,
+      "p50Ratio": 0.5480086747076328
+    },
+    {
+      "label": "GET /api/search (60 params)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 17315.75,
+      "otherRps": 8215.75,
+      "rpsRatio": 2.10762864011198,
+      "referenceP50Ms": 1.238067499999488,
+      "otherP50Ms": 2.388708999999835,
+      "p50Ratio": 0.5182998431368465
+    }
+  ]
+}

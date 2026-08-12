@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-08-12T15:30:42.502Z",
+  "bun": "1.4.0",
+  "durationSec": 2,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": ["GET /api/me (30 cookies+sess)"],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 20118,
+          "rps": 10059,
+          "avgMs": 2.3871953552086316,
+          "p50Ms": 2.035137999998824,
+          "p95Ms": 3.9317919999994047,
+          "p99Ms": 5.274191000001565
+        }
+      ],
+      "totalRequests": 20118,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 20661.5,
+          "rps": 10330.75,
+          "avgMs": 2.325580265567147,
+          "p50Ms": 1.9745275000004767,
+          "p95Ms": 3.8416345000000547,
+          "p99Ms": 5.074087499999678
+        }
+      ],
+      "totalRequests": 20661.5,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "GET /api/me (30 cookies+sess)",
+          "requests": 87803.5,
+          "rps": 43901.75,
+          "avgMs": 0.5470729667557592,
+          "p50Ms": 0.44634899999982736,
+          "p95Ms": 1.0707494999996925,
+          "p99Ms": 1.7708880000000136
+        }
+      ],
+      "totalRequests": 87803.5,
+      "totalErrors": 0
+    }
+  ],
+  "comparison": [
+    {
+      "label": "GET /api/me (30 cookies+sess)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 43901.75,
+      "otherRps": 10059,
+      "rpsRatio": 4.36442489313053,
+      "referenceP50Ms": 0.44634899999982736,
+      "otherP50Ms": 2.035137999998824,
+      "p50Ratio": 0.21932124504583242
+    },
+    {
+      "label": "GET /api/me (30 cookies+sess)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 43901.75,
+      "otherRps": 10330.75,
+      "rpsRatio": 4.249618856326985,
+      "referenceP50Ms": 0.44634899999982736,
+      "otherP50Ms": 1.9745275000004767,
+      "p50Ratio": 0.2260535748424469
+    }
+  ]
+}

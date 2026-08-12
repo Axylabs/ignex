@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-08-12T15:30:00.711Z",
+  "bun": "1.4.0",
+  "durationSec": 2,
+  "warmupSec": 1,
+  "concurrency": 24,
+  "repeats": 2,
+  "modeFirst": "native",
+  "referenceMode": "raw-bun",
+  "routes": ["POST /api/orders (bulk JSON+schema)"],
+  "modes": [
+    {
+      "mode": "native",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 14753,
+          "rps": 7376.5,
+          "avgMs": 3.2594737778724876,
+          "p50Ms": 2.832765500000278,
+          "p95Ms": 5.434807000000092,
+          "p99Ms": 8.511638499999663
+        }
+      ],
+      "totalRequests": 14753,
+      "totalErrors": 0
+    },
+    {
+      "mode": "fallback",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 14879,
+          "rps": 7439.5,
+          "avgMs": 3.2277701143310944,
+          "p50Ms": 2.818653500000437,
+          "p95Ms": 5.2686539999999695,
+          "p99Ms": 9.309314500000255
+        }
+      ],
+      "totalRequests": 14879,
+      "totalErrors": 0
+    },
+    {
+      "mode": "raw-bun",
+      "warmupSec": 1,
+      "durationSec": 2,
+      "repeats": 2,
+      "routes": [
+        {
+          "label": "POST /api/orders (bulk JSON+schema)",
+          "requests": 36006.5,
+          "rps": 18003.25,
+          "avgMs": 1.335678231880969,
+          "p50Ms": 1.1944605000007869,
+          "p95Ms": 2.255604000000858,
+          "p99Ms": 2.9204875000014
+        }
+      ],
+      "totalRequests": 36006.5,
+      "totalErrors": 0
+    }
+  ],
+  "comparison": [
+    {
+      "label": "POST /api/orders (bulk JSON+schema)",
+      "referenceMode": "raw-bun",
+      "otherMode": "native",
+      "referenceRps": 18003.25,
+      "otherRps": 7376.5,
+      "rpsRatio": 2.440622246322782,
+      "referenceP50Ms": 1.1944605000007869,
+      "otherP50Ms": 2.832765500000278,
+      "p50Ratio": 0.42165879950199536
+    },
+    {
+      "label": "POST /api/orders (bulk JSON+schema)",
+      "referenceMode": "raw-bun",
+      "otherMode": "fallback",
+      "referenceRps": 18003.25,
+      "otherRps": 7439.5,
+      "rpsRatio": 2.419954298003898,
+      "referenceP50Ms": 1.1944605000007869,
+      "otherP50Ms": 2.818653500000437,
+      "p50Ratio": 0.42376989580329816
+    }
+  ]
+}
