@@ -134,8 +134,20 @@ export class InvalidCookieSignature extends HTTPError {
 // Error → Response Mapping
 // ============================================================================
 
-/** Shared JSON content-type header for error envelopes (no per-call alloc). */
-const JSON_HEADERS = { "content-type": "application/json" };
+/**
+ * Shared JSON content-type header for error envelopes (no per-call alloc).
+ *
+ * Error envelopes always carry the core security posture (frame protection,
+ * no-sniff, referrer policy) so they match the OK-path `security()` plugin and
+ * the Rust ingress pipeline's pre-baked terminal templates — error pages are
+ * never frameable or MIME-sniffable even if an app disables the header plugin.
+ */
+const JSON_HEADERS: Record<string, string> = Object.freeze({
+  "content-type": "application/json",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+});
 
 /** Deterministic body for the generic internal error (no detail leak). */
 const INTERNAL_ERROR_BODY = JSON.stringify({

@@ -152,7 +152,7 @@ describe("sessions", () => {
     const c = ctx();
     const result = await manager.middleware({ createIfMissing: true })(c);
     expect(result.ok).toBe(true);
-    const session = getSession(c);
+    const session = await getSession(c);
     expect(session).toBeDefined();
     if (session) {
       session.data.visits = 1;
@@ -161,6 +161,27 @@ describe("sessions", () => {
       expect(cookieValue).toMatch(/\./);
       expect(verifyCookie(cookieValue ?? "", "s3cret")).not.toBeNull();
     }
+  });
+
+  it("lazy mode creates a session only when the handler reads it", async () => {
+    const manager = createSessionManager({ secret: "s3cret" });
+
+    // No cookie + lazy: middleware alone attaches nothing and writes NO cookie
+    // (no eager id generation, no signing, no Set-Cookie).
+    const untouched = ctx();
+    await manager.middleware({ createIfMissing: "lazy" })(untouched);
+    expect(untouched.cookie.sid?.value).toBeUndefined();
+
+    // The first read triggers one-time lazy creation + cookie write.
+    const created = await getSession(untouched);
+    expect(created).toBeDefined();
+    expect(created?.isNew).toBe(true);
+    expect(untouched.cookie.sid?.value).toMatch(/\./);
+    expect(verifyCookie(untouched.cookie.sid?.value ?? "", "s3cret")).not.toBeNull();
+
+    // A second read returns the same attached session (no re-create).
+    const again = await getSession(untouched);
+    expect(again).toBe(created);
   });
 });
 

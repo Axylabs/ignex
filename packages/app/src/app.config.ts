@@ -20,7 +20,13 @@ export const plugins: IgnusPlugin[] = [
   cors(),
   compression(),
   security(),
-  session({ secret: SESSION_SECRET, createIfMissing: true }),
+  // Lazy sessions: `createIfMissing: "lazy"` defers session creation until a
+  // handler actually reads it (via `getSession`), so requests that never use
+  // a session (health checks, static routes, most APIs) do ZERO session work —
+  // no id generation, no cookie signing, no `Set-Cookie` on the response.
+  // `rolling: false` avoids re-signing the cookie on every request that merely
+  // carries a valid session; the cookie is only rewritten when data changes.
+  session({ secret: SESSION_SECRET, createIfMissing: "lazy", rolling: false }),
   // Native pre-flight pipeline (castrum Rust ingress): one FFI call per
   // request enforces the default URL/header/query limits before the app
   // handler runs. The `runtime.securityHeaders` list pre-bakes the app's

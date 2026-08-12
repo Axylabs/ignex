@@ -214,3 +214,55 @@ its computed headers so the response can be assembled without a JS re-wrap.
    session plugin's ~0.25 ms per-request cookie work.
 3. Move the body-size guard into the pipeline (or share `content-length` checks)
    so 413s come from Rust with the pre-baked security headers.
+
+## Round 3.5 — follow-up results + the happy-path win (2026-08-12, later)
+
+### Follow-up #1 (session) — DONE: lazy session creation, the biggest lever
+The ~0.25 ms "session" cost was **eager session creation**: with
+`createIfMissing: true`, every request without a `sid` cookie ran
+`randomToken(16)` + `signCookie(JSON.stringify(...))` and wrote a `Set-Cookie`
+header — on health checks, static routes and APIs that never use a session.
+Measured on the bench this is pure redundant work (id generation + signing +
+string allocations per request = GC pressure).
+
+Fix (`packages/core/src/security/session.ts` + plugin):
+- New `createIfMissing: "lazy"` mode: the middleware only `load()`s; creation
+  is deferred until a handler actually reads the session via `getSession(ctx)`
+  (which is now `async` and creates on first read). Requests that never touch a
+  session do **zero** session work — no id, no signing, no `Set-Cookie`.
+- `rolling: false` in the app config: a request that merely *carries* a valid
+  session no longer re-signs + rewrites the cookie every time (the cookie is
+  only rewritten when the handler mutates + saves the session).
+- App config now `session({ secret, createIfMissing: "lazy", rolling: false })`.
+
+Measured (native, `/health`, isolated, full plugin stack):
+**1.09 ms → 0.76 ms p50** (~30% on the happy path) — the eager-create + rolling
+re-sign on every request was the dominant remaining per-request cost. Backwards
+compatible: `true`/`false` behave exactly as before; the `/session` smoke flow
+(create on first visit, increment visits) passes unchanged. 779/779 vitest,
+smoke 44/44 (native + fallback).
+
+### Follow-up #2 (schema) — measured, DO NOT wire schema into the pipeline
+`precompiled standalone Ajv` (the compiler's approach, `dist/validators/_h2.body.cjs`)
+= **3.6 µs** vs castrum `fast_schema` = **27.6 µs** on the real 80-lineItem order
+body — precompiled Ajv is **7.7× faster**. The Round-2 "fast_schema 2.3× win"
+was only against *runtime* Ajv (87 µs). Wiring the schema into the pipeline
+would save <0.2% of `/api/orders` (2.8 ms) and requires a compiler change to
+pass per-route schemas to the (global) pipeline. **Keep precompiled Ajv.**
+
+### Follow-up #3 (body guard) — closed in JS, NOT in the pipeline
+The pipeline has a single `maxBodyBytes` but ignus has per-body-type limits
+(JSON/text/form 2 MB, files 20 MB) — a global pipeline guard would break
+`/upload`. The "413 lacks security headers" gap is instead closed at the
+framework error envelope: `platform/errors.ts` `JSON_HEADERS` now always carries
+`x-frame-options: DENY`, `x-content-type-options: nosniff`,
+`referrer-policy: no-referrer`, so **every** error response (413/400/422/429/
+500/…) matches the OK path + the Rust terminal templates. Verified: a 413 now
+returns all three headers in both native and fallback modes.
+
+### Context that reshaped the plan
+- The native pre-flight bridge (`preprocess`) costs only **~1.2 µs/request**
+  (micro-bench vs 0.08 µs baseline) — it was *not* part of the ~0.48 ms
+  full-vs-core delta; that delta was compression (0.24) + eager session (0.24).
+- The remaining happy-path cost is compression (~0.24 ms, already fixed once)
+  and the lifecycle hook dispatch / response re-wrap itself.

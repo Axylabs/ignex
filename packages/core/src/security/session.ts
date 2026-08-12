@@ -176,22 +176,49 @@ export interface SessionManager {
   /** Load the session, creating one when missing. */
   loadOrCreate(ctx: IgnusContext): Promise<Session>;
   /** Build the request hook that attaches the session to the context. */
-  middleware(options?: { createIfMissing?: boolean }): HookFn;
+  middleware(options?: { createIfMissing?: boolean | "lazy" }): HookFn;
   /** Close the backing store (releases sweep timers). Called on app shutdown. */
   close?(): void;
 }
 
 const SESSION_KEY = Symbol.for("ignus.session");
 
-/** Read the session attached by `withSession` middleware. */
-export const getSession = (ctx: IgnusContext): Session | undefined =>
-  ctx.getState<Session>(SESSION_KEY);
+/**
+ * Read the session attached by `withSession` middleware.
+ *
+ * When the middleware runs with `createIfMissing: "lazy"`, the session is
+ * created here — on first read by a handler — instead of eagerly on every
+ * request. Requests that never read the session (health checks, static
+ * routes, non-session API calls) therefore do zero session work: no id
+ * generation, no cookie signing, no `Set-Cookie` on the response.
+ */
+export const getSession = async (ctx: IgnusContext): Promise<Session | undefined> => {
+  const existing = ctx.getState<Session>(SESSION_KEY);
+  if (existing) return existing;
+
+  const create = ctx.getState<() => Promise<Session>>(SESSION_CREATE);
+  if (create) {
+    const session = await create();
+    ctx.setState(SESSION_KEY, session);
+    ctx.state.delete(SESSION_CREATE);
+    return session;
+  }
+
+  return undefined;
+};
 
 interface Envelope {
   id: string;
   data?: SessionData;
   exp: number;
 }
+
+/**
+ * Lazy-creation marker left by the middleware when `createIfMissing: "lazy"`:
+ * holds a factory that creates (and persists) the session on first read via
+ * {@link getSession}, so requests that never use a session do no session work.
+ */
+const SESSION_CREATE = Symbol.for("ignus.session.create");
 
 /** Why a session cookie could not be decoded. */
 type DecodeError = "missing" | "invalid-signature" | "invalid-json" | "invalid-id" | "expired";
@@ -295,16 +322,33 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     return session;
   };
 
-  const middleware = (opts: { createIfMissing?: boolean } = {}): HookFn => {
+  const middleware = (opts: { createIfMissing?: boolean | "lazy" } = {}): HookFn => {
     const createIfMissing = opts.createIfMissing ?? false;
     return async (ctx) => {
-      const session = createIfMissing ? await loadOrCreate(ctx) : await load(ctx);
-      if (session) {
+      const existing = await load(ctx);
+      if (existing) {
+        if (rolling && !existing.isNew) {
+          existing.touch();
+          await save(ctx, existing);
+        }
+        ctx.setState(SESSION_KEY, existing);
+        return continueHook(ctx);
+      }
+
+      if (createIfMissing === true) {
+        // Eager: create + persist the session now, so every request carries a
+        // signed session cookie regardless of whether the handler uses it.
+        const session = await loadOrCreate(ctx);
         if (rolling && !session.isNew) {
           session.touch();
           await save(ctx, session);
         }
         ctx.setState(SESSION_KEY, session);
+      } else if (createIfMissing === "lazy") {
+        // Defer creation until a handler reads the session via getSession().
+        // Requests that never touch the session do zero session work (no id
+        // generation, no cookie signing, no Set-Cookie on the response).
+        ctx.setState(SESSION_CREATE, () => loadOrCreate(ctx));
       }
       return continueHook(ctx);
     };
@@ -322,5 +366,5 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
 /** Alias for `createSessionManager(...).middleware(...)` — ergonomic hook. */
 export const withSession = (
   options: SessionManagerOptions,
-  middlewareOptions?: { createIfMissing?: boolean },
+  middlewareOptions?: { createIfMissing?: boolean | "lazy" },
 ): HookFn => createSessionManager(options).middleware(middlewareOptions);

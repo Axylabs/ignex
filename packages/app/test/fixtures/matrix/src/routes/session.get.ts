@@ -3,7 +3,7 @@ import { get } from "@ignus/core/http";
 
 /** GET /session — read/write the signed-cookie session (attached by plugin). */
 export default get(async (ctx) => {
-  const session = getSession(ctx);
+  const session = await getSession(ctx);
 
   if (!session) {
     return ctx.json({ session: null });
