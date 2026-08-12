@@ -118,6 +118,7 @@ export {
 export {
   createNativePipeline,
   type NativePipeline,
+  type NativePipelineOptions,
   type NativePreflightOutcome,
   type NativePreflightResult,
 } from "./pipeline";

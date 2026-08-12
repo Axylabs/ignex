@@ -24,13 +24,19 @@ export interface NativePreflightOptions {
   options?: Record<string, unknown>;
   /** When `false` the plugin is a no-op (default `true`). */
   enabled?: boolean;
+  /**
+   * When `true` the pipeline reads the request body (guarded). Default
+   * `false`: the framework owns the body, so the pipeline must not consume it
+   * (castrum's createPipeline reads the body by default).
+   */
+  readBody?: boolean;
 }
 
 /**
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
 export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin => {
-  const { options, enabled = true } = opts;
+  const { options, enabled = true, readBody = false } = opts;
   // `undefined` = not yet resolved; `null` = unavailable.
   let pipeline: NativePipeline | null | undefined;
 
@@ -46,7 +52,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
     async init() {
       if (!enabled || !isNativeAvailable()) return;
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline(options);
+        pipeline = await createNativePipeline({ options, readBody });
       }
     },
 
@@ -54,7 +60,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
       if (!enabled || !isNativeAvailable()) return ctx;
 
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline(options);
+        pipeline = await createNativePipeline({ options, readBody });
       }
       if (!pipeline) return ctx;
 

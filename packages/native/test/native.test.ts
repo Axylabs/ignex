@@ -281,6 +281,29 @@ describe("pipeline bridge", () => {
       expect(pipeline).toBeNull();
     }
   });
+
+  it("readBody:false leaves the request body unconsumed (framework owns the body)", async () => {
+    const pipeline = await createNativePipeline({});
+    if (!pipeline || !isNativeAvailable()) return; // native-only assertion
+
+    const req = new Request("http://x/products/add", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "widget" }),
+    });
+
+    const { terminal, response, result } = await pipeline.preprocess(req);
+
+    // No configured stages → the pipeline passes the request through.
+    expect(terminal).toBe(false);
+    expect(response).toBeNull();
+    expect(result?.ok).toBe(true);
+
+    // The pipeline must NOT have consumed the stream — the app can still read
+    // the body afterwards (regression guard for castrum's readBody default).
+    const text = await req.text();
+    expect(JSON.parse(text)).toEqual({ name: "widget" });
+  });
 });
 
 describe("json", () => {

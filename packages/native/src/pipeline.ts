@@ -75,6 +75,17 @@ const loadPipelineModule = async (): Promise<CastrumPipelineModule | null> => {
   return modulePromise;
 };
 
+export interface NativePipelineOptions {
+  /** Ingress options (cors/rateLimit/schema/limits) for castrum's createPipeline. */
+  options?: unknown;
+  /**
+   * When `true` the pipeline reads the request body (guarded). Default `false`:
+   * the framework owns the body, so the pipeline must NOT consume the stream
+   * (castrum's createPipeline defaults `readBody` to true).
+   */
+  readBody?: boolean;
+}
+
 /**
  * Create a native pre-flight pipeline, or `null` when unavailable.
  *
@@ -82,17 +93,23 @@ const loadPipelineModule = async (): Promise<CastrumPipelineModule | null> => {
  * such as `cors`, `rateLimit`, `schema`, `limits`, plus runtime hooks). The
  * module import and pipeline construction are cached across calls.
  */
-export const createNativePipeline = async (options?: unknown): Promise<NativePipeline | null> => {
+export const createNativePipeline = async (
+  pipelineOptions: NativePipelineOptions = {},
+): Promise<NativePipeline | null> => {
   const mod = await loadPipelineModule();
   if (!mod) return null;
 
   let instance: { preprocess?: (request: Request, ip?: string) => unknown } | null = null;
   try {
     // castrum's `createPipeline` expects the ingress option bag NESTED under
-    // `{ options }` (CreatePipelineOptions). Passing it flat would silently
-    // disable rate-limit/CORS/schema/limits — the pipeline would run with no
-    // configured stages. Wrap it so the plugin's `options` reach the addon.
-    const pipeline = mod.createPipeline?.({ options });
+    // `{ options }` (CreatePipelineOptions); `readBody` is a pipeline-level
+    // flag (castrum defaults it to true — force it off so the framework owns
+    // the request body and the app can still read it afterwards). Passing the
+    // options flat would silently disable rate-limit/CORS/schema/limits.
+    const pipeline = mod.createPipeline?.({
+      options: pipelineOptions.options,
+      readBody: pipelineOptions.readBody ?? false,
+    });
     instance =
       pipeline && typeof (pipeline as { preprocess?: unknown }).preprocess === "function"
         ? (pipeline as { preprocess: (request: Request, ip?: string) => unknown })
@@ -102,10 +119,16 @@ export const createNativePipeline = async (options?: unknown): Promise<NativePip
   }
   if (!instance) return null;
 
+  // Narrow the preprocess fn once so the returned closure needs no
+  // non-null assertions (captured `instance` is not narrowed by TS inside
+  // closures).
+  const runPipeline = instance.preprocess;
+  if (!runPipeline) return null;
+
   return {
     async preprocess(request, ip) {
       try {
-        const out = (await instance!.preprocess!(request, ip)) as CastrumOutcome;
+        const out = (await runPipeline(request, ip)) as CastrumOutcome;
         const terminal = out.terminal === true;
         const result = out.result
           ? {
