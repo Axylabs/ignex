@@ -227,7 +227,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   // Run the full pre-handler chain so plugins/hooks apply to preflight too.
   const pre = await runHooks(__preStages, ctx);
   let response = pre.response ?? new Response(null, { status: 204 });
-  response = __applySet(response, pre.ctx.set, pre.ctx.requestId);
+  response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
 
   const headers = new Headers(response.headers);
   if (!headers.has("access-control-allow-methods")) {
@@ -273,12 +273,12 @@ export const HELPER_SOURCES: Record<string, string> = {
     ctx.server = server;
 
     const pre = await runHooks(__preStages, ctx);
-    if (pre.response) return __applySet(pre.response, pre.ctx.set, pre.ctx.requestId);
+    if (pre.response) return __applySet(pre.response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
 
     const post = await runHooks(__postStages, pre.ctx, response);
     response = post.response ?? response;
     await runHooks(__lc.afterResponse ?? [], pre.ctx, response);
-    response = __applySet(response, pre.ctx.set, pre.ctx.requestId);
+    response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
   }
 
   return response;

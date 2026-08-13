@@ -135,7 +135,10 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain("const __ACCESS_LOG = true");
     // __applySet delegates to the shared core helper with the trace flag.
     expect(result.code).toContain("applySet(response, set, requestId, __TRACE)");
-    expect(result.code).toContain("__applySet(response, ctx.set, ctx.requestId)");
+    // requestId is guarded by __TRACE — still evaluated with tracing on.
+    expect(result.code).toContain(
+      "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)",
+    );
     expect(result.code).toContain("requestId: ctx.requestId");
     expect(result.code).toContain("ctx.startTime");
   });
@@ -148,6 +151,20 @@ describe("compile (end-to-end)", () => {
     // stays allocation-light. Constant responses stay hoisted (no context).
     expect(result.code).toContain("const __TRACE = false");
     expect(result.code).toContain("const __ACCESS_LOG = false");
+    // The compact (no-set) path skips __applySet entirely.
+    expect(result.code).toContain("return response;");
+
+    // When tracing is off, the full-context path must NOT evaluate
+    // `ctx.requestId` on the hot path (it would pay performance.now() + a
+    // counter per request that applySet ignores without trace).
+    const full = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+    expect(full.code).toContain(
+      "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)",
+    );
+    expect(full.code).not.toContain("__applySet(response, ctx.set, ctx.requestId)");
   });
 
   it("does not hoist constant responses when an app config (lifecycle) is present", async () => {
@@ -170,5 +187,22 @@ describe("compile (end-to-end)", () => {
     const result = await buildAsync(baseOptions(layout));
 
     expect(result.code).toContain("const INIT_");
+  });
+
+  it("specializes + hoists when an app config has no plugins/lifecycle (server-only)", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "server-only.config.ts"),
+    });
+
+    // A server-only config registers no per-request hooks, so constant routes
+    // may hoist again (a bare app-config presence must NOT force the
+    // full-context path) and hook-free routes keep the compact path.
+    expect(result.code).toContain("const INIT_");
+    // Compact no-set path (specialized routes) — no __applySet pass.
+    expect(result.code).toContain("return response;");
+    // The app config is still wired for server options.
+    expect(result.code).toContain("__appConfig");
   });
 });

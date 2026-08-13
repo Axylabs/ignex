@@ -22,7 +22,10 @@ const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
   const hasHeadersValidator = !!route.decisions.validators?.headers;
   const hasBodyValidator = !!route.decisions.validators?.body;
 
-  props.push(`set: __set`);
+  // Only expose `set` when the handler actually reads it. When nothing in the
+  // request touches `ctx.set` / `ctx.cookie`, codegen emits the compact path
+  // (no `__applySet` pass), so the handler never needs the member at all.
+  if (usage.set) props.push(`set: __set`);
 
   if (usage.params || hasParamsValidator) props.push(`params: __params`);
   if (usage.body || hasBodyValidator) props.push(`body`);

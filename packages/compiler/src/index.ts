@@ -273,7 +273,14 @@ export const runCodegenPhase = (
   ctx: CompilerContext,
 ): string =>
   ctx.logger.time("codegen", () => {
-    const code = runCodeGen(optimized.routes, analysis.modules, analysis.hooks, opts, ctx);
+    const code = runCodeGen(
+      optimized.routes,
+      analysis.modules,
+      analysis.hooks,
+      opts,
+      ctx,
+      analysis.appConfig,
+    );
 
     ctx.logger.info("codegen complete", {
       lines: code.split("\n").length,

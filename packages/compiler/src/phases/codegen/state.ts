@@ -25,6 +25,13 @@ export interface CodegenState {
 
   // App config presence (drives lifecycle/plugin emission).
   hasAppConfig: boolean;
+  /**
+   * Whether the app config actually registers hooks/plugins that run per
+   * request. Distinct from `hasAppConfig`: a config that only sets `server`
+   * options carries no lifecycle, so routes can still specialize/hoist.
+   * Falls back to `hasAppConfig` when the config wasn't analyzed.
+   */
+  appConfigHasHooks: boolean;
   appConfigAbs: string | undefined;
 
   // Inlined handler bodies (self-contained modules emitted inline).
@@ -50,6 +57,7 @@ export const createCodegenState = (cfg: CodegenConfig, helpers: Emitter): Codege
   coreNames: [],
   uniqueCore: [],
   hasAppConfig: false,
+  appConfigHasHooks: false,
   appConfigAbs: undefined,
   inlineHandlers: new Map(),
   wsHandlers: [],

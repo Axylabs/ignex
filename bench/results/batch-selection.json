@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-08-13T19:33:14.321Z",
+  "bun": "1.4.0",
+  "revision": "b5afcacd71d02d3540e2e9ecfe4d6c504ec31d1a",
+  "mode": "NATIVE",
+  "rule": "wire batch iff batch/native >= 1.05 AND batch/js >= 1.05 at that n (guard-ok only)",
+  "ops": {
+    "fnv1a64": {
+      "threshold": 16,
+      "batchVsNative": 1.1576918279362933,
+      "batchVsJs": 12.239396955532804,
+      "guardOk": true
+    },
+    "crc32": {
+      "threshold": null,
+      "batchVsNative": 2.7339466028772677,
+      "batchVsJs": 0.35849099782353977,
+      "guardOk": true
+    },
+    "jsonValid": {
+      "threshold": null,
+      "batchVsNative": 2.0416379376221947,
+      "batchVsJs": 1.0067329154826055,
+      "guardOk": true
+    },
+    "queryParse": {
+      "threshold": null,
+      "batchVsNative": 3.033747894554002,
+      "batchVsJs": 0.23631772523008068,
+      "guardOk": true
+    },
+    "cookieParse": {
+      "threshold": null,
+      "batchVsNative": 3.310298699109484,
+      "batchVsJs": 0.30898832257619263,
+      "guardOk": true
+    },
+    "formParse": {
+      "threshold": null,
+      "batchVsNative": 3.1244818615448113,
+      "batchVsJs": 0.4602298131959844,
+      "guardOk": true
+    },
+    "validateEmail": {
+      "threshold": null,
+      "batchVsNative": 2.5617572473896444,
+      "batchVsJs": 0.5018375523120246,
+      "guardOk": true
+    },
+    "validateUuid": {
+      "threshold": null,
+      "batchVsNative": 2.8132607960994416,
+      "batchVsJs": 0.8784888098468492,
+      "guardOk": true
+    },
+    "validateIpv4": {
+      "threshold": 256,
+      "batchVsNative": 4.091578508670785,
+      "batchVsJs": 1.315303412591862,
+      "guardOk": true
+    },
+    "validateIpv6": {
+      "threshold": null,
+      "batchVsNative": 2.12585113359523,
+      "batchVsJs": 1.03679861680203,
+      "guardOk": true
+    },
+    "signCookie": {
+      "threshold": 4,
+      "batchVsNative": 1.2386527956889943,
+      "batchVsJs": 2.052582305617888,
+      "guardOk": true
+    },
+    "verifyCookie": {
+      "threshold": 4,
+      "batchVsNative": 2.0488742109397364,
+      "batchVsJs": 2.1640995152549167,
+      "guardOk": true
+    },
+    "csrfVerify": {
+      "threshold": 16,
+      "batchVsNative": 1.4455420826107364,
+      "batchVsJs": 3.9981746872665767,
+      "guardOk": true
+    },
+    "hmacSha256": {
+      "threshold": 4,
+      "batchVsNative": 1.5234640699445363,
+      "batchVsJs": 1.0929766987675535,
+      "guardOk": true
+    },
+    "hmacSha256Verify": {
+      "threshold": 16,
+      "batchVsNative": 1.2996865256140684,
+      "batchVsJs": 1.3550389749923248,
+      "guardOk": true
+    }
+  }
+}

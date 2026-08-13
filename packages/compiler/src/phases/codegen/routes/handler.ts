@@ -12,6 +12,12 @@ export interface CoreFnInput {
   readonly pre: readonly string[];
   readonly callExpr: string;
   readonly needsFull: boolean;
+  /**
+   * Compact (no-`set`) response mode: nothing in the request touches
+   * `ctx.set`/`ctx.cookie`, so the finalized Response needs no `__applySet`
+   * pass. The core fn returns it directly (Elysia's `responseMode: 'compact'`).
+   */
+  readonly compact: boolean;
   readonly serializersVar: string;
   readonly routeHookVar: string;
   readonly serviceName: string;
@@ -25,6 +31,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     pre,
     callExpr,
     needsFull,
+    compact,
     serializersVar,
     routeHookVar,
     serviceName,
@@ -81,9 +88,14 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));
     }
-    return __applySet(response, ctx.set, ctx.requestId);
+    // __TRACE is a module constant, so when tracing is off this never
+    // evaluates ctx.requestId (which would pay performance.now() + a counter
+    // per request even though applySet ignores it without trace).
+    return __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
     `
-        : `return __applySet(response, __set);`
+        : compact
+          ? `return response;`
+          : `return __applySet(response, __set);`
     }
   } catch (err) {
     return __handleError(err, ${needsFull ? "ctx" : "undefined"});

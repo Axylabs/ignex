@@ -47,7 +47,14 @@ export { stageServer } from "./server";
 export { type CodegenState, createCodegenState } from "./state";
 
 import { Emitter } from "../../emitter";
-import type { CompilerContext, CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
+import type {
+  AppConfigInfo,
+  CompilerContext,
+  CompilerOptions,
+  HookDef,
+  ModuleInfo,
+  RouteIR,
+} from "../../types";
 import { getConfig } from "./config";
 import { stageHeader, stageInlinedHandlers } from "./header";
 import { stageImports } from "./imports";
@@ -60,12 +67,13 @@ export const generateServer = (
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
+  appConfig?: AppConfigInfo,
 ): string => {
   const cfg = getConfig(opts);
   const state = createCodegenState(cfg, new Emitter());
 
   // Compose the emission stages in the fixed order that determines output.
-  stageImports(state, routes, modules, hooks, opts);
+  stageImports(state, routes, modules, hooks, opts, appConfig);
   stageHeader(state, opts);
   stageInlinedHandlers(state);
   stageRouteTable(state, routes, opts);
@@ -78,4 +86,6 @@ export const runCodeGen = (
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
   ctx: CompilerContext,
-): string => ctx.logger.time("codegen", () => generateServer(routes, modules, hooks, opts));
+  appConfig?: AppConfigInfo,
+): string =>
+  ctx.logger.time("codegen", () => generateServer(routes, modules, hooks, opts, appConfig));

@@ -28,7 +28,7 @@ export const generateRouteCode = (
   route: RouteIR,
   opts: CompilerOptions,
 ): void => {
-  const { cfg, hasAppConfig, helpers, functions } = state;
+  const { cfg, appConfigHasHooks, helpers, functions } = state;
 
   // Deduplicated (non-leader) routes reuse the leader's handler; only the
   // leader emits it.
@@ -39,7 +39,10 @@ export const generateRouteCode = (
     return;
   }
 
-  const constantJson = tryNormalizeConstant(route, hasAppConfig);
+  // Only an app config that actually registers plugins/lifecycle hooks must
+  // force the full-context path; a server-only config carries no lifecycle.
+  const hasGlobalLifecycle = appConfigHasHooks;
+  const constantJson = tryNormalizeConstant(route, hasGlobalLifecycle);
 
   // Constant responses are hoisted to zero-cost frozen bodies — unless the
   // app has a lifecycle/plugins (hooks would be bypassed), trace headers or
@@ -57,8 +60,6 @@ export const generateRouteCode = (
   }
 
   const hasHooks = route.analysis.hooks.length > 0;
-
-  const hasGlobalLifecycle = !!hasAppConfig;
 
   // Usage-driven context specialization. A full context is required when the
   // route needs lifecycle/hooks, validation, cookies, forwarding, or file
@@ -83,9 +84,16 @@ export const generateRouteCode = (
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);
 
+  // Compact no-set mode: when the specialized context never touches
+  // `ctx.set`/`ctx.cookie` (no response mutations accumulate), the finalized
+  // Response needs no `__applySet` pass — return it directly.
+  // (Elysia's `responseMode: 'compact'`.) Only reachable on the specialized
+  // path (`needsFull` already forces full context for set/cookie usage).
+  const compact = !needsFull && !route.analysis.usage.set && !route.analysis.usage.cookie;
+
   helpers.markUsed(routeReplyFn(route));
   helpers.markUsed("__finalize");
-  helpers.markUsed("__applySet");
+  if (!compact) helpers.markUsed("__applySet");
   helpers.markUsed("__handleError");
 
   const pre: string[] = [];
@@ -118,6 +126,7 @@ export const generateRouteCode = (
     pre,
     callExpr,
     needsFull,
+    compact,
     serializersVar,
     routeHookVar,
     serviceName: cfg.serviceName,

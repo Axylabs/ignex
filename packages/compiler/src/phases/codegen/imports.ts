@@ -4,7 +4,7 @@
  */
 
 import { existsSync } from "node:fs";
-import type { CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
+import type { AppConfigInfo, CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
 import {
@@ -113,12 +113,19 @@ export const stageImports = (
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
+  appConfig?: AppConfigInfo,
 ): void => {
   const { imports, coreNames } = state;
 
   const appConfigAbs = resolveAppConfigPath(opts.appConfig);
   state.appConfigAbs = appConfigAbs;
   state.hasAppConfig = appConfigAbs !== undefined && existsSync(appConfigAbs);
+  // A config that only sets `server` carries no per-request hooks — those apps
+  // can still specialize/hoist. When the config wasn't analyzed (e.g. direct
+  // `generateServer` callers), conservatively treat its presence as hooks.
+  state.appConfigHasHooks = appConfig
+    ? appConfig.hasPlugins || appConfig.hasLifecycle
+    : state.hasAppConfig;
 
   coreNames.push(
     "createContext",
