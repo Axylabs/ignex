@@ -55,6 +55,99 @@ const writeRaw = (
   return outPath;
 };
 
+/** Run Bun.build, reporting failures as diagnostics. Returns `null` on failure. */
+const buildWithFallback = async (
+  entryPath: string,
+  opts: CompilerOptions,
+  ctx: CompilerContext,
+): Promise<any | null> => {
+  const buildOptions: any = {
+    entrypoints: [entryPath],
+    outdir: opts.outDir,
+    target: "bun",
+    format: "esm",
+    minify: opts.minify,
+    sourcemap: opts.sourceMap ? "external" : "none",
+  };
+
+  try {
+    const result = await bun.build(buildOptions);
+    if (!result.success) {
+      const message = (result.logs ?? []).map((log: any) => log?.message ?? String(log)).join("\n");
+      rmSync(entryPath, { force: true });
+      ctx.diagnostics.error({
+        code: DiagnosticCodes.LinkFailed,
+        message: `Bun.build failed: ${message}`,
+      });
+      return null;
+    }
+    return result;
+  } catch (err: any) {
+    rmSync(entryPath, { force: true });
+
+    const details = formatBuildLogs(
+      err?.errors ?? err?.logs ?? err?.cause?.errors ?? err?.cause?.logs,
+    );
+
+    ctx.diagnostics.error({
+      code: DiagnosticCodes.LinkFailed,
+      message: `Bun.build threw an exception: ${errorMessage(err)}${details}`,
+    });
+
+    return null;
+  }
+};
+
+/** Move the built output (or the entry file) to the final outPath. */
+const relocateOutput = (
+  builtPath: string | undefined,
+  entryPath: string,
+  outPath: string,
+): void => {
+  if (builtPath && existsSync(builtPath)) {
+    if (builtPath !== outPath) {
+      renameSync(builtPath, outPath);
+    }
+  } else if (existsSync(entryPath)) {
+    if (entryPath !== outPath) {
+      renameSync(entryPath, outPath);
+    }
+  }
+};
+
+/** Rewrite the sourcemap comment to point at the final output file. */
+const fixSourceMap = async (
+  opts: CompilerOptions,
+  builtPath: string | undefined,
+  entryPath: string,
+  outPath: string,
+): Promise<void> => {
+  if (!opts.sourceMap) return;
+
+  const mapSource = builtPath ? `${builtPath}.map` : `${entryPath}.map`;
+  const mapOut = `${outPath}.map`;
+
+  if (existsSync(mapSource) && mapSource !== mapOut) {
+    renameSync(mapSource, mapOut);
+  }
+
+  if (existsSync(outPath)) {
+    const text = await bun.file(outPath).text();
+    const fixed = text.replace(
+      /\/\/# sourceMappingURL=.*$/m,
+      `//# sourceMappingURL=${basename(mapOut)}`,
+    );
+    await bun.write(outPath, fixed);
+  }
+};
+
+/** Remove the temporary entry file when it is not the final output. */
+const cleanupEntry = (entryPath: string, outPath: string): void => {
+  if (existsSync(entryPath) && entryPath !== outPath) {
+    rmSync(entryPath, { force: true });
+  }
+};
+
 export const runLinkerAsync = async (
   code: string,
   opts: CompilerOptions,
@@ -91,87 +184,13 @@ export const runLinkerAsync = async (
 
   await bun.write(entryPath, code);
 
-  const buildOptions: any = {
-    entrypoints: [entryPath],
-    outdir: opts.outDir,
-    target: "bun",
-    format: "esm",
-    minify: opts.minify,
-    sourcemap: opts.sourceMap ? "external" : "none",
-  };
-
-  let result: any;
-
-  try {
-    result = await bun.build(buildOptions);
-  } catch (err: any) {
-    rmSync(entryPath, { force: true });
-
-    const details = formatBuildLogs(
-      err?.errors ?? err?.logs ?? err?.cause?.errors ?? err?.cause?.logs,
-    );
-
-    ctx.diagnostics.error({
-      code: DiagnosticCodes.LinkFailed,
-      message: `Bun.build threw an exception: ${errorMessage(err)}${details}`,
-    });
-
-    // Reported as an error diagnostic; the pipeline's final `hasErrors` check
-    // surfaces the structured summary (no mid-pipeline throw).
-    return outPath;
-  }
-
-  if (!result.success) {
-    const message = (result.logs ?? []).map((log: any) => log?.message ?? String(log)).join("\n");
-
-    rmSync(entryPath, { force: true });
-
-    ctx.diagnostics.error({
-      code: DiagnosticCodes.LinkFailed,
-      message: `Bun.build failed: ${message}`,
-    });
-
-    // Reported as an error diagnostic; the pipeline's final `hasErrors` check
-    // surfaces the structured summary (no mid-pipeline throw).
-    return outPath;
-  }
+  const result = await buildWithFallback(entryPath, opts, ctx);
+  if (!result) return outPath;
 
   const builtPath: string | undefined = result.outputs?.[0]?.path;
-
-  if (builtPath && existsSync(builtPath)) {
-    if (builtPath !== outPath) {
-      renameSync(builtPath, outPath);
-    }
-  } else if (existsSync(entryPath)) {
-    if (entryPath !== outPath) {
-      renameSync(entryPath, outPath);
-    }
-  }
-
-  if (opts.sourceMap) {
-    const mapSource = builtPath ? `${builtPath}.map` : `${entryPath}.map`;
-
-    const mapOut = `${outPath}.map`;
-
-    if (existsSync(mapSource) && mapSource !== mapOut) {
-      renameSync(mapSource, mapOut);
-    }
-
-    if (existsSync(outPath)) {
-      const text = await bun.file(outPath).text();
-
-      const fixed = text.replace(
-        /\/\/# sourceMappingURL=.*$/m,
-        `//# sourceMappingURL=${basename(mapOut)}`,
-      );
-
-      await bun.write(outPath, fixed);
-    }
-  }
-
-  if (existsSync(entryPath) && entryPath !== outPath) {
-    rmSync(entryPath, { force: true });
-  }
+  relocateOutput(builtPath, entryPath, outPath);
+  await fixSourceMap(opts, builtPath, entryPath, outPath);
+  cleanupEntry(entryPath, outPath);
 
   const finalCode = existsSync(outPath) ? await bun.file(outPath).text() : code;
 

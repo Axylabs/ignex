@@ -53,96 +53,93 @@ const json = (body: unknown, init: ResponseInit = {}): Response =>
     headers: { "content-type": "application/json; charset=utf-8", ...init.headers },
   });
 
+const handleOrders = (req: Request): Promise<Response> =>
+  req
+    .json()
+    .then((body) => {
+      const record = body as { lineItems?: unknown[]; totalCents?: unknown };
+      if (!Array.isArray(record.lineItems) || typeof record.totalCents !== "number") {
+        return json({ ok: false, error: "invalid_order" }, { status: 400 });
+      }
+      for (const item of record.lineItems) {
+        const li = item as { quantity?: unknown; unitPriceCents?: unknown };
+        if (typeof li.quantity !== "number" || typeof li.unitPriceCents !== "number") {
+          return json({ ok: false, error: "invalid_order" }, { status: 400 });
+        }
+      }
+      return json({ ok: true, count: record.lineItems.length, total: record.totalCents });
+    })
+    .catch(() => json({ ok: false, error: "bad_json" }, { status: 400 }));
+
+const handleSearch = (url: URL): Response => {
+  let count = 0;
+  let length = 0;
+  for (const [k, v] of url.searchParams) {
+    count += 1;
+    length += k.length + v.length;
+  }
+  return json({ ok: true, params: count, decodedLength: length });
+};
+
+const handleMe = (req: Request): Response => {
+  const header = req.headers.get("cookie") ?? "";
+  const pairs = header.split(";");
+  let sid: string | null = null;
+  for (const part of pairs) {
+    const eq = part.indexOf("=");
+    const name = eq < 0 ? part.trim() : part.slice(0, eq).trim();
+    const value = eq < 0 ? "" : part.slice(eq + 1).trim();
+    if (name === "sid") sid = verifySessionCookie(value);
+  }
+  return json({ ok: true, cookies: pairs.length, sid });
+};
+
+const handleReports = (req: Request, url: URL): Response => {
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!verifyJwt(token)) {
+    return json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  return json({ ok: true, report: url.pathname.split("/").pop() });
+};
+
+const handleCatalog = (): Response => {
+  let html = "<ul>";
+  for (const item of catalog) {
+    html += `<li data-id="${item.id}"><h2>${item.name}</h2><span>$${item.price}</span><p>${item.description}</p></li>`;
+  }
+  html += "</ul>";
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+};
+
+const handleBig = (req: Request): Response => {
+  if ((req.headers.get("accept-encoding") ?? "").includes("gzip")) {
+    return new Response(bigGzip, {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "content-encoding": "gzip",
+      },
+    });
+  }
+  return new Response(big, { headers: { "content-type": "application/json; charset=utf-8" } });
+};
+
 const server = Bun.serve({
   port: PORT,
   fetch(req) {
     const url = new URL(req.url);
     const method = req.method;
+    const { pathname } = url;
 
-    // POST /api/orders — parse + validate a large JSON body manually.
-    if (method === "POST" && url.pathname === "/api/orders") {
-      return req
-        .json()
-        .then((body) => {
-          const record = body as { lineItems?: unknown[]; totalCents?: unknown };
-          if (!Array.isArray(record.lineItems) || typeof record.totalCents !== "number") {
-            return json({ ok: false, error: "invalid_order" }, { status: 400 });
-          }
-          for (const item of record.lineItems) {
-            const li = item as { quantity?: unknown; unitPriceCents?: unknown };
-            if (typeof li.quantity !== "number" || typeof li.unitPriceCents !== "number") {
-              return json({ ok: false, error: "invalid_order" }, { status: 400 });
-            }
-          }
-          return json({ ok: true, count: record.lineItems.length, total: record.totalCents });
-        })
-        .catch(() => json({ ok: false, error: "bad_json" }, { status: 400 }));
-    }
-
-    // GET /api/search — iterate every query param (the real work).
-    if (method === "GET" && url.pathname === "/api/search") {
-      let count = 0;
-      let length = 0;
-      for (const [k, v] of url.searchParams) {
-        count += 1;
-        length += k.length + v.length;
-      }
-      return json({ ok: true, params: count, decodedLength: length });
-    }
-
-    // GET /api/me — parse all cookies + verify the signed session cookie.
-    if (method === "GET" && url.pathname === "/api/me") {
-      const header = req.headers.get("cookie") ?? "";
-      const pairs = header.split(";");
-      let sid: string | null = null;
-      for (const part of pairs) {
-        const eq = part.indexOf("=");
-        const name = eq < 0 ? part.trim() : part.slice(0, eq).trim();
-        const value = eq < 0 ? "" : part.slice(eq + 1).trim();
-        if (name === "sid") sid = verifySessionCookie(value);
-      }
-      return json({ ok: true, cookies: pairs.length, sid });
-    }
-
-    // GET /api/reports/:id — verify an HS256 JWT on every request.
-    if (method === "GET" && url.pathname.startsWith("/api/reports/")) {
-      const auth = req.headers.get("authorization") ?? "";
-      const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-      if (!verifyJwt(token)) {
-        return json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      return json({ ok: true, report: url.pathname.split("/").pop() });
-    }
-
-    // GET /catalog — render the 120-item catalog as HTML via string concat.
-    if (method === "GET" && url.pathname === "/catalog") {
-      let html = "<ul>";
-      for (const item of catalog) {
-        html += `<li data-id="${item.id}"><h2>${item.name}</h2><span>$${item.price}</span><p>${item.description}</p></li>`;
-      }
-      html += "</ul>";
-      return new Response(html, {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
-
-    // GET /api/big — serve a ~256KB JSON, gzipped when accepted.
-    if (method === "GET" && url.pathname === "/api/big") {
-      if ((req.headers.get("accept-encoding") ?? "").includes("gzip")) {
-        return new Response(bigGzip, {
-          headers: {
-            "content-type": "application/json; charset=utf-8",
-            "content-encoding": "gzip",
-          },
-        });
-      }
-      return new Response(big, { headers: { "content-type": "application/json; charset=utf-8" } });
-    }
-
-    // GET /health — readiness probe used by the benchmark harness.
-    if (method === "GET" && url.pathname === "/health") {
-      return json({ ok: true });
-    }
+    if (method === "POST" && pathname === "/api/orders") return handleOrders(req);
+    if (method === "GET" && pathname === "/api/search") return handleSearch(url);
+    if (method === "GET" && pathname === "/api/me") return handleMe(req);
+    if (method === "GET" && pathname.startsWith("/api/reports/")) return handleReports(req, url);
+    if (method === "GET" && pathname === "/catalog") return handleCatalog();
+    if (method === "GET" && pathname === "/api/big") return handleBig(req);
+    if (method === "GET" && pathname === "/health") return json({ ok: true });
 
     return json({ ok: false, error: "not_found" }, { status: 404 });
   },

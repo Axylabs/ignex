@@ -170,6 +170,12 @@ export declare function validateIpv6BatchPacked(input: Uint8Array): Uint8Array;
 export declare function jsonValidBatchPacked(input: Uint8Array): Uint8Array;
 export declare function crc32BatchPacked(input: Uint8Array): Uint8Array;
 export declare function fnv1A64BatchPacked(input: Uint8Array): Uint8Array;
+// Pair-parse batches: output `[u32 item_count]{[u32 len][pairs_packed]}` where
+// each `pairs_packed` = `[u32 pair_count]{[u32 name_len][name][u32 value_len]
+// [value]}` (the same per-item layout the scalar `*ParsePacked` fns return).
+export declare function queryParseBatchPacked(input: Uint8Array): Uint8Array;
+export declare function cookieParseBatchPacked(input: Uint8Array): Uint8Array;
+export declare function formParseBatchPacked(input: Uint8Array): Uint8Array;
 
 // ── Compiled-once napi classes (the raw addon surface) ──────────
 
@@ -195,6 +201,22 @@ export declare class SchemaValidator {
   validateBatchPackedCount(packed: Uint8Array): number;
   validateBatchPackedBitset(packed: Uint8Array): Uint8Array;
   validateBatchStreaming(batchBytes: Uint8Array): number;
+  /** One-pass validate + extract (see `@ignus/native` `JsonDeriveResult`). */
+  derive(input: Uint8Array, paths: string[]): CastrumJsonDeriveResult | null;
+}
+
+/** Mirror of castrum's `JsonDeriveResult` napi object. */
+export interface CastrumJsonDeriveValue {
+  kind: string;
+  int: number | null;
+  number: number | null;
+  text: string | null;
+  boolean: boolean | null;
+}
+
+export interface CastrumJsonDeriveResult {
+  ok: boolean;
+  values: Array<CastrumJsonDeriveValue | null>;
 }
 
 export declare function formParsePacked(input: Uint8Array): Uint8Array;

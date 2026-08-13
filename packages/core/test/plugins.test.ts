@@ -68,6 +68,17 @@ describe("cors", () => {
     expect(res.headers.get("vary")).toContain("Origin");
     expect(res.headers.get("access-control-expose-headers")).toBe("x-total");
   });
+
+  it("returns the identical Response for a no-Origin request (zero re-wrap)", async () => {
+    // The common no-Origin path must not copy headers or re-wrap the response —
+    // it serves the exact same Response object back (perf-critical fast path).
+    const plugin = cors() as unknown as {
+      onResponse: (ctx: { headers: Headers }, response: Response) => Response;
+    };
+    const response = new Response("ok", { status: 200 });
+    const out = plugin.onResponse({ headers: new Headers() }, response);
+    expect(out).toBe(response);
+  });
 });
 
 describe("rateLimit", () => {

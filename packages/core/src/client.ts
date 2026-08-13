@@ -4,6 +4,10 @@
  * `createClient` builds a small fetch wrapper around a base URL. The compiler
  * emits typed per-route functions on top of this base.
  */
+
+import { HTTPError } from "./platform/errors";
+
+/** Options for {@link createClient}. */
 export interface ClientOptions {
   baseUrl: string;
   headers?: Record<string, string>;
@@ -13,6 +17,7 @@ export interface ClientOptions {
   credentials?: RequestCredentials;
 }
 
+/** A raw (non-throwing) client response. */
 export interface ClientResponse<T> {
   ok: boolean;
   status: number;
@@ -21,6 +26,12 @@ export interface ClientResponse<T> {
   body: T | null;
 }
 
+/**
+ * The client surface returned by {@link createClient}.
+ *
+ * Method helpers (`get`/`post`/…) throw an {@link HTTPError} on non-2xx
+ * responses; `raw` never throws and returns the full {@link ClientResponse}.
+ */
 export interface IgnusClient {
   readonly baseUrl: string;
   /** Perform a JSON request and return the parsed body (throws on non-2xx). */
@@ -34,6 +45,17 @@ export interface IgnusClient {
   delete<T>(path: string, init?: RequestInit): Promise<T>;
 }
 
+/**
+ * Build a typed HTTP client over a base URL.
+ *
+ * The compiler emits per-route typed functions on top of this base client.
+ * `request()` and the method helpers throw an {@link HTTPError} on non-2xx
+ * responses, with the parsed response body attached as `error.body` and the
+ * raw `Response` as `error.response`.
+ *
+ * @param options - Base URL, default headers, optional custom fetch/credentials.
+ * @returns A client with raw and typed request helpers.
+ */
 export const createClient = (options: ClientOptions): IgnusClient => {
   const base = options.baseUrl.replace(/\/+$/, "");
   const baseHeaders = options.headers ?? {};
@@ -91,14 +113,16 @@ export const createClient = (options: ClientOptions): IgnusClient => {
     });
 
     if (!response.ok) {
-      const error = new Error(
+      // Unified error model: the client throws the same `HTTPError` family the
+      // server uses, so `isHttpError()` works on both sides. The parsed body
+      // and raw response stay accessible for consumers that need them.
+      const error = new HTTPError(
+        response.status,
         `Request failed: ${response.status} ${response.statusText} ${path}`,
-      ) as Error & {
-        status: number;
-        body: T | null;
-      };
-      error.status = response.status;
+        "HTTP_CLIENT_ERROR",
+      ) as HTTPError & { body: T | null; response: ClientResponse<T> };
       error.body = response.body;
+      error.response = response;
       throw error;
     }
 

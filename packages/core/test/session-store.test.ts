@@ -30,8 +30,8 @@ describe("createMemorySessionStore", () => {
     const store = opened(createMemorySessionStore());
     await store.set("a", { n: 1 });
     const data = await store.get("a");
-    data!.n = 999;
-    expect((await store.get("a"))!.n).toBe(1);
+    if (data) data.n = 999;
+    expect((await store.get("a"))?.n).toBe(1);
   });
 
   it("honours expiresAt from options", async () => {

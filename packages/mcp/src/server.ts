@@ -2,6 +2,7 @@
  * Ignus MCP server — registers the agent-facing tools on an `McpServer`.
  */
 
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type {
@@ -20,8 +21,19 @@ import {
   runRouteTool,
 } from "./tools.js";
 
+/** The MCP server name advertised in the protocol handshake. */
 export const MCP_SERVER_NAME = "ignus";
-export const MCP_SERVER_VERSION = "0.1.0";
+
+// Single source of truth: read the version from package.json so the advertised
+// protocol version can never drift from the published package.
+const MCP_PKG_VERSION = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version?: string;
+  }
+).version;
+
+/** The MCP server version advertised in the protocol handshake. */
+export const MCP_SERVER_VERSION = MCP_PKG_VERSION ?? "0.0.0";
 
 type TextContent = { type: "text"; text: string };
 type ToolResult = { content: TextContent[] };

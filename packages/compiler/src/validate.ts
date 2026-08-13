@@ -73,6 +73,7 @@ const CompilerOptionsSchema = Type.Object(
     incremental: Type.Optional(Type.Boolean()),
 
     maxInlineBytes: Type.Optional(Type.Integer({ minimum: 0 })),
+    maxTotalInlineBytes: Type.Optional(Type.Integer({ minimum: 1 })),
   },
   { additionalProperties: false },
 );
@@ -91,6 +92,7 @@ const DEPRECATED_OPTIONS: Record<string, string> = {
 
 const SCHEMA_KEYS = new Set(Object.keys((CompilerOptionsSchema as any).properties ?? {}));
 
+/** The fully-validated compiler options (schema-typed). */
 export type ValidatedCompilerOptions = Static<typeof CompilerOptionsSchema>;
 
 const ajv = new Ajv({
@@ -116,6 +118,18 @@ export const mergeOptions = (opts: Partial<CompilerOptions>): CompilerOptions =>
   return defu(opts, base) as CompilerOptions;
 };
 
+/**
+ * Validate (partial) compiler options against the schema and warn on
+ * removed/unknown keys.
+ *
+ * Merges defaults + the optimization preset first, then validates the result.
+ * Returns an `ok` with the validated options, or an `err` with the list of
+ * validation errors.
+ *
+ * @param input - The partial options to validate.
+ * @param diagnostics - Optional collector for deprecation/unknown-option warnings.
+ * @returns A `Result` with the validated options or the error strings.
+ */
 export const validateOptions = (
   input: Partial<CompilerOptions>,
   diagnostics?: DiagnosticCollector,

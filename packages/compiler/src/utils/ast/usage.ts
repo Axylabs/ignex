@@ -94,6 +94,80 @@ const memberKey = (node: Expression | undefined): string | undefined => {
   return typeof key === "string" ? key : undefined;
 };
 
+/** Record `const b = ctx.body;`-style aliases for later member/identifier use. */
+const recordAlias = (n: Node, aliases: Map<string, string>, rootNames: Set<string>): void => {
+  if (
+    n.type === "VariableDeclarator" &&
+    n.id?.type === "Identifier" &&
+    n.init?.type === "MemberExpression" &&
+    n.init.object?.type === "Identifier" &&
+    rootNames.has(n.init.object.name)
+  ) {
+    const alias = memberKey(n.init.property);
+    if (alias) aliases.set(n.id.name, alias);
+  }
+};
+
+/** Record `ctx.foo` / `alias.foo` / chained `ctx.req.url` member usage. */
+const recordMember = (
+  n: Node,
+  usage: ContextUsage,
+  aliases: Map<string, string>,
+  rootNames: Set<string>,
+): void => {
+  if (n.type !== "MemberExpression") return;
+
+  if (n.object?.type === "Identifier") {
+    const name = n.object.name;
+    if (rootNames.has(name)) setUsageFlag(usage, memberKey(n.property));
+    if (aliases.has(name)) setUsageFlag(usage, aliases.get(name));
+    return;
+  }
+
+  // Chained access rooted at the context: `ctx.req.url`. Resolve the chain to
+  // its root identifier and flag the outer property. Unknown member names are
+  // filtered by the USAGE_FLAGS whitelist, so ordinary chains like
+  // `ctx.body.length` never set a bogus flag.
+  if (n.object?.type === "MemberExpression") {
+    let chain: Expression = n.object;
+    while (chain.type === "MemberExpression" && chain.object?.type === "MemberExpression") {
+      chain = chain.object;
+    }
+    if (
+      chain.type === "MemberExpression" &&
+      chain.object?.type === "Identifier" &&
+      rootNames.has(chain.object.name)
+    ) {
+      setUsageFlag(usage, memberKey(n.property));
+    }
+  }
+};
+
+/** Record a bare alias identifier usage (e.g. `b` inside `json({ ok: b })`). */
+const recordIdentifier = (n: Node, usage: ContextUsage, aliases: Map<string, string>): void => {
+  if (n.type === "Identifier" && aliases.has(n.name)) {
+    setUsageFlag(usage, aliases.get(n.name));
+  }
+};
+
+/** Record `ctx.json(...)` / `alias.text(...)` call usage. */
+const recordCall = (
+  n: Node,
+  usage: ContextUsage,
+  aliases: Map<string, string>,
+  rootNames: Set<string>,
+): void => {
+  if (
+    n.type === "CallExpression" &&
+    n.callee?.type === "MemberExpression" &&
+    n.callee.object?.type === "Identifier"
+  ) {
+    const name = n.callee.object.name;
+    if (rootNames.has(name)) setUsageFlag(usage, memberKey(n.callee.property));
+    if (aliases.has(name)) setUsageFlag(usage, aliases.get(name));
+  }
+};
+
 /**
  * Detect context usage inside a handler body (or function node).
  * `mapping` comes from {@link buildContextMapping}.
@@ -110,61 +184,13 @@ export function detectUsage(bodyNode: Node, mapping: Map<string, string>): Conte
 
   walk(bodyNode, (n) => {
     // Track aliases: `const b = ctx.body;`
-    if (
-      n.type === "VariableDeclarator" &&
-      n.id?.type === "Identifier" &&
-      n.init?.type === "MemberExpression" &&
-      n.init.object?.type === "Identifier" &&
-      rootNames.has(n.init.object.name)
-    ) {
-      const alias = memberKey(n.init.property);
-      if (alias) aliases.set(n.id.name, alias);
-    }
-
+    recordAlias(n, aliases, rootNames);
     // ctx.foo / alias.foo (computed access with a literal key is supported)
-    if (n.type === "MemberExpression") {
-      if (n.object?.type === "Identifier") {
-        const name = n.object.name;
-        if (rootNames.has(name)) {
-          setUsageFlag(usage, memberKey(n.property));
-        }
-        if (aliases.has(name)) {
-          setUsageFlag(usage, aliases.get(name));
-        }
-      } else if (n.object?.type === "MemberExpression") {
-        // Chained access rooted at the context: `ctx.req.url`. Resolve the
-        // chain to its root identifier and flag the outer property. Unknown
-        // member names are filtered by the USAGE_FLAGS whitelist, so ordinary
-        // chains like `ctx.body.length` never set a bogus flag.
-        let chain: Expression = n.object;
-        while (chain.type === "MemberExpression" && chain.object?.type === "MemberExpression") {
-          chain = chain.object;
-        }
-        if (
-          chain.type === "MemberExpression" &&
-          chain.object?.type === "Identifier" &&
-          rootNames.has(chain.object.name)
-        ) {
-          setUsageFlag(usage, memberKey(n.property));
-        }
-      }
-    }
-
+    recordMember(n, usage, aliases, rootNames);
     // Bare identifiers that are aliases: `json({ ok: b })` after `const b = ctx.body;`
-    if (n.type === "Identifier" && aliases.has(n.name)) {
-      setUsageFlag(usage, aliases.get(n.name));
-    }
-
+    recordIdentifier(n, usage, aliases);
     // Call expressions: ctx.json(...) / alias.text(...)
-    if (
-      n.type === "CallExpression" &&
-      n.callee?.type === "MemberExpression" &&
-      n.callee.object?.type === "Identifier"
-    ) {
-      const name = n.callee.object.name;
-      if (rootNames.has(name)) setUsageFlag(usage, memberKey(n.callee.property));
-      if (aliases.has(name)) setUsageFlag(usage, aliases.get(name));
-    }
+    recordCall(n, usage, aliases, rootNames);
   });
 
   return usage;

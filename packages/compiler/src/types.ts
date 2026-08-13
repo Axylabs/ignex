@@ -15,8 +15,13 @@ import type { SourceManager } from "./frontend/source-manager";
 import type { RouteIR } from "./ir/route";
 import type { Logger } from "./logger";
 
+// Re-export the canonical IR route type.
+export type { RouteIR } from "./ir/route";
 export type { ContextUsage, Diagnostic, Logger };
+/** A `ContextUsage` with every capability enabled (frozen). */
 export const FULL_CONTEXT_USAGE = FULL_USAGE;
+
+/** Info about the discovered app config module (`src/app.config.ts`). */
 export interface AppConfigInfo {
   readonly path: string;
   readonly relPath: string;
@@ -29,6 +34,9 @@ export type { HttpMethod };
 // Shared method vocabulary (single source of truth in @ignus/shared).
 export { HTTP_METHODS };
 
+/**
+ * Route-filename → HTTP-method aliases (`DEL` → `DELETE`, case-insensitive).
+ */
 export const HTTP_METHOD_ALIASES: Record<string, HttpMethod> = {
   GET: "GET",
   POST: "POST",
@@ -41,10 +49,18 @@ export const HTTP_METHOD_ALIASES: Record<string, HttpMethod> = {
   ALL: "ALL",
 };
 
+/**
+ * Normalize a method string to a canonical {@link HttpMethod} (or `undefined`
+ * when unknown). Case-insensitive; honors the {@link HTTP_METHOD_ALIASES}.
+ */
 export function normalizeHttpMethod(input: string): HttpMethod | undefined {
   return HTTP_METHOD_ALIASES[input.toUpperCase()];
 }
 
+/**
+ * The full compiler options object. Every field is validated + defaulted by
+ * `validateOptions`; `Partial<CompilerOptions>` is the accepted input shape.
+ */
 export interface CompilerOptions {
   /**
    * Application runtime config file.
@@ -118,8 +134,15 @@ export interface CompilerOptions {
   readonly incremental?: boolean;
 
   readonly maxInlineBytes?: number;
+  /**
+   * Opt-in global budget (bytes) for ALL inlined handler bodies. When set,
+   * routes are inlined hottest-first until the budget is exhausted; the rest
+   * are imported instead. Unset (default) = every eligible route is inlined.
+   */
+  readonly maxTotalInlineBytes?: number;
 }
 
+/** The optimization preset level (0–3); see {@link optimizationPresets}. */
 export type OptimizationLevel = 0 | 1 | 2 | 3;
 
 /**
@@ -179,6 +202,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
   },
 };
 
+/** Per-route `cache-control` configuration (from a route's `config` export). */
 export interface RouteCacheConfig {
   readonly maxAge?: number;
   readonly swr?: number;
@@ -186,6 +210,7 @@ export interface RouteCacheConfig {
   readonly vary?: readonly string[];
 }
 
+/** Build the fully-defaulted {@link CompilerOptions} (env-aware). */
 export const createDefaultOptions = (): CompilerOptions => ({
   routesDir: process.env.ROUTES_DIR || "./src/routes",
   appConfig: process.env.APP_CONFIG || "./src/app.config.ts",
@@ -225,15 +250,19 @@ export const createDefaultOptions = (): CompilerOptions => ({
   maxInlineBytes: 2048,
 });
 
+/** The default {@link CompilerOptions} (see {@link createDefaultOptions}). */
 export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
 
+/** A 1-based line / 0-based column source position (ESTree convention). */
 export interface Position {
   readonly line: number;
   readonly column: number;
 }
 
+/** The kind of a top-level module symbol. */
 export type SymbolKind = "function" | "class" | "const" | "let" | "var" | "type" | "interface";
 
+/** Static analysis of a top-level module symbol (for inlining decisions). */
 export interface SymbolInfo {
   readonly name: string;
   readonly kind: SymbolKind;
@@ -249,6 +278,7 @@ export interface SymbolInfo {
   readonly hotness: number;
 }
 
+/** An import statement parsed from a module. */
 export interface ImportInfo {
   readonly source: string;
   readonly names: readonly string[];
@@ -256,6 +286,7 @@ export interface ImportInfo {
   readonly namespaceName?: string;
 }
 
+/** An export statement parsed from a module. */
 export interface ExportInfo {
   readonly name: string;
   readonly kind: "default" | "named" | "namespace";
@@ -268,8 +299,10 @@ export interface ExportInfo {
  */
 export type ModuleInfo = SourceFile;
 
+/** The serialization kind of a route's response. */
 export type ResponseType = "json" | "text" | "html" | "stream" | "unknown";
 
+/** Generated standalone validator identifiers per schema part. */
 export interface RouteValidators {
   readonly body?: string;
   readonly query?: string;
@@ -278,17 +311,13 @@ export interface RouteValidators {
   readonly cookie?: string;
 }
 
+/** Generated serializer identifiers per response shape. */
 export interface RouteSerializers {
   readonly json?: string;
   readonly byStatus?: Record<string, string>;
 }
 
-/**
- * @deprecated Use {@link RouteIR} (compiler IR). Kept as a type alias for
- * back-compat while phases migrate to the standard IR representation.
- */
-export type RouteDef = RouteIR;
-
+/** A hook module reference resolved during analysis. */
 export interface HookDef {
   readonly name: string;
   readonly source: string;
@@ -296,6 +325,7 @@ export interface HookDef {
   readonly isAsync: boolean;
 }
 
+/** The output of the discovery phase. */
 export interface DiscoveryResult {
   readonly files: readonly string[];
   readonly modules: readonly ModuleInfo[];
@@ -303,24 +333,28 @@ export interface DiscoveryResult {
   readonly sources: SourceManager;
 }
 
+/** The output of the analysis phase. */
 export interface AnalysisResult {
-  readonly routes: readonly RouteDef[];
+  readonly routes: readonly RouteIR[];
   readonly modules: readonly ModuleInfo[];
   readonly hooks: ReadonlyMap<string, HookDef>;
   readonly appConfig?: AppConfigInfo;
 }
 
+/** Counters describing what the optimization phase changed. */
 export interface OptimizationMeta {
   readonly inlined: number;
   readonly deduplicated: number;
   readonly eliminated: number;
 }
 
+/** The output of the optimization phase. */
 export interface OptimizationResult {
-  readonly routes: readonly RouteDef[];
+  readonly routes: readonly RouteIR[];
   readonly meta: OptimizationMeta;
 }
 
+/** Build metadata attached to a {@link CompileResult}. */
 export interface CompilationMeta {
   readonly inlinedHandlers: number;
   readonly deduplicatedHandlers: number;
@@ -344,6 +378,11 @@ export interface CompileResult {
   readonly metadata: CompilationMeta;
   /** True when the build was skipped because inputs were unchanged. */
   readonly cached?: boolean;
+  /**
+   * Relative paths of route files whose content changed since the last build
+   * (present only on incremental builds that could not be skipped entirely).
+   */
+  readonly changedRoutes?: string[];
 }
 
 /** Shared per-compile context passed through every phase. */

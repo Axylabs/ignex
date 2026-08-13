@@ -5,6 +5,15 @@
 
 import type { CacheControlDirectives, CacheControlOptions } from "./types";
 
+/**
+ * Build a `Cache-Control` header value from options.
+ *
+ * `noStore`/`noCache` short-circuit; other directives are emitted when set,
+ * with negative values clamped to 0.
+ *
+ * @param opts - The directives to emit.
+ * @returns The `Cache-Control` header value.
+ */
 export function cacheControl(opts: CacheControlOptions = {}): string {
   if (opts.noStore) return "no-store";
   if (opts.noCache) return "no-cache";

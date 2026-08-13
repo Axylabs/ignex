@@ -147,6 +147,25 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
   const latencies = new Map<string, number[]>();
   let errors = 0;
 
+  const hitRoute = async (spec: RouteSpec, record: boolean): Promise<void> => {
+    const start = performance.now();
+    try {
+      const init: RequestInit = { method: spec.method ?? "GET" };
+      if (spec.headers) init.headers = spec.headers;
+      if (spec.body) init.body = spec.body;
+      const res = await fetch(`${BASE}${spec.path}`, init);
+      await res.arrayBuffer();
+      if (res.status >= 500) errors += 1;
+      if (record) {
+        const arr = latencies.get(spec.label) ?? [];
+        arr.push(performance.now() - start);
+        latencies.set(spec.label, arr);
+      }
+    } catch {
+      errors += 1;
+    }
+  };
+
   const runWindow = async (ms: number, record: boolean): Promise<void> => {
     await Promise.all(
       Array.from({ length: CONCURRENCY }, async (_, wi) => {
@@ -158,22 +177,7 @@ async function runLoad(): Promise<{ latencies: Map<string, number[]>; errors: nu
         if (!spec) return;
         const deadline = Date.now() + ms;
         while (Date.now() < deadline) {
-          const start = performance.now();
-          try {
-            const init: RequestInit = { method: spec.method ?? "GET" };
-            if (spec.headers) init.headers = spec.headers;
-            if (spec.body) init.body = spec.body;
-            const res = await fetch(`${BASE}${spec.path}`, init);
-            await res.arrayBuffer();
-            if (res.status >= 500) errors += 1;
-            if (record) {
-              const arr = latencies.get(spec.label) ?? [];
-              arr.push(performance.now() - start);
-              latencies.set(spec.label, arr);
-            }
-          } catch {
-            errors += 1;
-          }
+          await hitRoute(spec, record);
         }
       }),
     );
@@ -341,48 +345,11 @@ async function buildApp(): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
-  if (!SKIP_BUILD) await buildApp();
-
-  const ALL_MODES: Mode[] = ["native", "fallback", "raw-bun"];
-  const resolveModes = (): Mode[] => {
-    switch (MODE) {
-      case "native":
-      case "fallback":
-      case "raw-bun":
-        return [MODE as Mode];
-      case "both":
-        return ["native", "fallback"];
-      default:
-        return ALL_MODES;
-    }
-  };
-  const modes = resolveModes();
-  const first = modes[0] ?? "native";
-
-  console.log(
-    `benchmarking ${routes.length} routes: duration=${DURATION_S}s warmup=${WARMUP_S}s concurrency=${CONCURRENCY} repeats=${REPEATS} modes=${modes.join(",")}`,
-  );
-
-  // Interleave: each repeat reverses the mode order to cancel order/drift.
-  const byMode = new Map<Mode, Array<{ routes: RouteResult[]; errors: number }>>();
-  for (const m of modes) byMode.set(m, []);
-
-  for (let i = 0; i < REPEATS; i++) {
-    const ordered = i % 2 === 0 ? modes : [...modes].reverse();
-    for (const mode of ordered) {
-      process.stdout.write(`repeat ${i + 1}/${REPEATS} mode=${mode} ... `);
-      const run = await runOnce(mode);
-      byMode.get(mode)?.push(run);
-      process.stdout.write(`done (${run.routes.reduce((a, r) => a + r.requests, 0)} req)\n`);
-    }
-  }
-
-  const results: ModeResult[] = modes.map((m) => aggregate(m, byMode.get(m) ?? []));
-  for (const r of results) printSummary(r);
-
-  // Compare every mode against the raw-Bun reference (falls back to "native"
-  // when raw-bun isn't part of the run).
+/** Compare every mode against the raw-Bun reference (falls back to "native"). */
+function buildComparisons(results: ModeResult[]): {
+  referenceMode: Mode;
+  comparison: RouteComparison[];
+} {
   const referenceMode: Mode = results.some((r) => r.mode === "raw-bun") ? "raw-bun" : "native";
   const reference = results.find((r) => r.mode === referenceMode);
   const comparison: RouteComparison[] = [];
@@ -392,6 +359,74 @@ async function main(): Promise<void> {
       comparison.push(...buildComparison(reference, other));
     }
   }
+  return { referenceMode, comparison };
+}
+
+/** Print per-route comparisons grouped by the competing mode. */
+function printComparisons(comparison: RouteComparison[], referenceMode: Mode): void {
+  const byOther = new Map<Mode, RouteComparison[]>();
+  for (const c of comparison) {
+    const arr = byOther.get(c.otherMode) ?? [];
+    arr.push(c);
+    byOther.set(c.otherMode, arr);
+  }
+  for (const [otherMode, rows] of byOther) {
+    console.log(
+      `\n=== ${otherMode} vs ${referenceMode} (rps ratio; >1 = faster than ${referenceMode}) ===`,
+    );
+    console.log(
+      `${"route".padEnd(34)} ${referenceMode}Rps  ${otherMode}Rps  ratio   ${referenceMode}P50  ${otherMode}P50`,
+    );
+    for (const c of rows) {
+      const ratioText = Number.isFinite(c.rpsRatio) ? c.rpsRatio.toFixed(2) : "  n/a";
+      const p50Text = Number.isFinite(c.p50Ratio) ? c.p50Ratio.toFixed(2) : "  n/a";
+      console.log(
+        `${c.label.padEnd(34)} ${c.referenceRps.toFixed(1).padStart(8)}  ${c.otherRps
+          .toFixed(1)
+          .padStart(9)}  ${ratioText.padStart(6)}   ${c.referenceP50Ms
+          .toFixed(2)
+          .padStart(8)}ms  ${c.otherP50Ms.toFixed(2).padStart(8)}ms  ${p50Text.padStart(6)}`,
+      );
+    }
+  }
+}
+
+async function main(): Promise<void> {
+  if (!SKIP_BUILD) await buildApp();
+
+  const ALL_MODES: Mode[] = ["native", "fallback", "raw-bun"];
+  const resolveModes = (): Mode[] => {
+    if (MODE === "native" || MODE === "fallback" || MODE === "raw-bun") {
+      return [MODE as Mode];
+    }
+    if (MODE === "both") return ["native", "fallback"];
+    return ALL_MODES;
+  };
+  const modes = resolveModes();
+  const first = modes[0] ?? "native";
+
+  console.log(
+    `benchmarking $routes.lengthroutes: duration=$DURATION_Ss warmup=$WARMUP_Ss concurrency=$CONCURRENCYrepeats=$REPEATSmodes=$modes.join(",")`,
+  );
+
+  // Interleave: each repeat reverses the mode order to cancel order/drift.
+  const byMode = new Map<Mode, Array<{ routes: RouteResult[]; errors: number }>>();
+  for (const m of modes) byMode.set(m, []);
+
+  for (let i = 0; i < REPEATS; i++) {
+    const ordered = i % 2 === 0 ? modes : [...modes].reverse();
+    for (const mode of ordered) {
+      process.stdout.write(`repeat $i + 1/${REPEATS} mode=${mode} ... `);
+      const run = await runOnce(mode);
+      byMode.get(mode)?.push(run);
+      process.stdout.write(`done (${run.routes.reduce((a, r) => a + r.requests, 0)} req)\n`);
+    }
+  }
+
+  const results: ModeResult[] = modes.map((m) => aggregate(m, byMode.get(m) ?? []));
+  for (const r of results) printSummary(r);
+
+  const { referenceMode, comparison } = buildComparisons(results);
 
   const report: {
     generatedAt: string;
@@ -420,27 +455,7 @@ async function main(): Promise<void> {
   };
 
   if (comparison.length > 0) {
-    const byOther = new Map<Mode, RouteComparison[]>();
-    for (const c of comparison) {
-      const arr = byOther.get(c.otherMode) ?? [];
-      arr.push(c);
-      byOther.set(c.otherMode, arr);
-    }
-    for (const [otherMode, rows] of byOther) {
-      console.log(
-        `\n=== ${otherMode} vs ${referenceMode} (rps ratio; >1 = faster than ${referenceMode}) ===`,
-      );
-      console.log(
-        `${"route".padEnd(34)} ${referenceMode}Rps  ${otherMode}Rps  ratio   ${referenceMode}P50  ${otherMode}P50`,
-      );
-      for (const c of rows) {
-        const ratioText = Number.isFinite(c.rpsRatio) ? c.rpsRatio.toFixed(2) : "  n/a";
-        const p50Text = Number.isFinite(c.p50Ratio) ? c.p50Ratio.toFixed(2) : "  n/a";
-        console.log(
-          `${c.label.padEnd(34)} ${c.referenceRps.toFixed(1).padStart(8)}  ${c.otherRps.toFixed(1).padStart(9)}  ${ratioText.padStart(6)}   ${c.referenceP50Ms.toFixed(2).padStart(8)}ms  ${c.otherP50Ms.toFixed(2).padStart(8)}ms  ${p50Text.padStart(6)}`,
-        );
-      }
-    }
+    printComparisons(comparison, referenceMode);
   }
 
   await mkdir(RESULTS_DIR, { recursive: true });

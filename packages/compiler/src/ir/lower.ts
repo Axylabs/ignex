@@ -87,8 +87,13 @@ export const parseRouteFilename = (
 
 // ── Pure helpers (moved from analysis/route-graph) ───────────────
 
+/** Build the generated-code identifier for a route's handler (`_h<index>`). */
 export const buildHandlerRef = (routeIndex: number): string => `_h${routeIndex}`;
 
+/**
+ * Find the handler export symbol of a route module (default export, or the
+ * first symbol when no default is present).
+ */
 export const findHandlerSymbol = (mod: ModuleInfo): SymbolInfo | undefined =>
   mod.symbols.find((s) => s.name === "default") || mod.symbols[0];
 
@@ -137,6 +142,16 @@ const evaluateConstantBodyAST = (ast: any): string | null => {
   }
 };
 
+/**
+ * Detect whether a route module's handler returns a constant response.
+ *
+ * Uses the AST + handler retained on the `SourceFile` (no re-parse). When the
+ * body is pure and its return value is statically evaluable, returns the
+ * JSON-serialized constant so codegen can hoist it.
+ *
+ * @param mod - The parsed route module.
+ * @returns Whether the response is constant and its serialized value.
+ */
 export const detectConstantResponse = (
   mod: SourceFile,
 ): { isConstant: boolean; constantResponse?: string } => {

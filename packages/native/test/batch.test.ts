@@ -8,7 +8,15 @@
  * bit-for-bit.
  */
 
-import { batch, crc32, fnv1a64, jsonValid } from "@ignus/native";
+import {
+  batch,
+  cookiePairs,
+  crc32,
+  fnv1a64,
+  formPairs,
+  jsonValid,
+  queryPairs,
+} from "@ignus/native";
 import { describe, expect, it } from "vitest";
 
 const enc = new TextEncoder();
@@ -26,6 +34,22 @@ const JSONS = [
 ];
 const CRCS = ["", "a", "foobar", "hello world", "x".repeat(64), "123456789"];
 const FNVS = ["", "a", "foobar", "castrum", "key-0", "x".repeat(128)];
+const QUERIES = [
+  "a=1&b=2",
+  "a=1&a=2&b=x+y",
+  "q=hello%20world&n=42&flag",
+  "",
+  "x=%E2%9C%93&y=%26%3D",
+  "key=",
+];
+const COOKIES = [
+  "session=abc123; theme=dark; lang=en-US",
+  'a=1; b="quoted value"; c=',
+  "",
+  "flag",
+  "x=1; y=2; y=3",
+];
+const FORMS = ["a=1&b=2", "name=John+Doe&age=30", "", "note=%E2%9C%93&multi=a&multi=b"];
 
 const bits = (items: readonly boolean[]): readonly number[] => items.map((b) => (b ? 1 : 0));
 
@@ -55,5 +79,28 @@ describe("batch parity (batch result must equal per-item scalar)", () => {
     expect([...batch.jsonValid([])]).toEqual([]);
     expect([...batch.crc32([])]).toEqual([]);
     expect([...batch.fnv1a64([])]).toEqual([]);
+    expect(batch.queryParse([])).toEqual([]);
+    expect(batch.cookieParse([])).toEqual([]);
+    expect(batch.formParse([])).toEqual([]);
+  });
+
+  it("queryParse batch == per-item scalar", () => {
+    expect(batch.queryParse(QUERIES)).toEqual(QUERIES.map((q) => queryPairs(q)));
+  });
+
+  it("cookieParse batch == per-item scalar", () => {
+    expect(batch.cookieParse(COOKIES)).toEqual(COOKIES.map((c) => cookiePairs(c)));
+  });
+
+  it("formParse batch == per-item scalar", () => {
+    expect(batch.formParse(FORMS)).toEqual(FORMS.map((f) => formPairs(f)));
+  });
+
+  it("pair batches accept Uint8Array inputs identically to strings", () => {
+    expect(batch.queryParse(QUERIES.map((q) => enc.encode(q)))).toEqual(batch.queryParse(QUERIES));
+    expect(batch.cookieParse(COOKIES.map((c) => enc.encode(c)))).toEqual(
+      batch.cookieParse(COOKIES),
+    );
+    expect(batch.formParse(FORMS.map((f) => enc.encode(f)))).toEqual(batch.formParse(FORMS));
   });
 });

@@ -13,6 +13,7 @@ export const queryPairs = (input: string | Uint8Array): Pairs => {
   return queryPairsFallback(toBytes(input));
 };
 
+/** Pure-TS fallback for {@link queryPairs} (identical behavior). */
 export const queryPairsFallback = (input: Uint8Array): Pairs => decodePairList(fromBytes(input));
 
 /** Parse a query string into an object (last value wins per key). */

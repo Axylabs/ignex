@@ -50,29 +50,93 @@ const isNativeSurface = (mod: unknown): mod is NativeAddon => {
 const srcDir = dirname(fileURLToPath(import.meta.url)); // .../packages/native/src
 const pkgDir = dirname(srcDir); // .../packages/native
 
-/** Candidate castrum package directories, in resolution order. */
-const findCastrumDir = (): string | null => {
-  // 1. The `file:` target from our package.json — the canonical dev setup
-  //    (points at the live repo with the freshly-built addon + TS entry).
+/** Read our own package.json's castrum `file:` optionalDependency target. */
+const castrumFromOwnPackage = (): string | null => {
   try {
     const own = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
       optionalDependencies?: Record<string, string>;
     };
     const spec = own.optionalDependencies?.castrum;
-    if (typeof spec === "string" && spec.startsWith("file:")) {
-      const target = join(pkgDir, spec.slice("file:".length));
-      if (existsSync(join(target, "package.json"))) return target;
-    }
+    if (typeof spec !== "string" || !spec.startsWith("file:")) return null;
+    const target = join(pkgDir, spec.slice("file:".length));
+    return existsSync(join(target, "package.json")) ? target : null;
   } catch {
-    /* ignore */
+    return null;
   }
+};
 
-  // 2. Our own node_modules symlink (created by bun install for the `file:` dep).
+/** Resolve castrum via our own node_modules symlink (created by bun install). */
+const castrumFromSymlink = (): string | null => {
   const symlink = join(pkgDir, "node_modules", "castrum");
-  if (existsSync(join(symlink, "package.json"))) return symlink;
+  return existsSync(join(symlink, "package.json")) ? symlink : null;
+};
 
+/** Collect the ancestor directories of `start` up to the filesystem root. */
+const ancestorDirs = (start: string): string[] => {
+  const roots: string[] = [];
+  let cur = start;
+  for (let i = 0; i < 64; i++) {
+    roots.push(cur);
+    const next = dirname(cur);
+    if (next === cur) break;
+    cur = next;
+  }
+  return roots;
+};
+
+/** Resolve a workspace `packages/*` directory at `ancestor` that targets castrum. */
+const castrumFromWorkspace = (ancestor: string): string | null => {
+  let pkgs: string[] = [];
+  try {
+    pkgs = readdirSync(join(ancestor, "packages")).filter((e) => {
+      try {
+        return existsSync(join(ancestor, "packages", e, "package.json"));
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return null;
+  }
+  for (const name of pkgs) {
+    try {
+      const pkg = JSON.parse(
+        readFileSync(join(ancestor, "packages", name, "package.json"), "utf8"),
+      ) as { optionalDependencies?: Record<string, string> };
+      const spec = pkg.optionalDependencies?.castrum;
+      if (typeof spec === "string" && spec.startsWith("file:")) {
+        const target = join(ancestor, "packages", name, spec.slice("file:".length));
+        if (existsSync(join(target, "package.json"))) return target;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   return null;
 };
+
+/**
+ * Candidate castrum package directories, in resolution order.
+ *
+ * 1. The `file:` target from our package.json — the canonical dev setup
+ *    (points at the live repo with the freshly-built addon + TS entry).
+ * 2. Our own node_modules symlink (created by bun install for the `file:` dep).
+ * 3. Bundled-entry fallback: when this module is inlined into a bundled entry
+ *    (e.g. `packages/app/dist/__server.js`), `import.meta.url` points at the
+ *    app (or the dist dir), so neither step 1 nor step 2 can find castrum.
+ *    Walk up from the module dir AND cwd to the filesystem root; at each
+ *    ancestor with a `packages/` directory, look for a workspace package that
+ *    declares `optionalDependencies.castrum` as a `file:` target and resolve
+ *    that target to the LIVE castrum repo (with the freshly-built addon),
+ *    bypassing bun's stale install cache.
+ */
+const findCastrumDir = (): string | null =>
+  castrumFromOwnPackage() ??
+  castrumFromSymlink() ??
+  [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
+    (found, ancestor) => found ?? castrumFromWorkspace(ancestor),
+    null,
+  );
 
 /** Find the addon binary (`*.node`) inside a castrum package directory. */
 const findAddonPath = (dir: string): string | null => {
@@ -166,6 +230,7 @@ export const getNative = (): NativeAddon | null => native;
 /** True when the Rust addon is present and usable. */
 export const isNativeAvailable = (): boolean => native != null;
 
+/** Options for {@link initNative}. */
 export interface NativeInitOptions {
   /**
    * Rayon worker-pool size. Only honored before the pool's first use (castrum
@@ -174,6 +239,7 @@ export interface NativeInitOptions {
   threads?: number;
 }
 
+/** Result of {@link initNative}. */
 export interface NativeInitResult {
   /** Whether the Rust addon is present and usable. */
   readonly available: boolean;

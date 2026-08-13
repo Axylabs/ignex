@@ -7,7 +7,7 @@
  * phase (`../optimization.ts`); codegen only reads `route.decisions`.
  */
 
-import type { RouteDef } from "../../types";
+import type { RouteIR } from "../../types";
 import type { CodegenConfig } from "./config";
 
 /**
@@ -16,7 +16,7 @@ import type { CodegenConfig } from "./config";
  * Response bypasses the whole lifecycle (plugins, hooks, ctx.set, error
  * handling) — only allowed when we can prove there is nothing to bypass.
  */
-export const tryNormalizeConstant = (route: RouteDef, hasGlobalHooks: boolean): string | null => {
+export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): string | null => {
   if (!route.analysis.isConstantResponse || !route.analysis.constantResponse) return null;
   if (hasGlobalHooks) return null;
   if (route.analysis.hooks.length > 0) return null;
@@ -33,7 +33,7 @@ export const tryNormalizeConstant = (route: RouteDef, hasGlobalHooks: boolean): 
 
 /** Route `cache` config → `HttpResponseCache` options (or `undefined`). */
 export const getCacheConfig = (
-  route: RouteDef,
+  route: RouteIR,
   cfg: CodegenConfig,
 ):
   | {

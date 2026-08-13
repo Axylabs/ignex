@@ -13,7 +13,8 @@
       "!**/project.txt",
       "!**/context.py",
       "!**/views/**/*.html",
-      "!**/test/fixtures/client-types"
+      "!**/test/fixtures/client-types",
+      "!bench/results"
     ]
   },
   "linter": {
@@ -26,7 +27,7 @@
           "level": "warn",
           "options": { "allow": ["log", "warn", "error", "info"] }
         },
-        "noAssignInExpressions": "warn",
+        "noAssignInExpressions": "error",
         "useIterableCallbackReturn": "warn"
       },
       "correctness": {
@@ -35,11 +36,22 @@
       "style": {
         "noNonNullAssertion": "warn",
         "useNodejsImportProtocol": "warn",
-        "useTemplate": "warn"
+        "useTemplate": "warn",
+        "useConst": "error",
+        "noParameterAssign": "error",
+        "noUselessElse": "error"
       },
       "complexity": {
         "noBannedTypes": "warn",
-        "useOptionalChain": "warn"
+        "useOptionalChain": "warn",
+        "noCommaOperator": "error",
+        "noUselessTernary": "error",
+        "noUselessCatch": "error",
+        "noUselessStringConcat": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": { "maxAllowedComplexity": 25 }
+        }
       }
     }
   },

@@ -27,6 +27,7 @@ import type { IgnusContext } from "./context";
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
 
+/** The per-route input/output schemas accepted by the route DSL helpers. */
 export type RouteSchemas = {
   body?: SchemaLike;
   query?: SchemaLike;
@@ -35,7 +36,15 @@ export type RouteSchemas = {
   response?: SchemaLike | Record<number, SchemaLike>;
 };
 
+/**
+ * @deprecated Alias of {@link RouteSchemas} kept for back-compat. Prefer
+ * `RouteSchemas` for body-capable methods.
+ */
 export type BodyRouteSchemas = RouteSchemas;
+/**
+ * @deprecated Alias of `Omit<RouteSchemas, "body">` kept for back-compat.
+ * Prefer the inline `Omit` for body-less methods.
+ */
 export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
 
 // `any` in the conditional types below is intentional: it must match a
@@ -80,6 +89,10 @@ type TypedLazyBody<B> = {
   multipart<T = B extends Record<string, unknown> ? B : Record<string, unknown>>(): Promise<T>;
 } & LazyBody;
 
+/**
+ * The handler context for a route with its schema inferred: `params`/`query`
+ * and a typed `body` (with typed `json`/`form`/`multipart` accessors).
+ */
 export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
   IgnusContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
   "body" | "query"
@@ -104,6 +117,10 @@ type StatusBodyResult<S extends Partial<RouteSchemas>> = S extends { response: i
     : { status: number; body: InferResponse<S> }
   : { status: number; body: InferResponse<S> };
 
+/**
+ * A route handler: receives the schema-typed {@link RouteContext} and returns
+ * a response (or a plain value validated against the response schema).
+ */
 export type RouteHandler<S extends Partial<RouteSchemas>> = (
   ctx: RouteContext<S>,
 ) => RouteResult<S>;

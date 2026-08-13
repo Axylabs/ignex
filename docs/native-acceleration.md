@@ -225,6 +225,44 @@ The bridge itself is `@ignus/native` `createNativePipeline(options)` →
 castrum's outcome into a small `NativePreflightOutcome`). Any native failure
 resolves to a non-terminal outcome — the addon can never break a request.
 
+### 2026-08-13 — typed stages + measured activation decisions
+
+The pipeline's dormant stages are now first-class, **typed** and **tested**
+through the bridge (`packages/native/test/ingress-stages.test.ts` proves
+rate-limit → terminal 429 and CORS preflight → 204/403 end-to-end):
+
+- `nativePreflight` now accepts top-level `rateLimit` and `cors` conveniences
+  (plus a typed `options: NativeIngressOptions`), merged into the single
+  ingress option bag:
+
+  ```ts
+  nativePreflight({
+    rateLimit: { limit: 120, windowMs: 60_000 },
+    cors: { allowOrigin: ["https://app.example.com"] },
+  });
+  ```
+
+- **Rate limiting — single owner.** The pipeline's fixed-window stage and the
+  `rateLimit` plugin's `native: true` both use Rust fixed-window limiters; do
+  NOT enable both for the same budget or requests are double-charged. Prefer
+  the pipeline (`nativePreflight({ rateLimit })`) for IP-based fixed-window;
+  use the `rateLimit` plugin only for custom `keyGenerator`s or the
+  sliding-window/token-bucket algorithms (TS-only).
+- **CORS — split by design.** The pipeline answers OPTIONS preflight entirely
+  in Rust (terminal 204 echoing the allowed origin + baked security headers,
+  403 for denied origins). The OK-path `access-control-*` echo stays with the
+  JS `cors()` plugin (dynamic origins / expose headers / max-age). Plugin
+  order matters: the pipeline short-circuits preflight only when
+  `nativePreflight` runs before `cors()` in the plugin array.
+- **Schema validation — deliberately NOT moved into the pipeline.** The app
+  already routes the heavy bulk route through the native one-pass
+  `createSchemaValidator.derive` in the handler (`routes/api/orders.post.ts`)
+  — native validation without `JSON.parse`. Moving it into the pipeline's
+  `schema` stage would require `readBody: true` (buffering the body in the
+  pipeline and handing it to the framework), which reworks the lazy-body
+  contract and risks streaming uploads — for a saving of only the extra FFI
+  crossing. Non-goal; the per-route native derive pattern is the stable choice.
+
 ## Adding a function
 
 Follow `docs/adding-a-feature.md` section D: implement the fallback, export

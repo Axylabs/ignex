@@ -9,8 +9,10 @@
  *
  * Exposed "by default" on every request context as `ctx.loader(...)`.
  */
+/** The batch function: maps a batch of keys to one value per key. */
 export type BatchLoadFn<Key, Value> = (keys: readonly Key[]) => Promise<readonly Value[]>;
 
+/** Options for {@link createDataLoader}. */
 export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
   /** Max keys per batch; flush immediately when reached. Default: Infinity. */
   maxBatchSize?: number;
@@ -32,6 +34,10 @@ export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
   cacheErrors?: boolean;
 }
 
+/**
+ * A DataLoader instance: batches concurrent loads, caches results, and
+ * supports invalidation.
+ */
 export interface DataLoader<Key, Value> {
   /** Load a single key, batching it with concurrent loads. */
   load(key: Key): Promise<Value>;
@@ -75,6 +81,17 @@ const batchError = (expected: number, got: number): Error =>
     `DataLoader batchLoadFn must return one value per key (expected ${expected}, got ${got}).`,
   );
 
+/**
+ * Create a DataLoader around a `batchLoadFn`.
+ *
+ * Concurrent `load(key)` calls within one microtask are batched into a single
+ * `batchLoadFn(keys)` call; results are cached for the loader's lifetime
+ * (per-request when created via `ctx.loader`) unless `cache: false`.
+ *
+ * @param batchLoadFn - Maps a batch of keys to one value per key.
+ * @param options - Batching/caching tuning (see {@link DataLoaderOptions}).
+ * @throws When `batchLoadFn` returns a mismatched number of values.
+ */
 export const createDataLoader = <Key, Value, CacheKey = Key>(
   batchLoadFn: BatchLoadFn<Key, Value>,
   options: DataLoaderOptions<Key, Value, CacheKey> = {},
@@ -91,47 +108,46 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
 
   let currentBatch: Batch<Key, Value, CacheKey> | null = null;
 
+  const rejectAll = (batch: Batch<Key, Value, CacheKey>, error: unknown): void => {
+    for (const cb of batch.callbacks) {
+      for (const subscriber of cb.subscribers) subscriber.reject(error);
+    }
+  };
+
+  const settleKey = (key: Key, value: Value, cb: BatchCallback<Value> | undefined): void => {
+    const cacheKey = cacheKeyFn(key);
+    if (value instanceof Error) {
+      // Standard DataLoader: a per-key Error rejects only that key and is
+      // NOT cached. With `cacheErrors` we cache it so a repeat load rejects
+      // from the error cache instead of re-batching (avoids hammering the
+      // batch function for a permanently-failing key).
+      if (errorCache) errorCache.set(cacheKey, value);
+      for (const subscriber of cb?.subscribers ?? []) subscriber.reject(value);
+      return;
+    }
+    cache?.set(cacheKey, value);
+    for (const subscriber of cb?.subscribers ?? []) subscriber.resolve(value as Value);
+  };
+
   const dispatch = async (batch: Batch<Key, Value, CacheKey>): Promise<void> => {
     batch.hasDispatched = true;
     if (batch.keys.length === 0) return;
 
     let values: readonly Value[];
-
     try {
       values = await batchLoadFn(batch.keys);
     } catch (error) {
-      for (const cb of batch.callbacks) {
-        for (const subscriber of cb.subscribers) subscriber.reject(error);
-      }
+      rejectAll(batch, error);
       return;
     }
 
     if (values.length !== batch.keys.length) {
-      const error = batchError(batch.keys.length, values.length);
-      for (const cb of batch.callbacks) {
-        for (const subscriber of cb.subscribers) subscriber.reject(error);
-      }
+      rejectAll(batch, batchError(batch.keys.length, values.length));
       return;
     }
 
     for (let i = 0; i < batch.keys.length; i++) {
-      const key = batch.keys[i] as Key;
-      const value = values[i];
-      const cb = batch.callbacks[i];
-      const cacheKey = cacheKeyFn(key);
-
-      if (value instanceof Error) {
-        // Standard DataLoader: a per-key Error rejects only that key and is
-        // NOT cached. With `cacheErrors` we cache it so a repeat load rejects
-        // from the error cache instead of re-batching (avoids hammering the
-        // batch function for a permanently-failing key).
-        if (errorCache) errorCache.set(cacheKey, value);
-        for (const subscriber of cb?.subscribers ?? []) subscriber.reject(value);
-        continue;
-      }
-
-      cache?.set(cacheKey, value);
-      for (const subscriber of cb?.subscribers ?? []) subscriber.resolve(value);
+      settleKey(batch.keys[i] as Key, values[i], batch.callbacks[i]);
     }
   };
 

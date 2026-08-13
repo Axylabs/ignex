@@ -14,7 +14,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { CompilerOptions, RouteDef } from "@ignus/compiler";
+import type { CompilerOptions, RouteIR } from "@ignus/compiler";
 import { generateOpenApi, parseRouteFilename } from "@ignus/compiler";
 
 const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
@@ -45,7 +45,7 @@ async function main() {
     files.push(file);
   }
 
-  const routes: RouteDef[] = [];
+  const routes: RouteIR[] = [];
 
   for (const file of files) {
     const parsed = parseRouteFilename(file);
@@ -55,7 +55,7 @@ async function main() {
     const abs = join(process.cwd(), ROUTES_DIR, file);
     const schema = await loadRouteSchema(abs);
 
-    // Shape the loaded route module into the minimal RouteDef surface the
+    // Shape the loaded route module into the minimal RouteIR surface the
     // canonical OpenAPI generator reads; everything else is derived there.
     routes.push({
       source: {
@@ -68,7 +68,7 @@ async function main() {
         usage: { body: Boolean(schema?.body) },
       },
       decisions: { schemaDoc: schema as Record<string, unknown> | undefined },
-    } as unknown as RouteDef);
+    } as unknown as RouteIR);
   }
 
   const openapi = generateOpenApi(routes, { serviceName: "ignus" } as CompilerOptions);

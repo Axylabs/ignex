@@ -21,8 +21,8 @@ export const fnv1a64 = (input: string | Uint8Array): bigint => {
 /** Pure-TS FNV-1a 64-bit implementation (test vector: `fnv1a64("")` is the offset basis). */
 export const fnv1a64Fallback = (input: Uint8Array): bigint => {
   let h = 0xcbf29ce484222325n;
-  for (let i = 0; i < input.length; i++) {
-    h ^= BigInt(input[i]!);
+  for (const byte of input) {
+    h ^= BigInt(byte);
     h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
   }
   return h;

@@ -30,6 +30,14 @@ interface StoredEntry {
   stale: boolean;
 }
 
+/**
+ * An LRU-backed HTTP response cache with single-flight cold misses and
+ * stale-while-revalidate background refresh.
+ *
+ * Only cacheable responses (per `Cache-Control`/`Set-Cookie` rules) are
+ * stored; oversized bodies are rejected. `getOrSet` de-duplicates concurrent
+ * misses for the same key.
+ */
 export class HttpResponseCache {
   private lru: LRUCache<string, CachedHttpResponse>;
   private maxBodyBytes: number;

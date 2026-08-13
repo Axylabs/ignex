@@ -20,11 +20,42 @@ export const jsonValid = (input: string | Uint8Array): boolean => {
 
 // ── JSON Schema validation (native-or-null bridge) ──────────────
 
+/** Compiled native JSON-Schema validator (validates, batches, and derives). */
 export interface SchemaValidator {
   /** `true` when `input` is a JSON document valid against the compiled schema. */
   validate(input: string | Uint8Array): boolean;
   /** Validate a packed batch of JSON documents → number of valid items. */
   validateBatchPackedCount(packed: Uint8Array): number;
+  /**
+   * One-pass validate + extract: validate `input` against the schema and
+   * capture scalar values / array lengths at `paths` during the same native
+   * walk (no `JSON.parse`, no DOM). For "derive" routes (response built from a
+   * handful of body fields) this replaces `JSON.parse` + Ajv on the happy path
+   * and rejects invalid bodies with zero DOM/GC.
+   *
+   * `paths` are RFC 6901 JSON pointers of OBJECT KEYS; a trailing `/-`
+   * captures the ARRAY LENGTH at that path (e.g. `"/totalCents"`,
+   * `"/lineItems/-"`). Array-index steps are not supported.
+   */
+  derive(input: string | Uint8Array, paths: string[]): JsonDeriveResult | null;
+}
+
+/** A single derived value captured during one-pass validation. */
+export interface JsonDeriveValue {
+  /** `"int" | "number" | "string" | "bool" | "null"`. */
+  kind: string;
+  int: number | null;
+  number: number | null;
+  text: string | null;
+  boolean: boolean | null;
+}
+
+/** Result of a one-pass `validate + derive`. */
+export interface JsonDeriveResult {
+  /** `true` when the document is schema-valid; `false` → caller rejects. */
+  ok: boolean;
+  /** One entry per requested path (`null` = path absent from the document). */
+  values: Array<JsonDeriveValue | null>;
 }
 
 /**
@@ -47,6 +78,10 @@ export const createSchemaValidator = (schema: string | Uint8Array): SchemaValida
     },
     validateBatchPackedCount(packed) {
       return inst.validateBatchPackedCount(packed);
+    },
+    derive(input, paths) {
+      const r = inst.derive(toBytes(input), paths);
+      return r ? { ok: r.ok, values: r.values } : null;
     },
   };
 };
@@ -72,27 +107,36 @@ const parseArrayIndex = (token: string): number | null => {
 
 type Loc = { ok: true; container: Json; key: string | number; exists: boolean } | { ok: false };
 
+/** Advance one JSON-pointer token into the current container (`undefined` = miss). */
+const descend = (container: Json, token: string): Json | undefined => {
+  if (Array.isArray(container)) {
+    const idx = parseArrayIndex(token);
+    if (idx == null || idx === Number.POSITIVE_INFINITY || idx >= container.length) {
+      return undefined;
+    }
+    return container[idx];
+  }
+  if (container != null && typeof container === "object") {
+    const obj = container as Record<string, Json>;
+    if (!(token in obj)) return undefined;
+    return obj[token];
+  }
+  return undefined;
+};
+
 /** Resolve the container + key for the final token of a JSON pointer. */
 const getParent = (root: Json, tokens: string[]): Loc => {
   let container: Json = root;
   if (tokens.length === 0) return { ok: true, container: root, key: "", exists: true };
   for (let i = 0; i < tokens.length - 1; i++) {
-    const t = tokens[i]!;
-    if (Array.isArray(container)) {
-      const idx = parseArrayIndex(t);
-      if (idx == null || idx === Number.POSITIVE_INFINITY || idx >= container.length) {
-        return { ok: false };
-      }
-      container = container[idx]!;
-    } else if (container != null && typeof container === "object") {
-      const obj = container as Record<string, Json>;
-      if (!(t in obj)) return { ok: false };
-      container = obj[t]!;
-    } else {
-      return { ok: false };
-    }
+    const t = tokens[i];
+    if (t === undefined) return { ok: false };
+    const next = descend(container, t);
+    if (next === undefined) return { ok: false };
+    container = next;
   }
-  const key = tokens[tokens.length - 1]!;
+  const key = tokens[tokens.length - 1];
+  if (key === undefined) return { ok: false };
   if (Array.isArray(container)) {
     const idx = parseArrayIndex(key);
     if (idx == null || idx === Number.POSITIVE_INFINITY || idx > container.length) {
@@ -162,6 +206,62 @@ const removeValue = (loc: Extract<Loc, { ok: true }>): void => {
   }
 };
 
+const splitTokens = (path: string): string[] =>
+  path === "" ? [] : path.replace(/^\//, "").split("/").map(unescapeToken);
+
+const applyAdd = (root: Json, tokens: string[], value: Json, path: string): void => {
+  const loc = getParent(root, tokens);
+  if (!loc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad add path '${path}'`);
+  addValue(loc, value);
+};
+
+const applyRemove = (root: Json, tokens: string[], path: string): void => {
+  const loc = getParent(root, tokens);
+  if (!loc.ok || !loc.exists || tokens.length === 0) {
+    throw new Error(`jsonPatch: bad remove path '${path}'`);
+  }
+  removeValue(loc);
+};
+
+const applyReplace = (root: Json, tokens: string[], value: Json, path: string): void => {
+  const loc = getParent(root, tokens);
+  if (!loc.ok || !loc.exists || tokens.length === 0) {
+    throw new Error(`jsonPatch: bad replace path '${path}'`);
+  }
+  (loc.container as Record<string | number, Json>)[loc.key] = value;
+};
+
+const applyTest = (root: Json, tokens: string[], value: Json, path: string): void => {
+  const current = getValue(root, tokens);
+  if (!deepEqual(current, value)) {
+    throw new Error(`jsonPatch: test failed at '${path}'`);
+  }
+};
+
+const applyMove = (root: Json, tokens: string[], op: Record<string, Json>, path: string): void => {
+  const from = String(op.from ?? "");
+  const fromTokens = splitTokens(from);
+  const value = getValue(root, fromTokens);
+  const fromLoc = getParent(root, fromTokens);
+  if (value === undefined || !fromLoc.ok || !fromLoc.exists || fromTokens.length === 0) {
+    throw new Error(`jsonPatch: bad move from '${from}'`);
+  }
+  removeValue(fromLoc);
+  const toLoc = getParent(root, tokens);
+  if (!toLoc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad move path '${path}'`);
+  addValue(toLoc, value);
+};
+
+const applyCopy = (root: Json, tokens: string[], op: Record<string, Json>, path: string): void => {
+  const from = String(op.from ?? "");
+  const fromTokens = splitTokens(from);
+  const value = getValue(root, fromTokens);
+  if (value === undefined) throw new Error(`jsonPatch: bad copy from '${from}'`);
+  const toLoc = getParent(root, tokens);
+  if (!toLoc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad copy path '${path}'`);
+  addValue(toLoc, structuredClone(value));
+};
+
 /** Minimal RFC 6902 implementation (add/remove/replace/test/move/copy). */
 export const jsonPatchFallback = (doc: string, patch: string): string => {
   const root: Json = JSON.parse(doc);
@@ -170,62 +270,27 @@ export const jsonPatchFallback = (doc: string, patch: string): string => {
   for (const op of ops) {
     const kind = String(op.op);
     const path = String(op.path);
-    const tokens = path === "" ? [] : path.replace(/^\//, "").split("/").map(unescapeToken);
+    const tokens = splitTokens(path);
 
     switch (kind) {
-      case "add": {
-        const loc = getParent(root, tokens);
-        if (!loc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad add path '${path}'`);
-        addValue(loc, op.value);
+      case "add":
+        applyAdd(root, tokens, op.value, path);
         break;
-      }
-      case "remove": {
-        const loc = getParent(root, tokens);
-        if (!loc.ok || !loc.exists || tokens.length === 0) {
-          throw new Error(`jsonPatch: bad remove path '${path}'`);
-        }
-        removeValue(loc);
+      case "remove":
+        applyRemove(root, tokens, path);
         break;
-      }
-      case "replace": {
-        const loc = getParent(root, tokens);
-        if (!loc.ok || !loc.exists || tokens.length === 0) {
-          throw new Error(`jsonPatch: bad replace path '${path}'`);
-        }
-        (loc.container as Record<string | number, Json>)[loc.key] = op.value;
+      case "replace":
+        applyReplace(root, tokens, op.value, path);
         break;
-      }
-      case "test": {
-        const current = getValue(root, tokens);
-        if (!deepEqual(current, op.value)) {
-          throw new Error(`jsonPatch: test failed at '${path}'`);
-        }
+      case "test":
+        applyTest(root, tokens, op.value, path);
         break;
-      }
-      case "move": {
-        const from = String(op.from ?? "");
-        const fromTokens = from === "" ? [] : from.replace(/^\//, "").split("/").map(unescapeToken);
-        const value = getValue(root, fromTokens);
-        const fromLoc = getParent(root, fromTokens);
-        if (value === undefined || !fromLoc.ok || !fromLoc.exists || fromTokens.length === 0) {
-          throw new Error(`jsonPatch: bad move from '${from}'`);
-        }
-        removeValue(fromLoc);
-        const toLoc = getParent(root, tokens);
-        if (!toLoc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad move path '${path}'`);
-        addValue(toLoc, value);
+      case "move":
+        applyMove(root, tokens, op, path);
         break;
-      }
-      case "copy": {
-        const from = String(op.from ?? "");
-        const fromTokens = from === "" ? [] : from.replace(/^\//, "").split("/").map(unescapeToken);
-        const value = getValue(root, fromTokens);
-        if (value === undefined) throw new Error(`jsonPatch: bad copy from '${from}'`);
-        const toLoc = getParent(root, tokens);
-        if (!toLoc.ok || tokens.length === 0) throw new Error(`jsonPatch: bad copy path '${path}'`);
-        addValue(toLoc, structuredClone(value));
+      case "copy":
+        applyCopy(root, tokens, op, path);
         break;
-      }
       default:
         throw new Error(`jsonPatch: unsupported op '${kind}'`);
     }

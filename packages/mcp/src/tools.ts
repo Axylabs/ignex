@@ -90,14 +90,24 @@ export const runRouteTool = async (args: RouteToolArgs): Promise<string> => {
     });
   }
 
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(
-    filePath,
-    routeFileTemplate(parsed, {
-      schema: Boolean(args.schema),
-      named: Boolean(args.named),
-    }),
-  );
+  // Never throw into the MCP protocol on disk/permission failures — return a
+  // structured error so the agent gets an actionable message instead of a
+  // broken tool call.
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(
+      filePath,
+      routeFileTemplate(parsed, {
+        schema: Boolean(args.schema),
+        named: Boolean(args.named),
+      }),
+    );
+  } catch (error) {
+    return safeJson({
+      ok: false,
+      error: `Failed to write route: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 
   return safeJson({
     ok: true,

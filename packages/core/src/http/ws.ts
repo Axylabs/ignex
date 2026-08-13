@@ -6,6 +6,12 @@
 import type { ServerWebSocket, WebSocketHandler } from "../types";
 import type { IgnusContext } from "./context";
 
+/**
+ * Typed websocket wrapper around a raw {@link ServerWebSocket}.
+ *
+ * `send`/`publish` pass strings and binary through verbatim and JSON-stringify
+ * any other object, so handlers can send plain objects directly.
+ */
 export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
   constructor(
     public raw: ServerWebSocket<Context>,
@@ -80,6 +86,12 @@ export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
   }
 }
 
+/**
+ * User-facing websocket event hooks, dispatched by {@link createWSHandler}.
+ *
+ * `message` receives the parsed message (JSON-decoded when the frame was a
+ * string and parsed successfully, otherwise the raw string/Buffer).
+ */
 export interface WSLocalHook<Context = unknown, Body = unknown, Response = unknown> {
   open?(ws: IgnusWS<Context, Body, Response>): void | Promise<void>;
   message?(ws: IgnusWS<Context, Body, Response>, message: Body): void | Promise<void>;
@@ -93,6 +105,7 @@ export interface WSLocalHook<Context = unknown, Body = unknown, Response = unkno
   upgrade?: Record<string, unknown> | ((ctx: IgnusContext) => unknown);
 }
 
+/** Options for {@link upgradeWS} / {@link createWSHandler}. */
 export interface WSUpgradeOptions<Context> {
   /** Explicit socket data; merged with (or overridden by) `hook.upgrade`. */
   data?: Context;
@@ -146,6 +159,9 @@ export interface WSConnections<Context = unknown, Body = unknown, Response = unk
   broadcastJson(data: unknown, compress?: boolean): void;
 }
 
+/**
+ * A live registry of connected {@link IgnusWS} sockets, with broadcast helpers.
+ */
 export const createWSConnections = <Context, Body, Response>(): WSConnections<
   Context,
   Body,
@@ -176,6 +192,17 @@ export const createWSConnections = <Context, Body, Response>(): WSConnections<
   };
 };
 
+/**
+ * Build a raw {@link WebSocketHandler} from a {@link WSLocalHook}.
+ *
+ * Wraps each raw socket in a single persistent {@link IgnusWS} so hooks can
+ * stash per-socket state on it. When `connections` is provided, sockets are
+ * added on open and removed on close (so `broadcast` never hits dead sockets).
+ *
+ * @param hook - The user-facing event hooks.
+ * @param connections - Optional live-socket registry to maintain.
+ * @returns A handler ready for Bun's `upgrade`/websocket server config.
+ */
 export const createWSHandler = <Context, Body, Response>(
   hook: WSLocalHook<Context, Body, Response>,
   connections?: WSConnections<Context, Body, Response>,

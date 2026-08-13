@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+/** The lifecycle status of a durable job. */
 export type JobStatus = "queued" | "running" | "completed" | "failed";
 
 /** A serializable, durable job record. */
@@ -40,6 +41,9 @@ export interface StoredJob {
   readonly createdAt: number;
 }
 
+/**
+ * A pluggable persistent store for durable jobs (file, SQLite, …).
+ */
 export interface JobStore {
   /** Persist a job for future processing. */
   enqueue(job: StoredJob): Promise<void>;
@@ -65,6 +69,7 @@ export interface JobStore {
 
 /** Monotonic job-id generator (process-local; files store whatever is given). */
 let durableJobIdCounter = 0;
+/** Generate a monotonic process-local job id (`job-<ts>-<n>`). */
 export const newJobId = (): string => `job-${Date.now()}-${++durableJobIdCounter}`;
 
 /** Serialize an error to a short, stable string for `lastError`. */
@@ -129,7 +134,7 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
 
     async heartbeat(id, until) {
       const job = jobs.get(id);
-      if (!job || job.status !== "running") return;
+      if (job?.status !== "running") return;
       job.leaseUntil = until;
       save();
     },

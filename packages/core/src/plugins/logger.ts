@@ -9,6 +9,7 @@ import pino, { type Logger as PinoLogger } from "pino";
 import type { IgnusContext } from "../http/context";
 import type { IgnusPlugin } from "../lifecycle/plugin";
 
+/** Options for {@link logger}. */
 export interface LoggerOptions {
   level?: string;
   logger?: PinoLogger;
@@ -51,6 +52,12 @@ const createLogPayload = (ctx: IgnusContext, response: Response) => {
   };
 };
 
+/**
+ * Structured access-log plugin (pino). Redacts authorization/cookie headers.
+ *
+ * @param options - Log level, custom logger, or a `skip` predicate.
+ * @returns The logger plugin.
+ */
 export const logger = (options: LoggerOptions = {}): IgnusPlugin => {
   const log = createPinoLogger(options);
 

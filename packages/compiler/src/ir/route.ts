@@ -14,8 +14,6 @@
  *   (inline eligibility, dedup group, inline candidate, validators,
  *   serializers, schema doc). Owned by those phases.
  * - {@link RouteIRCodegen}  — codegen-owned identifiers (e.g. `handlerRef`).
- *
- * `RouteDef` in `types.ts` is a deprecated alias of `RouteIR`.
  */
 
 import type { ContextUsage } from "@ignus/shared";

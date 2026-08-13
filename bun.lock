@@ -13,6 +13,7 @@
         "expect-type": "^1.4.0",
         "fast-check": "^4.9.0",
         "lefthook": "^2.1.10",
+        "oxc-parser": "^0.140.0",
         "oxlint": "^1.74.0",
         "tinybench": "^6.0.2",
         "typescript": "^7.0.2",
@@ -54,6 +55,7 @@
       "name": "@ignus/compiler",
       "version": "0.1.0",
       "dependencies": {
+        "@ignus/core": "workspace:*",
         "@ignus/shared": "workspace:*",
         "@sinclair/typebox": "^0.34.52",
         "ajv": "^8.20.0",
@@ -97,7 +99,7 @@
         "@ignus/compiler": "workspace:*",
         "@ignus/native": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.30.0",
-        "zod": "^3.25.0",
+        "zod": "^3.24.0",
       },
       "devDependencies": {
         "typescript": "^7.0.2",
@@ -121,6 +123,13 @@
       "devDependencies": {
         "typescript": "^7.0.2",
         "vitest": "^4.1.10",
+      },
+    },
+    "packages/test-utils": {
+      "name": "@ignus/test-utils",
+      "version": "0.1.0",
+      "dependencies": {
+        "fast-check": "^4.9.0",
       },
     },
   },
@@ -194,6 +203,8 @@
     "@ignus/native": ["@ignus/native@workspace:packages/native"],
 
     "@ignus/shared": ["@ignus/shared@workspace:packages/shared"],
+
+    "@ignus/test-utils": ["@ignus/test-utils@workspace:packages/test-utils"],
 
     "@inquirer/ansi": ["@inquirer/ansi@2.0.7", "", {}, "sha512-3eTuUO1vH2cZm2ZKHeQxnOqlTi9EfZDGgIe3BL3I4u+rJHocr9Fz86M4fjYABPvFnQG/gGK551HqDiIcETwU6Q=="],
 

@@ -36,6 +36,19 @@ import type { BodyKind, LazyBody, LazyBodyOptions } from "./types";
 const contentType = (req: Request): string =>
   (req.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase() ?? "";
 
+/**
+ * Create a lazily-parsed view over a request body.
+ *
+ * Parsing is deferred until a parse method is first called and the result is
+ * cached, so at most one underlying `req.*()` read ever happens. Calling the
+ * returned function as a body selects a kind from `Content-Type`. Size limits
+ * are enforced by a `content-length` pre-check plus a post-parse byte guard
+ * (the latter also covers chunked bodies with no content-length header).
+ *
+ * @param req - The incoming request.
+ * @param opts - Optional per-kind size limits (defaults in `limits.ts`).
+ * @returns A `LazyBody` with typed parse accessors and cross-kind conversion.
+ */
 export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBody {
   const limits = resolveLimits(opts);
 

@@ -41,13 +41,13 @@ export {
   wildcardNames,
 } from "./identifiers";
 export { stageImports } from "./imports";
-export { generateRouteCode } from "./routes";
+export { generateRouteCode } from "./routes/generate";
 export { stageRouteTable } from "./routetable";
 export { stageServer } from "./server";
 export { type CodegenState, createCodegenState } from "./state";
 
 import { Emitter } from "../../emitter";
-import type { CompilerContext, CompilerOptions, HookDef, ModuleInfo, RouteDef } from "../../types";
+import type { CompilerContext, CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
 import { getConfig } from "./config";
 import { stageHeader, stageInlinedHandlers } from "./header";
 import { stageImports } from "./imports";
@@ -56,7 +56,7 @@ import { stageServer } from "./server";
 import { createCodegenState } from "./state";
 
 export const generateServer = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
@@ -73,7 +73,7 @@ export const generateServer = (
 };
 
 export const runCodeGen = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,

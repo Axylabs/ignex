@@ -21,6 +21,10 @@ export interface DiagnosticPosition {
   readonly column: number;
 }
 
+/**
+ * A single structured compiler diagnostic: stable code, severity, message,
+ * and optional source position/code frame.
+ */
 export interface Diagnostic {
   readonly code: string;
   readonly severity: DiagnosticSeverity;
@@ -76,8 +80,10 @@ export const DiagnosticCodes = {
   BuildCacheInvalid: "IGN_BUILD_CACHE_INVALID",
 } as const;
 
+/** A stable diagnostic code (any value of {@link DiagnosticCodes}). */
 export type DiagnosticCode = (typeof DiagnosticCodes)[keyof typeof DiagnosticCodes];
 
+/** The fields accepted when creating a diagnostic. */
 export interface DiagnosticInit {
   readonly code: DiagnosticCode | string;
   readonly message: string;

@@ -3,6 +3,7 @@
  * Cache-Control directives.
  */
 
+/** Options controlling a `Cache-Control` header value. */
 export interface CacheControlOptions {
   maxAge?: number;
   sMaxAge?: number;
@@ -14,6 +15,7 @@ export interface CacheControlOptions {
   private?: boolean;
 }
 
+/** Options for browser-side caching (`withBrowserCache`). */
 export interface BrowserCacheOptions extends CacheControlOptions {
   req?: Request;
   etag?: string;
@@ -21,6 +23,7 @@ export interface BrowserCacheOptions extends CacheControlOptions {
   vary?: string[];
 }
 
+/** Options for {@link HttpResponseCache}. */
 export interface HttpResponseCacheOptions {
   max?: number;
   ttlMs?: number;
@@ -29,6 +32,7 @@ export interface HttpResponseCacheOptions {
   maxBodyBytes?: number;
 }
 
+/** A stored, cacheable HTTP response entry. */
 export interface CachedHttpResponse {
   status: number;
   statusText: string;

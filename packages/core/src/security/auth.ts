@@ -13,6 +13,7 @@ import { createJwt, type JwtServiceOptions } from "./crypto";
 /** Key under which the resolved user is stored on `ctx.state`. */
 export const USER_KEY = Symbol.for("ignus.user");
 
+/** The authenticated user shape stored on `ctx.state` (an arbitrary record). */
 export type AuthUser = Record<string, unknown>;
 
 /** Read the authenticated user from a context. */
@@ -22,6 +23,9 @@ export const getUser = <T = AuthUser>(ctx: IgnusContext): T | undefined =>
 /** Attach the authenticated user to a context. */
 export const setUser = (ctx: IgnusContext, user: unknown): void => ctx.setState(USER_KEY, user);
 
+/**
+ * Build a 401 JSON response, optionally with a `WWW-Authenticate` challenge.
+ */
 export const unauthorized = (challenge?: string): Response => {
   const headers: Record<string, string> = {};
   if (challenge) headers["www-authenticate"] = challenge;
@@ -111,6 +115,7 @@ export const bearerAuth =
     return continueHook(ctx);
   };
 
+/** Options for {@link jwtAuth}: JWT service options plus challenge behavior. */
 export interface JwtAuthOptions extends JwtServiceOptions {
   /** Send a `WWW-Authenticate: Bearer` challenge on failure. */
   challenge?: boolean;

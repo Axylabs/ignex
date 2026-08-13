@@ -16,6 +16,12 @@ type ProxyRequestInit = FetchRequestInit & {
   duplex?: "half";
 };
 
+/**
+ * Options for {@link proxyRequest} / {@link forwardRequest}.
+ *
+ * Extends the fetch init shape (minus `body`, which is re-added for clarity)
+ * with a `timeoutMs` that auto-aborts the upstream request.
+ */
 export interface ProxyOptions extends Omit<FetchRequestInit, "body"> {
   timeoutMs?: number;
   body?: FetchRequestInit["body"];
@@ -115,6 +121,16 @@ const createGatewayTimeout = (): Response =>
 const createBadGateway = (): Response =>
   Response.json({ error: "Bad Gateway", status: 502 }, { status: 502 });
 
+/**
+ * Proxy a request to an upstream `target`, returning the upstream response
+ * (auto-decompressed; hop-by-hop headers stripped; `x-proxy: ignus` added).
+ *
+ * Never throws: timeouts become a 504 and other upstream failures a 502.
+ *
+ * @param target - Upstream URL.
+ * @param opts - Fetch init + optional `timeoutMs`.
+ * @returns The upstream response, or a 502/504 error response.
+ */
 export async function proxyRequest(
   target: string | URL,
   opts: ProxyOptions = {},
@@ -152,13 +168,30 @@ export async function proxyRequest(
   }
 }
 
+/**
+ * Forward an incoming request to an upstream `target`, preserving method,
+ * body, query string and hop-by-hop-sanitized headers.
+ *
+ * A malformed `target` is caught and returned as a 502 rather than throwing
+ * a `TypeError` at the caller; upstream timeouts become a 504.
+ *
+ * @param req - The incoming request.
+ * @param target - Upstream URL.
+ * @param opts - Fetch init + optional `timeoutMs`.
+ * @returns The upstream response, or a 502/504 error response.
+ */
 export async function forwardRequest(
   req: Request,
   target: string | URL,
   opts: ProxyOptions = {},
 ): Promise<Response> {
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(target.toString());
+  } catch {
+    return createBadGateway();
+  }
   const incoming = new URL(req.url);
-  const targetUrl = new URL(target.toString());
 
   if (!targetUrl.search) {
     targetUrl.search = incoming.search;

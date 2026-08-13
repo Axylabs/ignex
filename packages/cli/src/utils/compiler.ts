@@ -100,6 +100,12 @@ export async function buildProject(
     )}`,
   );
 
+  // Fail loudly on a missing/typo'd routes directory instead of silently
+  // emitting an empty server (which would 404 every route at runtime).
+  if (!(await exists(rootedOpts.routesDir))) {
+    throw new Error(`Routes directory not found: ${rootedOpts.routesDir}`);
+  }
+
   const result = await compiler.buildAsync(rootedOpts);
 
   // Surface structured compiler diagnostics. `buildAsync` throws on errors, so

@@ -4,12 +4,16 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { LRUCache } from "../data/lru";
 import type { IgnusContext } from "../http/context";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
+/** A single locale's message catalog: message key → translated string. */
 export type Catalog = Record<string, string>;
+/** All loaded locales: locale tag → {@link Catalog}. */
 export type Catalogs = Record<string, Catalog>;
 
+/** Options for {@link createI18n}. */
 export interface I18nOptions {
   /** Locale used when no match is found (default `en`). */
   fallbackLocale?: string;
@@ -17,6 +21,12 @@ export interface I18nOptions {
   defaultLocale?: string;
 }
 
+/**
+ * The i18n service returned by {@link createI18n}.
+ *
+ * All formatters accept an explicit `locale` and otherwise use the negotiated
+ * per-request locale (via `middleware`).
+ */
 export interface I18n {
   /**
    * Translate a key with `{name}` interpolation. When `params.count` is a
@@ -41,15 +51,26 @@ export interface I18n {
 /** Locale state key on `ctx.state`. */
 export const LOCALE_KEY = Symbol.for("ignus.locale");
 
+/** CLDR plural categories (see `pluralCategory`). */
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
 
-const pluralRulesCache = new Map<string, Intl.PluralRules>();
+// Bounded per-locale `Intl.PluralRules` cache: `Intl.PluralRules` construction
+// is comparatively expensive, but an unbounded Map would grow forever with
+// every unique (potentially attacker-controlled) locale string. 64 entries
+// covers every realistic deployment while capping memory growth.
+const pluralRulesCache = new LRUCache<string, Intl.PluralRules>({ max: 64 });
 
-/** CLDR cardinal plural category for a count in a locale (via Intl.PluralRules). */
+/**
+ * CLDR cardinal plural category for a count in a locale (via `Intl.PluralRules`).
+ *
+ * @throws RangeError when `locale` is not a valid BCP 47 language tag.
+ */
 export const pluralCategory = (locale: string, count: number): PluralCategory => {
   const key = locale.toLowerCase();
   let rules = pluralRulesCache.get(key);
   if (!rules) {
+    // `Intl.PluralRules` throws RangeError for malformed tags — let it surface
+    // (a bad locale is a programming error, not an input the app must absorb).
     rules = new Intl.PluralRules(key);
     pluralRulesCache.set(key, rules);
   }
@@ -181,6 +202,18 @@ export const interpolate = (
     return value === undefined || value === null ? match : String(value);
   });
 
+/**
+ * Create an i18n instance over a set of catalogs.
+ *
+ * `t` interpolates `{name}` placeholders and supports CLDR plural keys
+ * (`key.one`/`key.other`/…) driven by `Intl.PluralRules`. `middleware()`
+ * negotiates the request locale from `Accept-Language` and exposes a
+ * locale-bound `t` on the context.
+ *
+ * @param catalogs - All locales and their messages.
+ * @param options - Fallback/default locale selection.
+ * @returns The i18n instance (see {@link I18n}).
+ */
 export const createI18n = (catalogs: Catalogs, options: I18nOptions = {}): I18n => {
   const fallbackLocale = options.fallbackLocale ?? "en";
   const defaultLocale = options.defaultLocale ?? fallbackLocale;

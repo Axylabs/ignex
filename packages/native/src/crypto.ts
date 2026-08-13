@@ -26,6 +26,7 @@ import {
   toPlain,
 } from "./util";
 
+/** Options for {@link jwtSign} (HS256). */
 export interface JwtSignOptions {
   /** Time-to-live in seconds (injects `iat`/`exp` when positive). */
   ttlSeconds?: number;
@@ -33,11 +34,13 @@ export interface JwtSignOptions {
   nowSeconds?: number;
 }
 
+/** Options for {@link jwtVerify} (HS256). */
 export interface JwtVerifyOptions {
   /** Current epoch seconds (defaults to `Date.now() / 1000`). */
   nowSeconds?: number;
 }
 
+/** Options controlling argon2id/scrypt cost for {@link passwordHash}. */
 export interface PasswordHashOptions {
   /** Memory cost in KiB (argon2id `m`; default 19_456). */
   mCost?: number;
@@ -54,6 +57,7 @@ const IAT_LEEWAY_SECONDS = 60;
 
 // ── HMAC-SHA256 ─────────────────────────────────────────────────
 
+/** HMAC-SHA256 digest of `data` under `key`. */
 export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array): Uint8Array => {
   const k = toBytes(key);
   const d = toBytes(data);
@@ -64,6 +68,7 @@ export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array):
   return hmacSha256Bytes(k, d);
 };
 
+/** Constant-time verify of an HMAC-SHA256 signature. */
 export const hmacSha256Verify = (
   key: string | Uint8Array,
   data: string | Uint8Array,
@@ -79,6 +84,7 @@ export const hmacSha256Verify = (
 
 // ── Signed cookies ──────────────────────────────────────────────
 
+/** Sign a cookie value → `value.<hex(HMAC-SHA256(secret, value))>`. */
 export const signCookie = (value: string, secret: string | Uint8Array): string => {
   const s = toBytes(secret);
   const nv = nativeFor("signCookie");
@@ -92,6 +98,7 @@ export const signCookieFallback = (value: string, secret: Uint8Array): string =>
   return `${value}.${hexEncode(sig)}`;
 };
 
+/** Verify a signed cookie; returns the value without its signature, or `null`. */
 export const verifyCookie = (signed: string, secret: string | Uint8Array): string | null => {
   const s = toBytes(secret);
   const nv = nativeFor("verifyCookie");
@@ -117,6 +124,7 @@ export const verifyCookieFallback = (signed: string, secret: Uint8Array): string
 
 // ── CSRF ────────────────────────────────────────────────────────
 
+/** Generate a CSRF token (`<64-hex(random)>.<64-hex(sig)>`). */
 export const csrfToken = (secret: string | Uint8Array): string => {
   const s = toBytes(secret);
   const nv = nativeFor("csrfToken");
@@ -131,6 +139,7 @@ export const csrfTokenFallback = (secret: Uint8Array): string => {
   return `${rndHex}.${sig}`;
 };
 
+/** Constant-time verify of a CSRF token. */
 export const csrfVerify = (token: string, secret: string | Uint8Array): boolean => {
   const s = toBytes(secret);
   const nv = nativeFor("csrfVerify");
@@ -138,6 +147,7 @@ export const csrfVerify = (token: string, secret: string | Uint8Array): boolean 
   return csrfVerifyFallback(token, s);
 };
 
+/** Pure-TS fallback for {@link csrfVerify} (identical behavior). */
 export const csrfVerifyFallback = (token: string, secret: Uint8Array): boolean => {
   const dot = token.indexOf(".");
   if (dot < 0) return false;
@@ -152,6 +162,7 @@ export const csrfVerifyFallback = (token: string, secret: Uint8Array): boolean =
 
 // ── JWT (HS256) ─────────────────────────────────────────────────
 
+/** Sign a payload as an HS256 compact JWT; injects `iat`/`exp` when `ttlSeconds > 0`. */
 export const jwtSign = (
   claims: unknown,
   secret: string | Uint8Array,
@@ -192,6 +203,7 @@ export const jwtSignFallback = (
   return `${signing}.${sig}`;
 };
 
+/** Verify and decode an HS256 compact JWT; returns `null` on any failure. */
 export const jwtVerify = (
   token: string,
   secret: string | Uint8Array,
@@ -215,9 +227,7 @@ export const jwtVerifyFallback = (
 ): unknown | null => {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
-  const headerB64 = parts[0]!;
-  const payloadB64 = parts[1]!;
-  const sigB64 = parts[2]!;
+  const [headerB64, payloadB64, sigB64] = parts as [string, string, string];
 
   const headerJson = b64urlDecode(headerB64);
   if (!headerJson) return null;
@@ -262,6 +272,7 @@ export const jwtVerifyFallback = (
 
 const MAX_TOKEN_BYTES = 16 * 1024 * 1024;
 
+/** Generate a hex-encoded CSPRNG token of `byteLen` bytes (2× the length in characters). */
 export const randomToken = (byteLen: number): string => {
   // Native returns the token as hex-string BYTES (not raw random bytes).
   const nv = nativeFor("randomToken");
@@ -312,6 +323,7 @@ export const passwordHash = (
   return passwordHashFallback(p, s);
 };
 
+/** Verify a password against a PHC string (dispatches argon2id ↔ scrypt by prefix). */
 export const passwordVerify = (password: string, phc: string): boolean => {
   if (phc.startsWith("$scrypt$")) return passwordVerifyFallback(toBytes(password), phc);
   const nv = nativeFor("passwordVerify");
@@ -356,6 +368,7 @@ const passwordVerifyScrypt = (password: Uint8Array, phc: string): boolean => {
 
 // ── AEAD (AES-256-GCM / ChaCha20-Poly1305) ──────────────────────
 
+/** AEAD encrypt (AES-256-GCM) → ciphertext ‖ 16-byte tag. */
 export const aeadEncrypt = (
   key: string | Uint8Array,
   nonce: string | Uint8Array,
@@ -387,6 +400,7 @@ export const aeadEncryptFallback = (
   return new Uint8Array(Buffer.concat([enc, cipher.getAuthTag()]));
 };
 
+/** AEAD decrypt; returns `null` on auth failure or malformed input. */
 export const aeadDecrypt = (
   key: string | Uint8Array,
   nonce: string | Uint8Array,

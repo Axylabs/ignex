@@ -10,7 +10,9 @@ import {
   renderTemplate as renderNative,
 } from "@ignus/native";
 
+/** Variables passed to a template render. */
 export type TemplateContext = Record<string, unknown>;
+/** A compiled template: renders a context to a string. */
 export type TemplateFn = (data: TemplateContext) => string;
 
 /** Compile a template source into a reusable render function. */
@@ -20,6 +22,11 @@ export const createTemplate = (source: string): TemplateFn => createNativeTempla
 export const renderTemplate = (source: string, data: TemplateContext): string =>
   renderNative(source, data);
 
+/**
+ * A named collection of compiled templates.
+ *
+ * `render` throws when the template name is unknown.
+ */
 export interface TemplateRegistry {
   render(name: string, data: TemplateContext): string;
   has(name: string): boolean;
@@ -41,6 +48,7 @@ export const createTemplateRegistry = (templates: Record<string, string>): Templ
   };
 };
 
+/** Options for {@link createTemplateDir}. */
 export interface TemplateDirOptions {
   /** File extension to scan (default `.html`). */
   ext?: string;

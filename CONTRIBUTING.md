@@ -16,6 +16,7 @@ bun run test       # run the full vitest suite
 bun run build      # AOT-compile the example app to packages/app/dist
 bun run smoke      # boot the generated server and assert on routes
 bun run verify     # typecheck + lint + test in one gate (what CI runs)
+bun run jsdoc:check  # every public export must carry JSDoc (see docs/adding-a-feature.md §G)
 ```
 
 > **Note:** `bun run test:coverage` runs the suite with coverage thresholds
@@ -41,8 +42,11 @@ The `.github/workflows/ci.yml` pipeline runs on every push/PR:
 
 1. `typecheck` + `typecheck:cli`
 2. `lint` (oxlint + biome) — keep it warning-clean
-3. `test:coverage` — all tests + coverage thresholds
-4. `build` then `smoke` — the generated server must boot and pass route assertions
+3. `jsdoc:check:strict` — every public export must carry JSDoc (see
+   [docs/adding-a-feature.md §G](docs/adding-a-feature.md)); fails CI on any
+   undocumented public symbol
+4. `test:coverage` — all tests + coverage thresholds
+5. `build` then `smoke` — the generated server must boot and pass route assertions
 
 Keep these green locally with `bun run verify` before pushing.
 
@@ -50,6 +54,11 @@ Keep these green locally with `bun run verify` before pushing.
 
 See [docs/adding-a-feature.md](docs/adding-a-feature.md) for the step-by-step
 guide covering plugins, hooks, routes, macros, and native functions.
+
+**Every public export must carry JSDoc** — the docs in `src/` are the shipped
+API documentation (packages are source-only). `scripts/check-jsdoc.ts` enforces
+this in CI; run `bun run jsdoc:check` locally to list anything missing. See
+[docs/adding-a-feature.md §G](docs/adding-a-feature.md) for the style guide.
 
 The single most important rule: **the compiler↔runtime contract is one-way**.
 `@ignus/core` owns the runtime truth (`runHooks`, `createContext`, error types,

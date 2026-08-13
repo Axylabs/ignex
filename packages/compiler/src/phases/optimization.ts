@@ -13,7 +13,7 @@ import type {
   CompilerOptions,
   ModuleInfo,
   OptimizationResult,
-  RouteDef,
+  RouteIR,
 } from "../types";
 import {
   estimateNodeCount,
@@ -23,7 +23,7 @@ import {
 } from "../utils/ast";
 
 export const isInlineEligible = (
-  route: RouteDef,
+  route: RouteIR,
   mod: ModuleInfo | undefined,
   threshold: number,
 ): boolean => {
@@ -49,10 +49,10 @@ export const isInlineEligible = (
 };
 
 export const markInline = (
-  route: RouteDef,
+  route: RouteIR,
   modules: readonly ModuleInfo[],
   threshold: number,
-): RouteDef => {
+): RouteIR => {
   const mod = modules[route.source.moduleIdx];
   const shouldInline = isInlineEligible(route, mod, threshold);
 
@@ -62,10 +62,10 @@ export const markInline = (
 };
 
 export const detectInlineCandidates = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   threshold: number,
-): RouteDef[] => routes.map((r) => markInline(r, modules, threshold));
+): RouteIR[] => routes.map((r) => markInline(r, modules, threshold));
 
 // ── Inline candidate resolution (moved out of codegen) ───────────
 
@@ -120,7 +120,7 @@ export const transpileHandlerBody = (body: string, isAsync: boolean): string | n
  * no re-parse of `content`.
  */
 export const resolveInlineCandidate = (
-  route: RouteDef,
+  route: RouteIR,
   mod: ModuleInfo | undefined,
   opts: CompilerOptions,
 ): InlineCandidate | null => {
@@ -152,23 +152,58 @@ export const resolveInlineCandidate = (
 
 /** Store the transpiled inline candidate on every eligible route. */
 export const computeInlineCandidates = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
-): RouteDef[] =>
+): RouteIR[] =>
   routes.map((route) => {
     const inline = resolveInlineCandidate(route, modules[route.source.moduleIdx], opts);
     if (!inline) return route;
     return { ...route, decisions: { ...route.decisions, inlineCandidate: inline } };
   });
 
+/**
+ * Apply an opt-in global inlining budget, prioritized by route hotness.
+ * Routes with the highest `hotnessScore` are inlined first; once the
+ * cumulative body budget is exhausted, the remaining candidates are
+ * de-inlined (their handlers are imported instead). No-op when
+ * `maxTotalInlineBytes` is unset — every eligible route is inlined, as before.
+ */
+export const applyInlineBudget = (routes: readonly RouteIR[], opts: CompilerOptions): RouteIR[] => {
+  const budget = opts.maxTotalInlineBytes;
+  if (!budget || budget <= 0) return [...routes];
+
+  const candidates = routes
+    .map((route, index) => ({ route, index }))
+    .filter((candidate) => candidate.route.decisions.inlineCandidate);
+
+  // Hot-first; Array.sort is stable, so equal scores keep route order.
+  candidates.sort((a, b) => b.route.analysis.hotnessScore - a.route.analysis.hotnessScore);
+
+  let used = 0;
+  const kept = new Set<number>();
+  for (const { route, index } of candidates) {
+    const size = route.decisions.inlineCandidate?.body.length ?? 0;
+    if (used + size > budget) break;
+    used += size;
+    kept.add(index);
+  }
+
+  return routes.map((route, index) => {
+    if (kept.has(index) || !route.decisions.inlineCandidate) return route;
+    // De-inline: drop the inline flag and the candidate, keep the rest.
+    const { shouldInline: _inline, inlineCandidate: _candidate, ...rest } = route.decisions;
+    return { ...route, decisions: { ...rest, shouldInline: false } };
+  });
+};
+
 // ── Constant-response deduplication ──────────────────────────────
 
-export const hasConstantResponse = (route: RouteDef): boolean =>
+export const hasConstantResponse = (route: RouteIR): boolean =>
   route.analysis.isConstantResponse && !!route.analysis.constantResponse;
 
-export const groupByConstantResponse = (routes: readonly RouteDef[]): Map<string, RouteDef[]> => {
-  const groups = new Map<string, RouteDef[]>();
+export const groupByConstantResponse = (routes: readonly RouteIR[]): Map<string, RouteIR[]> => {
+  const groups = new Map<string, RouteIR[]>();
 
   for (const route of routes) {
     if (!hasConstantResponse(route)) continue;
@@ -185,18 +220,19 @@ export const groupByConstantResponse = (routes: readonly RouteDef[]): Map<string
   return groups;
 };
 
-export const buildDedupMap = (groups: Map<string, RouteDef[]>): Map<string, string> => {
+export const buildDedupMap = (groups: Map<string, RouteIR[]>): Map<string, string> => {
   const replacements = new Map<string, string>();
 
   for (const group of groups.values()) {
     if (group.length < 2) continue;
 
-    const leader = group[0];
+    // Leader = the hottest route (ties → earliest in the group), so the
+    // retained handler is the one exercised most.
+    const leader = [...group].sort((a, b) => b.analysis.hotnessScore - a.analysis.hotnessScore)[0];
     if (!leader) continue;
 
-    for (let i = 1; i < group.length; i++) {
-      const member = group[i];
-      if (!member) continue;
+    for (const member of group) {
+      if (member === leader) continue;
       replacements.set(member.codegen.handlerRef, leader.codegen.handlerRef);
     }
   }
@@ -204,12 +240,12 @@ export const buildDedupMap = (groups: Map<string, RouteDef[]>): Map<string, stri
   return replacements;
 };
 
-export const applyDedup = (route: RouteDef, dedupMap: Map<string, string>): RouteDef => {
+export const applyDedup = (route: RouteIR, dedupMap: Map<string, string>): RouteIR => {
   const dedupGroup = dedupMap.get(route.codegen.handlerRef);
   return dedupGroup ? { ...route, decisions: { ...route.decisions, dedupGroup } } : route;
 };
 
-export const deduplicateRoutes = (routes: RouteDef[]): RouteDef[] => {
+export const deduplicateRoutes = (routes: RouteIR[]): RouteIR[] => {
   const groups = groupByConstantResponse(routes);
   const dedupMap = buildDedupMap(groups);
 
@@ -218,14 +254,14 @@ export const deduplicateRoutes = (routes: RouteDef[]): RouteDef[] => {
   return routes.map((r) => applyDedup(r, dedupMap));
 };
 
-export const countInlined = (routes: readonly RouteDef[]): number =>
+export const countInlined = (routes: readonly RouteIR[]): number =>
   routes.filter((r) => r.decisions.shouldInline).length;
 
-export const countDeduped = (routes: readonly RouteDef[]): number =>
+export const countDeduped = (routes: readonly RouteIR[]): number =>
   routes.filter((r) => r.decisions.dedupGroup).length;
 
 export const runOptimization = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
   ctx: CompilerContext,
@@ -237,7 +273,9 @@ export const runOptimization = (
 
     // Resolve + transpile inline candidates up-front so codegen only reads
     // `decisions.inlineCandidate` (no re-derivation, no re-transpile).
-    const finalized = computeInlineCandidates(deduped, modules, opts);
+    const resolved = computeInlineCandidates(deduped, modules, opts);
+    // Hot-first global inlining budget (opt-in; no-op by default).
+    const finalized = applyInlineBudget(resolved, opts);
 
     const inlinedCount = countInlined(finalized);
     const dedupedCount = countDeduped(finalized);

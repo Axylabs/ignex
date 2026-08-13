@@ -6,6 +6,14 @@
  * - src/core/types.ts
  */
 
+/**
+ * Bitmap of request-context capabilities actually used by a route handler.
+ *
+ * Shared by compiler and runtime: the compiler statically computes which
+ * `ctx` members a handler touches and records them in this record, and the
+ * generated server uses it to emit only the context plumbing the routes need.
+ * Every member must mirror the matching `IgnusContext` field in `@ignus/core`.
+ */
 export interface ContextUsage {
   body: boolean;
   params: boolean;
@@ -36,6 +44,7 @@ export interface ContextUsage {
   loader: boolean;
 }
 
+/** A `ContextUsage` with every capability disabled (frozen). */
 export const EMPTY_USAGE: ContextUsage = Object.freeze({
   body: false,
   params: false,
@@ -66,6 +75,7 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
   loader: false,
 });
 
+/** A `ContextUsage` with every capability enabled (frozen). */
 export const FULL_USAGE: ContextUsage = Object.freeze({
   body: true,
   params: true,

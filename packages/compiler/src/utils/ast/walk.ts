@@ -40,6 +40,93 @@ export const nodeEnd = (node: Node | undefined): number | undefined =>
 const isNode = (value: unknown): value is Node =>
   !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
 
+/** Visit every node in a single child slot (array or single node). */
+const forEachChildNode = (
+  child: unknown,
+  depth: number,
+  visit: (child: Node, depth: number) => void,
+): void => {
+  if (Array.isArray(child)) {
+    for (const c of child) if (isNode(c)) visit(c, depth + 1);
+    return;
+  }
+  if (isNode(child)) visit(child, depth + 1);
+};
+
+/** Visit every child slot of a node (skipping metadata keys). */
+const walkChildren = (
+  node: Node,
+  depth: number,
+  visit: (child: Node, depth: number) => void,
+): void => {
+  for (const key of Object.keys(node)) {
+    if (SKIP_KEYS.has(key)) continue;
+    forEachChildNode(node[key as keyof Node], depth, visit);
+  }
+};
+
+/** First non-undefined result from visiting a single child slot. */
+const childSlotResult = <T>(
+  child: unknown,
+  depth: number,
+  visit: (child: Node, depth: number) => T | undefined,
+): T | undefined => {
+  if (Array.isArray(child)) {
+    for (const c of child) {
+      if (!isNode(c)) continue;
+      const found = visit(c, depth + 1);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (isNode(child)) return visit(child, depth + 1);
+  return undefined;
+};
+
+/** First non-undefined result across a node's child slots. */
+const searchChildResults = <T>(
+  node: Node,
+  depth: number,
+  visit: (child: Node, depth: number) => T | undefined,
+): T | undefined => {
+  for (const key of Object.keys(node)) {
+    if (SKIP_KEYS.has(key)) continue;
+    const found = childSlotResult(node[key as keyof Node], depth, visit);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+
+/** First truthy result from visiting a single child slot. */
+const childSlotSome = (
+  child: unknown,
+  depth: number,
+  visit: (child: Node, depth: number) => boolean,
+): boolean => {
+  if (Array.isArray(child)) {
+    for (const c of child) {
+      if (!isNode(c)) continue;
+      if (visit(c, depth + 1)) return true;
+    }
+    return false;
+  }
+  if (isNode(child)) return visit(child, depth + 1);
+  return false;
+};
+
+/** First truthy result across a node's child slots. */
+const someChildResults = (
+  node: Node,
+  depth: number,
+  visit: (child: Node, depth: number) => boolean,
+): boolean => {
+  for (const key of Object.keys(node)) {
+    if (SKIP_KEYS.has(key)) continue;
+    if (childSlotSome(node[key as keyof Node], depth, visit)) return true;
+  }
+  return false;
+};
+
 /**
  * Depth-first traversal invoking `cb` on every node. If `cb` returns `false`
  * the current subtree is pruned (children are not visited) — useful for
@@ -52,16 +139,7 @@ export function walk(
 ): void {
   if (!isNode(node) || depth >= MAX_DEPTH) return;
   if (cb(node) === false) return;
-
-  for (const key of Object.keys(node)) {
-    if (SKIP_KEYS.has(key)) continue;
-    const child = node[key as keyof Node];
-    if (Array.isArray(child)) {
-      for (const c of child) if (isNode(c)) walk(c, cb, depth + 1);
-    } else if (isNode(child)) {
-      walk(child, cb, depth + 1);
-    }
-  }
+  walkChildren(node, depth, (child, childDepth) => walk(child, cb, childDepth));
 }
 
 /**
@@ -80,22 +158,7 @@ export function walkUntil<T>(
     if (depth >= MAX_DEPTH) return undefined;
     const hit = predicate(n);
     if (hit !== undefined) return hit;
-
-    for (const key of Object.keys(n)) {
-      if (SKIP_KEYS.has(key)) continue;
-      const child = n[key as keyof Node];
-      if (Array.isArray(child)) {
-        for (const c of child) {
-          if (!isNode(c)) continue;
-          const found = rec(c, depth + 1);
-          if (found !== undefined) return found;
-        }
-      } else if (isNode(child)) {
-        const found = rec(child, depth + 1);
-        if (found !== undefined) return found;
-      }
-    }
-    return undefined;
+    return searchChildResults(n, depth, rec);
   };
 
   return rec(node, 0);
@@ -113,20 +176,7 @@ export function walkSome(node: Node | undefined, visit: (node: Node) => boolean)
   const rec = (n: Node, depth: number): boolean => {
     if (depth >= MAX_DEPTH) return false;
     if (visit(n)) return true;
-
-    for (const key of Object.keys(n)) {
-      if (SKIP_KEYS.has(key)) continue;
-      const child = n[key as keyof Node];
-      if (Array.isArray(child)) {
-        for (const c of child) {
-          if (!isNode(c)) continue;
-          if (rec(c, depth + 1)) return true;
-        }
-      } else if (isNode(child)) {
-        if (rec(child, depth + 1)) return true;
-      }
-    }
-    return false;
+    return someChildResults(n, depth, rec);
   };
 
   return rec(node, 0);

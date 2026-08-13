@@ -19,6 +19,7 @@ import { fromBytes, toBytes, toPlain } from "./util";
 
 // ── Compression ─────────────────────────────────────────────────
 
+/** gzip-compress `data` (optional 0–9 `level`, default 6). */
 export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
   const n = nativeFor("gzipCompress");
   if (n) return toPlain(n.gzipCompress(data, level));
@@ -28,6 +29,7 @@ export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
   return toPlain(gzipSync(data, { level }));
 };
 
+/** gzip-decompress `data`. */
 export const gzipDecompress = (data: Uint8Array): Uint8Array => {
   const n = nativeFor("gzipDecompress");
   if (n) return toPlain(n.gzipDecompress(data));
@@ -35,6 +37,7 @@ export const gzipDecompress = (data: Uint8Array): Uint8Array => {
   return toPlain(gunzipSync(data));
 };
 
+/** brotli-compress `data` (optional 0–11 `quality`, default 5). */
 export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array => {
   const n = nativeFor("brotliCompress");
   return toPlain(
@@ -44,6 +47,7 @@ export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array => {
   );
 };
 
+/** brotli-decompress `data`. */
 export const brotliDecompress = (data: Uint8Array): Uint8Array => {
   const n = nativeFor("brotliDecompress");
   return toPlain(n ? n.brotliDecompress(data) : brotliDecompressSync(data));
@@ -51,6 +55,7 @@ export const brotliDecompress = (data: Uint8Array): Uint8Array => {
 
 // ── SSE ─────────────────────────────────────────────────────────
 
+/** Encode an SSE event frame (WHATWG format). */
 export const sseEncode = (
   event: string | null,
   data: string | Uint8Array,
@@ -83,12 +88,14 @@ export const sseEncodeFallback = (
 /** RFC 6455 §5.7 example mask key — used by native so encode is deterministic. */
 const DEFAULT_MASK = [0x37, 0xfa, 0x21, 0x3d];
 
+/** A decoded RFC 6455 WebSocket frame. */
 export interface WsFrame {
   fin: boolean;
   opcode: number;
   payload: Uint8Array;
 }
 
+/** Encode an RFC 6455 WebSocket frame. */
 export const wsFrameEncode = (
   opcode: number,
   payload: Uint8Array,
@@ -141,6 +148,7 @@ export const wsFrameEncodeFallback = (
   return out;
 };
 
+/** Decode an RFC 6455 WebSocket frame; returns `null` on malformed input. */
 export const wsFrameDecode = (data: Uint8Array): WsFrame | null => {
   const n = nativeFor("wsFrameDecode");
   if (n) {
@@ -153,14 +161,14 @@ export const wsFrameDecode = (data: Uint8Array): WsFrame | null => {
 /** RFC 6455 §5.2 frame decode; returns `null` on malformed input. */
 export const wsFrameDecodeFallback = (data: Uint8Array): WsFrame | null => {
   if (data.length < 2) return null;
-  const fin = (data[0]! & 0x80) !== 0;
-  const opcode = data[0]! & 0x0f;
-  const masked = (data[1]! & 0x80) !== 0;
-  let len = data[1]! & 0x7f;
+  const fin = ((data[0] ?? 0) & 0x80) !== 0;
+  const opcode = (data[0] ?? 0) & 0x0f;
+  const masked = ((data[1] ?? 0) & 0x80) !== 0;
+  let len = (data[1] ?? 0) & 0x7f;
   let pos = 2;
   if (len === 126) {
     if (data.length < pos + 2) return null;
-    len = (data[pos]! << 8) | data[pos + 1]!;
+    len = ((data[pos] ?? 0) << 8) | (data[pos + 1] ?? 0);
     pos += 2;
   } else if (len === 127) {
     if (data.length < pos + 8) return null;
@@ -179,7 +187,7 @@ export const wsFrameDecodeFallback = (data: Uint8Array): WsFrame | null => {
   if (data.length < pos + len) return null;
   const payload = data.slice(pos, pos + len);
   if (mask) {
-    for (let i = 0; i < payload.length; i++) payload[i]! ^= mask[i & 3]!;
+    for (let i = 0; i < payload.length; i++) payload[i] = (payload[i] ?? 0) ^ (mask[i & 3] ?? 0);
   }
   return { fin, opcode, payload };
 };

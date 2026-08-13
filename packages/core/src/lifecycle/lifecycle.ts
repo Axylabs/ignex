@@ -9,7 +9,7 @@
  */
 import { initNative } from "@ignus/native";
 import { pipeAsync } from "@ignus/shared";
-import type { HttpResponseCache } from "../data/cache";
+import { HttpResponseCache } from "../data/cache";
 import { type ContextOptions, createContext, type IgnusContext } from "../http/context";
 import { applySet } from "../http/headers";
 import { errorToResponse } from "../platform/errors";
@@ -22,6 +22,9 @@ import {
   pluginsToLifeCycle,
 } from "./plugin";
 
+/**
+ * Options for {@link createApp}.
+ */
 export interface AppOptions {
   /** Lifecycle hooks (merged after plugin hooks). */
   lifecycle?: Partial<LifeCycleStore>;
@@ -33,14 +36,17 @@ export interface AppOptions {
   /** Expose error details in 500 responses. */
   exposeErrors?: boolean;
   /**
-   * App-scoped response cache for `ctx.cache()`. Defaults to a shared
-   * process-wide cache; pass one here to scope cache entries per app.
+   * App-scoped response cache for `ctx.cache()`. Defaults to a fresh cache
+   * scoped to this app; pass one here to share a specific cache.
    */
   cache?: HttpResponseCache;
   /** Trust `x-real-ip` / `x-forwarded-for` when `server.requestIP` is unavailable. */
   trustProxy?: boolean;
 }
 
+/**
+ * The runtime app built by {@link createApp}.
+ */
 export interface IgnusApp {
   /** Run the full lifecycle pipeline for a request. */
   handler(req: Request): Promise<Response>;
@@ -80,6 +86,16 @@ export const runHooks = async (
   return { ctx: current };
 };
 
+/**
+ * Build a runtime app from lifecycle hooks/plugins and a base handler.
+ *
+ * The interpreted counterpart of the compiler-generated server: stage chains
+ * are composed once at creation, and each request runs them via
+ * {@link runLifecycle}. `serve()` bootstraps `Bun.serve`.
+ *
+ * @param options - Hooks, plugins, handler, and runtime tuning.
+ * @returns The app (see {@link IgnusApp}).
+ */
 export const createApp = (options: AppOptions): IgnusApp => {
   const pluginContext = createPluginContext();
   for (const p of options.plugins ?? []) pluginContext.register(p);
@@ -100,6 +116,12 @@ export const createApp = (options: AppOptions): IgnusApp => {
   const postStages = buildPostStages(lifecycle);
   let server: { stop(closeActive?: boolean): void } | null = null;
   let initialized = false;
+
+  // Per-app response cache: entries are scoped to THIS app unless the caller
+  // passes an explicit cache. This prevents URL-keyed collisions between apps
+  // sharing a process (previously they fell back to a single module-level
+  // cache in http/context.ts).
+  const appCache = options.cache ?? new HttpResponseCache();
 
   const init = async (): Promise<void> => {
     if (initialized) return;
@@ -124,7 +146,7 @@ export const createApp = (options: AppOptions): IgnusApp => {
   // exactOptionalPropertyTypes: only set optional fields that are defined.
   const buildContextOptions = (): ContextOptions => {
     const ctxOptions: ContextOptions = {};
-    if (options.cache !== undefined) ctxOptions.cache = options.cache;
+    ctxOptions.cache = appCache;
     if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
     return ctxOptions;
   };

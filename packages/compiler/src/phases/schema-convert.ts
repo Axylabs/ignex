@@ -20,11 +20,8 @@ type JsonSchema = Record<string, unknown>;
 const isStandardSchema = (value: unknown): boolean =>
   typeof value === "object" && value !== null && "~standard" in value;
 
-/** Convert a single Standard-Schema object, or return `null` when impossible. */
-const convertOne = async (schema: unknown): Promise<JsonSchema | null> => {
-  if (!isStandardSchema(schema)) return null;
-
-  // 1) The schema object itself exposes a JSON-schema converter.
+/** Convert via a `toJSONSchema`/`toJsonSchema` method on the schema itself. */
+const convertViaSelfMethod = async (schema: unknown): Promise<JsonSchema | null> => {
   const self = schema as { toJSONSchema?: unknown; toJsonSchema?: unknown };
   for (const method of ["toJSONSchema", "toJsonSchema"] as const) {
     const fn = self[method];
@@ -37,41 +34,91 @@ const convertOne = async (schema: unknown): Promise<JsonSchema | null> => {
       }
     }
   }
+  return null;
+};
 
-  // 2) Vendor-specific lazy converters. The specifier is a variable so tsc does
-  // not resolve it — these packages are optional peer installs of user apps.
+/** Convert a Zod schema via `zod-to-json-schema` (lazily imported). */
+const convertZod = async (schema: unknown): Promise<JsonSchema | null> => {
+  const specifier = "zod-to-json-schema";
+  const mod: any = await import(specifier);
+  const converter = mod.zodToJsonSchema ?? mod.default?.zodToJsonSchema ?? mod.default;
+  if (typeof converter === "function") {
+    const out = converter(schema);
+    if (out && typeof out === "object") return out as JsonSchema;
+  }
+  return null;
+};
+
+/** Convert a Valibot schema (lazily imported). */
+const convertValibot = async (schema: unknown): Promise<JsonSchema | null> => {
+  const specifier = "valibot";
+  const mod: any = await import(specifier);
+  if (typeof mod.toJsonSchema === "function") {
+    const out = mod.toJsonSchema(schema);
+    if (out && typeof out === "object") return out as JsonSchema;
+  }
+  return null;
+};
+
+/** Convert via the schema's vendor-specific lazy converter. */
+const convertVendor = async (schema: unknown): Promise<JsonSchema | null> => {
+  const std = schema as { "~standard"?: { vendor?: string } };
+  const vendor = std["~standard"]?.vendor ?? "";
+  if (vendor === "zod") return convertZod(schema);
+  if (vendor === "valibot") return convertValibot(schema);
+  return null;
+};
+
+/** Convert a single Standard-Schema object, or return `null` when impossible. */
+const convertOne = async (schema: unknown): Promise<JsonSchema | null> => {
+  if (!isStandardSchema(schema)) return null;
+
+  // 1) The schema object itself exposes a JSON-schema converter.
+  const viaSelf = await convertViaSelfMethod(schema);
+  if (viaSelf) return viaSelf;
+
+  // 2) Vendor-specific lazy converters. The specifier is a variable so tsc
+  // does not resolve it — these packages are optional peer installs.
   try {
-    const std = schema as { "~standard"?: { vendor?: string } };
-    const vendor = std["~standard"]?.vendor ?? "";
-
-    if (vendor === "zod") {
-      const specifier = "zod-to-json-schema";
-      const mod: any = await import(specifier);
-      const converter = mod.zodToJsonSchema ?? mod.default?.zodToJsonSchema ?? mod.default;
-      if (typeof converter === "function") {
-        const out = converter(schema);
-        if (out && typeof out === "object") return out as JsonSchema;
-      }
-      return null;
-    }
-
-    if (vendor === "valibot") {
-      const specifier = "valibot";
-      const mod: any = await import(specifier);
-      if (typeof mod.toJsonSchema === "function") {
-        const out = mod.toJsonSchema(schema);
-        if (out && typeof out === "object") return out as JsonSchema;
-      }
-      return null;
-    }
-
-    return null;
+    return await convertVendor(schema);
   } catch {
     return null;
   }
 };
 
 const STATUS_KEY = /^\d{3}$/;
+
+/**
+ * Convert the `response` part of a schema document: a single Standard-Schema
+ * or a `{ "200": schema, ... }` status map. Returns the replacement value,
+ * or `undefined` when nothing changed (caller keeps the original).
+ */
+const convertResponse = async (response: unknown): Promise<Record<string, unknown> | undefined> => {
+  if (!response || typeof response !== "object") return undefined;
+
+  if (isStandardSchema(response)) {
+    const converted = await convertOne(response);
+    return converted ?? undefined;
+  }
+
+  const statusMap = response as Record<string, unknown>;
+  const keys = Object.keys(statusMap);
+  if (keys.length === 0 || !keys.every((k) => STATUS_KEY.test(k))) return undefined;
+
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const status of keys) {
+    const value = statusMap[status];
+    if (isStandardSchema(value)) {
+      const converted = await convertOne(value);
+      next[status] = converted ?? value;
+      changed = changed || converted !== null;
+    } else {
+      next[status] = value;
+    }
+  }
+  return changed ? next : undefined;
+};
 
 /**
  * Convert the Standard-Schema parts of a route schema document (body, query,
@@ -97,31 +144,8 @@ export const convertSchemaDoc = async (
   }
 
   // Response: either a single schema or a `{ "200": schema, ... }` status map.
-  const response = out.response;
-  if (response && typeof response === "object") {
-    if (isStandardSchema(response)) {
-      const converted = await convertOne(response);
-      if (converted) out.response = converted;
-    } else {
-      const statusMap = response as Record<string, unknown>;
-      const keys = Object.keys(statusMap);
-      if (keys.length > 0 && keys.every((k) => STATUS_KEY.test(k))) {
-        let changed = false;
-        const next: Record<string, unknown> = {};
-        for (const status of keys) {
-          const value = statusMap[status];
-          if (isStandardSchema(value)) {
-            const converted = await convertOne(value);
-            next[status] = converted ?? value;
-            changed = changed || converted !== null;
-          } else {
-            next[status] = value;
-          }
-        }
-        if (changed) out.response = next;
-      }
-    }
-  }
+  const nextResponse = await convertResponse(out.response);
+  if (nextResponse !== undefined) out.response = nextResponse;
 
   return out;
 };

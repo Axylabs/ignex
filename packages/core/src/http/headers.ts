@@ -12,6 +12,10 @@
 import type { ElysiaCookie } from "../types";
 import { serializeCookie } from "./cookies";
 
+/**
+ * The accumulated response mutations carried on the request context (`ctx.set`):
+ * headers to apply, optional status/redirect, and cookies to write.
+ */
 export interface SetHeaders {
   headers: Record<string, string>;
   status?: number;
@@ -19,8 +23,11 @@ export interface SetHeaders {
   cookie?: Record<string, ElysiaCookie>;
 }
 
+/** Content-type header constant for JSON responses. */
 export const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
+/** Content-type header constant for plain-text responses. */
 export const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
+/** Content-type header constant for HTML responses. */
 export const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
 
 type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
@@ -73,6 +80,11 @@ export const mergeHeaders = (
   return asResponseHeaders(headers);
 };
 
+/**
+ * Build a `ResponseInit` for a status with merged headers.
+ *
+ * Returns `{ status }` alone when no headers are given (no allocation).
+ */
 export const createResponseInit = (status: number, headers?: IgnusHeadersInit): ResponseInit => {
   if (headers === undefined) {
     return { status };
@@ -82,6 +94,70 @@ export const createResponseInit = (status: number, headers?: IgnusHeadersInit): 
     status,
     headers: mergeHeaders({}, headers),
   };
+};
+
+/**
+ * Build a `Response` from a string body, encoding it once and setting an
+ * accurate `content-length`. Bun only materializes `content-length` at serve
+ * time (the in-process `Response` has it as `null`), so without this,
+ * middleware (compression) must buffer a response just to learn its size when
+ * the client sends `accept-encoding`. Shared by the `ctx.json/text/html`
+ * builders (the interpreted `createApp` path AND compiled routes that return
+ * `ctx.json(...)` directly).
+ */
+/**
+ * Merge a supported `ResponseInit["headers"]` shape (Headers / array / object)
+ * into a target Headers instance.
+ */
+const applyInitHeaders = (target: Headers, init: ResponseInit["headers"] | undefined): void => {
+  if (!init) return;
+  const isIterable =
+    init instanceof Headers ||
+    (typeof (init as { forEach?: unknown }).forEach === "function" && !Array.isArray(init));
+  if (isIterable) {
+    (init as Headers).forEach((value, key) => {
+      target.set(key, value);
+    });
+    return;
+  }
+  if (Array.isArray(init)) {
+    for (const [k, v] of init as Array<[string, string | undefined]>) {
+      if (v !== undefined) target.set(k, v);
+    }
+    return;
+  }
+  for (const [k, v] of Object.entries(init as Record<string, string | undefined>)) {
+    if (v != null) target.set(k, String(v));
+  }
+};
+
+/**
+ * Build a `Response` from a string body, encoding it once and setting an
+ * accurate `content-length`. Bun only materializes `content-length` at serve
+ * time (the in-process `Response` has it as `null`), so without this,
+ * middleware (compression) must buffer a response just to learn its size when
+ * the client sends `accept-encoding`. Shared by the `ctx.json/text/html`
+ * builders (the interpreted `createApp` path AND compiled routes that return
+ * `ctx.json(...)` directly).
+ */
+export const responseWithBody = (
+  body: string | undefined,
+  contentType: string,
+  init?: ResponseInit,
+): Response => {
+  const headers = new Headers({ "content-type": contentType });
+  applyInitHeaders(headers, init?.headers);
+
+  const responseInit: ResponseInit = { headers };
+  if (init?.status !== undefined) responseInit.status = init.status;
+  if (init?.statusText !== undefined) responseInit.statusText = init.statusText;
+
+  if (body !== undefined) {
+    const bytes = new TextEncoder().encode(body);
+    headers.set("content-length", String(bytes.byteLength));
+    return new Response(bytes, responseInit);
+  }
+  return new Response(null, responseInit);
 };
 
 /**
@@ -139,6 +215,78 @@ export const reWrapResponse = (
   });
 
 /**
+ * Apply header mutations to a response without re-wrapping when possible.
+ *
+ * Bun allows in-place mutation of a `Response`'s headers (even fetched/
+ * proxied ones) and reflects it on the wire (probed 2026-08-13). In-place
+ * mutation avoids a `new Headers(response.headers)` copy + `new
+ * Response(response.body, ...)` re-wrap — the dominant per-request JS cost in
+ * the plugin chain (security re-wrap alone ~2.5-4µs) — and, crucially, keeps
+ * `content-length` + the original body stream intact across the chain.
+ *
+ * Falls back to the copy + re-wrap when the response's headers are immutable
+ * (e.g. a non-Bun runtime that enforces the Fetch spec).
+ *
+ * `mutate` MUST only touch headers (set/append/delete) — its result is
+ * discarded and re-applied on the copied headers in the fallback path.
+ */
+export const mutateHeaders = (response: Response, mutate: (headers: Headers) => void): Response => {
+  try {
+    mutate(response.headers);
+    return response;
+  } catch {
+    const headers = new Headers(response.headers);
+    mutate(headers);
+    return reWrapResponse(response, { headers });
+  }
+};
+
+/** Set (or append, for array values) a single header value on a Headers. */
+const applyHeaderValue = (h: Headers, key: string, value: string | string[]): void => {
+  if (Array.isArray(value)) {
+    h.delete(key);
+    for (const x of value) h.append(key, String(x));
+  } else {
+    h.set(key, String(value));
+  }
+};
+
+/** Serialize and append a cookie record's `Set-Cookie` values. */
+const applySetCookies = (h: Headers, cookie: Record<string, ElysiaCookie> | undefined): void => {
+  if (!cookie || typeof cookie !== "object") return;
+  const s = serializeCookie(cookie);
+  if (s) {
+    if (Array.isArray(s)) for (const c of s) h.append("set-cookie", c);
+    else h.append("set-cookie", s);
+  }
+};
+
+/**
+ * Apply accumulated header + cookie mutations to a `Headers` instance.
+ *
+ * Single shared implementation for the in-place `mutateHeaders` path and the
+ * copy + re-wrap fallback, so both apply identical mutations.
+ */
+const applySetHeaders = (
+  h: Headers,
+  headers: Record<string, string> | undefined,
+  cookie: Record<string, ElysiaCookie> | undefined,
+  trace: boolean,
+  requestId?: string,
+): void => {
+  if (trace && requestId) h.set("x-request-id", requestId);
+
+  if (headers) {
+    for (const [k, v] of Object.entries(headers)) {
+      if (v == null) continue;
+      applyHeaderValue(h, k, v);
+    }
+  }
+
+  applySetCookies(h, cookie);
+};
+
+/**
  * Apply a request's accumulated `set` mutations to a final `Response`.
  */
 export const applySet = (
@@ -166,28 +314,14 @@ export const applySet = (
     return Response.redirect(redirect, status ?? 302);
   }
 
+  // Header/cookie-only mutations (no status change): mutate the response's
+  // headers IN PLACE when possible (Bun) instead of re-wrapping — preserves the
+  // body stream and content-length and avoids a new Response per request.
+  if (status === undefined) {
+    return mutateHeaders(response, (h) => applySetHeaders(h, headers, cookie, trace, requestId));
+  }
+
   const h = new Headers(response.headers);
-  if (trace && requestId) h.set("x-request-id", requestId);
-
-  if (headers) {
-    for (const [k, v] of Object.entries(headers)) {
-      if (v == null) continue;
-      if (Array.isArray(v)) {
-        h.delete(k);
-        for (const x of v) h.append(k, String(x));
-      } else {
-        h.set(k, String(v));
-      }
-    }
-  }
-
-  if (cookie && typeof cookie === "object") {
-    const s = serializeCookie(cookie);
-    if (s) {
-      if (Array.isArray(s)) for (const c of s) h.append("set-cookie", c);
-      else h.append("set-cookie", s);
-    }
-  }
-
+  applySetHeaders(h, headers, cookie, trace, requestId);
   return reWrapResponse(response, { status: status ?? response.status, headers: h });
 };

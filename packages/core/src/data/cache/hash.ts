@@ -21,6 +21,16 @@ export function fastHash(input: string | ArrayBuffer | Uint8Array): string {
   return fnv1a64(toBytes(input)).toString(36);
 }
 
+/**
+ * Compute a strong/weak ETag for a body.
+ *
+ * Uses {@link fastHash} (fnv1a64) — non-cryptographic but collision-resistant
+ * enough for ETag/cache purposes.
+ *
+ * @param body - The response body to tag.
+ * @param weak - Emit a `W/` weak ETag (default `true`).
+ * @returns The `ETag` header value.
+ */
 export function entityTag(body: string | ArrayBuffer | Uint8Array, weak = true): string {
   return `${weak ? "W/" : ""}"${fastHash(body)}"`;
 }

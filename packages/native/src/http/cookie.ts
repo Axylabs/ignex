@@ -12,6 +12,7 @@ export const cookiePairs = (input: string | Uint8Array): Pairs => {
   return cookiePairsFallback(toBytes(input));
 };
 
+/** Pure-TS fallback for {@link cookiePairs} (identical behavior). */
 export const cookiePairsFallback = (input: Uint8Array): Pairs => {
   const out: Array<[string, string]> = [];
   const text = fromBytes(input);

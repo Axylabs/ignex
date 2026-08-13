@@ -7,4 +7,9 @@
  */
 import { startMcpServer } from "../src/index.js";
 
-await startMcpServer();
+try {
+  await startMcpServer();
+} catch (err) {
+  console.error("Failed to start ignus MCP server:", err);
+  process.exit(1);
+}

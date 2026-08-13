@@ -3,19 +3,19 @@
  */
 
 import { DiagnosticCodes } from "../../diagnostics";
-import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../../types";
+import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../../types";
 import { normalizePathPattern } from "../../utils/route-path";
 
-export const staticRouteKey = (route: RouteDef): string =>
+export const staticRouteKey = (route: RouteIR): string =>
   `${route.source.method}:${route.source.path}`;
 
 export const detectDeadRoutes = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
-): { alive: RouteDef[]; dead: RouteDef[] } => {
+): { alive: RouteIR[]; dead: RouteIR[] } => {
   const seen = new Map<string, number>();
-  const alive: RouteDef[] = [];
-  const dead: RouteDef[] = [];
+  const alive: RouteIR[] = [];
+  const dead: RouteIR[] = [];
 
   for (const route of routes) {
     const moduleIdx = route.source.moduleIdx;
@@ -43,14 +43,14 @@ export interface RouteConflictIssue {
 }
 
 export const detectRouteConflicts = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): void => {
   const issues: RouteConflictIssue[] = [];
 
-  const exact = new Map<string, RouteDef[]>();
-  const patterns = new Map<string, RouteDef[]>();
+  const exact = new Map<string, RouteIR[]>();
+  const patterns = new Map<string, RouteIR[]>();
 
   for (const route of routes) {
     const routePath = route.source.path;

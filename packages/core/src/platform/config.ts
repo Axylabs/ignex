@@ -8,8 +8,10 @@
 import { fold, tryCatchOr } from "@ignus/shared";
 import { coerceBoolean } from "./coerce";
 
+/** The supported config field value types. */
 export type ConfigFieldType = "string" | "number" | "boolean" | "json";
 
+/** One config field: its type, env override, default, and requiredness. */
 export interface ConfigField {
   type: ConfigFieldType;
   /** Env var name (defaults to the field key). */
@@ -18,6 +20,7 @@ export interface ConfigField {
   required?: boolean;
 }
 
+/** A schema of named config fields (the input to {@link defineConfig}). */
 export type ConfigSchema = Record<string, ConfigField>;
 
 type InferType<F extends ConfigField> = F extends { type: "number" }
@@ -28,6 +31,7 @@ type InferType<F extends ConfigField> = F extends { type: "number" }
       ? unknown
       : string;
 
+/** The resolved config object: one typed value per schema field. */
 export type Config<S extends ConfigSchema> = {
   [K in keyof S]: InferType<S[K]>;
 };

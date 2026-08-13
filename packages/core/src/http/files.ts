@@ -7,12 +7,13 @@
  * - mtime/ETag browser caching
  */
 
-import { stat } from "fs/promises";
-import { basename, normalize, resolve, sep } from "path";
+import { stat } from "node:fs/promises";
+import { basename, normalize, resolve, sep } from "node:path";
 import { cacheControl } from "../data/cache";
 import { ForbiddenError, NotFoundError } from "../platform/errors";
 import { isNotModified } from "./conditional";
 
+/** Options for {@link sendFile}. */
 export interface SendFileOptions {
   req?: Request;
   download?: boolean | string;
@@ -23,6 +24,7 @@ export interface SendFileOptions {
   isPrivate?: boolean;
 }
 
+/** Options for {@link streamDownload}. */
 export interface StreamDownloadOptions {
   filename?: string;
   contentType?: string;
@@ -47,14 +49,77 @@ export function safeJoin(root: string, target: string): string {
   return resolved;
 }
 
+const rangeNotSatisfiable = (size: number): Response =>
+  new Response("Range Not Satisfiable", {
+    status: 416,
+    headers: { "content-range": `bytes */${size}` },
+  });
+
+/**
+ * Serve an HTTP `Range` request against a file (206 partial or 416).
+ *
+ * The bounded slice is materialized because Bun 1.4's `response.body` getter
+ * re-streams the FULL file when a sliced BunFile-backed Response is re-wrapped
+ * (e.g. plugins/applySet add headers or cookies), which would corrupt the 206
+ * body. A materialized range is small and survives re-wrapping.
+ */
+async function serveRange(
+  file: Blob,
+  size: number,
+  headers: Headers,
+  range: string,
+): Promise<Response> {
+  const match = /bytes=(\d*)-(\d*)/.exec(range);
+  if (!match) return rangeNotSatisfiable(size);
+
+  let start: number;
+  let end: number;
+  if (match[1] === "" && match[2] !== "") {
+    // Suffix range: bytes=-500
+    const suffix = parseInt(match[2] as string, 10);
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = match[1] ? parseInt(match[1], 10) : 0;
+    end = match[2] ? parseInt(match[2], 10) : size - 1;
+  }
+
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+    return rangeNotSatisfiable(size);
+  }
+
+  end = Math.min(end, size - 1);
+  headers.set("content-range", `bytes ${start}-${end}/${size}`);
+  headers.set("content-length", String(end - start + 1));
+
+  const sliced = await file.slice(start, end + 1).arrayBuffer();
+  return new Response(sliced, { status: 206, headers });
+}
+
+/**
+ * Serve a static file with ETag/Last-Modified caching and HTTP range support.
+ *
+ * Requires the Bun runtime (`Bun.file`). Pass a request that came through
+ * `safeJoin` (or validate the path yourself) so `path` cannot escape its
+ * intended directory — this helper does not sandbox the path.
+ *
+ * @param path - Absolute path to the file (validated by the caller).
+ * @param opts - Request (for conditional/range), download, caching controls.
+ * @throws NotFoundError when the path is not a file; ForbiddenError from
+ * `safeJoin` when the caller used it and traversal was attempted.
+ */
 export async function sendFile(path: string, opts: SendFileOptions = {}): Promise<Response> {
   const stats = await stat(path).catch(() => null);
 
-  if (!stats || !stats.isFile()) {
+  if (!stats?.isFile()) {
     throw new NotFoundError("File");
   }
 
-  const file = Bun.file(path);
+  const bun = (globalThis as { Bun?: { file: (p: string) => Blob } }).Bun;
+  if (!bun?.file) {
+    throw new Error("sendFile requires the Bun runtime");
+  }
+  const file = bun.file(path);
 
   const etag = `W/"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
 
@@ -95,54 +160,7 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
   const range = opts.req?.headers.get("range");
 
   if (range) {
-    const match = /bytes=(\d*)-(\d*)/.exec(range);
-
-    if (!match) {
-      return new Response("Range Not Satisfiable", {
-        status: 416,
-        headers: {
-          "content-range": `bytes */${stats.size}`,
-        },
-      });
-    }
-
-    let start: number;
-    let end: number;
-
-    if (match[1] === "" && match[2] !== "") {
-      // Suffix range: bytes=-500
-      const suffix = parseInt(match[2] as string, 10);
-      start = Math.max(0, stats.size - suffix);
-      end = stats.size - 1;
-    } else {
-      start = match[1] ? parseInt(match[1], 10) : 0;
-      end = match[2] ? parseInt(match[2], 10) : stats.size - 1;
-    }
-
-    if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stats.size) {
-      return new Response("Range Not Satisfiable", {
-        status: 416,
-        headers: {
-          "content-range": `bytes */${stats.size}`,
-        },
-      });
-    }
-
-    end = Math.min(end, stats.size - 1);
-
-    headers.set("content-range", `bytes ${start}-${end}/${stats.size}`);
-    headers.set("content-length", String(end - start + 1));
-
-    // Buffer the (bounded) range: Bun 1.4's `response.body` getter re-streams
-    // the FULL file when a sliced BunFile-backed Response is re-wrapped (e.g.
-    // plugins/applySet add headers or cookies), which would corrupt the 206
-    // body. A materialized range is small and survives re-wrapping.
-    const sliced = await file.slice(start, end + 1).arrayBuffer();
-
-    return new Response(sliced, {
-      status: 206,
-      headers,
-    });
+    return serveRange(file, stats.size, headers, range);
   }
 
   headers.set("content-length", String(stats.size));
@@ -153,6 +171,12 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
   });
 }
 
+/**
+ * Stream a `ReadableStream` as a download (or arbitrary) response.
+ *
+ * Sets `Content-Disposition: attachment` when `filename` is provided and
+ * `Content-Length` when `size` is known.
+ */
 export function streamDownload(stream: ReadableStream, opts: StreamDownloadOptions = {}): Response {
   const headers = new Headers({
     "content-type": opts.contentType || "application/octet-stream",

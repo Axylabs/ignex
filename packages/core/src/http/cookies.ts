@@ -6,7 +6,8 @@
  * emits identical `set-cookie` values.
  */
 
-import { cookiePairs } from "@ignus/native";
+import { batch, cookiePairs } from "@ignus/native";
+import { BATCH_PARSE_THRESHOLD } from "../data/query";
 import type { CookieOptions, ElysiaCookie } from "../types";
 import type { SetHeaders } from "./headers";
 
@@ -56,6 +57,12 @@ const serializeCookiePair = (name: string, value: string, opts: ElysiaCookie): s
   return parts.join("; ");
 };
 
+/**
+ * Serialize a cookie record into `Set-Cookie` header value(s).
+ *
+ * @returns A single header string, an array (multiple cookies), or `undefined`
+ * when no cookie has a value.
+ */
 export const serializeCookie = (
   cookies: Record<string, ElysiaCookie>,
 ): string | string[] | undefined => {
@@ -73,17 +80,17 @@ const MAX_COOKIES = 100;
 /** Maximum length of the Cookie header we'll parse (DoS guard). */
 const MAX_COOKIE_HEADER_BYTES = 8192;
 
-export const parseCookieString = (cookieString: string | null): Record<string, string> => {
-  if (!cookieString) return {};
-  // Refuse to parse an absurdly large cookie header.
-  if (cookieString.length > MAX_COOKIE_HEADER_BYTES) return {};
-
+/**
+ * Fold raw cookie pairs into a `Record` (last value wins per key), honoring
+ * the {@link MAX_COOKIES} DoS guard.
+ */
+const cookiePairsToRecord = (pairs: ReadonlyArray<[string, string]>): Record<string, string> => {
   const out: Record<string, string> = {};
   let count = 0;
 
-  // Native-accelerated (proven ~2.5x), with a pure-TS fallback. The native
-  // parser trims but does not URL-decode, so we keep the existing decode step.
-  for (const [key, value] of cookiePairs(cookieString)) {
+  // Native parser trims + unwraps DQUOTE but does not URL-decode, so we keep
+  // the existing decode step here.
+  for (const [key, value] of pairs) {
     if (count >= MAX_COOKIES) break;
     out[key] = decodeCookieValue(value);
     count += 1;
@@ -92,6 +99,73 @@ export const parseCookieString = (cookieString: string | null): Record<string, s
   return out;
 };
 
+/**
+ * Parse a `Cookie` request header into a name → value record.
+ *
+ * Enforces DoS guards: at most 100 cookies and an 8 KB header; oversized or
+ * absent input yields an empty record (never throws).
+ *
+ * @param cookieString - The raw `Cookie` header value (or `null`).
+ * @returns Decoded cookie values keyed by name.
+ */
+export const parseCookieString = (cookieString: string | null): Record<string, string> => {
+  if (!cookieString) return {};
+  // Refuse to parse an absurdly large cookie header.
+  if (cookieString.length > MAX_COOKIE_HEADER_BYTES) return {};
+
+  return cookiePairsToRecord(cookiePairs(cookieString));
+};
+
+/**
+ * Parse many `Cookie` headers in ONE native batch call — for bulk endpoints
+ * processing many requests' cookies per call. Honors the same
+ * {@link MAX_COOKIES} / {@link MAX_COOKIE_HEADER_BYTES} guards as
+ * {@link parseCookieString} and produces identical output. Falls back to
+ * per-item scalar parsing below {@link BATCH_PARSE_THRESHOLD} inputs or when
+ * the Rust addon is absent.
+ *
+ * @param inputs Raw `Cookie` header values (`null`/oversized → `{}`).
+ * @returns One `Record<string, string>` per input.
+ */
+export const parseCookies = (
+  inputs: ReadonlyArray<string | null>,
+): Array<Record<string, string>> => {
+  if (inputs.length < BATCH_PARSE_THRESHOLD) return inputs.map(parseCookieString);
+
+  // Every slot is filled below (either `{}` for invalid/oversized headers or a
+  // parsed record), so pre-fill with distinct empty objects — `Array.from`
+  // avoids the ambiguous `new Array(length)` form.
+  const out: Array<Record<string, string>> = Array.from({ length: inputs.length }, () => ({}));
+  const batched: string[] = [];
+  const indexes: number[] = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const header = inputs[i];
+    if (!header || header.length > MAX_COOKIE_HEADER_BYTES) {
+      out[i] = {};
+      continue;
+    }
+    batched.push(header);
+    indexes.push(i);
+  }
+
+  const parsed = batch.cookieParse(batched);
+  for (let j = 0; j < indexes.length; j++) {
+    const idx = indexes[j];
+    const pairs = parsed[j];
+    if (idx !== undefined && pairs !== undefined) out[idx] = cookiePairsToRecord(pairs);
+  }
+
+  return out;
+};
+
+/**
+ * A mutable view of one cookie inside a cookie jar.
+ *
+ * Reads fall back to the jar entry or the initial options; writes accumulate
+ * into the context's `set.cookie` so the response carries the right
+ * `Set-Cookie` header.
+ */
 export class Cookie<T = string | undefined> {
   constructor(
     private name: string,
@@ -195,6 +269,12 @@ export class Cookie<T = string | undefined> {
   }
 }
 
+/**
+ * Create a cookie jar backed by a context's `set.cookie` accumulator.
+ *
+ * Reading any key returns a {@link Cookie} view; mutating it writes through
+ * to the accumulator. `initial` provides defaults for cookies not yet set.
+ */
 export const createCookieJar = (
   set: SetHeaders,
   store: Record<string, ElysiaCookie>,
@@ -224,6 +304,12 @@ export const writeCookie = (
   jar[name]?.update({ ...options, value });
 };
 
+/**
+ * Create a lazily-parsed cookie jar.
+ *
+ * The incoming `Cookie` header is parsed on first read (cached) rather than
+ * at jar creation, so request paths that never touch cookies do zero parsing.
+ */
 export const createLazyCookieJar = (
   set: SetHeaders,
   getCookieHeader: () => string | null,

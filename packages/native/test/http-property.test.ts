@@ -130,8 +130,8 @@ describe("parseAcceptEncoding (property)", () => {
           const parsed = parseAcceptEncoding(header);
           expect(parsed).toHaveLength(prefs.length);
           parsed.forEach((entry, i) => {
-            expect(entry.encoding).toBe(prefs[i]!.encoding);
-            expect(entry.q).toBeCloseTo(prefs[i]!.q, 6);
+            expect(entry.encoding).toBe(prefs[i]?.encoding);
+            expect(entry.q).toBeCloseTo(prefs[i]?.q, 6);
             expect(entry.order).toBe(i);
           });
         },

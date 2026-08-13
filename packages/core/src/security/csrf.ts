@@ -13,6 +13,7 @@ import type { HttpMethod } from "../types";
 
 export { csrfToken, csrfVerify } from "@ignus/native";
 
+/** Options for {@link createCsrfGuard}. */
 export interface CsrfGuardOptions {
   secret: string | Uint8Array;
   cookieName?: string;

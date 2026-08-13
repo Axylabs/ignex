@@ -78,6 +78,30 @@ export const readPairsPacked = (buf: Uint8Array): Array<[string, string]> => {
   return out;
 };
 
+/**
+ * Unpack a packed BATCH-of-pairs result → one pair list per input item.
+ *
+ * Outer layout: `[u32 item_count]{[u32 len][pairs_packed]}` where each
+ * `pairs_packed` is the `[u32 pair_count]{[u32 name_len][name]
+ * [u32 value_len][value]}` layout decoded by {@link readPairsPacked}. This is
+ * the output wire format of the native `*ParseBatchPacked` entry points
+ * (query/cookie/form).
+ */
+export const unpackPairBatches = (buf: Uint8Array): Array<Array<[string, string]>> => {
+  if (buf.byteLength < 4) return [];
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const count = dv.getUint32(0, true);
+  const out: Array<Array<[string, string]>> = [];
+  let pos = 4;
+  for (let i = 0; i < count; i++) {
+    const len = dv.getUint32(pos, true);
+    pos += 4;
+    out.push(readPairsPacked(buf.subarray(pos, pos + len)));
+    pos += len;
+  }
+  return out;
+};
+
 /** Reduce a pair list into a plain object (last value wins per key). */
 export const pairsToObject = (pairs: ReadonlyArray<[string, string]>): Record<string, string> => {
   const out: Record<string, string> = {};

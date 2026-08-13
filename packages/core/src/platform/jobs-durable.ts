@@ -25,8 +25,10 @@ export interface DurableJobSpec {
   maxAttempts?: number;
 }
 
+/** A handler that runs a durable job; receives the payload and attempt number. */
 export type JobHandler = (payload: unknown, ctx: { attempt: number }) => Promise<void> | void;
 
+/** Options for {@link createDurableJobQueue}. */
 export interface DurableJobQueueOptions {
   /** Persistent job store. */
   store: JobStore;
@@ -48,6 +50,9 @@ export interface DurableJobQueueOptions {
   onError?: (error: unknown) => void;
 }
 
+/**
+ * A durable background job queue over a persistent {@link JobStore}.
+ */
 export interface DurableJobQueue {
   /** Persist a job; it runs when due. */
   enqueue(spec: DurableJobSpec): Promise<StoredJob>;
@@ -66,6 +71,12 @@ export interface DurableJobQueue {
 /** Exponential backoff for retries (mirrors `withRetry`'s 100ms base). */
 const backoffFor = (attempt: number): number => 100 * 2 ** (attempt - 1);
 
+/**
+ * Create a durable background job queue.
+ *
+ * @param options - Store, handler registry, and worker tuning.
+ * @returns The queue (see {@link DurableJobQueue}). Call `start()` to run it.
+ */
 export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJobQueue => {
   const { store, handlers, concurrency = 1, pollIntervalMs = 250, leaseMs = 60_000 } = options;
 

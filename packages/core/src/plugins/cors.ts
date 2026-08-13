@@ -3,9 +3,10 @@
  */
 
 import type { IgnusContext } from "../http/context";
-import { appendVary, reWrapResponse } from "../http/headers";
+import { appendVary, mutateHeaders } from "../http/headers";
 import type { IgnusPlugin } from "../lifecycle/plugin";
 
+/** Options for {@link cors}. */
 export interface CorsOptions {
   origin?: string | string[] | ((origin: string, ctx: IgnusContext) => boolean);
   methods?: string[];
@@ -18,6 +19,14 @@ export interface CorsOptions {
 
 const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
 
+/**
+ * CORS plugin — adds `Access-Control-*` headers and answers preflight.
+ *
+ * @param options - Origin allowlist, methods, headers, credentials.
+ * @throws Error when `origin: "*"` is combined with `credentials: true`
+ * (a browser-forbidden, insecure combination).
+ * @returns The CORS plugin.
+ */
 export const cors = (options: CorsOptions = {}): IgnusPlugin => {
   const {
     origin = "*",
@@ -42,14 +51,18 @@ export const cors = (options: CorsOptions = {}): IgnusPlugin => {
     return origin(requestOrigin, ctx);
   };
 
-  const setCorsHeaders = (ctx: IgnusContext, headers: Headers): void => {
+  // `requestOrigin` is pre-fetched by the caller (the onResponse gate fetches
+  // it once) so the Origin header is not converted to a JS string twice.
+  const setCorsHeaders = (ctx: IgnusContext, headers: Headers, requestOrigin?: string): void => {
+    const originValue = requestOrigin ?? ctx.headers.get("origin") ?? "";
+    // No Origin header → nothing to echo and nothing to vary on (matches
+    // express-cors: `Vary: Origin` is only emitted when an Origin is present).
+    if (!originValue) return;
+
     appendVary(headers, "Origin");
 
-    const requestOrigin = ctx.headers.get("origin") || "";
-    if (!requestOrigin) return;
-
-    if (isOriginAllowed(requestOrigin, ctx)) {
-      headers.set("Access-Control-Allow-Origin", requestOrigin);
+    if (isOriginAllowed(originValue, ctx)) {
+      headers.set("Access-Control-Allow-Origin", originValue);
 
       if (credentials) {
         headers.set("Access-Control-Allow-Credentials", "true");
@@ -96,10 +109,17 @@ export const cors = (options: CorsOptions = {}): IgnusPlugin => {
     },
 
     onResponse(ctx, response) {
-      const headers = new Headers(response.headers);
-      setCorsHeaders(ctx, headers);
+      // Common path: no Origin header → nothing to echo, nothing to vary on.
+      // Serve the response unchanged (no Headers copy, no re-wrap, no alloc)
+      // instead of re-wrapping every response.
+      const requestOrigin = ctx.headers.get("origin");
+      if (!requestOrigin) return response;
 
-      return reWrapResponse(response, { headers });
+      // Mutate the response's headers IN PLACE (Bun) — no re-wrap — so the
+      // body stream + content-length are preserved across the plugin chain.
+      return mutateHeaders(response, (headers) => {
+        setCorsHeaders(ctx, headers, requestOrigin);
+      });
     },
   };
 };

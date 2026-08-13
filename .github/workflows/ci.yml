@@ -43,6 +43,9 @@ jobs:
       - name: Lint (oxlint + biome)
         run: bun run lint
 
+      - name: JSDoc completeness (every public export documented)
+        run: bun run jsdoc:check:strict
+
       - name: Test + coverage thresholds
         run: bun run test:coverage
 

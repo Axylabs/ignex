@@ -9,7 +9,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "typecheck:cli": "tsc --noEmit -p packages/cli/tsconfig.json",
-    "verify": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test",
+    "verify": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test && bun run jsdoc:check:strict",
+    "jsdoc:check": "bun scripts/check-jsdoc.ts",
+    "jsdoc:check:strict": "bun scripts/check-jsdoc.ts --strict",
     "lint": "oxlint . && biome check .",
     "lint:fix": "oxlint --fix . && biome check --write .",
     "test": "vitest run",
@@ -35,6 +37,7 @@
     "bench:native": "bun scripts/native-bench.ts",
     "bench:server": "bun scripts/bench-server.ts",
     "bench:server:check": "bun scripts/check-server-bench.ts",
+    "bench:realworld": "bun scripts/bench-realworld.ts",
     "bench:products": "oha http://localhost:3000/products/123"
   },
   "devDependencies": {
@@ -47,6 +50,7 @@
     "fast-check": "^4.9.0",
     "lefthook": "^2.1.10",
     "oxlint": "^1.74.0",
+    "oxc-parser": "^0.140.0",
     "tinybench": "^6.0.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

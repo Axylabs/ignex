@@ -46,3 +46,4 @@ packages/*/dist
 .trash-packages-*
 *.pre-monorepo
 .backup-*
+bench/results/server

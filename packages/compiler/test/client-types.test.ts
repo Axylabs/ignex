@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectTypeOf } from "expect-type";
 import { describe, expect, it } from "vitest";
-import type { RouteDef } from "../src";
+import type { RouteIR } from "../src";
 import { generateClient, generateClientDts, generateRouteTypes } from "../src";
 import { createApiClient } from "./fixtures/client-types/client.js";
 
@@ -26,11 +26,11 @@ const snapshot = (name: string): string =>
   );
 
 // The routes the snapshot was generated from (covers all four call shapes).
-const makeRoute = (method: string, path: string, paramNames: string[], body = false): RouteDef =>
+const makeRoute = (method: string, path: string, paramNames: string[], body = false): RouteIR =>
   ({
     source: { method, path, paramNames },
     analysis: { usage: body ? { body: true } : {} },
-  }) as unknown as RouteDef;
+  }) as unknown as RouteIR;
 
 const snapshotRoutes = [
   makeRoute("GET", "/", []),
@@ -44,25 +44,25 @@ describe("generated client type contract", () => {
     const client = createApiClient("http://api.test");
 
     // Params-only → `(params: { id: string }, init?)`.
-    expectTypeOf(client["/products/:id"]["get"]).parameters.toEqualTypeOf<
+    expectTypeOf(client["/products/:id"].get).parameters.toEqualTypeOf<
       [params: { id: string }, init?: RequestInit]
     >();
 
     // No params/body → `(init?)`.
-    expectTypeOf(client["/"]["get"]).parameters.toEqualTypeOf<[init?: RequestInit]>();
+    expectTypeOf(client["/"].get).parameters.toEqualTypeOf<[init?: RequestInit]>();
 
     // Body-only → `(body, init?)`.
-    expectTypeOf(client["/echo"]["post"]).parameters.toEqualTypeOf<
+    expectTypeOf(client["/echo"].post).parameters.toEqualTypeOf<
       [body: unknown, init?: RequestInit]
     >();
 
     // Params + body → `(params, body, init?)`.
-    expectTypeOf(client["/submit/:id"]["post"]).parameters.toEqualTypeOf<
+    expectTypeOf(client["/submit/:id"].post).parameters.toEqualTypeOf<
       [params: { id: string }, body: unknown, init?: RequestInit]
     >();
 
     // Every call returns a Promise.
-    expectTypeOf(client["/"]["get"]).returns.toBeFunction();
+    expectTypeOf(client["/"].get).returns.toBeFunction();
   });
 
   it("keeps the committed snapshot in sync with the generators (drift guard)", () => {

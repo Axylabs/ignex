@@ -12,13 +12,57 @@
  * handlers are rejected rather than mis-hoisted.
  */
 
-import { type Node, propertyName, type TemplateElement } from "./ast-types";
+import {
+  type ArrayExpression,
+  type Node,
+  type ObjectExpression,
+  propertyName,
+  type TemplateElement,
+  type UnaryExpression,
+} from "./ast-types";
 import { extractHandlerNodeAST } from "./handler";
 
 export type ConstResult = { ok: true; value: unknown } | { ok: false };
 export const constFail: ConstResult = { ok: false };
 
 const isBigIntValue = (value: unknown): boolean => typeof value === "bigint";
+
+/** Evaluate a unary expression against a constant argument. */
+const evaluateUnary = (node: UnaryExpression): ConstResult => {
+  const arg = evaluateConstantNode(node.argument);
+  if (!arg.ok) return constFail;
+  if (node.operator === "-") return { ok: true, value: -(arg.value as number) };
+  if (node.operator === "+") return { ok: true, value: +(arg.value as number) };
+  if (node.operator === "!") return { ok: true, value: !arg.value };
+  return constFail;
+};
+
+/** Evaluate an array literal whose elements are all constant. */
+const evaluateArray = (node: ArrayExpression): ConstResult => {
+  const vals: unknown[] = [];
+  for (const el of node.elements ?? []) {
+    if (!el || el.type === "SpreadElement") return constFail;
+    const r = evaluateConstantNode(el);
+    if (!r.ok) return constFail;
+    vals.push(r.value);
+  }
+  return { ok: true, value: vals };
+};
+
+/** Evaluate an object literal whose properties are all constant. */
+const evaluateObject = (node: ObjectExpression): ConstResult => {
+  const obj: Record<string, unknown> = {};
+  for (const p of node.properties ?? []) {
+    // Rejects spread, methods, getters/setters and computed keys.
+    if (p.type !== "Property" || p.computed || p.kind !== "init") return constFail;
+    const k = propertyName(p.key);
+    if (typeof k !== "string" && typeof k !== "number") return constFail;
+    const v = evaluateConstantNode(p.value);
+    if (!v.ok) return constFail;
+    obj[String(k)] = v.value;
+  }
+  return { ok: true, value: obj };
+};
 
 /** Evaluate a node with the safe constant evaluator. */
 export function evaluateConstantNode(node: Node): ConstResult {
@@ -47,39 +91,14 @@ export function evaluateConstantNode(node: Node): ConstResult {
           .join(""),
       };
 
-    case "UnaryExpression": {
-      const arg = evaluateConstantNode(node.argument);
-      if (!arg.ok) return constFail;
-      if (node.operator === "-") return { ok: true, value: -(arg.value as number) };
-      if (node.operator === "+") return { ok: true, value: +(arg.value as number) };
-      if (node.operator === "!") return { ok: true, value: !arg.value };
-      return constFail;
-    }
+    case "UnaryExpression":
+      return evaluateUnary(node);
 
-    case "ArrayExpression": {
-      const vals: unknown[] = [];
-      for (const el of node.elements ?? []) {
-        if (!el || el.type === "SpreadElement") return constFail;
-        const r = evaluateConstantNode(el);
-        if (!r.ok) return constFail;
-        vals.push(r.value);
-      }
-      return { ok: true, value: vals };
-    }
+    case "ArrayExpression":
+      return evaluateArray(node);
 
-    case "ObjectExpression": {
-      const obj: Record<string, unknown> = {};
-      for (const p of node.properties ?? []) {
-        // Rejects spread, methods, getters/setters and computed keys.
-        if (p.type !== "Property" || p.computed || p.kind !== "init") return constFail;
-        const k = propertyName(p.key);
-        if (typeof k !== "string" && typeof k !== "number") return constFail;
-        const v = evaluateConstantNode(p.value);
-        if (!v.ok) return constFail;
-        obj[String(k)] = v.value;
-      }
-      return { ok: true, value: obj };
-    }
+    case "ObjectExpression":
+      return evaluateObject(node);
 
     // Parens and TS type wrappers are transparent for constant evaluation.
     case "ParenthesizedExpression":

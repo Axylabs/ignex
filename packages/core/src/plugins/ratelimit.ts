@@ -29,6 +29,7 @@ import { reWrapResponse } from "../http/headers";
 import type { IgnusPlugin } from "../lifecycle/plugin";
 import { firstForwardedIp } from "../platform/coerce";
 
+/** Options for {@link rateLimit}. */
 export interface RateLimitOptions {
   windowMs?: number;
   maxRequests?: number;
@@ -52,17 +53,18 @@ export interface RateLimitOptions {
   native?: boolean;
 }
 
-interface RateState {
-  remaining: number;
-  resetTime: number;
-}
-
 /** Unified rate-limit state carried to `onResponse` for the headers. */
 interface RateState {
   remaining: number;
   resetTime: number;
 }
 
+/**
+ * Rate limit plugin — per-IP window (optionally Rust-accelerated).
+ *
+ * @param options - Window/limit tuning, algorithm, key generator, skip.
+ * @returns The rate-limit plugin.
+ */
 export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
   const {
     windowMs = 60_000,
@@ -141,7 +143,7 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
       }
 
       const config = { windowMs, maxRequests };
-      const stored = store!.get(key);
+      const stored = store?.get(key);
 
       let decision: RateDecision;
 
@@ -156,7 +158,7 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
         decision = checkFixedWindow(config, base, now);
       }
 
-      store!.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
+      store?.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
 
       const state: RateState = { remaining: decision.remaining, resetTime: decision.resetMs };
 

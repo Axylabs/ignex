@@ -11,6 +11,7 @@
  */
 import { nativeFor } from "./runtime";
 
+/** Options for {@link createRateLimiter}. */
 export interface RateLimiterOptions {
   /** Max requests allowed per window per key. */
   limit: number;
@@ -20,6 +21,7 @@ export interface RateLimiterOptions {
   maxEntries?: number;
 }
 
+/** Result of a single rate-limit check. */
 export interface RateCheck {
   /** Whether the request is allowed. */
   readonly allowed: boolean;
@@ -29,9 +31,27 @@ export interface RateCheck {
   readonly resetMs: number;
 }
 
+/** A per-key fixed-window rate limiter. */
 export interface RateLimiter {
   /** Check a key at `nowMs` (defaults to `Date.now()`). */
   check(key: string, nowMs?: number): RateCheck;
+}
+
+/** Coarse eviction: drop expired windows, then the oldest key if still over. */
+function evictIfOver(
+  state: Map<string, { windowStart: number; count: number }>,
+  maxEntries: number,
+  now: number,
+  window: number,
+): void {
+  if (state.size <= maxEntries) return;
+  for (const [k, v] of state) {
+    if (now - v.windowStart >= window) state.delete(k);
+  }
+  if (state.size > maxEntries) {
+    const oldest = state.keys().next().value;
+    if (oldest !== undefined) state.delete(oldest);
+  }
 }
 
 /**
@@ -65,17 +85,7 @@ export const createRateLimiterFallback = (options: RateLimiterOptions): RateLimi
 
       if (!existing || now - existing.windowStart >= window) {
         state.set(key, { windowStart: now, count: 1 });
-        if (state.size > maxEntries) {
-          // Coarse eviction: drop any expired windows first; if still over,
-          // clear the oldest key so the map can never grow unboundedly.
-          for (const [k, v] of state) {
-            if (now - v.windowStart >= window) state.delete(k);
-          }
-          if (state.size > maxEntries) {
-            const oldest = state.keys().next().value;
-            if (oldest !== undefined) state.delete(oldest);
-          }
-        }
+        evictIfOver(state, maxEntries, now, window);
         return {
           allowed: limit > 0,
           remaining: Math.max(0, limit - 1),

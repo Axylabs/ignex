@@ -117,10 +117,13 @@ export {
 } from "./payload";
 export {
   createNativePipeline,
+  type NativeCorsOptions,
+  type NativeIngressOptions,
   type NativePipeline,
   type NativePipelineOptions,
   type NativePreflightOutcome,
   type NativePreflightResult,
+  type NativeRateLimitOptions,
 } from "./pipeline";
 export {
   createRateLimiter,

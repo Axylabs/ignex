@@ -16,7 +16,7 @@
  */
 
 import { pipeAsync } from "@ignus/shared";
-import { storeCache, tryCachedBuild } from "./cache";
+import { computeRouteChanges, storeCache, tryCachedBuild } from "./cache";
 import {
   DiagnosticCodes,
   DiagnosticCollector,
@@ -35,10 +35,18 @@ import { runLinker, runLinkerAsync } from "./phases/linker";
 import { runOptimization } from "./phases/optimization";
 import { precompileSerializers } from "./phases/serializers";
 import { precompileValidators } from "./phases/validators";
-import type { CompileResult, CompilerContext, CompilerOptions, RouteDef } from "./types";
+import type { CompileResult, CompilerContext, CompilerOptions, RouteIR } from "./types";
 import { DEFAULT_OPTS, type OptimizationMeta } from "./types";
 import { mergeOptions, validateOptions } from "./validate";
 
+export {
+  computeRouteChanges,
+  computeRouteFingerprint,
+  diffRouteFingerprints,
+  fingerprintRouteFiles,
+  type RouteChangeSet,
+  type RouteFingerprint,
+} from "./cache";
 export {
   type Diagnostic,
   DiagnosticCodes,
@@ -57,7 +65,7 @@ export {
 // standalone `scripts/generate-openapi-client.ts`) can share the canonical
 // implementations instead of re-implementing (and drifting from) them.
 export { parseRouteFilename } from "./phases/discovery";
-export type { CompileResult, CompilerOptions, RouteDef } from "./types";
+export type { CompileResult, CompilerOptions, RouteIR } from "./types";
 export { DEFAULT_OPTS, mergeOptions };
 
 /** Build a fresh per-compile context (logger + diagnostic collector). */
@@ -65,6 +73,22 @@ const createContext = (logger: Logger): CompilerContext => ({
   logger,
   diagnostics: new DiagnosticCollector(),
 });
+
+/**
+ * Thrown when a compile fails option validation or produces error-level
+ * diagnostics. Carries a machine `code` and the compiler `diagnostics` so
+ * programmatic callers can branch without string-matching the message.
+ */
+export class CompilationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "INVALID_OPTIONS" | "COMPILE_FAILED",
+    public readonly diagnostics: readonly import("./diagnostics").Diagnostic[],
+  ) {
+    super(message);
+    this.name = "CompilationError";
+  }
+}
 
 // ============================================================================
 // Composed build pipeline
@@ -90,7 +114,7 @@ interface PipelineState {
   optimized?: ReturnType<typeof runOptimization>;
   /** Source manager seeded with the persistent parse cache, if any. */
   sources?: SourceManager;
-  routes: readonly RouteDef[];
+  routes: readonly RouteIR[];
   code?: string;
   outPath?: string;
   meta?: OptimizationMeta;
@@ -176,6 +200,11 @@ const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
   return s;
 };
 
+/**
+ * Run the discovery phase: scan the routes directory, parse every route
+ * module, and build the source manager. Exposed for callers that compose the
+ * pipeline themselves instead of using {@link IgnusCompiler}.
+ */
 export const runDiscoveryPhase = (
   opts: CompilerOptions,
   ctx: CompilerContext,
@@ -192,6 +221,10 @@ export const runDiscoveryPhase = (
     return result;
   });
 
+/**
+ * Run the analysis phase: build the route graph, detect conflicts, and resolve
+ * hooks/app config from the discovery output. Exposed for custom pipelines.
+ */
 export const runAnalysisPhase = (
   discovery: ReturnType<typeof runDiscovery>,
   opts: CompilerOptions,
@@ -208,6 +241,10 @@ export const runAnalysisPhase = (
     return result;
   });
 
+/**
+ * Run the optimization phase: inline eligible handlers, de-duplicate shared
+ * code, and eliminate constant routes. Exposed for custom pipelines.
+ */
 export const runOptimizationPhase = (
   analysis: ReturnType<typeof runAnalysis>,
   opts: CompilerOptions,
@@ -225,6 +262,10 @@ export const runOptimizationPhase = (
     return result;
   });
 
+/**
+ * Run the codegen phase: emit the server module string from the optimized
+ * routes. Exposed for custom pipelines.
+ */
 export const runCodegenPhase = (
   optimized: ReturnType<typeof runOptimization>,
   analysis: ReturnType<typeof runAnalysis>,
@@ -241,12 +282,17 @@ export const runCodegenPhase = (
     return code;
   });
 
+/**
+ * Run the (sync) linking phase: bundle/minify the emitted server via
+ * `Bun.build`. Exposed for custom pipelines.
+ */
 export const runLinkingPhase = (
   code: string,
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): string => runLinker(code, opts, ctx);
 
+/** Async variant of {@link runLinkingPhase}. */
 export const runLinkingPhaseAsync = (
   code: string,
   opts: CompilerOptions,
@@ -260,6 +306,7 @@ const finish = (
   elapsed: number,
   cached = false,
   meta?: OptimizationMeta,
+  changedRoutes?: string[],
 ): CompileResult => {
   ctx.logger.info("build complete", {
     elapsedMs: Number(elapsed.toFixed(2)),
@@ -284,9 +331,20 @@ const finish = (
     errors: ctx.diagnostics.errors,
     metadata,
     ...(cached ? { cached } : {}),
+    ...(changedRoutes ? { changedRoutes } : {}),
   };
 };
 
+/**
+ * Per-compile orchestrator.
+ *
+ * Threads a `CompilerContext` (logger + diagnostics) through the full phase
+ * pipeline — discovery → analysis → optimization → precompile → artifacts →
+ * codegen → link → cache. The canonical entry point is {@link compileAsync}.
+ *
+ * @param input - Partial {@link CompilerOptions}; validated + defaulted on
+ * each compile via `validateOptions`.
+ */
 export class IgnusCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
@@ -299,7 +357,11 @@ export class IgnusCompiler {
       // Surface deprecation/unknown-option diagnostics even when validation
       // fails, so option drift is visible instead of a bare throw.
       reportDiagnostics(ctx.diagnostics.all, ctx.logger);
-      throw new Error(`Compiler options invalid:\n${validated.error.join("\n")}`);
+      throw new CompilationError(
+        `Compiler options invalid:\n${validated.error.join("\n")}`,
+        "INVALID_OPTIONS",
+        ctx.diagnostics.all,
+      );
     }
 
     const opts = validated.value;
@@ -318,6 +380,7 @@ export class IgnusCompiler {
     });
 
     // Incremental fast path: reuse the previous build when nothing changed.
+    let routeChanges = computeRouteChanges(opts);
     if (opts.incremental) {
       const cached = await tryCachedBuild(opts, ctx);
       if (cached) {
@@ -349,6 +412,16 @@ export class IgnusCompiler {
         const elapsed = performance.now() - t0;
         return finish(cached.code, cached.outFile, ctx, elapsed, true, cached.meta);
       }
+
+      // Whole-build cache miss: report exactly which route files changed since
+      // the last build. This is the parse-level incrementality foundation — a
+      // later increment re-emits only these routes instead of the whole build.
+      routeChanges = computeRouteChanges(opts);
+      if (routeChanges && routeChanges.changed.length > 0) {
+        ctx.logger.info(
+          `Incremental build — ${routeChanges.changed.length} route(s) changed: ${routeChanges.changed.join(", ")}`,
+        );
+      }
     }
 
     const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
@@ -367,15 +440,34 @@ export class IgnusCompiler {
     if (ctx.diagnostics.hasErrors) {
       const summary = ctx.diagnostics.errors.map((d) => `  - ${d.code}: ${d.message}`).join("\n");
 
-      throw new Error(
+      throw new CompilationError(
         `Compilation failed with ${ctx.diagnostics.errors.length} error(s):\n${summary}`,
+        "COMPILE_FAILED",
+        ctx.diagnostics.all,
       );
     }
 
-    return finish(state.code as string, state.outPath as string, ctx, elapsed, false, state.meta);
+    return finish(
+      state.code as string,
+      state.outPath as string,
+      ctx,
+      elapsed,
+      false,
+      state.meta,
+      routeChanges?.changed,
+    );
   }
 }
 
+/**
+ * Top-level convenience: compile once and return the {@link CompileResult}.
+ *
+ * Equivalent to `new IgnusCompiler(opts).compileAsync()`. Throws an `Error`
+ * with a summary of validation/compile diagnostics on failure.
+ *
+ * @param opts - Partial {@link CompilerOptions}.
+ * @returns The structured compile result.
+ */
 export async function buildAsync(opts?: Partial<CompilerOptions>): Promise<CompileResult> {
   return new IgnusCompiler(opts).compileAsync();
 }

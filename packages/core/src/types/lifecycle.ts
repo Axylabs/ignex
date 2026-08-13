@@ -3,8 +3,13 @@
  * decoration shapes. Re-exported through `./index` (the unified type umbrella).
  */
 
+/** The scope a hook applies to: global (all requests) or scoped/local. */
 export type LifeCycleType = "global" | "scoped" | "local";
 
+/**
+ * A single lifecycle hook with runtime metadata (checksum for de-dup, flags
+ * for the compiler's usage analysis). `T` is the hook function type.
+ */
 export interface HookContainer<T = (...args: any[]) => any> {
   fn: T;
   scope?: LifeCycleType;
@@ -14,6 +19,7 @@ export interface HookContainer<T = (...args: any[]) => any> {
   hasReturn?: boolean;
 }
 
+/** A named collection of {@link HookContainer}s, one per lifecycle stage. */
 export interface LifeCycleStore {
   start: HookContainer[];
   request: HookContainer[];
@@ -28,6 +34,7 @@ export interface LifeCycleStore {
   stop: HookContainer[];
 }
 
+/** An empty {@link LifeCycleStore} with every stage as an empty array. */
 export const EMPTY_LIFECYCLE: LifeCycleStore = {
   start: [],
   request: [],
@@ -42,6 +49,7 @@ export const EMPTY_LIFECYCLE: LifeCycleStore = {
   stop: [],
 };
 
+/** OpenAPI operation decoration (summary/description/tags/security/…). */
 export interface DocumentDecoration {
   summary?: string;
   description?: string;

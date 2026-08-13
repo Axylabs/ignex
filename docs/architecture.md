@@ -67,8 +67,7 @@ Two cross-cutting layers sit directly under `src/`:
   filename + `SourceFile` into a `RouteIR` with four owned sections — `source`
   (immutable filename facts), `analysis` (semantic facts), `decisions`
   (optimizer/precompile output), `codegen` (generated identifiers). Each phase
-  reads/writes only its own section; `RouteDef` is a deprecated alias of
-  `RouteIR`.
+  reads/writes only its own section.
 - **optimization** — constant-response detection, inline eligibility, dead-code
   pruning. Gated by `optimizationLevel` 0–3 presets.
 - **precompile** — compiles validators/serializers ahead of time. Both use the
@@ -196,7 +195,7 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   request code stays plain where composition would obscure short-circuiting
   semantics — prefer readability over ceremony.
 - **Prune dead code.** Removed paths are deleted, not commented out (e.g.
-  `ModuleInfo.callGraph`/`dataFlow`, `RouteDef.signatureHash`/`handlerSize`,
+  `ModuleInfo.callGraph`/`dataFlow`, `RouteIR.signatureHash`/`handlerSize`,
   the legacy `BodyParser` helpers).
 
 ## Cache / determinism

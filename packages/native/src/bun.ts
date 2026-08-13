@@ -9,6 +9,9 @@
  * provides. Each export is `null` when not running under Bun (or the API is
  * absent), resolved ONCE at load — there is no per-call feature check.
  */
+
+import { encoder, hexEncode } from "./util";
+
 const g = globalThis as { Bun?: Record<string, unknown> };
 const B = g.Bun;
 
@@ -57,5 +60,10 @@ export const bunHmacSha256: HmacFn | null =
     : (key: Uint8Array, data: Uint8Array) => {
         const h = new CryptoHasher("sha256", key);
         h.update(data);
-        return h.digest();
+        // Match the native addon's LOCKED format: `Bun.CryptoHasher.digest()`
+        // returns the raw 32 bytes, but native `hmacSha256` returns a 64-hex
+        // string and `hmacSha256Verify` expects hex — so hex-encode here to
+        // keep sign→verify byte-compatible across backends (the castrum
+        // delegation does the same "hex re-encoded" step).
+        return encoder.encode(hexEncode(h.digest()));
       };

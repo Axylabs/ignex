@@ -94,6 +94,7 @@ export interface ExecutionOpStatus {
   readonly nativeRatio: number | undefined;
 }
 
+/** Snapshot of the active execution backend and per-op selection decisions. */
 export interface ExecutionStatus {
   /** Overall active backend ("castrum" when the addon is loaded). */
   readonly backend: ExecutionBackend;

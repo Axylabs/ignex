@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
-import type { CompilerContext, ModuleInfo, RouteDef } from "../types";
+import type { CompilerContext, ModuleInfo, RouteIR } from "../types";
 import { hashString } from "../utils/hash";
 import { convertSchemaDoc } from "./schema-convert";
 
@@ -104,21 +104,21 @@ export const cloneSchema = (value: unknown): any => {
  *
  * Handles the common pass-through cases (route not selected, no schema
  * export, module/schema missing) and always preserves the original route
- * order. `process` returns an enriched `RouteDef` to replace the original, or
+ * order. `process` returns an enriched `RouteIR` to replace the original, or
  * `null` to keep it unchanged. Shared by `validators.ts` and `serializers.ts`.
  */
 export const forEachRouteWithSchema = async (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   ctx: CompilerContext,
-  shouldProcess: (route: RouteDef) => boolean,
+  shouldProcess: (route: RouteIR) => boolean,
   process: (
-    route: RouteDef,
+    route: RouteIR,
     mod: ModuleInfo,
     schema: Record<string, unknown>,
-  ) => Promise<RouteDef | null>,
-): Promise<readonly RouteDef[]> => {
-  const nextRoutes: RouteDef[] = [];
+  ) => Promise<RouteIR | null>,
+): Promise<readonly RouteIR[]> => {
+  const nextRoutes: RouteIR[] = [];
 
   for (const route of routes) {
     if (!shouldProcess(route)) {

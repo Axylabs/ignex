@@ -266,3 +266,501 @@ returns all three headers in both native and fallback modes.
   full-vs-core delta; that delta was compression (0.24) + eager session (0.24).
 - The remaining happy-path cost is compression (~0.24 ms, already fixed once)
   and the lifecycle hook dispatch / response re-wrap itself.
+
+## Round 4 — Elysia-informed per-request allocation pass (2026-08-13)
+
+Pass informed by studying the Elysia source (`/home/adeel/poc/elysia`): the
+edge that matters for us is *eliminating per-request allocations in the JS
+hot path*, not more native micro-tuning (Rust is already <1% of per-request
+cost). Changes landed across BOTH repos:
+
+### castrum (this workspace) — `src/ingress/`
+1. **Body fast path** (`body.ts`): when a declared `Content-Length` proves the
+   body fits the guard, read with a single native `req.arrayBuffer()` (one race
+   for the deadline, not one per chunk) instead of reader + per-chunk
+   `Promise.race` + `concatUint8Arrays`. Removes ~4-6 allocations per write
+   request (bench POSTs are single-shot bodies). Post-read length re-check
+   catches a client that lies about `Content-Length`; `arrayBuffer()` is bounded
+   by the server `maxRequestBodySize`.
+2. **Hoisted route closures** (`routes/read|head|fallback.ts`): the
+   `result → Response` callback is built once per handler, not per request.
+   `terminalResponse`/`errorResponse` `req` params made optional (they were
+   already unused — back-compatible).
+3. Tests added in `test/unit/ingress/body.test.ts` (fast path + declared-length
+   413 short-circuit). Typecheck clean; 580 TS tests pass; `bench:http:smoke`
+   gate green (0 shape failures).
+
+### ignus — `packages/core/src/plugins/`
+1. **CORS no-Origin fast path** (`cors.ts`): `onResponse` now returns the
+   *identical* Response object when the request has no `Origin` header — zero
+   `Headers` copy + zero re-wrap on the common path (matches express-cors:
+   `Vary: Origin` only when an Origin is present). Origin-present behavior is
+   unchanged. New test asserts the identity return.
+2. **Security scheme check** (`security.ts`): `isHttpsRequest` reads the scheme
+   from `ctx.req.url.startsWith("https:")` instead of materializing
+   `new URL(req.url)` per response (an allocation + full parse on every request).
+
+### Measurements
+- **castrum `02-load` (sustained, ~120 s)** — same scenario/method as the
+  08-12 run: p50 **0.590 ms (identical)**, p95 **1.877 → 0.886 ms**, p99
+  **3.502 → 1.078 ms** (tails more than halved). Identical median + tighter
+  tail is the signature of reduced per-request allocation/GC pressure.
+  Single-run caveat applies (laptop noise), but p50 being stable strengthens
+  the signal.
+- **ignus interleaved A/B `/health`**: native ≈ fallback p50 0.85 ms (ratio
+  1.00) — parity confirmed, no regression from the plugin changes.
+- **ignus verify**: 780/780 vitest, typecheck + lint green. Biome now ignores
+  `bench/results/` (generated benchmark JSON was failing the formatting gate).
+
+### Deferred (documented follow-ups, not regressions)
+- **Rust OUT-layout header-section emission**: extending the drift-guarded wire
+  contract to return a pre-assembled OK-path header section from Rust. Rust is
+  <1% of per-request cost and JS header assembly is already memoized (origin
+  cache + frozen templates) — high contract risk, low ROI. Deferred.
+- **Static-response promotion**: verified Bun re-serves prebuilt `Response`s
+  passed directly as native `routes` values (Elysia's `collectStaticRoutes`),
+  but the compiler's constant-hoist path only fires when the app has NO
+  plugins (`tryNormalizeConstant` bails on global hooks), so it won't move the
+  bench app. Pre-baking plugin headers (security/CORS) into static responses at
+  build time is the real feature — larger, deferred.
+- **Dynamic routing**: compiled ignus already handles `:param` via Bun's native
+  router; the gap is castrum's static-only `createIngressServer(ServerNode)`
+  and the interpreted `createApp` (no router). Feature-sized, deferred.
+- **castrum lint debt (pre-existing)**: `src/ingress/` uses double quotes while
+  `biome.json` declares single quotes — `bun run lint` was already red before
+  this pass. Left untouched (matching repo style).
+
+## Round 5 — Rust-strategy P1: content-length + zero-copy pipeline responses (2026-08-13)
+
+Goal (from the Rust-strategy analysis): move hot-path + dev-touched code toward
+native execution. Honest finding from grounding: castrum's pipeline is ALREADY
+Rust (parse/guard/validate/serialize/rate/CORS); the remaining per-request wins
+are structural JS around it — so P1 landed two verifiable slices.
+
+### 1. ignus: reply builders emit `content-length` (`packages/compiler/src/phases/codegen/helpers.ts`)
+- New `__withBody` codegen helper encodes a string body via `TextEncoder`
+  (one pass) and sets an accurate `content-length`. `jsonReply`/`textReply`/
+  `htmlReply` and `__finalize`'s serializer path go through it.
+- **Why**: Bun only materializes `content-length` at serve time — the in-process
+  `Response` object has it as `null` (probed), so the compression plugin always
+  buffers a response just to learn its size when the client sends
+  `accept-encoding` (browsers always do — this is the real production cost).
+- Verified end-to-end: built server serves `/health` with `content-length: 36`
+  and compression early-returns (no buffer, no `content-encoding`) under
+  `accept-encoding: gzip`. Micro-bench: compression `onResponse` on a small
+  response with gzip **2402 ns → 424 ns/req** (~2 µs saved/req).
+- Gates: 780/780 vitest, 205/205 compiler tests (no golden-fixture churn),
+  lint green, app smoke 44/44, interleaved bench native ≈ fallback (no
+  regression).
+
+### 2. castrum: zero-copy pipeline-only responses (safe by default in the bench)
+- `handlers.ts`: added `BakedIngressRuntime.zeroCopyTimeoutMs` (abandonment
+  guard) wired through `zeroCopyResponse` → `pooledBodyResponse`.
+- `bench/servers/ingress-server.ts`: zero-copy is now ON by default, bounded by
+  `INGRESS_ZERO_COPY_MAX_IN_FLIGHT=128` + `INGRESS_ZERO_COPY_TIMEOUT_MS=1000`;
+  `INGRESS_ZERO_COPY=0` restores copy mode; legacy `INGRESS_UNSAFE_ZERO_COPY`
+  kept as an alias. Removes the per-response `.slice()` body copy.
+- Gates: 585/585 TS tests, `bench:http:smoke` green with zero-copy on, and the
+  sustained `02-load` is safe (0 failures, 0 shape failures).
+
+### Measured (castrum `02-load`, sustained ~120 s; cumulative vs the 08-12 baseline)
+| metric | baseline | now | |
+| --- | --- | --- | --- |
+| p50 | 0.590 ms | 0.601 ms | pacing-limited, unchanged |
+| p95 | 1.877 ms | **0.860 ms** | ~2.2× |
+| p99 | 3.502 ms | **0.976 ms** | ~3.6× |
+| p99.9 | 21.5 ms | **2.079 ms** | ~10× |
+
+### Where "more Rust" is NOT the lever (evidence, from the strategy analysis)
+- Small-payload validation: precompiled Ajv 3.6 µs vs `fast_schema` 27 µs — JS wins.
+- Header assembly: Rust building header strings can't feed `new Response()`
+  (conversion tax); the JS template + origin-cache memo is already near-zero-alloc.
+- Arbitrary dev object serialization: JS→Rust marshaling makes native
+  serialization non-viable; precompiled `fast-json-stringify` (JIT) is the tool.
+- Ops where Bun built-ins beat FFI (`BUN_WINS`): crc32/gzip/HMAC.
+- Dev handler/hook business logic: Bun JIT is excellent; embedding an engine
+  adds net cost. The win is the framework AROUND dev code.
+
+### Still deferred (documented follow-ups)
+- **Pipeline-only native routes** in the compiler (whole lifecycle for a
+  schema+serializer route in one Rust call, zero-copy wrap) — needs the
+  wire-contract extension; the zero-copy + content-length slices above are the
+  foundation it builds on.
+- Static-response promotion with pre-baked plugin headers; dynamic routing for
+  interpreted `createApp` + castrum Node adapter; Rust-owned session/rate state.
+
+## Round 6 — eliminate the response re-wrap chain (in-place headers, 2026-08-13)
+
+The P0 stage profile of the compiled server's JS path (after Rounds 4–5) showed
+the per-request framework cost is dominated by **response re-wrapping**: each
+plugin did `new Headers(response.headers)` + `new Response(response.body, ...)`.
+Measured stage costs: security.onResponse ~2.5–3.9 µs, cors.onResponse no-origin
+~0.35–1.7 µs, applySet re-wrap, total ~7.2 µs/req JS.
+
+### The key probe
+**Bun allows in-place mutation of a `Response`'s headers and reflects it on the
+wire** — for locally-created responses AND fetched/proxied ones (probed
+2026-08-13). The Fetch spec says immutable, but Bun is lenient; other runtimes
+(undici) still throw, which drives the fallback.
+
+### The change (`packages/core/src/http/headers.ts` + plugins)
+- New **`mutateHeaders(response, fn)`** helper: applies header mutations to
+  `response.headers` IN PLACE (no copy, no new Response, no body re-read) and
+  returns the SAME response; falls back to the copy + re-wrap when the runtime
+  enforces immutability (the `catch` re-applies `fn` on a copied `Headers`).
+- **cors.onResponse**, **security.onResponse** now mutate in place.
+- **applySet**: header/cookie-only mutations mutate in place; status changes /
+  redirects still re-wrap (Response status is not mutable in place).
+- Bonus: content-length (Round 5) now survives the WHOLE chain because nothing
+  re-wraps — compression's early-return is never defeated by a re-wrap.
+
+### Measured (micro-bench, same primitives as the P0 profile)
+| Stage | before | after |
+| --- | --- | --- |
+| cors.onResponse (no-origin) | ~1.7 µs | **109 ns** |
+| security.onResponse | ~3.9 µs | **898 ns** |
+| applySet (set with a header) | re-wrap | **306 ns** (in-place) |
+
+~5 µs/request of JS removed. Gates: 780/780 vitest, lint green, app smoke 44/44
+(CORS actual + security headers verified on the in-place path). Interleaved
+bench now shows native ahead of fallback on p50 (`/health` 1.31 vs 1.42 ms,
+native ~8% faster — before this change it was fallback-leaning; absolute laptop
+numbers remain noisy, the micro-bench is the reliable signal).
+
+### Notes / remaining
+- security.onResponse is still ~900 ns (8 header sets + HSTS check) — could be
+  trimmed by pre-baking the static security header pairs once at plugin
+  creation; modest.
+- The compiled server's remaining per-request JS is createContext (~1.35 µs),
+  async hook dispatch (~1.9 µs), and the reply builders — the natural target for
+  the deferred pipeline-only-native-routes work.
+- Non-Bun runtimes use the re-wrap fallback automatically (correct, just slower).
+
+## Round 7 — skip empty lifecycle stages + pre-bake security headers (2026-08-13)
+
+The Round 6 profile left two framework-side JS costs: per-request async hook
+dispatch (several stages are EMPTY for most routes) and the security plugin's
+per-request option re-evaluation.
+
+### 1. Codegen: skip empty lifecycle stages (`packages/compiler/.../codegen/routes/`)
+- `assembleCoreFn` (handler.ts) + the full-context prelude (context.ts) now guard
+  every stage with a length check:
+  `if (__lc.beforeHandle && __lc.beforeHandle.length > 0) { ... }` (and the same
+  for route hooks, afterHandle, mapResponse, afterResponse, trace,
+  `__preParseStages`).
+- An empty `runHooks([], ctx)` costs ~250 ns (async fn + Promise + a fresh
+  `{ctx}` result object + one microtask); the guarded skip costs ~69 ns — so
+  ~180 ns saved per empty stage. `/health` has ~5 empty stages (beforeHandle,
+  route hooks, mapResponse, afterResponse, trace) → ~0.9 µs/request.
+- Semantics preserved: skipping a stage with no hooks is identical to running it
+  (nothing can halt/change the ctx). Non-empty stages are untouched.
+
+### 2. Security plugin: pre-bake static headers (`packages/core/src/plugins/security.ts`)
+- The per-request-invariant security headers (CSP, COEP, COOP, CORP,
+  X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection)
+  are baked into a frozen `[name, value][]` once at plugin creation; the
+  per-response path iterates the array instead of re-evaluating every option +
+  rebuilding each header string. Only HSTS (https-conditional) and the
+  X-Powered-By delete stay per-request.
+
+### Gates & measurements
+- 780/780 vitest, 205/205 compiler tests (no golden-fixture churn), lint +
+  typecheck green, app smoke 44/44 (security + CORS verified on the in-place
+  path).
+- Micro-bench: `runHooks(empty)` 250 ns → guarded-skip 69 ns; security
+  pre-bake trims the per-response option/string work. Interleaved bench stays
+  native ≈ fallback (0 errors); the bench box thermal-throttles (absolute p50
+  drift documented in Round 3), so the micro-bench numbers are the reliable
+  signal.
+
+### Remaining per-request JS (compiled server)
+createContext (~1.35 µs) + the non-empty hook dispatch (i18n/session/
+nativePreflight) + reply builders — the natural target for the deferred
+**pipeline-only native routes** (one Rust call computes context + validation +
+body; JS only wraps the pooled output zero-copy).
+
+## Round 8 — content-length for `ctx.json/text/html` (the `ctx.json()` gap, 2026-08-13)
+
+Round 5 set `content-length` in the codegen `jsonReply` (plain-object returns).
+But routes that return `ctx.json(...)` directly (the common dev pattern — e.g.
+`/api/orders` `return ctx.json({ ok: true, ... })`) bypass that helper: the
+handler returns a `Response`, which `__finalize` passes through untouched, built
+by the runtime `ctx.json` (which did NOT set `content-length`). Under
+`accept-encoding` (browsers) those responses were still buffered by compression.
+
+### The change
+- New shared **`responseWithBody(body, contentType, init?)`** helper
+  (`packages/core/src/http/headers.ts`): encodes a string body once, sets an
+  accurate `content-length` + content-type, merges `init.headers`, and preserves
+  `undefined`-body (empty response) semantics. Correct under
+  `exactOptionalPropertyTypes` (conditional `status`/`statusText`).
+- **`ctx.json` / `ctx.text` / `ctx.html`** (`packages/core/src/http/context.ts`)
+  now route through it — fixing BOTH the compiled server's `ctx.json(...)`
+  returns AND the interpreted `createApp` path in one place.
+- Together with Round 5, EVERY compiled response now carries `content-length`
+  (plain-object returns AND `ctx.json(...)` returns).
+
+### Verified
+- Probe: POST `/api/orders` (80-lineItem body, `ctx.json` return) with
+  `accept-encoding: gzip` → `content-length: 39`, `content-encoding: null`
+  (compression early-returns — no buffer, no gzip).
+- Gates: 780/780 vitest, typecheck + lint green (after a `biome --write`),
+  app smoke 44/44, interleaved bench native ≈ fallback (0 errors; absolute
+  p50 remains thermal-noisy).
+
+### Note on the remaining context cost
+`createContext` still eagerly calls `generateRequestId()` (a ~2-string alloc
+per request even when the requestId is unused) and builds the cookie jar +
+lazy body up front. Making `requestId` lazy is a small follow-up; the bigger
+remaining structural work stays the deferred pipeline-only-native-routes.
+
+## Round 9 — cached-context class (Elysia pattern) + lazy requestId (2026-08-13)
+
+The last big single framework-only JS cost in the compiled `needsFull` path and
+the interpreted `createApp` path was `createContext`: it built an object literal
+with ~25 per-request closures. That's the exact "cached Context class" pattern
+Elysia uses (`src/context.ts`, a per-app `WeakMap`-cached class).
+
+### The change (`packages/core/src/http/context.ts`)
+- Replaced the object-literal `createContext` with a shared-prototype
+  **`IgnusContextImpl` class**: every method + getter (`json/text/html/stream/
+  empty/status/redirect/sendFile/proxy/forward/cache/loader`, `url/path/query/
+  requestId/ip/state`) lives on the prototype once; each request only allocates
+  the instance DATA fields (req, params, set, body, cookie jar, startTime).
+  `createContext` is now `new IgnusContextImpl(req, params, opts)`.
+- Also made `ctx.requestId` lazily generated (cached getter) — most requests
+  never read it, so the ~2-string id is no longer built eagerly.
+- Behavior-preserving: same getters/semantics; the compiled server's
+  `ctx.server = server` assignment and the plugin/session `ctx.state`/cookie
+  access all still work.
+
+### Measured
+- `createContext`: **~1350 ns → 516 ns/op** (~2.6×; ~0.83 µs/request saved on
+  every `needsFull` + interpreted request). Methods verified working through
+  the prototype (`ctx.json` content-type, lazy `requestId`, `ctx.url`).
+- Gates: 780/780 vitest, typecheck + lint green (one accepted `warn` for the
+  `??=` lazy-cache idiom), app smoke 44/44.
+
+### Cumulative compiled-server JS (per request, from the Rounds 4-9 micro-benchs)
+- context creation ~1.35 µs → ~0.5 µs (this round)
+- plugin re-wrap chain ~5 µs → ~1.1 µs (Round 6 in-place headers)
+- empty hook stages ~1.25 µs → ~0.35 µs (Round 7 guards)
+- compression on small responses 2.4 µs → 0.42 µs (Round 5 content-length)
+- plus Round 8 `ctx.json` content-length and Round 9 lazy requestId.
+
+Remaining structural target (deferred, documented): compiler **pipeline-only
+native routes** (wire-contract extension).
+
+## Cumulative summary — post-Round 9 (2026-08-13)
+
+Net result of Rounds 4–9 across both repos (all micro-bench numbers are per
+request on the compiled-server JS path; castrum numbers from the sustained
+`02-load`):
+
+### Framework-side JS per request (micro-benchmarks)
+| Cost | before | after |
+| --- | --- | --- |
+| context creation (`createContext`) | ~1.35 µs | **~0.5 µs** (R9 cached-class) |
+| plugin response re-wrap chain | ~5 µs | **~1.1 µs** (R6 in-place headers) |
+| empty lifecycle stages | ~1.25 µs | **~0.35 µs** (R7 stage guards) |
+| compression on small responses | 2.4 µs | **0.42 µs** (R5 content-length) |
+| `ctx.json` responses | buffered | content-length emitted (R8) |
+| request-id | eager string | lazy (R9) |
+
+### castrum ingress `02-load` (sustained, vs 08-12 baseline)
+| metric | baseline | now | |
+| --- | --- | --- | --- |
+| p50 | 0.590 ms | 0.601 ms | pacing-limited, unchanged |
+| p95 | 1.877 ms | **0.860 ms** | ~2.2× |
+| p99 | 3.502 ms | **0.976 ms** | ~3.6× |
+| p99.9 | 21.5 ms | **2.079 ms** | ~10× |
+
+### Why "more Rust" isn't the remaining lever (evidence)
+The Rust pipeline was already sub-µs and <1% of per-request cost. The measured
+remaining wins were the JS framework machinery around it; the things that look
+like obvious Rust moves actually regress: small-payload validation (precompiled
+Ajv 3.6 µs vs `fast_schema` 27 µs), header assembly (conversion tax feeding
+`new Response`), arbitrary dev serialization (JS→Rust marshaling), and ops where
+Bun built-ins beat FFI (`BUN_WINS`).
+
+### What's deferred (feature-sized, for a follow-up session)
+- Compiler **pipeline-only native routes** (wire-contract extension).
+- Static-response promotion with pre-baked plugin headers.
+- Dynamic routing for interpreted `createApp` + castrum `createIngressServer`
+  (`createIngressServerNode`).
+- Rust-owned session/rate state (largely covered by native HMAC + native
+  limiter already).
+
+### Gates held throughout
+780/780 vitest, 205/205 compiler tests, typecheck + lint green, app smoke
+44/44, castrum `bench:http:smoke` 0 failures, interleaved bench native ≈
+fallback with 0 errors.
+
+## Round 10 — dynamic routing for castrum (feature, 2026-08-13)
+
+The compiled ignus server already handles `:param` via Bun's native router. This
+round closed the gap for castrum's own `createIngressServer` / Node adapter.
+
+Key probe finding: **Bun's native `routes` handlers receive `(req, params,
+undefined)`** — path params are NOT populated and no server handle is passed in
+this Bun version. Since castrum's ingress pipeline does not echo path params in
+its response (it processes url/headers/body), dynamic routing for castrum is
+purely **route matching** (which handler runs).
+
+### The change (castrum workspace)
+- `src/ingress/server.ts`: new exported **`buildPathMatcher(routes)`** — a
+  segment matcher supporting `:param` and `*` (rest) segments with
+  percent-decoding. Exact (static) paths always win; dynamic patterns are
+  ordered most-specific-first (most static segments, then fewest params).
+- `src/ingress/server-node.ts`: the Node adapter now dispatches through the
+  matcher instead of a direct `routes[pathname]` lookup, so
+  `createIngressServerNode` matches `"/users/:id"` / `"/files/*"`. Extracted
+  params are passed as an optional 3rd arg to the (raw) handler (current
+  ingress handlers ignore it).
+- `RouteHandler` type widened with an optional `params` arg (back-compatible).
+- Bun path needs no change — Bun's native router already matches dynamic
+  patterns (verified by test).
+
+### Verified
+- 593/593 castrum TS tests (8 new: matcher unit suite + Node `:param` e2e +
+  Bun native `:param` e2e), typecheck clean, `bench:http:smoke` gate clean
+  (0 shape/unexpected failures).
+
+### Still open (feature-sized)
+- Interpreted `createApp` has no route table (it is a single-handler app by
+  design — the route DSL is compiled-server-only), so there is no routing gap
+  to close there beyond what the compiled server provides.
+- Static-response promotion with pre-baked plugin headers; compiler
+  pipeline-only native routes.
+
+## Round 11 — real-world Rust utilization (analysis + real-world bench, 2026-08-13)
+
+Prompted by "isn't our Rust underutilized? improve by a decent margin on
+REAL-WORLD workloads." Grounded answer with measurements.
+
+### The key measurement (large-body validation, compiled server)
+| items | bytes | `JSON.parse` | Ajv | native `fast_schema` |
+| --- | --- | --- | --- | --- |
+| 100 | 13KB | 26.6µs | 8.1µs | 27.0µs |
+| 1000 | 136KB | 209µs | 53µs | 309µs |
+| 5000 | 694KB | 1176µs | 235µs | 1378µs |
+
+For the **happy path (valid body, handler reads it)**, native validation
+*regresses*: `fast_schema` ≈ `JSON.parse` cost, and the handler still needs the
+parse → double scan (native+parse ≈ 2× parse+Ajv). Handlers need JS objects, so
+Rust cannot avoid `JSON.parse`. (A first probe that claimed native was 1.7×
+faster was a measurement artifact — it double-parsed in the JS loop.)
+
+Native validation only wins where there is **no DOM parse on the happy path**:
+- **Schema-invalid bodies**: reject with zero DOM + zero GC (currently the
+  server parses the full 700KB DOM, rejects, then GCs it).
+- **Validate-and-ack routes** (body schema, handler never reads `ctx.body`):
+  validate the raw bytes natively with a lazy parse — no parse at all.
+
+### Real-world load bench (`bun run bench:realworld`, new script)
+Boots the compiled server and hammers realistic traffic classes at
+concurrency (default 16, `ITEMS=5000`): small GETs, 700KB valid POSTs,
+schema-invalid POSTs, malformed-JSON POSTs, JWT-reject GETs.
+
+Representative (concurrency 16): `GET /health` ~32K rps 0.5ms; `POST /api/orders`
+5000 items (valid) ~455 rps 34ms; schema-invalid ~450 rps 35ms (still parses DOM
+before rejecting); malformed ~540 rps 29ms; JWT reject ~30K rps 0.5ms.
+
+**Takeaway:** small requests and auth are already excellent; the real-world
+bottleneck is large-body POSTs, and the cost there is `JSON.parse` + DOM/GC —
+inherent to JS data handling, not the framework or Rust.
+
+### Concrete implementable win (no happy-path regression) — RECOMMENDED NEXT
+For routes with a body schema whose handler does **not** read `ctx.body`
+(the compiler already tracks `usage.body`), emit native `fast_schema`
+validation on the raw bytes with a lazy `body.json` parse (Ajv fallback when
+the addon is absent). Avoids `JSON.parse` + the DOM/GC on the happy path for
+the common validate-and-ack pattern. Requires a compiler change (native
+validator emission + `@ignus/native` dependency in the generated server) — not
+yet implemented; the app currently has no qualifying ack-route to demonstrate
+it, and the change is fixture/parity-sensitive.
+
+Deferred (large): pipeline-as-engine for derive-pattern routes (validate +
+extract fields + serialize the response natively, no DOM) — the wire-contract
+extension.
+
+## Round 12 — one-pass native derive-op (Rust tuned for the orders use case, 2026-08-13)
+
+Following up on Round 11, the user pushed: "why not optimize our rust code for
+this use case? look at the FFI const and do trial and error testing … run the
+same test multiple times so you can get a median. rust FFI performs well in
+benchmarks compared to native — we might just not be utilizing it correctly."
+
+### Trial-and-error (medians, 3 runs × 25 samples each)
+Built `bench/orders-native-trial.ts` in castrum: real 473KB / 5000-item orders
+body, valid + invalid@0 + invalid@last + malformed variants, Ajv + `fast_schema`
++ `jsonValid` + derive candidates. Repeated 3× for stable medians.
+
+| candidate (473KB body) | median |
+| --- | --- |
+| `parse+ajv` (valid) — current | ~1700-1980µs |
+| native gate → parse+ajv | ~3200-3450µs (regression, double scan) |
+| `parse+ajv` (invalid@0) — current | ~1460-1680µs |
+| native gate (invalid@0) | **1-2µs** (~800-1600×) |
+| `jsonValid` FFI (malformed) | ~400-450µs vs parse ~970-1140µs (2.3-2.9×) |
+| derive (valid) — new | **~1600-1870µs** (≈ parse+ajv, zero DOM/GC) |
+| derive (invalid@0) — new | **3-5µs** |
+
+Findings:
+- The happy path CANNOT be beaten by a validation gate — Bun's `JSON.parse` +
+  Ajv-on-DOM is genuinely near-optimal; native validation alone re-tokenizes
+  and regresses (confirmed with medians, not theory).
+- The real Rust win is a **one-pass derive-op**: validate + extract the
+  response's source fields in a single zero-DOM pass. Replaces `parse+ajv`
+  (~1700µs) with ~1600µs valid AND ~3µs invalid, with zero DOM/GC.
+
+### Shipped: `SchemaValidator.derive` (castrum)
+- `rust/json/fast_schema/capture.rs` (NEW): target JSON-pointers compiled into
+  a **trie**; during the SAME validation walk the active node is tracked by
+  `(node, alive)` pairs per object level — no per-member key cloning, dead
+  subtrees cost nothing (capture adds ~100µs to a 5000-item walk, was ~450µs
+  with the path-stack approach). Safety: capture only fires on the ROOT cursor
+  (sub-scan cursors are skipped by data-pointer) and under `suppress`.
+- `rust/json/fast_schema/errors.rs` + `validate.rs`: capture hooks are OFF by
+  default (`Ctx::capture == None`) — bool/detailed hot paths unchanged; the
+  `skip_ws()` before `vstart` in `validate_object` is a no-op for validation.
+- `rust/json/json_schema.rs`: `SchemaValidator.derive(input, paths)` napi —
+  paths are object-key JSON pointers; trailing `/-` = array length. DOM
+  fallback for non-fast schemas. 491 Rust tests (incl. byte-parity) pass.
+- TS: `SchemaValidatorInstance.derive` + `JsonDeriveResult` types; 598 TS
+  tests pass; typecheck clean.
+- Proof of the concept: `bench/orders-native-trial.ts` (kept as a permanent
+  trial-and-error artifact).
+
+### Wired into the compiled server (`/api/orders`)
+- `@ignus/native`: `SchemaValidator.derive` bridge + `JsonDeriveResult` types.
+- `packages/native/src/loader.ts`: **bundled-entry fallback** — when the addon
+  code is inlined into `dist/__server.js`, `import.meta.url` points at the app,
+  so castrum wasn't found (validator silently null). Now walks up from the
+  module dir + cwd to find a `packages/*/package.json` declaring a `file:`
+  castrum dep and resolves the LIVE repo (bypassing bun's stale install cache).
+- `orders.post.ts`: declares no `body` schema (so the compiler skips the
+  `JSON.parse` + Ajv prelude) and runs `validator.derive(bytes,
+  ["/lineItems/-","/totalCents"])` — 400 on `!ok`, response from derived
+  values; JS fallback when the addon is absent.
+- Verified end-to-end: valid → 200 `{ok,count,total}`; schema-invalid → 400;
+  malformed → 400.
+
+### Real-world bench (transfer-bound, but direction correct)
+`bun run bench:realworld` (concurrency 16, 700KB bodies): valid ~439-479 rps,
+**schema-invalid ~486-494 rps — now consistently FASTER than valid** (before:
+invalid == valid because both parsed the full DOM then rejected). Malformed
+~472-522. The absolute win is bounded because the probe is body-transfer-bound
+(~700KB × ~480 rps ≈ 330MB/s client↔server); the µs-level validation win shows
+up in the microbench and in the invalid-beats-valid signal.
+
+### Bottom line
+The trial-and-error answered the question with medians: Rust is NOT
+underutilized on the happy path (Bun's JSON.parse wins) — but a one-pass
+native derive-op genuinely tunes Rust for this use case (valid ≈ 7% faster +
+zero GC, invalid ~800-1600× faster). That op now exists in castrum and is wired
+into the real `/api/orders` route.
+
+Deferred: compiler auto-emission of `derive` for derive-pattern routes (the
+compiler can't statically infer which body paths the handler derives from, so
+routes currently opt in at the handler).

@@ -45,6 +45,19 @@ export {
   verifyCookie,
 };
 
+/**
+ * Reject an empty secret/key at construction time.
+ *
+ * An empty secret makes every produced token/signature trivially forgeable,
+ * so it is a programming error, not something to degrade gracefully on.
+ */
+function assertSecret(secret: string | Uint8Array, what: string): void {
+  if (secret.length === 0) {
+    throw new TypeError(`${what} requires a non-empty secret`);
+  }
+}
+
+/** Options for {@link createJwt}. */
 export interface JwtServiceOptions {
   secret: string | Uint8Array;
   /** Fixed TTL in seconds (injects `iat`/`exp` when positive). */
@@ -55,6 +68,7 @@ export interface JwtServiceOptions {
   audience?: string | string[];
 }
 
+/** A reusable HS256 JWT signer/verifier from {@link createJwt}. */
 export interface JwtService {
   /** Sign an HS256 token with the configured issuer/audience/TTL applied. */
   sign(claims: Record<string, unknown>, nowSeconds?: number): string;
@@ -62,8 +76,14 @@ export interface JwtService {
   verify(token: string, options?: JwtVerifyOptions): unknown;
 }
 
-/** Create a reusable HS256 JWT signer/verifier. */
+/**
+ * Create a reusable HS256 JWT signer/verifier.
+ *
+ * @param options - Secret plus optional TTL/issuer/audience constraints.
+ * @throws TypeError when `options.secret` is empty.
+ */
 export const createJwt = (options: JwtServiceOptions): JwtService => {
+  assertSecret(options.secret, "createJwt");
   const { secret, ttlSeconds, issuer, audience } = options;
 
   const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
@@ -103,17 +123,27 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
   };
 };
 
+/** A reusable signed-cookie signer/verifier from {@link createCookieSigner}. */
 export interface CookieSigner {
   sign(value: string): string;
   verify(signed: string): string | null;
 }
 
-/** Create a reusable signed-cookie signer/verifier. */
-export const createCookieSigner = (secret: string | Uint8Array): CookieSigner => ({
-  sign: (value) => signCookie(value, secret),
-  verify: (signed) => verifyCookie(signed, secret),
-});
+/**
+ * Create a reusable signed-cookie signer/verifier.
+ *
+ * @param secret - HMAC key; must be non-empty.
+ * @throws TypeError when `secret` is empty.
+ */
+export const createCookieSigner = (secret: string | Uint8Array): CookieSigner => {
+  assertSecret(secret, "createCookieSigner");
+  return {
+    sign: (value) => signCookie(value, secret),
+    verify: (signed) => verifyCookie(signed, secret),
+  };
+};
 
+/** A reusable CSRF token generator/verifier from {@link createCsrf}. */
 export interface Csrf {
   /** Create a new CSRF token (random + HMAC-signed). */
   token(): string;
@@ -121,12 +151,21 @@ export interface Csrf {
   verify(token: string): boolean;
 }
 
-/** Create a reusable CSRF token generator/verifier. */
-export const createCsrf = (secret: string | Uint8Array): Csrf => ({
-  token: () => csrfToken(secret),
-  verify: (token) => csrfVerify(token, secret),
-});
+/**
+ * Create a reusable CSRF token generator/verifier.
+ *
+ * @param secret - HMAC key; must be non-empty.
+ * @throws TypeError when `secret` is empty.
+ */
+export const createCsrf = (secret: string | Uint8Array): Csrf => {
+  assertSecret(secret, "createCsrf");
+  return {
+    token: () => csrfToken(secret),
+    verify: (token) => csrfVerify(token, secret),
+  };
+};
 
+/** A reusable password hasher/verifier from {@link createPasswordHasher}. */
 export interface PasswordHasher {
   /** Hash a password with a fresh random salt → PHC string. */
   hash(password: string): Promise<string>;
@@ -140,6 +179,7 @@ export const createPasswordHasher = (options?: PasswordHashOptions): PasswordHas
   verify: (password, phc) => passwordVerify(password, phc),
 });
 
+/** A reusable AEAD cipher from {@link createAead}. */
 export interface Aead {
   /** Encrypt → ciphertext ‖ 16-byte tag. */
   encrypt(nonce: Uint8Array, plaintext: Uint8Array, algorithm?: string | null): Uint8Array;
@@ -147,8 +187,16 @@ export interface Aead {
   decrypt(nonce: Uint8Array, ciphertext: Uint8Array, algorithm?: string | null): Uint8Array | null;
 }
 
-/** Create a reusable AEAD cipher (AES-256-GCM by default). */
-export const createAead = (key: Uint8Array): Aead => ({
-  encrypt: (nonce, plaintext, algorithm) => aeadEncrypt(key, nonce, plaintext, algorithm),
-  decrypt: (nonce, ciphertext, algorithm) => aeadDecrypt(key, nonce, ciphertext, algorithm),
-});
+/**
+ * Create a reusable AEAD cipher (AES-256-GCM by default).
+ *
+ * @param key - Symmetric key; must be non-empty.
+ * @throws TypeError when `key` is empty.
+ */
+export const createAead = (key: Uint8Array): Aead => {
+  assertSecret(key, "createAead");
+  return {
+    encrypt: (nonce, plaintext, algorithm) => aeadEncrypt(key, nonce, plaintext, algorithm),
+    decrypt: (nonce, ciphertext, algorithm) => aeadDecrypt(key, nonce, ciphertext, algorithm),
+  };
+};

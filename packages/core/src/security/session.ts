@@ -14,8 +14,10 @@ import type { IgnusContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
+/** Arbitrary session payload data (JSON-serializable). */
 export type SessionData = Record<string, unknown>;
 
+/** A live session attached to a request by the session middleware. */
 export interface Session {
   readonly id: string;
   readonly createdAt: number;
@@ -31,6 +33,7 @@ export interface Session {
   touch(): void;
 }
 
+/** A pluggable session backing store (memory, SQLite, …). */
 export interface SessionStore {
   get(id: string): Promise<SessionData | null>;
   set(id: string, data: SessionData, options?: { expiresAt?: number }): Promise<void>;
@@ -159,6 +162,7 @@ export const createSqliteSessionStore = async (
   };
 };
 
+/** Options for {@link createSessionManager}. */
 export interface SessionManagerOptions {
   secret: string | Uint8Array;
   /** Backing store. When omitted, sessions are fully stateless signed cookies. */
@@ -170,6 +174,7 @@ export interface SessionManagerOptions {
   cookieOptions?: Partial<Record<string, unknown>>;
 }
 
+/** A reusable session manager from {@link createSessionManager}. */
 export interface SessionManager {
   /** Load the session for the current request (or `null`). */
   load(ctx: IgnusContext): Promise<Session | null>;
@@ -223,7 +228,19 @@ const SESSION_CREATE = Symbol.for("ignus.session.create");
 /** Why a session cookie could not be decoded. */
 type DecodeError = "missing" | "invalid-signature" | "invalid-json" | "invalid-id" | "expired";
 
+/**
+ * Create a reusable session manager.
+ *
+ * Without a `store`, sessions are fully stateless signed cookies. With a
+ * store, the data lives in the store and the cookie carries only the id + exp.
+ *
+ * @param options - Secret (must be non-empty), optional store/cookie/ttl tuning.
+ * @throws TypeError when `options.secret` is empty.
+ */
 export const createSessionManager = (options: SessionManagerOptions): SessionManager => {
+  if (options.secret.length === 0) {
+    throw new TypeError("createSessionManager requires a non-empty secret");
+  }
   const secret = options.secret;
   const store = options.store;
   const cookieName = options.cookieName ?? "sid";
@@ -363,7 +380,10 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
   return { load, loadOrCreate, middleware, close };
 };
 
-/** Alias for `createSessionManager(...).middleware(...)` — ergonomic hook. */
+/**
+ * @deprecated Prefer `createSessionManager(options).middleware(opts)` — this
+ * thin alias is kept for back-compat but creates a fresh manager per call.
+ */
 export const withSession = (
   options: SessionManagerOptions,
   middlewareOptions?: { createIfMissing?: boolean | "lazy" },

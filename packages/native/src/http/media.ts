@@ -4,10 +4,14 @@
 
 import type { MediaTypeResult } from "./types";
 
+/**
+ * Parse a `Content-Type` value into a normalized {@link MediaTypeResult}.
+ */
 export const parseMediaType = (input: string): MediaTypeResult =>
   // Selection: js (native marked @deprecated / slower) — see selection.ts.
   parseMediaTypeFallback(input);
 
+/** Pure-TS fallback for {@link parseMediaType} (identical behavior). */
 export const parseMediaTypeFallback = (input: string): MediaTypeResult => {
   const idx = input.indexOf(";");
   const mediaType = (idx < 0 ? input : input.slice(0, idx)).trim().toLowerCase();

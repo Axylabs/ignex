@@ -16,5 +16,7 @@ pre-push:
   commands:
     typecheck:
       run: bun run typecheck && bun run typecheck:cli
+    jsdoc:
+      run: bun run jsdoc:check:strict
     test:
       run: bun run test

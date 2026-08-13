@@ -4,7 +4,7 @@
     "maxFileSize": 52428800
   },
   "output": {
-    "filePath": "repomix-output.md",
+    "filePath": "repomix-output.txt",
     "style": "markdown",
     "filePathStyle": "target-relative",
     "parsableStyle": false,

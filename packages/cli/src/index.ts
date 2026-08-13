@@ -1,6 +1,14 @@
 import { pathToFileURL } from "node:url";
 import { findCommand, renderHelp } from "./commands/registry.js";
 
+/**
+ * CLI entry: dispatch `argv` to the matching command (or print help).
+ *
+ * Unknown commands print help and set a non-zero exit code; each command's
+ * `run` is awaited so errors propagate to the bin-level catch.
+ *
+ * @param argv - Arguments after the binary name (`process.argv.slice(2)`).
+ */
 export async function main(argv: string[]): Promise<void> {
   const [commandName, ...rest] = argv;
 

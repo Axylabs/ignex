@@ -4,7 +4,7 @@
  */
 
 import { existsSync } from "node:fs";
-import type { CompilerOptions, HookDef, ModuleInfo, RouteDef } from "../../types";
+import type { CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
 import {
@@ -16,22 +16,109 @@ import {
 } from "./identifiers";
 import type { CodegenState } from "./state";
 
+/** Resolve the app-config path to an absolute path, or `undefined` when unset. */
+const resolveAppConfigPath = (appConfigPath: string | undefined): string | undefined => {
+  if (typeof appConfigPath !== "string" || appConfigPath.length === 0) return undefined;
+  return projectPath(appConfigPath);
+};
+
+/** Collect the core names needed by any route that proxies or forwards. */
+const collectProxyCoreNames = (routes: readonly RouteIR[], coreNames: string[]): void => {
+  for (const route of routes) {
+    if (route.analysis.usage.proxy) coreNames.push("proxyRequest");
+    if (route.analysis.usage.forward) coreNames.push("forwardRequest");
+  }
+};
+
+/** Import a WS route's `wsHandler` export for the server's `websocket` option. */
+const emitWsImport = (
+  state: CodegenState,
+  route: RouteIR,
+  mod: ModuleInfo | undefined,
+  opts: CompilerOptions,
+): void => {
+  if (!mod) return;
+  state.imports.add(
+    `import { wsHandler as ${wsHandlerImportName(route)} } from ${JSON.stringify(toImportPath(mod.path, opts))};`,
+  );
+  state.wsHandlers.push(wsHandlerImportName(route));
+};
+
+/** Import a route's HTTP handler (plus its schema when it validates). */
+const emitHandlerImport = (
+  state: CodegenState,
+  route: RouteIR,
+  mod: ModuleInfo,
+  opts: CompilerOptions,
+): void => {
+  const named = route.analysis.handlerExportName;
+  const spec = named ? `{ ${named} as ${handlerImportName(route)} }` : handlerImportName(route);
+  state.imports.add(`import ${spec} from ${JSON.stringify(toImportPath(mod.path, opts))};`);
+  if (route.analysis.hasValidation) {
+    state.imports.add(
+      `import * as schema_${route.codegen.handlerRef} from ${JSON.stringify(toImportPath(mod.path, opts))};`,
+    );
+  }
+};
+
+/** Import the generated per-part validators a route needs. */
+const emitValidatorImports = (route: RouteIR, imports: Set<string>): void => {
+  if (!route.decisions.validators) return;
+  const kinds = ["body", "query", "params", "headers", "cookie"] as const;
+  for (const kind of kinds) {
+    if (route.decisions.validators[kind]) {
+      imports.add(
+        `import ${validatorImportName(route, kind)} from "./validators/${route.codegen.handlerRef}.${kind}.cjs";`,
+      );
+    }
+  }
+};
+
+/** Import the generated serializers a route needs. */
+const emitSerializerImports = (route: RouteIR, imports: Set<string>): void => {
+  const serializers = route.decisions.serializers;
+  if (serializers?.byStatus) {
+    for (const [status, importName] of Object.entries(serializers.byStatus)) {
+      imports.add(
+        `import ${importName} from "./serializers/${route.codegen.handlerRef}.${status}.mjs";`,
+      );
+    }
+  } else if (serializers?.json) {
+    imports.add(
+      `import ${serializerImportName(route, "200")} from "./serializers/${route.codegen.handlerRef}.200.mjs";`,
+    );
+  }
+};
+
+/** Import the hook modules a route registers. */
+const emitHookImports = (
+  route: RouteIR,
+  hooks: ReadonlyMap<string, HookDef>,
+  opts: CompilerOptions,
+  imports: Set<string>,
+): void => {
+  for (const hookName of route.analysis.hooks) {
+    const hook = hooks.get(hookName);
+    if (hook) {
+      imports.add(
+        `import ${hookIdent(hookName)} from ${JSON.stringify(toImportPath(hook.source, opts))};`,
+      );
+    }
+  }
+};
+
 export const stageImports = (
   state: CodegenState,
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
 ): void => {
   const { imports, coreNames } = state;
 
-  const appConfigPath = opts.appConfig;
-  const appConfigAbs = appConfigPath ? projectPath(appConfigPath) : undefined;
+  const appConfigAbs = resolveAppConfigPath(opts.appConfig);
   state.appConfigAbs = appConfigAbs;
-  state.hasAppConfig =
-    typeof appConfigPath === "string" &&
-    appConfigPath.length > 0 &&
-    (appConfigAbs ? existsSync(appConfigAbs) : false);
+  state.hasAppConfig = appConfigAbs !== undefined && existsSync(appConfigAbs);
 
   coreNames.push(
     "createContext",
@@ -58,10 +145,7 @@ export const stageImports = (
     );
   }
 
-  for (const route of routes) {
-    if (route.analysis.usage.proxy) coreNames.push("proxyRequest");
-    if (route.analysis.usage.forward) coreNames.push("forwardRequest");
-  }
+  collectProxyCoreNames(routes, coreNames);
 
   state.uniqueCore = [...new Set(coreNames)].sort();
 
@@ -83,12 +167,7 @@ export const stageImports = (
     // WebSocket routes import their `wsHandler` export for the server's
     // `websocket` option; they have no HTTP handler to inline or import.
     if (route.source.method === "WS") {
-      if (mod) {
-        imports.add(
-          `import { wsHandler as ${wsHandlerImportName(route)} } from ${JSON.stringify(toImportPath(mod.path, opts))};`,
-        );
-        state.wsHandlers.push(wsHandlerImportName(route));
-      }
+      emitWsImport(state, route, mod, opts);
       continue;
     }
 
@@ -96,53 +175,11 @@ export const stageImports = (
     if (inline) inlineHandlers.set(route.codegen.handlerRef, inline);
 
     if (mod && !inlineHandlers.has(route.codegen.handlerRef)) {
-      const named = route.analysis.handlerExportName;
-      const spec = named ? `{ ${named} as ${handlerImportName(route)} }` : handlerImportName(route);
-      imports.add(`import ${spec} from ${JSON.stringify(toImportPath(mod.path, opts))};`);
-      if (route.analysis.hasValidation) {
-        imports.add(
-          `import * as schema_${route.codegen.handlerRef} from ${JSON.stringify(
-            toImportPath(mod.path, opts),
-          )};`,
-        );
-      }
+      emitHandlerImport(state, route, mod, opts);
     }
 
-    if (route.decisions.validators) {
-      const kinds = ["body", "query", "params", "headers", "cookie"] as const;
-
-      for (const kind of kinds) {
-        if (route.decisions.validators[kind]) {
-          imports.add(
-            `import ${validatorImportName(
-              route,
-              kind,
-            )} from "./validators/${route.codegen.handlerRef}.${kind}.cjs";`,
-          );
-        }
-      }
-    }
-
-    if (route.decisions.serializers?.byStatus) {
-      for (const [status, importName] of Object.entries(route.decisions.serializers.byStatus)) {
-        imports.add(
-          `import ${importName} from "./serializers/${route.codegen.handlerRef}.${status}.mjs";`,
-        );
-      }
-    } else if (route.decisions.serializers?.json) {
-      imports.add(
-        `import ${serializerImportName(route, "200")} from "./serializers/${route.codegen.handlerRef}.200.mjs";`,
-      );
-    }
-
-    for (const hookName of route.analysis.hooks) {
-      const hook = hooks.get(hookName);
-
-      if (hook) {
-        imports.add(
-          `import ${hookIdent(hookName)} from ${JSON.stringify(toImportPath(hook.source, opts))};`,
-        );
-      }
-    }
+    emitValidatorImports(route, imports);
+    emitSerializerImports(route, imports);
+    emitHookImports(route, hooks, opts, imports);
   }
 };

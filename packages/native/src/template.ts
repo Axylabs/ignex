@@ -75,6 +75,70 @@ const tokenizeRaw = (source: string): RawToken[] => {
   return tokens;
 };
 
+/** Parse an `if`/`elif`/`else`/`endif` block (recursive over nested blocks). */
+const parseIf = (tokens: RawToken[], start: number, tag: string): { node: Node; next: number } => {
+  const ifMatch = /^if\s+(.+)$/s.exec(tag);
+  const thenResult = parseBlock(tokens, start + 1, new Set(["else", "elif", "endif"]));
+  const branches: Array<{ cond: string; body: Node[] }> = [
+    { cond: (ifMatch?.[1] ?? "").trim(), body: thenResult.nodes },
+  ];
+  let elseBody: Node[] = [];
+
+  let next = thenResult.next;
+  let closed = false;
+
+  while (next < tokens.length && tokens[next]?.kind === "tag") {
+    const t2 = tokens[next]?.value.trim() ?? "";
+    const head2 = t2.split(/\s+/)[0] ?? "";
+    if (head2 === "endif") {
+      next++;
+      closed = true;
+      break;
+    }
+    if (head2 === "else") {
+      const elseResult = parseBlock(tokens, next + 1, new Set(["endif"]));
+      elseBody = elseResult.nodes;
+      next = elseResult.next;
+      if (next < tokens.length && /^endif$/.test(tokens[next]?.value.trim() ?? "")) next++;
+      closed = true;
+      break;
+    }
+    if (head2 === "elif") {
+      const cond = /^elif\s+(.+)$/s.exec(t2)?.[1]?.trim() ?? "";
+      const sub = parseBlock(tokens, next + 1, new Set(["else", "elif", "endif"]));
+      branches.push({ cond, body: sub.nodes });
+      next = sub.next;
+      continue;
+    }
+    break;
+  }
+
+  if (!closed) {
+    // Unclosed if: treat remaining as else-body (defensive).
+    elseBody = parseBlock(tokens, next, new Set()).nodes;
+    next = tokens.length;
+  }
+
+  return { node: { type: "if", branches, elseBody }, next };
+};
+
+/** Parse a `for … in …`/`endfor` block (recursive over nested blocks). */
+const parseFor = (tokens: RawToken[], start: number, tag: string): { node: Node; next: number } => {
+  const forMatch = /^for\s+(\w+)\s+in\s+(.+)$/s.exec(tag);
+  const bodyResult = parseBlock(tokens, start + 1, new Set(["endfor"]));
+  let next = bodyResult.next;
+  if (next < tokens.length && /^endfor$/.test(tokens[next]?.value.trim() ?? "")) next++;
+  return {
+    node: {
+      type: "for",
+      variable: forMatch?.[1] ?? "",
+      iterable: (forMatch?.[2] ?? "").trim(),
+      body: bodyResult.nodes,
+    },
+    next,
+  };
+};
+
 const parseBlock = (
   tokens: RawToken[],
   index: number,
@@ -83,7 +147,8 @@ const parseBlock = (
   const nodes: Node[] = [];
   let i = index;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t.kind === "text") {
       nodes.push({ type: "text", value: t.value });
       i++;
@@ -103,63 +168,17 @@ const parseBlock = (
     const head = tag.split(/\s+/)[0] ?? "";
     if (endTags.has(head)) return { nodes, next: i };
 
-    const ifMatch = /^if\s+(.+)$/s.exec(tag);
-    if (ifMatch) {
-      const branches: Array<{ cond: string; body: Node[] }> = [
-        { cond: ifMatch[1]!.trim(), body: [] },
-      ];
-      let elseBody: Node[] = [];
-      const thenResult = parseBlock(tokens, i + 1, new Set(["else", "elif", "endif"]));
-      branches[0]!.body = thenResult.nodes;
-      let next = thenResult.next;
-      let closed = false;
-      while (next < tokens.length && tokens[next]!.kind === "tag") {
-        const t2 = tokens[next]!.value.trim();
-        const head2 = t2.split(/\s+/)[0] ?? "";
-        if (head2 === "endif") {
-          next++;
-          closed = true;
-          break;
-        }
-        if (head2 === "else") {
-          const elseResult = parseBlock(tokens, next + 1, new Set(["endif"]));
-          elseBody = elseResult.nodes;
-          next = elseResult.next;
-          if (next < tokens.length && /^endif$/.test(tokens[next]!.value.trim())) next++;
-          closed = true;
-          break;
-        }
-        if (head2 === "elif") {
-          const cond = /^elif\s+(.+)$/s.exec(t2)?.[1]?.trim() ?? "";
-          const sub = parseBlock(tokens, next + 1, new Set(["else", "elif", "endif"]));
-          branches.push({ cond, body: sub.nodes });
-          next = sub.next;
-          continue;
-        }
-        break;
-      }
-      if (!closed) {
-        // Unclosed if: treat remaining as else-body (defensive).
-        elseBody = parseBlock(tokens, next, new Set()).nodes;
-        next = tokens.length;
-      }
-      nodes.push({ type: "if", branches, elseBody });
-      i = next;
+    if (/^if\s+/.test(tag)) {
+      const parsed = parseIf(tokens, i, tag);
+      nodes.push(parsed.node);
+      i = parsed.next;
       continue;
     }
 
-    const forMatch = /^for\s+(\w+)\s+in\s+(.+)$/s.exec(tag);
-    if (forMatch) {
-      const bodyResult = parseBlock(tokens, i + 1, new Set(["endfor"]));
-      let next = bodyResult.next;
-      if (next < tokens.length && /^endfor$/.test(tokens[next]!.value.trim())) next++;
-      nodes.push({
-        type: "for",
-        variable: forMatch[1]!,
-        iterable: forMatch[2]!.trim(),
-        body: bodyResult.nodes,
-      });
-      i = next;
+    if (/^for\s+\w+\s+in\s+/.test(tag)) {
+      const parsed = parseFor(tokens, i, tag);
+      nodes.push(parsed.node);
+      i = parsed.next;
       continue;
     }
 
@@ -182,15 +201,18 @@ const evaluateAtom = (atom: string, ctx: Record<string, unknown>): unknown => {
 const resolvePath = (pathExpr: string, ctx: Record<string, unknown>): unknown => {
   const m = /^([A-Za-z_][\w$]*)(.*)$/.exec(pathExpr.trim());
   if (!m) return undefined;
-  let value: unknown = ctx[m[1]!];
-  const rest = m[2]!.trim();
+  const root = m[1];
+  if (root === undefined) return undefined;
+  let value: unknown = ctx[root];
+  const rest = m[2]?.trim();
   if (!rest) return value;
   const re = /\.([A-Za-z_$][\w$]*)|\["([^"]*)"\]|\['([^']*)'\]|\[(\d+)\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(rest)) !== null) {
+  let match: RegExpExecArray | null = re.exec(rest);
+  while (match !== null) {
     const key: string | number = match[1] ?? match[2] ?? match[3] ?? Number(match[4]);
     if (value == null) return undefined;
     value = (value as Record<string | number, unknown>)[key];
+    match = re.exec(rest);
   }
   return value;
 };
@@ -222,7 +244,7 @@ const applyFilter = (filterExpr: string, value: unknown, ctx: Record<string, unk
       return typeof value === "string" ? value.trim() : value;
     case "capitalize":
       return typeof value === "string" && value.length > 0
-        ? value[0]!.toUpperCase() + value.slice(1)
+        ? value[0]?.toUpperCase() + value.slice(1)
         : value;
     case "escape":
       return htmlEscape(String(value ?? ""));
@@ -239,7 +261,7 @@ const applyFilter = (filterExpr: string, value: unknown, ctx: Record<string, unk
 
 const evaluate = (expr: string, ctx: Record<string, unknown>): unknown => {
   const parts = expr.split("|").map((s) => s.trim());
-  let value = evaluateAtom(parts[0]!, ctx);
+  let value = evaluateAtom(parts[0] ?? "", ctx);
   for (const filter of parts.slice(1)) value = applyFilter(filter, value, ctx);
   return value;
 };

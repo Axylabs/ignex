@@ -26,21 +26,25 @@ export const validateIpv4Fallback = (input: string): boolean => IPV4_RE.test(inp
 /** Pure-TS IPv6 validation (Node `net.isIP` used when native is unavailable). */
 export const validateIpv6Fallback = (input: string): boolean => isIP(input) === 6;
 
+/** Validate an email address (native-accelerated; regex fallback). */
 export const validateEmail = (input: string): boolean => {
   const n = nativeFor("validateEmail");
   return n ? n.validateEmail(toBytes(input)) : validateEmailFallback(input);
 };
 
+/** Validate a UUID v4 (native-accelerated; regex fallback). */
 export const validateUuid = (input: string): boolean => {
   const n = nativeFor("validateUuid");
   return n ? n.validateUuid(toBytes(input)) : validateUuidFallback(input);
 };
 
+/** Validate an IPv4 address (native-accelerated; regex fallback). */
 export const validateIpv4 = (input: string): boolean => {
   const n = nativeFor("validateIpv4");
   return n ? n.validateIpv4(toBytes(input)) : validateIpv4Fallback(input);
 };
 
+/** Validate an IPv6 address (native-accelerated; `net.isIP` fallback). */
 export const validateIpv6 = (input: string): boolean => {
   const n = nativeFor("validateIpv6");
   return n ? n.validateIpv6(toBytes(input)) : validateIpv6Fallback(input);

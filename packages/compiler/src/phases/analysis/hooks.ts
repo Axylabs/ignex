@@ -5,11 +5,11 @@
 import { existsSync } from "node:fs";
 import { DiagnosticCodes } from "../../diagnostics";
 import type { SourceManager } from "../../frontend";
-import type { CompilerContext, HookDef, RouteDef } from "../../types";
+import type { CompilerContext, HookDef, RouteIR } from "../../types";
 import { projectPath } from "../../utils/path";
 import { safeReadFile } from "./fs";
 
-export const collectHookNames = (routes: readonly RouteDef[]): Set<string> => {
+export const collectHookNames = (routes: readonly RouteIR[]): Set<string> => {
   const referenced = new Set<string>();
   for (const route of routes) {
     for (const hook of route.analysis.hooks) referenced.add(hook);
@@ -60,7 +60,7 @@ export const resolveHook = (
 };
 
 export const resolveHooks = (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   hooksDir: string | undefined,
   sources: SourceManager,
   ctx?: CompilerContext,

@@ -7,6 +7,11 @@
  * suffix normalization only ever matches the non-`WS` subset.
  */
 
+/**
+ * All HTTP methods the runtime understands, including the pseudo-methods
+ * `ALL` (any method) and `WS` (websocket upgrade). The compiler's route-file
+ * suffix normalization only ever matches the non-`WS` subset.
+ */
 export const HTTP_METHODS = [
   "GET",
   "POST",
@@ -19,4 +24,5 @@ export const HTTP_METHODS = [
   "WS",
 ] as const;
 
+/** A single HTTP method name from {@link HTTP_METHODS}. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];

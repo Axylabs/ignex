@@ -3,11 +3,18 @@
  * websocket shapes. Re-exported through `./index` (the unified type umbrella).
  */
 
+/** A value or a `Promise` of that value. */
 export type MaybePromise<T> = T | Promise<T>;
 
 // Shared method vocabulary (single source of truth in @ignus/shared).
 export { HTTP_METHODS, type HttpMethod } from "@ignus/shared";
 
+/**
+ * The Standard Schema v1 interface — the validation interop standard ignus
+ * accepts from schema libraries (TypeBox, Zod, Valibot, ArkType, …).
+ *
+ * @see https://github.com/standard-schema/standard-schema
+ */
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
     readonly version: 1;
@@ -19,11 +26,16 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
+/** A single validation issue reported by a {@link StandardSchemaV1} validator. */
 export interface SchemaIssue {
   readonly message: string;
   readonly path?: readonly (string | number)[];
 }
 
+/**
+ * The structural subset of JSON Schema ignus understands (TypeBox-compatible
+ * shape) for route schemas, static types, and OpenAPI generation.
+ */
 export interface TSchema {
   [kind: string]: unknown;
   static?: unknown;
@@ -48,11 +60,20 @@ export interface TSchema {
   noValidate?: boolean;
 }
 
+/** Any schema ignus accepts: a structural {@link TSchema} or Standard Schema. */
 export type AnySchema = TSchema | StandardSchemaV1;
 
+/**
+ * The inferred TypeScript type of a schema: `StandardSchemaV1` output or a
+ * `TSchema`'s `static` member, falling back to `unknown`.
+ */
 export type Static<T extends AnySchema> =
   T extends StandardSchemaV1<any, infer O> ? O : T extends TSchema ? T["static"] : unknown;
 
+/**
+ * Per-route validation schema: `body`/`headers`/`query`/`params`/`cookie`
+ * inputs plus the `response` output. Each entry is an `AnySchema`.
+ */
 export interface RouteSchema {
   body?: unknown;
   headers?: unknown;
@@ -62,6 +83,11 @@ export interface RouteSchema {
   response?: unknown;
 }
 
+/**
+ * Options controlling cookie serialization attributes.
+ *
+ * `sameSite` accepts `true`/`false` for lax/off plus the explicit levels.
+ */
 export interface CookieOptions {
   domain?: string;
   expires?: Date;
@@ -74,10 +100,16 @@ export interface CookieOptions {
   secure?: boolean;
 }
 
+/** A cookie value paired with its serialization options. */
 export interface ElysiaCookie extends CookieOptions {
   value?: unknown;
 }
 
+/**
+ * Websocket message handlers plus connection tuning options.
+ *
+ * `T` is the per-connection `data` payload type (see {@link ServerWebSocket}).
+ */
 export interface WebSocketHandler<T = undefined> {
   open?(ws: ServerWebSocket<T>): MaybePromise<void>;
   message?(ws: ServerWebSocket<T>, message: string | Buffer): MaybePromise<void>;
@@ -93,6 +125,11 @@ export interface WebSocketHandler<T = undefined> {
   perMessageDeflate?: boolean | { compress?: boolean | string; decompress?: boolean | string };
 }
 
+/**
+ * The websocket connection surface passed to {@link WebSocketHandler} callbacks.
+ *
+ * `T` is the per-connection data payload carried alongside the connection.
+ */
 export interface ServerWebSocket<T = undefined> {
   send(data: string | ArrayBuffer | Uint8Array, compress?: boolean): number;
   sendText(data: string, compress?: boolean): number;

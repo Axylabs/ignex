@@ -3,27 +3,27 @@
  *
  * `scripts/generate-openapi-client.ts` delegates to the compiler — route
  * parsing via `parseRouteFilename` and OpenAPI shaping via `generateOpenApi`
- * over a minimal RouteDef shape it builds from loaded route modules. These
+ * over a minimal RouteIR shape it builds from loaded route modules. These
  * tests lock that public contract so the script and `ignus build` can never
  * drift apart again.
  */
 import { describe, expect, it } from "vitest";
-import type { CompilerOptions, RouteDef } from "../src";
+import type { CompilerOptions, RouteIR } from "../src";
 import { generateOpenApi, parseRouteFilename } from "../src";
 
-/** The minimal RouteDef shape the standalone script constructs. */
+/** The minimal RouteIR shape the standalone script constructs. */
 const scriptRoute = (
   method: string,
   path: string,
   paramNames: string[],
   schemaDoc: Record<string, unknown> | undefined,
   body = false,
-): RouteDef =>
+): RouteIR =>
   ({
     source: { method, path, paramNames },
     analysis: { config: {}, usage: { body } },
     decisions: { schemaDoc },
-  }) as unknown as RouteDef;
+  }) as unknown as RouteIR;
 
 const opts = { serviceName: "ignus" } as CompilerOptions;
 
@@ -55,7 +55,7 @@ describe("parseRouteFilename (shared by CLI, compiler, script)", () => {
   });
 });
 
-describe("generateOpenApi over the script's RouteDef shape", () => {
+describe("generateOpenApi over the script's RouteIR shape", () => {
   it("emits path params, requestBody, and responses from schemaDoc", () => {
     const route = scriptRoute(
       "POST",

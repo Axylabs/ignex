@@ -7,7 +7,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
-import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
+import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../types";
 import { writeGuarded } from "./artifacts";
 import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
@@ -46,11 +46,11 @@ const getStatusSchemas = (responseSchema: any): Record<string, any> | null => {
 };
 
 export const precompileSerializers = async (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
   ctx: CompilerContext,
-): Promise<readonly RouteDef[]> => {
+): Promise<readonly RouteIR[]> => {
   if (!opts.precompileSerializers) {
     return routes;
   }

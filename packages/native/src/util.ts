@@ -10,6 +10,7 @@ import { createHmac } from "node:crypto";
 
 /** Shared UTF-8 encoder/decoder (avoid per-call allocation). */
 export const encoder = new TextEncoder();
+/** Shared UTF-8 decoder (avoid per-call allocation). */
 export const decoder = new TextDecoder();
 
 /** Coerce a string or bytes into `Uint8Array`. */

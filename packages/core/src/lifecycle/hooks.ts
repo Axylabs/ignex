@@ -10,23 +10,36 @@ import type { HookContainer, LifeCycleStore } from "../types";
 // Types
 // ============================================================================
 
+/**
+ * A hook's outcome: continue the chain (with an updated `ctx`) or halt it
+ * with a `Response`.
+ */
 export type HookResult =
   | { readonly ok: true; ctx: IgnusContext }
   | { readonly ok: false; response: Response };
 
+/** A lifecycle hook: receives the context and returns the next step. */
 export type HookFn = (ctx: IgnusContext) => Promise<HookResult> | HookResult;
 
 // ============================================================================
 // Hook Constructors
 // ============================================================================
 
+/** Continue the hook chain with the given context. */
 export const continueHook = (ctx: IgnusContext): HookResult => ({ ok: true, ctx });
+
+/** Halt the hook chain with a response. */
 export const haltHook = (response: Response): HookResult => ({ ok: false, response });
 
 // ============================================================================
 // Hook Execution
 // ============================================================================
 
+/**
+ * Run hooks sequentially until one halts.
+ *
+ * @returns The final context, plus the halting `Response` when the chain stopped.
+ */
 export const executeHooks = async (
   ctx: IgnusContext,
   hooks: readonly HookFn[],
@@ -44,6 +57,7 @@ export const executeHooks = async (
 // Hook Composition
 // ============================================================================
 
+/** Compose multiple hooks into a single {@link HookFn} run left-to-right. */
 export const composeHooks =
   (...hooks: HookFn[]): HookFn =>
   async (ctx) => {
@@ -56,6 +70,14 @@ export const composeHooks =
 // Hook Merging (Pure)
 // ============================================================================
 
+/**
+ * Merge two hook arrays, de-duplicating by `checksum`.
+ *
+ * Always returns a fresh array so callers' arrays are never aliased.
+ *
+ * @param a - Base hooks (win on duplicate checksums).
+ * @param b - Extra hooks appended when their checksum is new.
+ */
 export const mergeHookArrays = (
   a: HookContainer[] | undefined,
   b: HookContainer[] | undefined,

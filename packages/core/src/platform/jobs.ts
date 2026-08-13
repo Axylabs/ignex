@@ -4,6 +4,7 @@
  *
  * Composable via the `withRetry` / `withTimeout` higher-order wrappers.
  */
+/** Options for {@link createJobQueue}. */
 export interface JobQueueOptions {
   /** Maximum number of tasks running concurrently (default 1). */
   concurrency?: number;
@@ -11,6 +12,7 @@ export interface JobQueueOptions {
   onError?: (error: unknown, task: { name: string }) => void;
 }
 
+/** Scheduling options for {@link JobQueue.schedule}. */
 export interface ScheduleOptions {
   /** Delay before the first run, in ms. */
   delay?: number;
@@ -20,12 +22,16 @@ export interface ScheduleOptions {
   when?: Date;
 }
 
+/** A scheduled/queued job handle; `cancel()` stops it. */
 export interface Job {
   readonly id: string;
   readonly name: string;
   cancel(): void;
 }
 
+/**
+ * An in-process background job queue with scheduling and concurrency limits.
+ */
 export interface JobQueue {
   /** Run a task once (optionally delayed / scheduled). */
   schedule(name: string, task: () => Promise<void> | void, options?: ScheduleOptions): Job;
@@ -87,6 +93,12 @@ export const withTimeout =
     }
   };
 
+/**
+ * Create an in-process job queue.
+ *
+ * @param options - Concurrency and error handling.
+ * @returns The queue (see {@link JobQueue}).
+ */
 export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
   const concurrency = Math.max(1, options.concurrency ?? 1);
   const onError = options.onError ?? (() => {});

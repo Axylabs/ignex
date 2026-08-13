@@ -2,6 +2,10 @@
  * @fileoverview Body parsing types — options, kinds, and the `LazyBody` surface.
  */
 
+/**
+ * Per-kind body size limits in bytes. All fields optional — unspecified
+ * limits fall back to the defaults in `limits.ts`.
+ */
 export interface LazyBodyOptions {
   maxJsonBytes?: number;
   maxTextBytes?: number;
@@ -9,8 +13,15 @@ export interface LazyBodyOptions {
   maxFileBytes?: number;
 }
 
+/** The parse kind a body was (or is being) consumed as. */
 export type BodyKind = "none" | "json" | "text" | "formData" | "arrayBuffer" | "blob";
 
+/**
+ * A lazily-parsed request body: callable, with typed accessors per kind.
+ *
+ * Calling it as a function auto-selects a kind from the `Content-Type` header.
+ * Parsing happens at most once; later accessors convert from the cached kind.
+ */
 export interface LazyBody {
   (): Promise<unknown>;
 

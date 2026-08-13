@@ -3,6 +3,15 @@
  * Serializable, traceable, production-safe.
  */
 
+/**
+ * Base class for the structured HTTP error family.
+ *
+ * Every ignus error extends this so it carries an HTTP `status`, a machine
+ * `code`, and optional `details`, serializes via {@link toJSON}, and converts
+ * to a JSON `Response` via {@link toResponse}. `errorToResponse` and the
+ * lifecycle `error` stage recognize it, so throwing one from a handler yields
+ * the intended status instead of a 500.
+ */
 export class HTTPError extends Error {
   constructor(
     public readonly status: number,
@@ -39,6 +48,12 @@ export class HTTPError extends Error {
   }
 }
 
+/**
+ * 422 Unprocessable Entity — field-scoped validation failures.
+ *
+ * `errors` maps field names to message lists; `on` optionally names the
+ * resource/endpoint the failure applies to.
+ */
 export class ValidationError extends HTTPError {
   constructor(
     message: string,
@@ -50,6 +65,7 @@ export class ValidationError extends HTTPError {
   }
 }
 
+/** 404 Not Found — a requested resource does not exist. */
 export class NotFoundError extends HTTPError {
   constructor(resource?: string) {
     super(404, resource ? `${resource} not found` : "Not Found", "NOT_FOUND");
@@ -57,6 +73,7 @@ export class NotFoundError extends HTTPError {
   }
 }
 
+/** 401 Unauthorized — authentication is missing or failed. */
 export class UnauthorizedError extends HTTPError {
   constructor(message = "Unauthorized") {
     super(401, message, "UNAUTHORIZED");
@@ -64,6 +81,7 @@ export class UnauthorizedError extends HTTPError {
   }
 }
 
+/** 403 Forbidden — authenticated but not allowed to perform the action. */
 export class ForbiddenError extends HTTPError {
   constructor(message = "Forbidden") {
     super(403, message, "FORBIDDEN");
@@ -71,6 +89,7 @@ export class ForbiddenError extends HTTPError {
   }
 }
 
+/** 409 Conflict — the request conflicts with the current state. */
 export class ConflictError extends HTTPError {
   constructor(message = "Conflict") {
     super(409, message, "CONFLICT");
@@ -78,6 +97,7 @@ export class ConflictError extends HTTPError {
   }
 }
 
+/** 400 Bad Request — malformed or invalid client input. */
 export class BadRequestError extends HTTPError {
   constructor(message = "Bad Request") {
     super(400, message, "BAD_REQUEST");
@@ -85,6 +105,11 @@ export class BadRequestError extends HTTPError {
   }
 }
 
+/**
+ * 405 Method Not Allowed — the path exists but not for this method.
+ *
+ * `allow` optionally lists the permitted methods for the `Allow` header.
+ */
 export class MethodNotAllowedError extends HTTPError {
   constructor(
     message = "Method Not Allowed",
@@ -98,6 +123,11 @@ export class MethodNotAllowedError extends HTTPError {
 /** Narrowing guard for the whole HTTP error family. */
 export const isHttpError = (value: unknown): value is HTTPError => value instanceof HTTPError;
 
+/**
+ * 429 Too Many Requests — rate limit exceeded.
+ *
+ * `retryAfter` optionally seconds for the `Retry-After` header.
+ */
 export class TooManyRequestsError extends HTTPError {
   constructor(
     message = "Too Many Requests",
@@ -108,6 +138,7 @@ export class TooManyRequestsError extends HTTPError {
   }
 }
 
+/** 500 Internal Server Error — an unhandled server-side failure. */
 export class InternalError extends HTTPError {
   constructor(message = "Internal Server Error") {
     super(500, message, "INTERNAL_ERROR");
@@ -115,6 +146,11 @@ export class InternalError extends HTTPError {
   }
 }
 
+/**
+ * 400 Bad Request — the request body/input failed to parse.
+ *
+ * The original thrown error is retained as the error `cause` when provided.
+ */
 export class ParseError extends HTTPError {
   constructor(cause?: Error) {
     super(400, "Bad Request", "PARSE_ERROR");
@@ -123,6 +159,7 @@ export class ParseError extends HTTPError {
   }
 }
 
+/** 400 Bad Request — a cookie's signature failed verification. */
 export class InvalidCookieSignature extends HTTPError {
   constructor(public readonly key: string) {
     super(400, `"${key}" has invalid cookie signature`, "INVALID_COOKIE_SIGNATURE");
@@ -173,6 +210,17 @@ const cachedErrorBody = (status: number, code: string | undefined, message: stri
   return body;
 };
 
+/**
+ * Convert any thrown value into an error `Response`.
+ *
+ * `HTTPError` instances map to their own status/code/body. Everything else
+ * becomes a 500: the message is only exposed when `exposeDetails` is true
+ * (otherwise a generic "Internal Server Error" envelope prevents detail leak).
+ *
+ * @param err - The thrown value.
+ * @param exposeDetails - When true, leak `Error.message` on non-HTTP errors.
+ * @returns A JSON `Response` with security headers pre-applied.
+ */
 export const errorToResponse = (err: unknown, exposeDetails = false): Response => {
   if (err instanceof HTTPError) return err.toResponse();
 

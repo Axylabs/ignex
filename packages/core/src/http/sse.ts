@@ -5,12 +5,14 @@
 
 import { sseEncode } from "@ignus/native";
 
+/** Options for an individual SSE event frame. */
 export interface SSEOptions {
   event?: string;
   id?: string;
   retry?: number;
 }
 
+/** An SSE event to send: `data` plus optional `event`/`id`/`retry` fields. */
 export interface SSEMessage {
   data: string;
   event?: string;
@@ -18,6 +20,7 @@ export interface SSEMessage {
   retry?: number;
 }
 
+/** Format an SSE event as a wire frame (`event:`/`data:`/`id:`/`retry:` lines). */
 export const formatSSE = (msg: SSEMessage): string =>
   sseEncode(msg.event ?? null, msg.data, msg.id ?? null, msg.retry ?? null);
 

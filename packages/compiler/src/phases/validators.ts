@@ -9,7 +9,7 @@ import { join } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
-import type { CompilerContext, CompilerOptions, ModuleInfo, RouteDef } from "../types";
+import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../types";
 import { writeGuarded } from "./artifacts";
 import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
@@ -17,18 +17,18 @@ const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as cons
 
 type ValidatorKind = (typeof VALIDATOR_KINDS)[number];
 
-const validatorImportName = (route: RouteDef, kind: ValidatorKind): string =>
+const validatorImportName = (route: RouteIR, kind: ValidatorKind): string =>
   `validate_${route.codegen.handlerRef}_${kind}`;
 
-const validatorFileName = (route: RouteDef, kind: ValidatorKind): string =>
+const validatorFileName = (route: RouteIR, kind: ValidatorKind): string =>
   `${route.codegen.handlerRef}.${kind}.cjs`;
 
 export const precompileValidators = async (
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
   ctx: CompilerContext,
-): Promise<readonly RouteDef[]> => {
+): Promise<readonly RouteIR[]> => {
   if (!opts.precompileValidators) {
     return routes;
   }

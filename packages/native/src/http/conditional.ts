@@ -2,6 +2,7 @@
  * @fileoverview Conditional requests (ETag / Last-Modified → 304).
  */
 
+/** A per-resource conditional-request checker (etag + last-modified). */
 export interface ConditionalRequest {
   /** `true` → "304 Not Modified" (If-None-Match wins over If-Modified-Since). */
   isNotModified(ifNoneMatch?: string | null, ifModifiedSince?: string | null): boolean;
@@ -21,6 +22,7 @@ export const createConditionalRequest = (
   // Selection: js — per-call native construction loses (~12x) — see selection.ts.
   createConditionalRequestFallback(etagValue, lastModifiedSecs);
 
+/** Pure-TS fallback for {@link createConditionalRequest} (identical behavior). */
 export const createConditionalRequestFallback = (
   etagValue: string,
   lastModifiedSecs?: number,

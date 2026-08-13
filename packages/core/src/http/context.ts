@@ -17,14 +17,7 @@ import type { HttpMethod } from "../types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
 import { type Cookie, createLazyCookieJar } from "./cookies";
 import { type SendFileOptions, sendFile } from "./files";
-import {
-  createResponseInit,
-  HDR_HTML,
-  HDR_JSON,
-  HDR_TEXT,
-  mergeHeaders,
-  type SetHeaders,
-} from "./headers";
+import { createResponseInit, responseWithBody, type SetHeaders } from "./headers";
 import { forwardRequest, type ProxyOptions, proxyRequest } from "./proxy";
 import { generateRequestId } from "./request-id";
 
@@ -49,6 +42,10 @@ export interface IgnusServer {
   ): boolean;
 }
 
+/**
+ * Options for {@link createContext}: pre-computed request data plus runtime
+ * wiring (route pattern, cache, proxy trust).
+ */
 export interface ContextOptions {
   query?: URLSearchParams;
   body?: LazyBodyOptions;
@@ -75,6 +72,14 @@ export interface ContextOptions {
   trustProxy?: boolean;
 }
 
+/**
+ * The per-request context passed to handlers and hooks.
+ *
+ * `P`/`Q`/`B` are the inferred `params`/`query`/`body` types from the route
+ * schema. Response helpers (`json`/`text`/`html`/…) and the outbound `set`
+ * accumulator are the primary write surface; `sendFile`/`proxy`/`forward`/
+ * `cache`/`loader` are the extended capabilities.
+ */
 export interface IgnusContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
   readonly req: Request;
   readonly url: URL;
@@ -136,175 +141,198 @@ const defaultCache = new HttpResponseCache({
   staleTtlMs: 300_000,
 });
 
+/**
+ * Shared per-request context implementation — the "cached context" pattern.
+ *
+ * All methods + getters live on the prototype (created ONCE), so each request
+ * only allocates the instance DATA fields instead of ~25 closures from the old
+ * object literal. This is the biggest single per-request JS cost in the
+ * `needsFull` compiled path and the interpreted `createApp` path.
+ */
+class IgnusContextImpl<P = Record<string, string>> implements IgnusContext<P, URLSearchParams> {
+  readonly req: Request;
+  readonly method: HttpMethod;
+  readonly route: string;
+  readonly headers: Headers;
+  params: P;
+  body: LazyBody;
+  cookie: Record<string, Cookie<string | undefined>>;
+  readonly set: SetHeaders;
+  readonly startTime: number;
+  server: IgnusServer | null = null;
+
+  private _url: URL | undefined;
+  private _query: URLSearchParams | undefined;
+  private _requestId: string | undefined;
+  private _state: Map<string | symbol, unknown> | undefined;
+  private readonly _opts: ContextOptions;
+
+  constructor(req: Request, params: P, opts: ContextOptions = {}) {
+    this.req = req;
+    this.method = req.method as HttpMethod;
+    this.route = opts.route ?? "";
+    this.headers = req.headers;
+    this.params = params;
+    this.body = opts.bodyInstance ?? createLazyBody(req, opts.body);
+    // `status` is intentionally left unset: an explicitly-set `set.status`
+    // overrides the response status (see `applySet`), but a default of 200
+    // here would clobber handlers returning e.g. 401/redirects.
+    this.set = { headers: {}, ...opts.set };
+    this.cookie = createLazyCookieJar(this.set, () => this.req.headers.get("cookie"));
+    this.startTime = performance.now();
+    this._opts = opts;
+    this._query = opts.query;
+  }
+
+  get url(): URL {
+    if (this._url === undefined) {
+      this._url = new URL(this.req.url);
+    }
+    return this._url;
+  }
+
+  get path(): string {
+    return this.url.pathname;
+  }
+
+  get requestId(): string {
+    if (this._requestId === undefined) {
+      this._requestId = generateRequestId();
+    }
+    return this._requestId;
+  }
+
+  get ip(): string {
+    const server = this.server;
+
+    try {
+      const socketIp = server?.requestIP?.(this.req)?.address;
+      if (socketIp) return socketIp;
+    } catch (err) {
+      // `requestIP` is non-standard on some runtimes and may throw rather
+      // than return undefined — surface it at info level instead of
+      // silently masking the failure, then fall through to headers.
+      console.info("[ignus] requestIP unavailable:", err);
+    }
+
+    // Client-supplied IP headers are spoofable; only honor them when the app
+    // explicitly opts into trusting a proxy in front.
+    if (this._opts.trustProxy) {
+      const forwarded =
+        this.req.headers.get("x-real-ip") ??
+        firstForwardedIp(this.req.headers.get("x-forwarded-for"));
+      if (forwarded) return forwarded;
+    }
+
+    return "anonymous";
+  }
+
+  get query(): URLSearchParams {
+    if (this._query === undefined) {
+      this._query = this.url.searchParams;
+    }
+    return this._query;
+  }
+
+  get state(): Map<string | symbol, unknown> {
+    if (this._state === undefined) {
+      this._state = new Map<string | symbol, unknown>();
+    }
+    return this._state;
+  }
+
+  getState<T = unknown>(key: string | symbol): T | undefined {
+    return this.state.get(key) as T | undefined;
+  }
+
+  setState<T>(key: string | symbol, value: T): void {
+    this.state.set(key, value);
+  }
+
+  get loader(): DataLoaderFactory {
+    return createDataLoader;
+  }
+
+  json<T>(data: T, init?: ResponseInit): Response {
+    const status = init?.status ?? this.set.status ?? 200;
+    const s = JSON.stringify(data);
+
+    return responseWithBody(s === undefined ? undefined : s, "application/json; charset=utf-8", {
+      ...init,
+      status,
+    });
+  }
+
+  text(data: string, init?: ResponseInit): Response {
+    const status = init?.status ?? this.set.status ?? 200;
+
+    return responseWithBody(String(data), "text/plain; charset=utf-8", {
+      ...init,
+      status,
+    });
+  }
+
+  html(data: string, init?: ResponseInit): Response {
+    const status = init?.status ?? this.set.status ?? 200;
+
+    return responseWithBody(String(data), "text/html; charset=utf-8", {
+      ...init,
+      status,
+    });
+  }
+
+  stream(stream: ReadableStream, init?: ResponseInit): Response {
+    return new Response(stream, createResponseInit(init?.status ?? 200, init?.headers));
+  }
+
+  empty(status = 204): Response {
+    return new Response(null, { status });
+  }
+
+  status(code: number): Response {
+    return new Response(null, { status: code });
+  }
+
+  sendFile(path: string, sendOpts: SendFileOptions = {}) {
+    return sendFile(path, { req: this.req, ...sendOpts });
+  }
+
+  proxy(target: string | URL, proxyOpts: ProxyOptions = {}) {
+    return proxyRequest(target, proxyOpts);
+  }
+
+  forward(target: string | URL, proxyOpts: ProxyOptions = {}) {
+    return forwardRequest(this.req, target, proxyOpts);
+  }
+
+  cache(factory: () => Promise<Response>, cacheOpts = {}) {
+    return (this._opts.cache ?? defaultCache).getOrSet(this.req, factory, cacheOpts);
+  }
+
+  redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
+    // Build the redirect manually rather than `Response.redirect()`: the
+    // standard helper requires an *absolute* URL and throws on relative
+    // `Location` values in some runtimes (e.g. undici under vitest), while
+    // relative redirects are the common case (`/login`, `/home`). Setting
+    // the Location header directly is runtime-agnostic (matches Fastify).
+    return new Response(null, {
+      status,
+      headers: { location: url },
+    });
+  }
+}
+
+/**
+ * Create a per-request context.
+ *
+ * `params` are the matched route params; `opts` supplies the pre-parsed query,
+ * body instance/options, route pattern, cache and proxy-trust settings. Used
+ * by `createApp` (interpreted) and the compiler-generated server.
+ */
 export function createContext<P = Record<string, string>>(
   req: Request,
   params: P,
   opts: ContextOptions = {},
 ): IgnusContext<P, URLSearchParams> {
-  let _url: URL | undefined;
-  let _query: URLSearchParams | undefined = opts.query;
-
-  const body = opts.bodyInstance ?? createLazyBody(req, opts.body);
-
-  let state: Map<string | symbol, unknown> | undefined;
-
-  const ensureState = () => {
-    if (!state) {
-      state = new Map<string | symbol, unknown>();
-    }
-
-    return state;
-  };
-
-  // `status` is intentionally left unset: an explicitly-set `set.status`
-  // overrides the response status (see `applySet`), but a default of 200 here
-  // would clobber handlers returning e.g. 401/redirects. `json`/`text`/`html`
-  // fall back to 200 themselves.
-  const set: SetHeaders = { headers: {}, ...opts.set };
-
-  const cookie = createLazyCookieJar(set, () => req.headers.get("cookie"));
-
-  const ctx: IgnusContext<P, URLSearchParams> = {
-    req,
-
-    get url() {
-      if (_url === undefined) {
-        _url = new URL(req.url);
-      }
-      return _url;
-    },
-
-    method: req.method as HttpMethod,
-
-    get path() {
-      return this.url.pathname;
-    },
-
-    route: opts.route ?? "",
-    headers: req.headers,
-    requestId: generateRequestId(),
-    startTime: performance.now(),
-
-    get ip(): string {
-      const server = this.server;
-
-      try {
-        const socketIp = server?.requestIP?.(req)?.address;
-        if (socketIp) return socketIp;
-      } catch (err) {
-        // `requestIP` is non-standard on some runtimes and may throw rather
-        // than return undefined — surface it at info level instead of
-        // silently masking the failure, then fall through to headers.
-        console.info("[ignus] requestIP unavailable:", err);
-      }
-
-      // Client-supplied IP headers are spoofable; only honor them when the app
-      // explicitly opts into trusting a proxy in front.
-      if (opts.trustProxy) {
-        const forwarded =
-          req.headers.get("x-real-ip") ?? firstForwardedIp(req.headers.get("x-forwarded-for"));
-        if (forwarded) return forwarded;
-      }
-
-      return "anonymous";
-    },
-
-    params,
-
-    get query() {
-      if (_query === undefined) {
-        _query = this.url.searchParams;
-      }
-      return _query as URLSearchParams;
-    },
-
-    body,
-    cookie,
-    set,
-
-    get state() {
-      return ensureState();
-    },
-
-    getState<T = unknown>(key: string | symbol): T | undefined {
-      return ensureState().get(key) as T | undefined;
-    },
-
-    setState<T>(key: string | symbol, value: T): void {
-      ensureState().set(key, value);
-    },
-
-    json<T>(data: T, init?: ResponseInit): Response {
-      const status = init?.status ?? set.status ?? 200;
-
-      return Response.json(data, {
-        status,
-        headers: mergeHeaders(HDR_JSON, init?.headers),
-      });
-    },
-
-    text(data: string, init?: ResponseInit): Response {
-      const status = init?.status ?? set.status ?? 200;
-
-      return new Response(data, {
-        status,
-        headers: mergeHeaders(HDR_TEXT, init?.headers),
-      });
-    },
-
-    html(data: string, init?: ResponseInit): Response {
-      const status = init?.status ?? set.status ?? 200;
-
-      return new Response(data, {
-        status,
-        headers: mergeHeaders(HDR_HTML, init?.headers),
-      });
-    },
-
-    stream(stream: ReadableStream, init?: ResponseInit): Response {
-      return new Response(stream, createResponseInit(init?.status ?? 200, init?.headers));
-    },
-
-    empty(status = 204): Response {
-      return new Response(null, { status });
-    },
-
-    status(code: number): Response {
-      return new Response(null, { status: code });
-    },
-
-    sendFile(path: string, sendOpts: SendFileOptions = {}) {
-      return sendFile(path, { req, ...sendOpts });
-    },
-
-    proxy(target: string | URL, proxyOpts: ProxyOptions = {}) {
-      return proxyRequest(target, proxyOpts);
-    },
-
-    forward(target: string | URL, proxyOpts: ProxyOptions = {}) {
-      return forwardRequest(req, target, proxyOpts);
-    },
-
-    cache(factory: () => Promise<Response>, cacheOpts = {}) {
-      return (opts.cache ?? defaultCache).getOrSet(req, factory, cacheOpts);
-    },
-
-    loader: createDataLoader,
-
-    redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
-      // Build the redirect manually rather than `Response.redirect()`: the
-      // standard helper requires an *absolute* URL and throws on relative
-      // `Location` values in some runtimes (e.g. undici under vitest), while
-      // relative redirects are the common case (`/login`, `/home`). Setting
-      // the Location header directly is runtime-agnostic (matches Fastify).
-      return new Response(null, {
-        status,
-        headers: { location: url },
-      });
-    },
-
-    server: null,
-  };
-
-  return ctx;
+  return new IgnusContextImpl(req, params, opts);
 }

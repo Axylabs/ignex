@@ -25,6 +25,17 @@ function normalizeMethod(input: string | undefined): RouteMethod | undefined {
   return METHOD_ALIASES[input.toLowerCase()];
 }
 
+/**
+ * Parse a route path (plus optional `--method`) into method/file/path.
+ *
+ * Accepts `users`, `users.del`, `api/users.get.ts`, etc. A trailing dot-method
+ * suffix wins over the `--method` flag.
+ *
+ * @param raw - The route path input.
+ * @param methodFlag - Optional explicit method from `--method`.
+ * @returns The parsed route (method, file name, path, param names).
+ * @throws When `raw` is empty or `methodFlag` is not a known method.
+ */
 export function parseRouteInput(raw: string, methodFlag?: string): ParsedRoute {
   let input = raw.trim().replace(/\.ts$/, "").replace(/^\//, "");
 
@@ -32,7 +43,18 @@ export function parseRouteInput(raw: string, methodFlag?: string): ParsedRoute {
     throw new Error("Route path is required.");
   }
 
-  let method: RouteMethod = normalizeMethod(methodFlag) ?? "get";
+  let method: RouteMethod;
+  if (methodFlag !== undefined) {
+    const normalized = normalizeMethod(methodFlag);
+    if (!normalized) {
+      throw new Error(
+        `Invalid method: "${methodFlag}". Expected one of: ${ROUTE_METHODS.join(", ")}.`,
+      );
+    }
+    method = normalized;
+  } else {
+    method = "get";
+  }
 
   const lastDot = input.lastIndexOf(".");
   if (lastDot > 0) {

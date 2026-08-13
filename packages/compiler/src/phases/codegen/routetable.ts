@@ -4,7 +4,8 @@
  * auto-OPTIONS.
  */
 
-import type { CompilerOptions, RouteDef } from "../../types";
+import type { Emitter } from "../../emitter";
+import type { CompilerOptions, RouteIR } from "../../types";
 import {
   allowRegExp,
   BUN_ALL_METHODS,
@@ -12,12 +13,108 @@ import {
   wildcardNames,
   wildcardPrefix,
 } from "./identifiers";
-import { generateRouteCode } from "./routes";
+import { generateRouteCode } from "./routes/generate";
 import type { CodegenState } from "./state";
+
+type AddRouteEntry = (method: string, path: string, expr: string) => void;
+
+/** Pass 1: emit each route's core function and collect explicit table keys. */
+const emitExplicitPass = (
+  state: CodegenState,
+  routes: readonly RouteIR[],
+  opts: CompilerOptions,
+  explicitKeys: Set<string>,
+  wildcardsByPath: Map<string, string[]>,
+): void => {
+  for (const route of routes) {
+    generateRouteCode(state, route, opts);
+
+    const path = route.source.path;
+    wildcardsByPath.set(path, wildcardNames(route.source.path));
+
+    if (route.source.method === "ALL") {
+      for (const method of BUN_ALL_METHODS) {
+        explicitKeys.add(`${method} ${path}`);
+      }
+    } else {
+      // WS routes upgrade on a GET request — register under GET so auto
+      // HEAD/OPTIONS and 405 handling treat them like a plain GET route.
+      const keyMethod = route.source.method === "WS" ? "GET" : route.source.method;
+      explicitKeys.add(`${keyMethod} ${path}`);
+    }
+  }
+};
+
+/** Pass 2: emit explicit routes wrapped with `__wrap` for error handling. */
+const emitWrappedPass = (
+  state: CodegenState,
+  routes: readonly RouteIR[],
+  addRouteEntry: AddRouteEntry,
+): void => {
+  for (const route of routes) {
+    state.helpers.markUsed("__wrap");
+
+    const path = route.source.path;
+    const wildcards = JSON.stringify(wildcardNames(route.source.path));
+    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
+    const handler = routeHandlerName(route);
+
+    if (route.source.method === "ALL") {
+      for (const method of BUN_ALL_METHODS) {
+        addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
+      }
+    } else {
+      const method = route.source.method === "WS" ? "GET" : route.source.method;
+      addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
+    }
+  }
+};
+
+/** Pass 3: automatic HEAD handlers for GET routes (unless explicit). */
+const emitAutoHeadPass = (
+  routes: readonly RouteIR[],
+  explicitKeys: Set<string>,
+  addRouteEntry: AddRouteEntry,
+  helpers: Emitter,
+): void => {
+  for (const route of routes) {
+    if (route.source.method !== "GET" && route.source.method !== "ALL") continue;
+
+    const path = route.source.path;
+    const wildcards = JSON.stringify(wildcardNames(route.source.path));
+    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
+    const headKey = `HEAD ${path}`;
+
+    if (!explicitKeys.has(headKey)) {
+      helpers.markUsed("__head");
+      addRouteEntry("HEAD", path, `__head(${routeHandlerName(route)}, ${wildcards}, ${prefix})`);
+    }
+  }
+};
+
+/** Pass 4: automatic OPTIONS handlers for CORS preflight (unless explicit). */
+const emitAutoOptionsPass = (
+  allowMethodsByPattern: Map<string, Set<string>>,
+  explicitKeys: Set<string>,
+  wildcardsByPath: Map<string, string[]>,
+  addRouteEntry: AddRouteEntry,
+  helpers: Emitter,
+): void => {
+  for (const path of allowMethodsByPattern.keys()) {
+    const key = `OPTIONS ${path}`;
+    const wildcards = JSON.stringify(wildcardsByPath.get(path) ?? []);
+    const prefix = JSON.stringify(wildcardPrefix(path));
+
+    if (!explicitKeys.has(key)) {
+      helpers.markUsed("__optionsHandler");
+      addRouteEntry("OPTIONS", path, `__wrap(__optionsHandler, ${wildcards}, ${prefix})`);
+    }
+  }
+};
 
 export const stageRouteTable = (
   state: CodegenState,
-  routes: readonly RouteDef[],
+  routes: readonly RouteIR[],
   opts: CompilerOptions,
 ): void => {
   const { helpers, functions } = state;
@@ -41,70 +138,11 @@ export const stageRouteTable = (
     addAllowed(method, path);
   };
 
-  // First pass: collect explicit keys (and emit each route's core function).
-  for (const route of routes) {
-    generateRouteCode(state, route, opts);
-
-    const path = route.source.path;
-    wildcardsByPath.set(path, wildcardNames(route.source.path));
-
-    if (route.source.method === "ALL") {
-      for (const method of BUN_ALL_METHODS) {
-        explicitKeys.add(`${method} ${path}`);
-      }
-    } else {
-      // WS routes upgrade on a GET request — register under GET so auto
-      // HEAD/OPTIONS and 405 handling treat them like a plain GET route.
-      const keyMethod = route.source.method === "WS" ? "GET" : route.source.method;
-      explicitKeys.add(`${keyMethod} ${path}`);
-    }
-  }
-
-  // Second pass: emit explicit routes wrapped with __wrap for error handling.
-  for (const route of routes) {
-    helpers.markUsed("__wrap");
-
-    const path = route.source.path;
-    const wildcards = JSON.stringify(wildcardNames(route.source.path));
-    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
-    const handler = routeHandlerName(route);
-
-    if (route.source.method === "ALL") {
-      for (const method of BUN_ALL_METHODS) {
-        addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
-      }
-    } else {
-      const method = route.source.method === "WS" ? "GET" : route.source.method;
-      addRouteEntry(method, path, `__wrap(${handler}, ${wildcards}, ${prefix})`);
-    }
-  }
-
-  // Third pass: automatic HEAD for GET routes.
-  for (const route of routes) {
-    if (route.source.method !== "GET" && route.source.method !== "ALL") continue;
-
-    const path = route.source.path;
-    const wildcards = JSON.stringify(wildcardNames(route.source.path));
-    const prefix = JSON.stringify(wildcardPrefix(route.source.path));
-    const headKey = `HEAD ${path}`;
-
-    if (!explicitKeys.has(headKey)) {
-      helpers.markUsed("__head");
-      addRouteEntry("HEAD", path, `__head(${routeHandlerName(route)}, ${wildcards}, ${prefix})`);
-    }
-  }
-
-  // Fourth pass: automatic OPTIONS handlers for CORS preflight.
-  for (const path of allowMethodsByPattern.keys()) {
-    const key = `OPTIONS ${path}`;
-    const wildcards = JSON.stringify(wildcardsByPath.get(path) ?? []);
-    const prefix = JSON.stringify(wildcardPrefix(path));
-
-    if (!explicitKeys.has(key)) {
-      helpers.markUsed("__optionsHandler");
-      addRouteEntry("OPTIONS", path, `__wrap(__optionsHandler, ${wildcards}, ${prefix})`);
-    }
-  }
+  // Passes: explicit keys → wrapped entries → auto HEAD → auto OPTIONS.
+  emitExplicitPass(state, routes, opts, explicitKeys, wildcardsByPath);
+  emitWrappedPass(state, routes, addRouteEntry);
+  emitAutoHeadPass(routes, explicitKeys, addRouteEntry, helpers);
+  emitAutoOptionsPass(allowMethodsByPattern, explicitKeys, wildcardsByPath, addRouteEntry, helpers);
 
   // Build the __allowed lookup for 405 responses. Static paths get an O(1)
   // object lookup; only dynamic patterns (with :params or *wildcards) need a

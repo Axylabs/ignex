@@ -15,8 +15,10 @@
  */
 import { getNative } from "./loader";
 
+/** The execution backend: Rust addon (`castrum`) or pure-TS (`js`). */
 export type ExecutionBackend = "castrum" | "js";
 
+/** The per-operation implementation decision. */
 export interface OpDecision {
   /** The implementation bound when native is available. */
   readonly impl: ExecutionBackend;

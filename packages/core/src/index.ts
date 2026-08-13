@@ -71,10 +71,14 @@ export type { Catalog, Catalogs, I18n, I18nOptions, LoadCatalogDirOptions } from
 export {
   createI18n,
   createI18nFromDir,
+  formatCurrency,
+  formatDate,
+  formatNumber,
   interpolate,
   LOCALE_KEY,
   loadCatalogDir,
   negotiateLocale,
+  pluralCategory,
   withI18n,
 } from "./content/i18n";
 export type { TemplateContext, TemplateFn, TemplateRegistry } from "./content/template";

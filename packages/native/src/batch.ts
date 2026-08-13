@@ -11,6 +11,13 @@
  *   crc32     batch 1.45x vs per-item JS loop
  *   jsonValid batch 1.57x (small docs) / 1.85x (500-row docs) vs JSON.parse
  *
+ * Pair-parse batches (queryParse / cookieParse / formParse) are the "move
+ * parsing to Rust at scale" lever for bulk endpoints (many payloads per
+ * request): one packed FFI call replaces N scalar parse loops. Scalar pair
+ * parsing stays JS (native x0.65–0.96 on a single input — selection.ts);
+ * the batch wins by amortizing the FFI crossing across many inputs, so the
+ * per-item fallbacks here mirror the scalar JS parsers bit-for-bit.
+ *
  * NOT exposed: validate* batches. Although castrum's registry shows large
  * batch wins, that benchmark compared batch vs a NATIVE-scalar loop (100 FFI
  * crossings). Against ignus's fast JS regex (~50ns/email) the packing +
@@ -23,10 +30,20 @@
  * verified byte-correct (`bun scripts/verify-native-batch.ts` in castrum).
  */
 
-import { packBatch, unpackBitset, unpackU32Array, unpackU64ArrayAsBigInt } from "./packed";
+import { cookiePairsFallback } from "./http/cookie";
+import { formPairsFallback } from "./http/form";
+import { queryPairsFallback } from "./http/query";
+import {
+  packBatch,
+  unpackBitset,
+  unpackPairBatches,
+  unpackU32Array,
+  unpackU64ArrayAsBigInt,
+} from "./packed";
 import { native } from "./runtime";
 import { crc32 as crc32ScalarFallback, decoder, encoder } from "./util";
 
+/** Packed batch surface: one native FFI call for many items, with a per-item JS fallback. */
 export interface NativeBatch {
   /** Bit-per-item validity (0/1) for well-formed JSON inputs. */
   jsonValid(items: ReadonlyArray<string | Uint8Array>): Uint8Array;
@@ -34,6 +51,12 @@ export interface NativeBatch {
   crc32(items: ReadonlyArray<string | Uint8Array>): Uint32Array;
   /** FNV-1a 64-bit per item (unsigned bigint). */
   fnv1a64(items: ReadonlyArray<string | Uint8Array>): BigUint64Array;
+  /** Decode many query strings → one `[name, value]` pair list per input. */
+  queryParse(items: ReadonlyArray<string | Uint8Array>): Array<Array<[string, string]>>;
+  /** Decode many `Cookie` header values → one `[name, value]` pair list per input. */
+  cookieParse(items: ReadonlyArray<string | Uint8Array>): Array<Array<[string, string]>>;
+  /** Decode many `application/x-www-form-urlencoded` bodies → one pair list per input. */
+  formParse(items: ReadonlyArray<string | Uint8Array>): Array<Array<[string, string]>>;
 }
 
 const toBytes = (input: string | Uint8Array): Uint8Array =>
@@ -55,6 +78,9 @@ export const buildBatch = (): NativeBatch => {
       },
       crc32: (items) => unpackU32Array(n.crc32BatchPacked(packed(items))),
       fnv1a64: (items) => unpackU64ArrayAsBigInt(n.fnv1A64BatchPacked(packed(items))),
+      queryParse: (items) => unpackPairBatches(n.queryParseBatchPacked(packed(items))),
+      cookieParse: (items) => unpackPairBatches(n.cookieParseBatchPacked(packed(items))),
+      formParse: (items) => unpackPairBatches(n.formParseBatchPacked(packed(items))),
     };
   }
 
@@ -73,23 +99,28 @@ export const buildBatch = (): NativeBatch => {
       ),
     crc32: (items) => {
       const out = new Uint32Array(items.length);
-      for (let i = 0; i < items.length; i++) out[i] = crc32ScalarFallback(toBytes(items[i]!)) >>> 0;
+      let i = 0;
+      for (const item of items) out[i++] = crc32ScalarFallback(toBytes(item)) >>> 0;
       return out;
     },
     fnv1a64: (items) => {
       // Mirrors the scalar FNV-1a 64-bit implementation bit-for-bit.
       const out = new BigUint64Array(items.length);
-      for (let i = 0; i < items.length; i++) {
+      let i = 0;
+      for (const item of items) {
         let h = 0xcbf29ce484222325n;
-        const bytes = toBytes(items[i]!);
-        for (let j = 0; j < bytes.length; j++) {
-          h ^= BigInt(bytes[j]!);
+        const bytes = toBytes(item);
+        for (const byte of bytes) {
+          h ^= BigInt(byte);
           h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
         }
-        out[i] = h;
+        out[i++] = h;
       }
       return out;
     },
+    queryParse: (items) => items.map((it) => [...queryPairsFallback(toBytes(it))]),
+    cookieParse: (items) => items.map((it) => [...cookiePairsFallback(toBytes(it))]),
+    formParse: (items) => items.map((it) => [...formPairsFallback(toBytes(it))]),
   };
 };
 

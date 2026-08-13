@@ -8,7 +8,7 @@
  */
 
 import type { ExportInfo, ImportInfo } from "../../types";
-import { bindingName, type Program } from "./ast-types";
+import { bindingName, type ExportNamedDeclaration, type Node, type Program } from "./ast-types";
 import { walk, walkUntil } from "./walk";
 
 /**
@@ -65,45 +65,66 @@ export function extractImportsAST(ast: Program): ImportInfo[] {
   return imports;
 }
 
+/** Export-info entries from `export { … }` / `export * as ns` specifiers. */
+const namedSpecifierExports = (n: ExportNamedDeclaration): ExportInfo[] => {
+  const out: ExportInfo[] = [];
+  for (const spec of n.specifiers || []) {
+    if (spec.type === "ExportSpecifier") {
+      out.push({ name: spec.local?.name ?? "", kind: "named" });
+    }
+    if (spec.type === "ExportNamespaceSpecifier") {
+      out.push({ name: spec.exported?.name ?? "*", kind: "namespace" });
+    }
+  }
+  return out;
+};
+
+/** Export-info from a declaration export (`export const/fn/class`). */
+const declarationExport = (
+  declaration: ExportNamedDeclaration["declaration"],
+): ExportInfo | undefined => {
+  if (!declaration) return undefined;
+  if (declaration.type === "FunctionDeclaration") {
+    if (declaration.id?.name) return { name: declaration.id.name, kind: "named" };
+  } else if (declaration.type === "VariableDeclaration") {
+    const name = bindingName(declaration.declarations?.[0]?.id);
+    if (name) return { name, kind: "named" };
+  }
+  if (declaration.type === "ClassDeclaration" && declaration.id?.name) {
+    return { name: declaration.id.name, kind: "named" };
+  }
+  return undefined;
+};
+
+/** Export-info entries produced by a single AST node. */
+const exportInfosFromNode = (n: Node): ExportInfo[] => {
+  const out: ExportInfo[] = [];
+  if (n.type === "ExportDefaultDeclaration") {
+    // Only a bare identifier default (`export default root`) names the
+    // binding after that identifier; function/class/expression defaults
+    // are exported under the `"default"` name regardless of `id.name`.
+    const name = n.declaration?.type === "Identifier" ? n.declaration.name : "default";
+    out.push({ name, kind: "default" });
+  }
+  if (n.type === "ExportNamedDeclaration") {
+    // Re-export specifiers: `export { foo as bar }`
+    out.push(...namedSpecifierExports(n));
+    // Declaration exports: `export const x = …`, `export function f(){}`
+    const decl = declarationExport(n.declaration);
+    if (decl) out.push(decl);
+  }
+  // All-exports: `export * from "x"` / `export * as ns from "x"`
+  if (n.type === "ExportAllDeclaration") {
+    out.push({ name: n.exported?.name ?? "*", kind: "namespace" });
+  }
+  return out;
+};
+
 /** Extract every export in the module (default + named declarations/specifiers). */
 export function extractExportsAST(ast: Program): ExportInfo[] {
   const exports: ExportInfo[] = [];
   walk(ast, (n) => {
-    if (n.type === "ExportDefaultDeclaration") {
-      // Only a bare identifier default (`export default root`) names the
-      // binding after that identifier; function/class/expression defaults
-      // are exported under the `"default"` name regardless of `id.name`.
-      const name = n.declaration?.type === "Identifier" ? n.declaration.name : "default";
-      exports.push({ name, kind: "default" });
-    }
-    if (n.type === "ExportNamedDeclaration") {
-      // Re-export specifiers: `export { foo as bar }`
-      for (const spec of n.specifiers || []) {
-        if (spec.type === "ExportSpecifier") {
-          exports.push({ name: spec.local?.name ?? "", kind: "named" });
-        }
-        if (spec.type === "ExportNamespaceSpecifier") {
-          exports.push({ name: spec.exported?.name ?? "*", kind: "namespace" });
-        }
-      }
-      // Declaration exports: `export const x = …`, `export function f(){}`
-      if (n.declaration) {
-        if (n.declaration.type === "FunctionDeclaration") {
-          if (n.declaration.id?.name) exports.push({ name: n.declaration.id.name, kind: "named" });
-        } else if (n.declaration.type === "VariableDeclaration") {
-          const id = n.declaration.declarations?.[0]?.id;
-          const name = bindingName(id);
-          if (name) exports.push({ name, kind: "named" });
-        }
-        if (n.declaration.type === "ClassDeclaration" && n.declaration.id?.name) {
-          exports.push({ name: n.declaration.id.name, kind: "named" });
-        }
-      }
-    }
-    // All-exports: `export * from "x"` / `export * as ns from "x"`
-    if (n.type === "ExportAllDeclaration") {
-      exports.push({ name: n.exported?.name ?? "*", kind: "namespace" });
-    }
+    for (const info of exportInfosFromNode(n)) exports.push(info);
   });
   return exports;
 }

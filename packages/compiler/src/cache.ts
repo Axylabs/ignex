@@ -17,6 +17,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { DiagnosticCodes, errorMessage } from "./diagnostics";
+import { isRouteFile } from "./phases/discovery";
 import type { CompilerContext, CompilerOptions, OptimizationMeta } from "./types";
 import { hashString } from "./utils/hash";
 import { projectPath } from "./utils/path";
@@ -35,6 +36,20 @@ interface CacheRecord {
   readonly outFile: string;
   readonly timestamp: string;
   readonly meta?: OptimizationMeta;
+  /** Per-route fingerprints from the build that wrote this record. */
+  readonly routes?: RouteFingerprint[];
+}
+
+/** Per-route cache fingerprint: relative path + content + codegen version. */
+export interface RouteFingerprint {
+  readonly relPath: string;
+  readonly fingerprint: string;
+}
+
+/** Route change summary derived from comparing two fingerprint sets. */
+export interface RouteChangeSet {
+  readonly changed: string[];
+  readonly unchanged: string[];
 }
 
 const listFiles = (dir: string, base = ""): string[] => {
@@ -135,6 +150,17 @@ const corePackageDir = (): string | undefined => {
   }
 };
 
+/**
+ * Compute the whole-build content fingerprint used by the incremental cache.
+ *
+ * Mixes the compiler cache version, the stable option projection, and the
+ * content hashes of every file under `routesDir`/`hooksDir` plus the app
+ * config. Two builds with the same fingerprint are guaranteed to emit
+ * identical output, so a cache hit is safe.
+ *
+ * @param opts - The validated compiler options.
+ * @returns A stable content fingerprint string.
+ */
 export const computeFingerprint = (opts: CompilerOptions): string => {
   const chunks: string[] = [COMPILER_CACHE_VERSION, stableOptions(opts)];
 
@@ -168,6 +194,92 @@ export const computeFingerprint = (opts: CompilerOptions): string => {
   }
 
   return hashString(chunks.join("\n"));
+};
+
+// ---------------------------------------------------------------------------
+// Route-granular fingerprints (parse-level incrementality foundation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Content-keyed fingerprint for a single route file. The codegen version is
+ * mixed in so a codegen change invalidates every route even when contents are
+ * identical; options are intentionally NOT mixed in — option drift already
+ * invalidates the whole-build fingerprint, and this fingerprint exists purely
+ * to isolate which route contents changed.
+ */
+export const computeRouteFingerprint = (
+  relPath: string,
+  source: string,
+  version: string = COMPILER_CACHE_VERSION,
+): string => hashString([version, relPath, source].join("\n"));
+
+/** Hash a route file's raw content (no mtime — stable across identical files). */
+const hashRouteContent = (absPath: string): string => {
+  try {
+    return hashString(readFileSync(absPath, "utf-8"));
+  } catch {
+    return "missing";
+  }
+};
+
+/**
+ * Scan the routes directory and fingerprint every route source file, sorted
+ * by relative path so the set is deterministic regardless of FS order.
+ */
+export const fingerprintRouteFiles = (opts: CompilerOptions): RouteFingerprint[] => {
+  if (!opts.routesDir || !existsSync(opts.routesDir)) return [];
+
+  const out: RouteFingerprint[] = [];
+  for (const rel of listFiles(opts.routesDir)) {
+    if (!isRouteFile(rel)) continue;
+    out.push({
+      relPath: rel,
+      fingerprint: computeRouteFingerprint(rel, hashRouteContent(join(opts.routesDir, rel))),
+    });
+  }
+
+  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
+  return out;
+};
+
+/**
+ * Compare two fingerprint sets and classify each route as changed or
+ * unchanged. Order-independent: both sets are keyed by relative path, and a
+ * route present in exactly one set counts as changed (added or deleted).
+ */
+export const diffRouteFingerprints = (
+  prev: readonly RouteFingerprint[],
+  current: readonly RouteFingerprint[],
+): RouteChangeSet => {
+  const prevByPath = new Map(prev.map((r) => [r.relPath, r.fingerprint]));
+  const currentByPath = new Map(current.map((r) => [r.relPath, r.fingerprint]));
+
+  const changed: string[] = [];
+  const unchanged: string[] = [];
+
+  const allPaths = new Set<string>([...prevByPath.keys(), ...currentByPath.keys()]);
+  for (const relPath of allPaths) {
+    if (prevByPath.get(relPath) === currentByPath.get(relPath)) {
+      unchanged.push(relPath);
+    } else {
+      changed.push(relPath);
+    }
+  }
+
+  changed.sort();
+  unchanged.sort();
+  return { changed, unchanged };
+};
+
+/**
+ * Diff the current routes directory against the routes recorded in the last
+ * stored cache. Returns `undefined` when there is no cached route fingerprint
+ * set (e.g. the cache predates route fingerprinting) or no cache exists.
+ */
+export const computeRouteChanges = (opts: CompilerOptions): RouteChangeSet | undefined => {
+  const record = readCache(opts);
+  if (!record?.routes) return undefined;
+  return diffRouteFingerprints(record.routes, fingerprintRouteFiles(opts));
 };
 
 const cachePath = (opts: CompilerOptions): string => join(opts.outDir, CACHE_FILE);
@@ -235,6 +347,7 @@ export const storeCache = async (
       fingerprint: computeFingerprint(opts),
       outFile: relative(opts.outDir, outPath).replace(/\\/g, "/"),
       timestamp: new Date().toISOString(),
+      routes: fingerprintRouteFiles(opts),
       ...(meta ? { meta } : {}),
     };
 

@@ -15,13 +15,16 @@ cutting a release. Every package is versioned independently
 2. **Run the full gate**:
 
    ```sh
-   bun run verify
+   bun run verify         # typecheck + lint + tests + jsdoc:check:strict
    bun run test:coverage
    bun run build
    bun run smoke
+   bun run smoke:fallback
    ```
 
-   All must be green. Coverage thresholds are enforced in CI.
+   All must be green. `verify` now includes `jsdoc:check:strict` — every
+   public export must carry JSDoc (see [adding-a-feature.md §G](adding-a-feature.md)).
+   Coverage thresholds are enforced in CI.
 3. **Regenerate stale artifacts** (if they are committed):
    - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored now).
    - `project.txt` / package `project.txt` — `python3 context.py`.

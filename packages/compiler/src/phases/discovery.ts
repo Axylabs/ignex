@@ -15,12 +15,24 @@ import type { CompilerContext, CompilerOptions, DiscoveryResult } from "../types
 export { parseRouteFilename } from "../ir/lower";
 
 // Pure Functions
+/** True when a filename looks like a route module (ts/js/mjs/tsx/jsx, not `.d.ts`). */
 export const isRouteFile = (entry: string): boolean =>
   /\.(ts|js|mjs|tsx|jsx)$/.test(entry) && !entry.endsWith(".d.ts");
 
+/** True when a directory should be descended into (skips hidden + node_modules). */
 export const isValidDir = (entry: string): boolean =>
   !entry.startsWith(".") && entry !== "node_modules";
 
+/**
+ * Recursively scan a directory for route files (sorted, deterministic).
+ *
+ * IO errors are reported as warnings and skipped rather than thrown.
+ *
+ * @param dir - The directory to scan.
+ * @param base - Base path prefix for returned relative paths.
+ * @param diagnostics - Collector for scan-failure warnings.
+ * @returns Relative route-file paths (POSIX separators).
+ */
 export const scanDirectory = (
   dir: string,
   base = "",
@@ -76,6 +88,15 @@ export const scanDirectory = (
 // each one exactly once through a {@link SourceManager}. The manager retains a
 // {@link SourceFile} per file (AST included) that every later phase consumes —
 // no phase re-reads or re-parses source.
+/**
+ * The frontend phase: scan the routes directory and parse every route module
+ * exactly once through a `SourceManager` (retained AST for all later phases).
+ *
+ * @param opts - Compiler options (uses `routesDir`).
+ * @param ctx - Logger + diagnostics.
+ * @param sources - Optional pre-seeded source manager (e.g. persistent cache).
+ * @returns The discovered files, modules, and source manager.
+ */
 export const runDiscovery = (
   opts: CompilerOptions,
   ctx: CompilerContext,

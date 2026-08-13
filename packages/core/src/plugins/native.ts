@@ -12,16 +12,45 @@
  * (e.g. 204 CORS preflight, 429, 413, 400/422) when it decides to.
  */
 
-import { createNativePipeline, isNativeAvailable, type NativePipeline } from "@ignus/native";
+import {
+  createNativePipeline,
+  isNativeAvailable,
+  type NativeCorsOptions,
+  type NativeIngressOptions,
+  type NativePipeline,
+  type NativePipelineOptions,
+  type NativeRateLimitOptions,
+} from "@ignus/native";
 import type { IgnusContext } from "../http/context";
 import type { IgnusPlugin } from "../lifecycle/plugin";
 
+/** Options for {@link nativePreflight}. */
 export interface NativePreflightOptions {
   /**
    * Ingress options passed through to castrum's `createPipeline`
-   * (e.g. `cors`, `rateLimit`, `schema`, `limits`).
+   * (e.g. `schema`, `limits`, `trustedProxies`, `parseCookies`, `parseQuery`).
+   * For rate limiting and CORS prefer the top-level `rateLimit` / `cors`
+   * conveniences below.
    */
-  options?: Record<string, unknown>;
+  options?: NativeIngressOptions;
+  /**
+   * Top-level convenience: enable the pipeline's Rust fixed-window rate-limit
+   * stage — one FFI call, terminal 429 fully served from Rust. Single-owner
+   * contract: do NOT also enable the `rateLimit` plugin's `native: true` for
+   * the same budget, or requests would be double-charged. Use the `rateLimit`
+   * plugin instead for custom `keyGenerator`s or the sliding-window /
+   * token-bucket algorithms (TS-only).
+   */
+  rateLimit?: NativeRateLimitOptions;
+  /**
+   * Top-level convenience: enable the pipeline's Rust CORS stage. OPTIONS
+   * preflight is answered entirely in Rust (terminal 204 echoing the allowed
+   * origin + baked security headers; 403 for denied origins). The OK-path
+   * `access-control-*` echo still comes from the JS `cors()` plugin (dynamic
+   * origins / expose headers). When both are enabled, the pipeline runs first
+   * and short-circuits preflight.
+   */
+  cors?: NativeCorsOptions;
   /**
    * Runtime hooks passed through to castrum's `createPipeline` — notably
    * `securityHeaders` (`[name, value][]`), which pre-bakes the app's security
@@ -44,9 +73,23 @@ export interface NativePreflightOptions {
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
 export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin => {
-  const { options, runtime, enabled = true, readBody = false } = opts;
+  const { options, runtime, enabled = true, readBody = false, rateLimit, cors } = opts;
+  // Merge the top-level rate-limit/CORS conveniences into the ingress option
+  // bag (top-level wins on conflict) so the pipeline is configured in one place.
+  const mergedOptions: NativeIngressOptions | undefined =
+    options || rateLimit || cors
+      ? { ...options, ...(rateLimit ? { rateLimit } : {}), ...(cors ? { cors } : {}) }
+      : undefined;
   // `undefined` = not yet resolved; `null` = unavailable.
   let pipeline: NativePipeline | null | undefined;
+
+  // exactOptionalPropertyTypes: only set `options`/`runtime` when defined,
+  // so `undefined` is never passed for an optional field.
+  const pipelineOptions = (): NativePipelineOptions => ({
+    ...(mergedOptions !== undefined ? { options: mergedOptions } : {}),
+    ...(runtime !== undefined ? { runtime } : {}),
+    readBody,
+  });
 
   return {
     name: "native-preflight",
@@ -60,7 +103,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
     async init() {
       if (!enabled || !isNativeAvailable()) return;
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline({ options, runtime, readBody });
+        pipeline = await createNativePipeline(pipelineOptions());
       }
     },
 
@@ -68,7 +111,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
       if (!enabled || !isNativeAvailable()) return ctx;
 
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline({ options, runtime, readBody });
+        pipeline = await createNativePipeline(pipelineOptions());
       }
       if (!pipeline) return ctx;
 

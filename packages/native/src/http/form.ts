@@ -13,6 +13,7 @@ export const formPairs = (input: string | Uint8Array): Pairs => {
   return formPairsFallback(toBytes(input));
 };
 
+/** Pure-TS fallback for {@link formPairs} (identical behavior). */
 export const formPairsFallback = (input: Uint8Array): Pairs => decodePairList(fromBytes(input));
 
 /** Parse a `x-www-form-urlencoded` body into an object (last value wins). */

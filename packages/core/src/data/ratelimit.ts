@@ -6,13 +6,18 @@
  * unit-testable in isolation and share one store.
  */
 
+/** The supported rate-limit algorithms. */
 export type RateLimitAlgorithm = "fixed-window" | "sliding-window" | "token-bucket";
 
+/** Parameters for a rate limit: a window and a request budget. */
 export interface RateLimitConfig {
   windowMs: number;
   maxRequests: number;
 }
 
+/**
+ * The decision from a rate-limit check plus the next per-key state to persist.
+ */
 export interface RateDecision {
   allowed: boolean;
   /** Remaining requests allowed (clamped at 0). */
@@ -23,33 +28,39 @@ export interface RateDecision {
   state: FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry;
 }
 
+/** Persisted state for the fixed-window algorithm. */
 export interface FixedWindowEntry {
   count: number;
   resetTime: number;
 }
 
+/** Persisted state for the sliding-window algorithm. */
 export interface SlidingWindowEntry {
   windowStart: number;
   count: number;
   prevCount: number;
 }
 
+/** Persisted state for the token-bucket algorithm. */
 export interface TokenBucketEntry {
   tokens: number;
   lastRefill: number;
 }
 
+/** Fresh fixed-window state with a window starting at `now`. */
 export const freshFixedWindow = (now: number, windowMs: number): FixedWindowEntry => ({
   count: 0,
   resetTime: now + windowMs,
 });
 
+/** Fresh sliding-window state with the window starting at `now`. */
 export const freshSlidingWindow = (now: number): SlidingWindowEntry => ({
   windowStart: now,
   count: 0,
   prevCount: 0,
 });
 
+/** Fresh token-bucket state, full to `capacity`. */
 export const freshTokenBucket = (now: number, capacity: number): TokenBucketEntry => ({
   tokens: capacity,
   lastRefill: now,

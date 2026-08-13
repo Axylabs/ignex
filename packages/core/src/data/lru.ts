@@ -9,6 +9,7 @@
 
 import { LRUCache as LRU } from "lru-cache";
 
+/** Options for {@link LRUCache}. */
 export interface LRUCacheOptions<K extends {}, V> {
   max?: number;
   ttlMs?: number;
@@ -56,6 +57,13 @@ const createEntry = <V>(
   };
 };
 
+/**
+ * A bounded LRU cache with fresh/stale/expire semantics, single-flight
+ * `getOrSet`, and stale-while-revalidate background refresh.
+ *
+ * Entries are evicted by count (`max`) and optionally total bytes (`maxBytes`).
+ * `ttlMs: 0` (default) means entries never expire by time.
+ */
 export class LRUCache<K extends {}, V> {
   private lru: LRU<K, Entry<V>>;
   private inflight = new Map<K, Promise<V>>();

@@ -11,6 +11,12 @@ import type { HookFn } from "./hooks";
 // Plugin Interface
 // ============================================================================
 
+/**
+ * A composable plugin: lifecycle hooks plus optional init/close lifecycle.
+ *
+ * `onRequest`/`onResponse`/`onError` run in onion order around the handler.
+ * `init`/`close` manage resources (stores, timers) at app boot/shutdown.
+ */
 export interface IgnusPlugin {
   readonly name: string;
   readonly version?: string;
@@ -22,7 +28,7 @@ export interface IgnusPlugin {
   // Request lifecycle
   onRequest?(ctx: IgnusContext): MaybePromise<IgnusContext | Response>;
   onResponse?(ctx: IgnusContext, response: Response): MaybePromise<Response>;
-  onError?(error: Error, ctx: IgnusContext): MaybePromise<Response | void>;
+  onError?(error: Error, ctx: IgnusContext): MaybePromise<Response | undefined>;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -31,6 +37,10 @@ type MaybePromise<T> = T | Promise<T>;
 // Plugin Registry
 // ============================================================================
 
+/**
+ * The plugin registry: tracks registered plugins and named hooks, and drives
+ * the init/close lifecycle. Underpins `createApp`'s plugin handling.
+ */
 export interface PluginContext {
   plugins: IgnusPlugin[];
   hooks: Map<string, HookFn[]>;
@@ -41,6 +51,13 @@ export interface PluginContext {
   closeAll(): Promise<void>;
 }
 
+/**
+ * Create an empty {@link PluginContext}.
+ *
+ * `initAll`/`closeAll` run every plugin's lifecycle with `allSettled`, so a
+ * single plugin's failure never skips the rest (`closeAll` runs in reverse
+ * registration order — onion cleanup).
+ */
 export const createPluginContext = (): PluginContext => {
   const hooks = new Map<string, HookFn[]>();
   const plugins: IgnusPlugin[] = [];
@@ -82,6 +99,11 @@ export const createPluginContext = (): PluginContext => {
 // Plugin Composition
 // ============================================================================
 
+/**
+ * Compose multiple plugins into one, running their stages in onion order.
+ *
+ * `init` runs in registration order; `close`/`onResponse` in reverse.
+ */
 export const composePlugins = (...plugins: IgnusPlugin[]): IgnusPlugin => ({
   name: plugins.map((p) => p.name).join("+"),
   async init() {
@@ -153,6 +175,14 @@ export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleS
   return out;
 };
 
+/**
+ * Convert a plugin list into lifecycle stage containers.
+ *
+ * `onRequest` plugins become a `request` stage, `onResponse` plugins are
+ * composed into ONE `afterHandle` hook (so every plugin's response wrapping
+ * runs — see the note in the implementation), and `onError` plugins become an
+ * `error` stage. Non-plugin entries are filtered out.
+ */
 export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> => {
   const list = (plugins ?? []).flat().filter(isIgnusPlugin);
 
@@ -161,7 +191,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .map((p) => ({
       scope: "global" as const,
       fn: async (ctx: IgnusContext) => {
-        const result = await p.onRequest!(ctx);
+        const result = await p.onRequest?.(ctx);
         if (result instanceof Response) {
           return { response: result };
         }
@@ -192,7 +222,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
             fn: async (ctx: IgnusContext, response: Response) => {
               let current = response;
               for (const p of onResponsePlugins) {
-                const result = await p.onResponse!(ctx, current);
+                const result = await p.onResponse?.(ctx, current);
                 if (result instanceof Response) current = result;
               }
               return { response: current };
@@ -205,7 +235,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .map((p) => ({
       scope: "global" as const,
       fn: async (ctx: IgnusContext, error: unknown) => {
-        const result = await p.onError!(
+        const result = await p.onError?.(
           error instanceof Error ? error : new Error(String(error)),
           ctx,
         );

@@ -15,16 +15,17 @@ export interface HelperDef {
 }
 
 export const HELPERS: Record<string, HelperDef> = {
-  jsonReply: { deps: [], core: [] },
-  textReply: { deps: [], core: [] },
-  htmlReply: { deps: [], core: [] },
+  __withBody: { deps: [], core: [] },
+  jsonReply: { deps: ["__withBody"], core: [] },
+  textReply: { deps: ["__withBody"], core: [] },
+  htmlReply: { deps: ["__withBody"], core: [] },
   streamReply: { deps: [], core: [] },
   emptyReply: { deps: [], core: [] },
   redirectReply: { deps: [], core: [] },
   statusReply: { deps: [], core: [] },
   validationError: { deps: [], core: ["ValidationError"] },
   __applySet: { deps: [], core: ["applySet"] },
-  __finalize: { deps: [], core: [] },
+  __finalize: { deps: ["__withBody"], core: [] },
   __handleError: {
     deps: ["__applySet"],
     core: ["errorToResponse", "runHooks"],
@@ -71,21 +72,35 @@ export const resolveUsedHelpers = (e: Emitter): ReadonlySet<string> => {
  * closure of {@link resolveUsedHelpers} includes them.
  */
 export const HELPER_SOURCES: Record<string, string> = {
-  jsonReply: `const jsonReply = (data, init) => Response.json(data, init);`,
+  __withBody: `const __withBody = (bytes, type, init) => {
+  const h = new Headers({ "content-type": type });
+  const ih = init && init.headers;
+  if (ih) {
+    if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
+      (ih.forEach)((value, key) => h.set(key, value));
+    } else if (Array.isArray(ih)) {
+      for (const [k, v] of ih) h.set(k, v);
+    } else {
+      for (const [k, v] of Object.entries(ih)) if (v != null) h.set(k, String(v));
+    }
+  }
+  // The body is encoded here (one TextEncoder pass) and the real byte length
+  // is authoritative — Bun only materializes content-length at serve time, so
+  // without this, middleware (compression) must buffer every response just to
+  // learn its size. Emitting it lets compression skip buffering small bodies.
+  if (bytes !== null) h.set("content-length", String(bytes.byteLength));
+  const { headers: _ignored, ...rest } = init ?? {};
+  return new Response(bytes, { ...rest, headers: h });
+};`,
+  jsonReply: `const jsonReply = (data, init) => {
+  const s = JSON.stringify(data);
+  if (s === undefined) return __withBody(null, "application/json; charset=utf-8", init);
+  return __withBody(new TextEncoder().encode(s), "application/json; charset=utf-8", init);
+};`,
   textReply: `const textReply = (data, init) =>
-  new Response(
-    String(data),
-    init
-      ? { ...init, headers: { "content-type": "text/plain; charset=utf-8", ...init.headers } }
-      : { headers: { "content-type": "text/plain; charset=utf-8" } }
-  );`,
+  __withBody(new TextEncoder().encode(String(data)), "text/plain; charset=utf-8", init);`,
   htmlReply: `const htmlReply = (data, init) =>
-  new Response(
-    String(data),
-    init
-      ? { ...init, headers: { "content-type": "text/html; charset=utf-8", ...init.headers } }
-      : { headers: { "content-type": "text/html; charset=utf-8" } }
-  );`,
+  __withBody(new TextEncoder().encode(String(data)), "text/html; charset=utf-8", init);`,
   streamReply: `const streamReply = (stream, init) => new Response(stream, init);`,
   emptyReply: `const emptyReply = (status = 204) => new Response(null, { status });`,
   redirectReply: `const redirectReply = (url, status = 302) => Response.redirect(url, status);`,
@@ -108,7 +123,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   }
   status = status ?? 200;
   const ser = serializers?.[String(status)] ?? serializers?.["200"] ?? serializers?.default;
-  if (ser) return new Response(ser(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+  if (ser) return __withBody(new TextEncoder().encode(ser(body)), "application/json; charset=utf-8", { status });
   return reply(body, { status });
 };`,
   __handleError: `async function __handleError(err, ctx) {

@@ -15,6 +15,7 @@
 
 import { loadCastrumModule } from "./loader";
 
+/** Normalized result of a native pre-flight pipeline run. */
 export interface NativePreflightResult {
   readonly ok: boolean;
   readonly status: number;
@@ -24,6 +25,7 @@ export interface NativePreflightResult {
   readonly body: Uint8Array;
 }
 
+/** Outcome of a pre-flight run: terminal decision plus the pipeline result. */
 export interface NativePreflightOutcome {
   /** True when the pipeline short-circuited — serve `response`. */
   readonly terminal: boolean;
@@ -31,6 +33,7 @@ export interface NativePreflightOutcome {
   readonly result: NativePreflightResult | null;
 }
 
+/** Native ingress pre-flight pipeline (CORS, rate-limit, body-guard, schema). */
 export interface NativePipeline {
   /**
    * Run the native pre-flight pipeline for a request. On any native failure
@@ -75,9 +78,58 @@ const loadPipelineModule = async (): Promise<CastrumPipelineModule | null> => {
   return modulePromise;
 };
 
+/** Castrum ingress CORS options — allowlist form, distinct from the JS `cors()` plugin. */
+export interface NativeCorsOptions {
+  /** Allowed origins (`"*"` widens to any origin with no credentials). */
+  allowOrigin?: string[];
+  allowMethods?: string[];
+  allowHeaders?: string[];
+  exposeHeaders?: string[];
+  allowCredentials?: boolean;
+  maxAge?: number;
+}
+
+/** Options for the pipeline's fixed-window rate-limit stage. */
+export interface NativeRateLimitOptions {
+  limit?: number;
+  windowMs?: number;
+  maxEntries?: number;
+}
+
+/**
+ * Ingress options forwarded to castrum's `createIngressHandler`. This is a
+ * typed subset of castrum's `IngressFastOptions`; a misspelled/unknown key is
+ * rejected at pipeline construction (castrum's fail-fast validation), so keep
+ * this surface in sync with castrum's `src/ingress/options.ts`.
+ */
+export interface NativeIngressOptions {
+  trustProxy?: boolean;
+  trustedProxies?: { enabled?: boolean; networks?: string[] };
+  parseCookies?: boolean;
+  parseQuery?: boolean;
+  requireJsonBody?: boolean;
+  /** Serialized draft-07 schema — validated by the pipeline when a body is read. */
+  schema?: Uint8Array;
+  cors?: NativeCorsOptions;
+  rateLimit?: NativeRateLimitOptions;
+  https?: boolean;
+  maxBodyBytes?: number;
+  enableBodySizeGuard?: boolean;
+  emitMetadataJson?: boolean;
+  limits?: {
+    maxUrlBytes?: number;
+    maxQueryBytes?: number;
+    maxCookieBytes?: number;
+    maxHeadersBytes?: number;
+    maxHeaders?: number;
+    maxPairs?: number;
+  };
+}
+
+/** Options for {@link createNativePipeline} (forwarded to castrum's `createPipeline`). */
 export interface NativePipelineOptions {
   /** Ingress options (cors/rateLimit/schema/limits) for castrum's createPipeline. */
-  options?: unknown;
+  options?: NativeIngressOptions;
   /**
    * Runtime hooks for castrum's createPipeline — notably `securityHeaders`
    * (ordered `[name, value][]`) and `enableSecurityHeaders`, which pre-bake the

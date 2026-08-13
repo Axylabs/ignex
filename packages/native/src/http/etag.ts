@@ -10,6 +10,7 @@ export const etag = (input: string | Uint8Array, weak = false): string => {
   return etagFallback(toBytes(input), weak);
 };
 
+/** Pure-TS fallback for {@link etag} (identical behavior). */
 export const etagFallback = (input: Uint8Array, weak: boolean): string => {
   const hex = (crc32(input) >>> 0).toString(16).padStart(8, "0");
   return weak ? `W/"${hex}"` : `"${hex}"`;

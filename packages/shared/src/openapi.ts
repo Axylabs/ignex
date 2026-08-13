@@ -14,6 +14,7 @@
 import { pipe } from "./fp";
 import type { HttpMethod } from "./http";
 
+/** Top-level OpenAPI document metadata (`info` block). */
 export interface OpenAPIInfo {
   title: string;
   version: string;
@@ -30,6 +31,12 @@ export interface OpenAPIRouteSchema {
   response?: unknown;
 }
 
+/**
+ * A route as the OpenAPI generator consumes it: one HTTP operation.
+ *
+ * This is the compiler↔shared contract — `@ignus/compiler` maps its internal
+ * route IR onto this shape before calling {@link generateOpenAPI}.
+ */
 export interface RouteDefinition {
   method: HttpMethod;
   path: string;
@@ -42,6 +49,12 @@ export interface RouteDefinition {
   usesBody?: boolean;
 }
 
+/**
+ * An OpenAPI 3.1 document as produced by {@link generateOpenAPI}.
+ *
+ * Typed as a record rather than a strict interface so consumers can read and
+ * extend it freely; the structure follows the OpenAPI 3.1.0 spec.
+ */
 export type OpenAPIDocument = Record<string, unknown>;
 
 // ── type guards ─────────────────────────────────────────────────
@@ -95,6 +108,12 @@ const operationIdFor = (method: string, openApiPath: string): string =>
 
 type ParameterLocation = "path" | "query" | "header" | "cookie";
 
+/**
+ * A single OpenAPI parameter object (`in: path | query | header | cookie`).
+ *
+ * `schema` is the JSON Schema describing the parameter value, with `$id`
+ * stripped (it must be unique per document).
+ */
 export interface ParameterDoc {
   name: string;
   in: ParameterLocation;
@@ -355,6 +374,17 @@ const buildDocument =
     return document;
   };
 
+/**
+ * Generate a full OpenAPI 3.1 document from route definitions.
+ *
+ * Pure pipeline (skip unroutable → group by path → hoist components → build
+ * document). `ALL`/`WS` routes are dropped; `$defs` are hoisted into
+ * `components.schemas` and `#/$defs/…` refs rewritten to the components form.
+ *
+ * @param info - Document metadata (`title`/`version`/`description`).
+ * @param routes - The route definitions to describe.
+ * @returns The OpenAPI 3.1 document.
+ */
 export const generateOpenAPI = (
   info: OpenAPIInfo,
   routes: readonly RouteDefinition[],

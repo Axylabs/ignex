@@ -124,6 +124,57 @@ This is the one that crosses the compiler boundary — follow it precisely.
 bun run verify          # typecheck + typecheck:cli + lint + test
 bun run test:coverage   # tests + coverage thresholds
 bun run build && bun run smoke   # AOT compile + boot + assert routes
+bun run jsdoc:check     # every public export has attached JSDoc
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these on every push/PR.
+
+---
+
+## G: JSDoc on every public API
+
+Because packages ship **source-only** (`exports` point at `src/*.ts`), the JSDoc
+in `src/` **is** the consumer-facing API documentation. Every public export
+must carry an attached `/** … */` block directly above its declaration. The
+`scripts/check-jsdoc.ts` tool walks the export graph from each package's
+`exports` map and fails (`--strict`, wired into CI) on any undocumented public
+symbol. Run it with `bun run jsdoc:check`.
+
+### The rules
+
+1. **Attach the block directly above the declaration** — nothing but whitespace
+   (or `//` line comments) between the `*/` and the `export` keyword:
+
+   ```ts
+   /** Interpolate `{name}` placeholders in a template string. */
+   export function interpolate(template: string, vars: Record<string, unknown>): string;
+   ```
+
+2. **Use `@param` / `@returns` / `@throws`** for anything non-trivial. Always
+   document thrown errors for functions that can fail:
+
+   ```ts
+   /**
+    * Parse a Cache-Control header into its directives.
+    *
+    * @param header - Raw header value (may be empty).
+    * @returns A map of directive name → value (`true` for flags).
+    */
+   export function parseCacheControl(header: string): Record<string, string | true>;
+   ```
+
+3. **`@deprecated`** — mark aliases kept only for back-compat; never leave a
+   deprecated symbol undocumented. Prefer removing them outright when breaking
+   changes are acceptable.
+
+4. **`@internal`** — mark helpers exported only for cross-module use that are
+   not part of the intended public contract.
+
+5. **Types/interfaces/classes are public API too** — document them, including
+   their fields when they are consumed directly (options objects, results).
+
+6. **Native `*Fallback` twins** must read as behavior-identical to their native
+   counterpart (parity is the contract), not as separate features.
+
+7. Keep the `@fileoverview` file header as the module-level summary; the
+   per-symbol JSDoc explains the individual contract.
