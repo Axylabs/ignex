@@ -1,0 +1,18 @@
+0 verbose cli /home/adeel/.local/share/fnm/node-versions/v24.12.0/installation/bin/node /run/user/1000/fnm_multishells/497819_1786627774573/bin/npm
+1 info using npm@11.6.2
+2 info using node@v24.12.0
+3 silly config load:file:/home/adeel/.local/share/fnm/node-versions/v24.12.0/installation/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/adeel/.npmrc
+5 silly config load:file:/home/adeel/.local/share/fnm/node-versions/v24.12.0/installation/etc/npmrc
+6 verbose title npm config set registry https://registry.npmjs.org/
+7 verbose argv "config" "set" "registry" "https://registry.npmjs.org/"
+8 verbose logfile logs-max:10 dir:/home/adeel/poc/ignus/.npm-tmp-cache/_logs/2026-08-13T14_40_58_363Z-
+9 verbose logfile /home/adeel/poc/ignus/.npm-tmp-cache/_logs/2026-08-13T14_40_58_363Z-debug-0.log
+10 silly logfile done cleaning log files
+11 info config set "registry" "https://registry.npmjs.org/"
+12 verbose cwd /home/adeel
+13 verbose os Linux 7.1.5-1-cachyos
+14 verbose node v24.12.0
+15 verbose npm  v11.6.2
+16 verbose exit 0
+17 info ok
