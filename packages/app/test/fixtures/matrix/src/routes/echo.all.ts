@@ -1,4 +1,4 @@
-import { all } from "@ignus/core/http";
+import { all } from "@ignex/core/http";
 
 /** ALL /echo — responds to every HTTP method with request facts. */
 export default all(async (ctx) =>

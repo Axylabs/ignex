@@ -11,10 +11,10 @@ const alias = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@ignus/shared": alias("../shared/src/index.ts"),
-      "@ignus/core": alias("../core/src/index.ts"),
-      "@ignus/native": alias("../native/src/index.ts"),
-      "@ignus/compiler": alias("../compiler/src/index.ts"),
+      "@ignex/shared": alias("../shared/src/index.ts"),
+      "@ignex/core": alias("../core/src/index.ts"),
+      "@ignex/native": alias("../native/src/index.ts"),
+      "@ignex/compiler": alias("../compiler/src/index.ts"),
     },
   },
   test: {

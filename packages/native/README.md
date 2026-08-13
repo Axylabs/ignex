@@ -1,6 +1,6 @@
-# @ignus/native
+# @ignex/native
 
-Rust-accelerated primitives for ignus with **byte-compatible pure-TS
+Rust-accelerated primitives for ignex with **byte-compatible pure-TS
 fallbacks**. Every function ships two ways: an auto-preferring wrapper
 (e.g. `fnv1a64`) and an explicit fallback (`fnv1a64Fallback`).
 
@@ -15,8 +15,8 @@ fallbacks**. Every function ships two ways: an auto-preferring wrapper
 - Each module captures `const native = getNative()` once at import; the
   fallback runs when `native` is null (or when the measured-faster JS path is
   preferred — see `docs/native-acceleration.md`).
-- `IGNUS_NATIVE_PATH` overrides resolution (a `.node` path is `require`d, a
-  module specifier is imported). `IGNUS_NATIVE=off` disables the addon.
+- `IGNEX_NATIVE_PATH` overrides resolution (a `.node` path is `require`d, a
+  module specifier is imported). `IGNEX_NATIVE=off` disables the addon.
 - `loadCastrumModule()` loads the castrum TS entry for the route-manager
   (`createNativePipeline`) bridge.
 - Verify: `bun -e 'const m = await import("./src/index.ts"); console.log(m.isNativeAvailable())'`.

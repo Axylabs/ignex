@@ -1,6 +1,6 @@
 {
-  "name": "ignus",
-  "version": "0.1.0",
+  "name": "ignex",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -28,17 +28,19 @@
     "test:shared": "vitest run packages/shared/test",
     "build": "bun run --cwd packages/app build",
     "smoke": "bun scripts/smoke.ts",
-    "smoke:fallback": "IGNUS_NATIVE=off bun scripts/smoke.ts",
+    "smoke:fallback": "IGNEX_NATIVE=off bun scripts/smoke.ts",
     "dev": "bun run build && bun --cwd packages/app --watch dist/__server.js",
     "start": "bun --cwd packages/app dist/__server.js",
-    "compile": "bun build dist/__server.js --compile --minify --target=bun --outfile=ignus-server",
+    "compile": "bun build dist/__server.js --compile --minify --target=bun --outfile=ignex-server",
     "openapi:client": "bun scripts/generate-openapi-client.ts",
     "bench": "bun scripts/benchmark.ts",
     "bench:native": "bun scripts/native-bench.ts",
     "bench:server": "bun scripts/bench-server.ts",
     "bench:server:check": "bun scripts/check-server-bench.ts",
     "bench:realworld": "bun scripts/bench-realworld.ts",
-    "bench:products": "oha http://localhost:3000/products/123"
+    "bench:products": "oha http://localhost:3000/products/123",
+    "release": "bun scripts/publish.ts",
+    "release:dry": "bun scripts/publish.ts --dry-run"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

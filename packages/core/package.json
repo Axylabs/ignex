@@ -1,6 +1,6 @@
 {
-  "name": "@ignus/core",
-  "version": "0.1.0",
+  "name": "@ignex/core",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Ignus runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
+  "description": "Ignex runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
   "exports": {
     ".": "./src/index.ts",
     "./http": "./src/http/route.ts",
@@ -27,8 +27,8 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@ignus/native": "workspace:*",
-    "@ignus/shared": "workspace:*",
+    "@ignex/native": "workspace:*",
+    "@ignex/shared": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "fast-querystring": "^1.1.2",

@@ -324,7 +324,7 @@ describe("sendFile", () => {
   let file: string;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "ignus-http-"));
+    dir = mkdtempSync(join(tmpdir(), "ignex-http-"));
     file = join(dir, "hello.txt");
     writeFileSync(file, "hello world");
 

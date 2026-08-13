@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 import { Type } from "@sinclair/typebox";
 
 export default get(

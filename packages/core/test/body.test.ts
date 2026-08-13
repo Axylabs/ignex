@@ -4,10 +4,10 @@
  * The split of `http/body.ts` into `http/body/` made the pure helpers
  * (conversion, size, limits, form-data) directly unit-testable. This file
  * covers those helpers, cross-kind round-trips through `createLazyBody`, and
- * property-based round-trips over generated data (`@ignus/test-utils`).
+ * property-based round-trips over generated data (`@ignex/test-utils`).
  */
 
-import { arbJsonValue, arbQueryPair } from "@ignus/test-utils";
+import { arbJsonValue, arbQueryPair } from "@ignex/test-utils";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { convertBody } from "../src/http/body/conversion.js";

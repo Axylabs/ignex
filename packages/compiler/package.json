@@ -1,6 +1,6 @@
 {
-  "name": "@ignus/compiler",
-  "version": "0.1.0",
+  "name": "@ignex/compiler",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -16,13 +16,13 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Ignus AOT compiler: route discovery, analysis, optimization, codegen, linker, artifacts.",
+  "description": "Ignex AOT compiler: route discovery, analysis, optimization, codegen, linker, artifacts.",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@ignus/core": "workspace:*",
-    "@ignus/shared": "workspace:*",
+    "@ignex/core": "workspace:*",
+    "@ignex/shared": "workspace:*",
     "@sinclair/typebox": "^0.34.52",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

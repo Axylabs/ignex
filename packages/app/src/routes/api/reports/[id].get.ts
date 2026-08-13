@@ -1,5 +1,5 @@
-import { createJwt } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { createJwt } from "@ignex/core";
+import { get } from "@ignex/core/http";
 import { BENCH_SECRET } from "../../../bench-data";
 
 const jwt = createJwt({ secret: BENCH_SECRET });

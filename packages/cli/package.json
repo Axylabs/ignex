@@ -1,11 +1,11 @@
 {
-  "name": "@ignus/cli",
-  "version": "0.1.0",
-  "description": "CLI for Ignus: build, watch, scaffold routes and apps",
+  "name": "@ignex/cli",
+  "version": "0.1.1",
+  "description": "CLI for Ignex: build, watch, scaffold routes and apps",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "ignus": "./bin/ignus.js"
+    "ignex": "./bin/ignex.js"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -23,8 +23,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ignus/compiler": "workspace:*",
-    "@ignus/mcp": "workspace:*"
+    "@ignex/compiler": "workspace:*",
+    "@ignex/mcp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

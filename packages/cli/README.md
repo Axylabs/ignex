@@ -1,26 +1,26 @@
-# @ignus/cli
+# @ignex/cli
 
-Developer CLI for ignus: scaffold apps, scaffold routes, watch, and build.
+Developer CLI for ignex: scaffold apps, scaffold routes, watch, and build.
 
-Source-only package — `bin/ignus.js` (`#!/usr/bin/env bun`) imports
+Source-only package — `bin/ignex.js` (`#!/usr/bin/env bun`) imports
 `../src/index.ts` directly, matching the monorepo's source-only convention
 (Bun runs TS natively). There is **no build step** and no `dist/` requirement.
 
 ## Commands
 
 ```
-ignus create <app-name> [options]   Scaffold a new ignus app (20 feature toggles)
-ignus dev [root] [options]          Compile + run the dev server (watch)
-ignus build [root] [options]        AOT-compile an app with diagnostics
-ignus route <path> [options]        Scaffold a single route (--named, --schema)
-ignus info [root]                   Dump cwd / runtime / config as JSON
+ignex create <app-name> [options]   Scaffold a new ignex app (20 feature toggles)
+ignex dev [root] [options]          Compile + run the dev server (watch)
+ignex build [root] [options]        AOT-compile an app with diagnostics
+ignex route <path> [options]        Scaffold a single route (--named, --schema)
+ignex info [root]                   Dump cwd / runtime / config as JSON
 ```
 
-Run `ignus --help` for the full option reference.
+Run `ignex --help` for the full option reference.
 
-## Dev mode (`ignus dev`)
+## Dev mode (`ignex dev`)
 
-`ignus dev` compiles the project, spawns the generated server and watches for
+`ignex dev` compiles the project, spawns the generated server and watches for
 changes:
 
 - **Auto-restart with backoff** — a crashing server is restarted (250 ms →
@@ -32,14 +32,14 @@ changes:
   serving the previous build; a successful build prints "server is up to date".
 - **`--no-spawn`** compiles + watches only (no server process).
 - **`--verbose`** surfaces compiler phase timings and debug logs.
-- `ignus build --watch` forwards `--minify` / `--sourcemap` / `--verbose` to the
+- `ignex build --watch` forwards `--minify` / `--sourcemap` / `--verbose` to the
   compiler and runs the same watch flow.
 
 ## Development
 
 ```sh
 bun run typecheck      # tsc -p tsconfig.json (types: ["node"])
-bun bin/ignus.js --help # run from source
+bun bin/ignex.js --help # run from source
 bun run test           # vitest
 ```
 
@@ -48,5 +48,5 @@ and is therefore **excluded from the root tsconfig**. Root CI typechecks it
 separately via `bun run typecheck:cli`.
 
 > Note: the compiler is bundled at the source level — the CLI imports
-> `@ignus/compiler` (`workspace:*`), which is source-only. On a fresh clone,
+> `@ignex/compiler` (`workspace:*`), which is source-only. On a fresh clone,
 > `bun install` resolves the workspace deps; no separate build is needed.

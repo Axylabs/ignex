@@ -1,9 +1,9 @@
 /**
- * Parity tests for the native BATCH surface (`@ignus/native` `batch`).
+ * Parity tests for the native BATCH surface (`@ignex/native` `batch`).
  *
  * The batch path is one packed FFI call for many items; it must agree
  * per-item with the scalar surface. Runs against the real addon when
- * available (`IGNUS_NATIVE_PATH` / castrum installed), else the pure-TS
+ * available (`IGNEX_NATIVE_PATH` / castrum installed), else the pure-TS
  * per-item fallback — either way the batch and scalar results must match
  * bit-for-bit.
  */
@@ -16,7 +16,7 @@ import {
   formPairs,
   jsonValid,
   queryPairs,
-} from "@ignus/native";
+} from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
 const enc = new TextEncoder();

@@ -1,10 +1,10 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 export default get(() => {
   const html = `<!doctype html>
 <html>
   <head>
-    <title>Ignus API Reference</title>
+    <title>Ignex API Reference</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>

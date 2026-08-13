@@ -1,8 +1,8 @@
 /**
- * @ignus/mcp — Model Context Protocol server for Ignus.
+ * @ignex/mcp — Model Context Protocol server for Ignex.
  *
  * Exposes agent-facing tools (`build`, `route`, `info`, `doctor`, `openapi`,
- * `dev`) so agents can scaffold, compile, and inspect ignus projects without
+ * `dev`) so agents can scaffold, compile, and inspect ignex projects without
  * hand-running CLI commands. The server speaks stdio (the standard transport
  * used by Claude/Copilot/Codex-style MCP clients).
  */
@@ -15,8 +15,8 @@ export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server.j
 export * from "./tools.js";
 
 /**
- * Connect an McpServer over stdio. Used by the `ignus mcp` CLI command and the
- * `ignus-mcp` bin.
+ * Connect an McpServer over stdio. Used by the `ignex mcp` CLI command and the
+ * `ignex-mcp` bin.
  */
 export const startMcpServer = async (server: McpServer = createMcpServer()): Promise<void> => {
   const transport = new StdioServerTransport();

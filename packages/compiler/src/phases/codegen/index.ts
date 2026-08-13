@@ -7,7 +7,7 @@
  *   ./helpers     — runtime helper registry (dependency-aware pruning)
  *   ./decisions   — per-route decisions (constant/cache/inline)
  *   ./state       — shared mutable state threaded through the stages
- *   ./imports     — stage: `@ignus/core` + per-route import assembly
+ *   ./imports     — stage: `@ignex/core` + per-route import assembly
  *   ./header      — stage: header constants + inlined handlers
  *   ./routes      — stage: per-route handler emission
  *   ./routetable  — stage: Bun route table + 405 lookup

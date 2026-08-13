@@ -11,8 +11,8 @@
  * keep working unchanged.
  */
 
-import type { ContextUsage } from "@ignus/shared";
-import { EMPTY_USAGE, FULL_USAGE } from "@ignus/shared";
+import type { ContextUsage } from "@ignex/shared";
+import { EMPTY_USAGE, FULL_USAGE } from "@ignex/shared";
 
 export * from "./http";
 export * from "./lifecycle";

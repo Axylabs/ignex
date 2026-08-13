@@ -2,7 +2,7 @@
 /**
  * bench/servers/raw-bun-server.ts — the raw `Bun.serve` baseline.
  *
- * Implements the SAME real-work endpoints the ignus compiled server exposes,
+ * Implements the SAME real-work endpoints the ignex compiled server exposes,
  * but with plain Bun / web primitives and zero framework code:
  *   POST /api/orders   — req.json() + a manual body-validation loop
  *   GET  /api/search   — new URL().searchParams iteration (many params)
@@ -11,7 +11,7 @@
  *   GET  /catalog      — string-concat HTML template render (120 items)
  *   GET  /api/big      — large JSON response, gzip when accepted
  *
- * This is the "native" target the AOT-compiled ignus server must beat.
+ * This is the "native" target the AOT-compiled ignex server must beat.
  */
 import { createHmac } from "node:crypto";
 import { BENCH_SECRET, bigJson, catalogItems } from "../real-data";

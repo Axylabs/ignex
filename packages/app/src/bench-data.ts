@@ -1,11 +1,11 @@
 /**
  * packages/app/src/bench-data.ts — deterministic realistic data for the
  * benchmark routes. Sizes deliberately match `bench/real-data.ts` so the
- * raw-Bun baseline and the ignus compiled server do comparable work.
+ * raw-Bun baseline and the ignex compiled server do comparable work.
  */
 
 /** Shared signing secret used by the bench servers + fixtures. */
-export const BENCH_SECRET = "ignus-bench-secret";
+export const BENCH_SECRET = "ignex-bench-secret";
 
 /** Deterministic 32-bit LCG (fixed seed) — identical across processes. */
 let lcgState = 0x9e3779b9;

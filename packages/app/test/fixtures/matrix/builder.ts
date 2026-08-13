@@ -7,7 +7,7 @@
  * fixture only exercises runtime request handling plus the generated SDK.
  */
 import { join } from "node:path";
-import { buildAsync } from "@ignus/compiler";
+import { buildAsync } from "@ignex/compiler";
 
 await buildAsync({
   routesDir: join(import.meta.dir, "src/routes"),

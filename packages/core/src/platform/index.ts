@@ -2,7 +2,7 @@
  * @fileoverview `platform` domain — application runtime infrastructure.
  *
  * Modules: config, env, errors, jobs. Re-exported here for internal and
- * subpath consumers; `@ignus/core/config` resolves to `./config`.
+ * subpath consumers; `@ignex/core/config` resolves to `./config`.
  */
 export * from "./config";
 export * from "./env";

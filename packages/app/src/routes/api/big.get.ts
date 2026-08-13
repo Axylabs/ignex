@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 import { bigJson } from "../../bench-data";
 
 const big = bigJson(256);

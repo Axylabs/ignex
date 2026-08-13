@@ -8,9 +8,9 @@
  * context's cookie jar, so responses automatically carry the right
  * `Set-Cookie` header.
  */
-import { randomToken, signCookie, verifyCookie } from "@ignus/native";
-import { err, isOk, ok, type Result } from "@ignus/shared";
-import type { IgnusContext } from "../http/context";
+import { randomToken, signCookie, verifyCookie } from "@ignex/native";
+import { err, isOk, ok, type Result } from "@ignex/shared";
+import type { IgnexContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
@@ -177,16 +177,16 @@ export interface SessionManagerOptions {
 /** A reusable session manager from {@link createSessionManager}. */
 export interface SessionManager {
   /** Load the session for the current request (or `null`). */
-  load(ctx: IgnusContext): Promise<Session | null>;
+  load(ctx: IgnexContext): Promise<Session | null>;
   /** Load the session, creating one when missing. */
-  loadOrCreate(ctx: IgnusContext): Promise<Session>;
+  loadOrCreate(ctx: IgnexContext): Promise<Session>;
   /** Build the request hook that attaches the session to the context. */
   middleware(options?: { createIfMissing?: boolean | "lazy" }): HookFn;
   /** Close the backing store (releases sweep timers). Called on app shutdown. */
   close?(): void;
 }
 
-const SESSION_KEY = Symbol.for("ignus.session");
+const SESSION_KEY = Symbol.for("ignex.session");
 
 /**
  * Read the session attached by `withSession` middleware.
@@ -197,7 +197,7 @@ const SESSION_KEY = Symbol.for("ignus.session");
  * routes, non-session API calls) therefore do zero session work: no id
  * generation, no cookie signing, no `Set-Cookie` on the response.
  */
-export const getSession = async (ctx: IgnusContext): Promise<Session | undefined> => {
+export const getSession = async (ctx: IgnexContext): Promise<Session | undefined> => {
   const existing = ctx.getState<Session>(SESSION_KEY);
   if (existing) return existing;
 
@@ -223,7 +223,7 @@ interface Envelope {
  * holds a factory that creates (and persists) the session on first read via
  * {@link getSession}, so requests that never use a session do no session work.
  */
-const SESSION_CREATE = Symbol.for("ignus.session.create");
+const SESSION_CREATE = Symbol.for("ignex.session.create");
 
 /** Why a session cookie could not be decoded. */
 type DecodeError = "missing" | "invalid-signature" | "invalid-json" | "invalid-id" | "expired";
@@ -276,7 +276,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     signCookie(JSON.stringify(envelope), secret);
 
   const makeSession = (
-    ctx: IgnusContext,
+    ctx: IgnexContext,
     id: string,
     data: SessionData,
     createdAt: number,
@@ -298,7 +298,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     return session;
   };
 
-  const save = async (ctx: IgnusContext, session: Session): Promise<void> => {
+  const save = async (ctx: IgnexContext, session: Session): Promise<void> => {
     const envelope: Envelope = {
       id: session.id,
       exp: Math.floor(session.expiresAt / 1000),
@@ -311,12 +311,12 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
   };
 
-  const destroy = async (ctx: IgnusContext, session: Session | null): Promise<void> => {
+  const destroy = async (ctx: IgnexContext, session: Session | null): Promise<void> => {
     if (store && session) await store.delete(session.id);
     ctx.cookie[cookieName]?.remove();
   };
 
-  const load = async (ctx: IgnusContext): Promise<Session | null> => {
+  const load = async (ctx: IgnexContext): Promise<Session | null> => {
     const envelope = decodeEnvelope(ctx.cookie[cookieName]?.value);
     if (!isOk(envelope)) return null;
     const { id, data: envelopeData, exp } = envelope.value;
@@ -331,7 +331,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     return makeSession(ctx, id, data, exp * 1000, exp * 1000, false);
   };
 
-  const loadOrCreate = async (ctx: IgnusContext): Promise<Session> => {
+  const loadOrCreate = async (ctx: IgnexContext): Promise<Session> => {
     const existing = await load(ctx);
     if (existing) return existing;
     const session = makeSession(ctx, createId(), {}, now(), expiresAtFor(), true);

@@ -1,16 +1,16 @@
-import type { CompilerOptions } from "@ignus/compiler";
+import type { CompilerOptions } from "@ignex/compiler";
 
 /**
- * Helper for userland ignus.config.ts files.
+ * Helper for userland ignex.config.ts files.
  *
  * Example:
  *
  * ```ts
- * import { defineConfig } from "@ignus/cli/config";
+ * import { defineConfig } from "@ignex/cli/config";
  *
  * export default defineConfig({
  *   routesDir: "src/routes",
- *   outDir: ".ignus",
+ *   outDir: ".ignex",
  * });
  * ```
  */

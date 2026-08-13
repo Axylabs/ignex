@@ -1,10 +1,10 @@
-# Native acceleration (`@ignus/native` × castrum)
+# Native acceleration (`@ignex/native` × castrum)
 
-ignus is Rust-accelerated through the **castrum** NAPI addon
+ignex is Rust-accelerated through the **castrum** NAPI addon
 (`/home/adeel/poc/bun-rust-runtime-bench`, pinned as an `optionalDependencies`
-`file:` entry in `packages/native/package.json`). The `@ignus/native` package is
+`file:` entry in `packages/native/package.json`). The `@ignex/native` package is
 the single, typed bridge: every native primitive ships with a **byte-compatible
-pure-TS fallback**, so ignus behaves identically with or without Rust. Native is
+pure-TS fallback**, so ignex behaves identically with or without Rust. Native is
 purely an acceleration layer — importing it **never throws**.
 
 ---
@@ -13,10 +13,10 @@ purely an acceleration layer — importing it **never throws**.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  @ignus/core  /  @ignus/compiler  /  apps  (generated servers)   │
+│  @ignex/core  /  @ignex/compiler  /  apps  (generated servers)   │
 │      │  imports                                                   │
 │      ▼                                                           │
-│  @ignus/native  (wrapper + *Fallback per function)              │
+│  @ignex/native  (wrapper + *Fallback per function)              │
 │      │  lazy getNative() / isNativeAvailable()                  │
 │      ▼                                                           │
 │  castrum .node (raw NAPI binary — loaded via require)           │
@@ -29,7 +29,7 @@ purely an acceleration layer — importing it **never throws**.
   target → `node_modules` symlink), **bypassing the tsconfig `paths` mapping**
   that would otherwise hijack a bare `import("castrum")` at runtime (Bun honors
   `paths` — a bare import resolved to the `vendor/castrum.d.ts` stub and loaded
-  an empty module). `IGNUS_NATIVE_PATH` overrides resolution (a `.node` path is
+  an empty module). `IGNEX_NATIVE_PATH` overrides resolution (a `.node` path is
   required, a module specifier is imported). `isNativeAvailable()` reports
   whether the addon loaded.
 - Each module captures `const native = getNative()` at import; wrappers call
@@ -46,13 +46,13 @@ purely an acceleration layer — importing it **never throws**.
 
 | Env | Effect |
 | --- | --- |
-| `IGNUS_NATIVE_PATH` | Override the addon (a `.node` path or module specifier). |
-| `IGNUS_NATIVE` | `off` disables the addon even when installed (parity debugging); unset/`auto` uses it when present. |
+| `IGNEX_NATIVE_PATH` | Override the addon (a `.node` path or module specifier). |
+| `IGNEX_NATIVE` | `off` disables the addon even when installed (parity debugging); unset/`auto` uses it when present. |
 
 ## 2026-08-12 — wiring + measured gate decisions
 
 End-to-end measurement (`bun run bench:server`) of the AOT-compiled server
-(native-on vs `IGNUS_NATIVE=off`, interleaved median-of-3) shows the current
+(native-on vs `IGNEX_NATIVE=off`, interleaved median-of-3) shows the current
 native integration is **at parity** with fallback (rps ratio ~0.97–1.00, p50
 ratio ~0.96–1.02 across all routes) — the native layer neither loses nor wins at
 the compiled-server level. All per-op decisions below are therefore made on
@@ -166,7 +166,7 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 > implementation per primitive; behavior is identical either way (parity is
 > the contract).
 
-## Castrum fixes made for ignus compatibility
+## Castrum fixes made for ignex compatibility
 
 - **WebSocket accept key (bug):** castrum's `WS_MAGIC` GUID was
   `258EAFA5-E914-47DA-95CA-5AB5DC11BE85` (wrong). Fixed to the RFC 6455 GUID
@@ -180,7 +180,7 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
   `AcceptNegotiator`, `SchemaValidator`, `TemplateRenderer`) — the `create*`
   factories are TS-client-only. Bridges construct the classes directly.
 
-**Exposed in `@ignus/native` (available for apps/plugins, not yet wired into
+**Exposed in `@ignex/native` (available for apps/plugins, not yet wired into
 core default paths):**
 
 - `createAcceptNegotiator` — RFC 7231 negotiation (specificity → q → order).
@@ -197,7 +197,7 @@ core default paths):**
 ## Route manager (the native pre-flight pipeline)
 
 `plugins/native.ts` exports `nativePreflight(options)` — an opt-in
-`IgnusPlugin` that embeds castrum's Rust **8-stage ingress pipeline** (trust /
+`IgnexPlugin` that embeds castrum's Rust **8-stage ingress pipeline** (trust /
 IP, CORS, rate-limit, body-guard, JSON-schema, cookies/query) as an `onRequest`
 stage. When native is unavailable the plugin is a **complete no-op** (safe to
 mount everywhere); when available it short-circuits with the pipeline's
@@ -205,7 +205,7 @@ terminal response (204 CORS preflight, 429, 413, 400/422) before the app
 handler runs.
 
 ```ts
-import { nativePreflight } from "@ignus/core";
+import { nativePreflight } from "@ignex/core";
 
 const app = createApp({
   plugins: [
@@ -220,7 +220,7 @@ const app = createApp({
 });
 ```
 
-The bridge itself is `@ignus/native` `createNativePipeline(options)` →
+The bridge itself is `@ignex/native` `createNativePipeline(options)` →
 `NativePipeline` (guarded, caches the module + pipeline, and normalizes
 castrum's outcome into a small `NativePreflightOutcome`). Any native failure
 resolves to a non-terminal outcome — the addon can never break a request.
@@ -284,20 +284,20 @@ holds with and without the addon. Only wire a native path when its output is
   `jsonValid`, the compiled instances (`ConditionalRequest`,
   `AcceptNegotiator`, `SchemaValidator` for large schemas).
 - `packages/native/src/vendor/castrum.d.ts` is a hand-maintained **subset** —
-  the exact native contract ignus relies on. Keep it in sync with the installed
+  the exact native contract ignex relies on. Keep it in sync with the installed
   castrum version (see matrix below).
 
-## castrum ↔ ignus compatibility matrix
+## castrum ↔ ignex compatibility matrix
 
-| ignus feature | castrum contract (pinned) |
+| ignex feature | castrum contract (pinned) |
 | --- | --- |
 | Rust primitives | `fnv1a64`, `crc32`, `jwtSign/Verify`, `queryParsePacked`, `cookieParsePacked`, `formParsePacked`, `TemplateRenderer`, `SchemaValidator`, `etag`, `multipartParse`, `wsFrame*`, `sseEncode`, `gzip/brotli`, `hmacSha256`, `aead*`, `passwordHash/Verify` |
 | Route manager | `createPipeline` (TS integration layer) |
 | Entry normalization | `mod.rust ?? mod` (Bun namespace vs Node flat) |
 
-`@ignus/native` pins `castrum` via `optionalDependencies` (`file:` path).
+`@ignex/native` pins `castrum` via `optionalDependencies` (`file:` path).
 Compatibility releases should bump castrum's minor version and add a
-`test/compat/ignus-contract.test.ts` in the castrum repo asserting this exact
+`test/compat/ignex-contract.test.ts` in the castrum repo asserting this exact
 surface, so the contract is guarded by castrum's own CI.
 
 ## Running the parity suite
@@ -306,8 +306,8 @@ surface, so the contract is guarded by castrum's own CI.
 # Fallback mode (no addon installed) — this is the default CI path:
 bun run test:native
 
-# Real-addon mode (build castrum first, then point IGNUS_NATIVE_PATH at the .node):
-IGNUS_NATIVE_PATH=/home/adeel/poc/bun-rust-runtime-bench/castrum.linux-x64-gnu.node \
+# Real-addon mode (build castrum first, then point IGNEX_NATIVE_PATH at the .node):
+IGNEX_NATIVE_PATH=/home/adeel/poc/bun-rust-runtime-bench/castrum.linux-x64-gnu.node \
   bun run test:native
 ```
 
@@ -338,19 +338,19 @@ the addon installed they exercise the native paths and assert the same results
 
 The native **batch/packed** APIs (`queryParseBatchPacked`, `cookieParseBatchPacked`,
 `formParseBatchPacked`, `crc32BatchPacked`, `sseEncodeBatchPacked`,
-`jsonValidBatchPacked`, …) are **not wired into ignus**. Measured on
+`jsonValidBatchPacked`, …) are **not wired into ignex**. Measured on
 Bun `1.4.0-canary.1+827475e21` + castrum 0.8/0.9 they are **nondeterministic**:
 the returned Buffer can read corrupt (head shows a valid count yet a DataView
 read throws "Out of bounds access") and Bun can hard-crash inside
 `_tide_enter_transient`. Isolated calls work; specific module/call arrangements
-fail. Repro committed at `bun-rust-runtime-bench/scripts/repro-ignus-batch.ts`
+fail. Repro committed at `bun-rust-runtime-bench/scripts/repro-ignex-batch.ts`
 (Bun only). **Do not wire these until root-caused** (investigate on stable Bun +
 Node). Scalar packed parsers (`queryParsePacked` etc.) are byte-identical to JS
 but slower per-op (0.46-0.97x) — JS stays the scalar path.
 
 ## Rate limiting (2026-08-11)
 
-- `@ignus/native` `createRateLimiter` — native sharded fixed-window limiter with
+- `@ignex/native` `createRateLimiter` — native sharded fixed-window limiter with
   a pure-TS fixed-window fallback (parity-tested). Native is **slower per-check
   standalone** (measured x0.07-0.30 vs the JS Map) — the FFI crossing loses to
   a JS Map lookup. Use the **ingress pipeline** (`nativePreflight` with a
@@ -363,7 +363,7 @@ but slower per-op (0.46-0.97x) — JS stays the scalar path.
 
 ## Eager native init (2026-08-11)
 
-- `@ignus/native` `initNative({ threads })` — idempotent, never throws; warms
+- `@ignex/native` `initNative({ threads })` — idempotent, never throws; warms
   the rayon pool + forces addon init at boot. `createApp.init()` calls it, so
   `serve()` pays the load-time cost once instead of lazily on the first request
   (the documented "sacrifice load time for runtime" trade).

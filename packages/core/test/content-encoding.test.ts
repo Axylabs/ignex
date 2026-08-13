@@ -5,7 +5,7 @@
  * headers.
  */
 
-import { arbQsValue } from "@ignus/test-utils";
+import { arbQsValue } from "@ignex/test-utils";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {

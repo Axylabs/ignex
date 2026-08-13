@@ -1,5 +1,5 @@
 /**
- * Tests for the bulk native-batch parse helpers on `@ignus/core`:
+ * Tests for the bulk native-batch parse helpers on `@ignex/core`:
  * `parseQueries` (data/query.ts) and `parseCookies` (http/cookies.ts).
  *
  * Both must produce output IDENTICAL to their per-item scalar counterparts

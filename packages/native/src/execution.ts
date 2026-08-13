@@ -1,6 +1,6 @@
 /**
  * Unified execution API — a single, domain-grouped facade over every
- * `@ignus/native` operation. Each method is bound to the fastest implementation
+ * `@ignex/native` operation. Each method is bound to the fastest implementation
  * (castrum native on Bun vs pure-TS fallback) per the selection table in
  * `./selection.ts`, so:
  *
@@ -12,7 +12,7 @@
  *    bound and the measured native:JS ratio.
  *
  * The default `backend` singleton is constructed eagerly at import — this is
- * deliberately a LOAD-TIME cost, not a runtime one (ignus optimizes runtime
+ * deliberately a LOAD-TIME cost, not a runtime one (ignex optimizes runtime
  * speed; slower load is acceptable). `createExecutionBackend()` exists for
  * isolated instances (tests, apps that want a frozen snapshot).
  *
@@ -162,7 +162,7 @@ const pipeline = { createNativePipeline };
 const util = { toBytes, fromBytes, encoder, decoder };
 
 /** The unified execution backend: every method is bound to its best impl. */
-export interface IgnusExecution {
+export interface IgnexExecution {
   /** Overall active backend at construction time. */
   readonly backend: ExecutionBackend;
   readonly hash: typeof hash;
@@ -190,7 +190,7 @@ const buildStatus = (): ExecutionStatus => ({
 });
 
 /** Build an isolated execution backend over the shared selection table. */
-export const createExecutionBackend = (): IgnusExecution => ({
+export const createExecutionBackend = (): IgnexExecution => ({
   backend: backendName(),
   hash,
   crypto,
@@ -206,7 +206,7 @@ export const createExecutionBackend = (): IgnusExecution => ({
 });
 
 /** The default execution backend — constructed once at import (load-time cost). */
-export const backend: IgnusExecution = createExecutionBackend();
+export const backend: IgnexExecution = createExecutionBackend();
 
 /** Current execution status of the default backend. */
 export const executionStatus = (): ExecutionStatus => backend.status();

@@ -14,7 +14,7 @@ import {
   TooManyRequestsError,
   UnauthorizedError,
   ValidationError,
-} from "@ignus/core";
+} from "@ignex/core";
 import { describe, expect, it } from "vitest";
 
 describe("isHttpError", () => {

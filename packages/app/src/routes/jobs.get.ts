@@ -1,5 +1,5 @@
-import { createJobQueue, withRetry, withTimeout } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { createJobQueue, withRetry, withTimeout } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 const queue = createJobQueue({
   concurrency: 2,

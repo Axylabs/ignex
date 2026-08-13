@@ -5,7 +5,7 @@
  * field from (in order of precedence): explicit overrides → environment →
  * default.
  */
-import { fold, tryCatchOr } from "@ignus/shared";
+import { fold, tryCatchOr } from "@ignex/shared";
 import { coerceBoolean } from "./coerce";
 
 /** The supported config field value types. */

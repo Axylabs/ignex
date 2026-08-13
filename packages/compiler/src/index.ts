@@ -1,5 +1,5 @@
 /**
- * Ignus Compiler Orchestrator — Bun 1.4 edition.
+ * Ignex Compiler Orchestrator — Bun 1.4 edition.
  *
  * The compiler follows a Svelte-style phased pipeline:
  *
@@ -15,7 +15,7 @@
  * it could not precompile validators/serializers, minify, or emit source maps.
  */
 
-import { pipeAsync } from "@ignus/shared";
+import { pipeAsync } from "@ignex/shared";
 import { computeRouteChanges, storeCache, tryCachedBuild } from "./cache";
 import {
   DiagnosticCodes,
@@ -203,7 +203,7 @@ const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
 /**
  * Run the discovery phase: scan the routes directory, parse every route
  * module, and build the source manager. Exposed for callers that compose the
- * pipeline themselves instead of using {@link IgnusCompiler}.
+ * pipeline themselves instead of using {@link IgnexCompiler}.
  */
 export const runDiscoveryPhase = (
   opts: CompilerOptions,
@@ -345,7 +345,7 @@ const finish = (
  * @param input - Partial {@link CompilerOptions}; validated + defaulted on
  * each compile via `validateOptions`.
  */
-export class IgnusCompiler {
+export class IgnexCompiler {
   constructor(private readonly input: Partial<CompilerOptions> = {}) {}
 
   /** Canonical async compile with validator/serializer precompilation. */
@@ -372,7 +372,7 @@ export class IgnusCompiler {
     const diskCache = opts.incremental ? loadPersistedModules(opts.outDir) : new Map();
     const sources = new SourceManager(diskCache);
 
-    ctx.logger.info("ignus compiler started (async)", {
+    ctx.logger.info("ignex compiler started (async)", {
       target: opts.target,
       optimizationLevel: opts.optimizationLevel,
       routesDir: opts.routesDir,
@@ -462,14 +462,14 @@ export class IgnusCompiler {
 /**
  * Top-level convenience: compile once and return the {@link CompileResult}.
  *
- * Equivalent to `new IgnusCompiler(opts).compileAsync()`. Throws an `Error`
+ * Equivalent to `new IgnexCompiler(opts).compileAsync()`. Throws an `Error`
  * with a summary of validation/compile diagnostics on failure.
  *
  * @param opts - Partial {@link CompilerOptions}.
  * @returns The structured compile result.
  */
 export async function buildAsync(opts?: Partial<CompilerOptions>): Promise<CompileResult> {
-  return new IgnusCompiler(opts).compileAsync();
+  return new IgnexCompiler(opts).compileAsync();
 }
 
 if (import.meta.main) {

@@ -72,10 +72,10 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     // but the error is surfaced so broken hooks are debuggable. Empty stages
     // are skipped entirely (no Promise + microtask per stage).
     if (__lc.afterResponse && __lc.afterResponse.length > 0) {
-      try { await runHooks(__lc.afterResponse, ctx, response); } catch (__err) { console.error("[ignus] afterResponse hook error:", __err); }
+      try { await runHooks(__lc.afterResponse, ctx, response); } catch (__err) { console.error("[ignex] afterResponse hook error:", __err); }
     }
     if (__lc.trace && __lc.trace.length > 0) {
-      try { await runHooks(__lc.trace, ctx, response); } catch (__err) { console.error("[ignus] trace hook error:", __err); }
+      try { await runHooks(__lc.trace, ctx, response); } catch (__err) { console.error("[ignex] trace hook error:", __err); }
     }
     if (__ACCESS_LOG) {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);

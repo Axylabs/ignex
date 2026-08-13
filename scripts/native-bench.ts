@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
  * Native-vs-fallback micro-benchmark for the primitives wired into
- * `@ignus/core` through `@ignus/native`.
+ * `@ignex/core` through `@ignex/native`.
  *
  *   bun scripts/native-bench.ts            # fallback-only (no addon) baseline
- *   IGNUS_NATIVE_PATH=... bun scripts/native-bench.ts   # real-addon comparison
+ *   IGNEX_NATIVE_PATH=... bun scripts/native-bench.ts   # real-addon comparison
  *
  * When the Rust addon is unavailable the script reports the pure-TS baseline
  * and skips the comparison (parity, not performance, is guaranteed there).
@@ -140,5 +140,5 @@ if (validator) {
 if (MODE === "NATIVE") {
   console.log("\nNative loaded — ratios above show the win (bigger = faster).");
 } else {
-  console.log("\nInstall/build castrum and set IGNUS_NATIVE_PATH to compare native vs fallback.");
+  console.log("\nInstall/build castrum and set IGNEX_NATIVE_PATH to compare native vs fallback.");
 }

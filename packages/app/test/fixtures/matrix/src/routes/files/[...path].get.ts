@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 /** GET /files/*path — wildcard (catch-all) param echo. */
 export default get(async (ctx) => {

@@ -2,7 +2,7 @@
  * @fileoverview `http` — HTTP parsing & negotiation primitives.
  *
  * The folder layout is an internal implementation detail; consumers import
- * `../http` (resolves to this barrel) and the top-level `@ignus/native`
+ * `../http` (resolves to this barrel) and the top-level `@ignex/native`
  * re-exports the same surface. `pairs` is deliberately NOT re-exported — it
  * holds only the shared internal decode helper.
  */

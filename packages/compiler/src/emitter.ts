@@ -24,7 +24,7 @@ export class Emitter {
     return this.helpers.has(name);
   }
 
-  /** Record that a `@ignus/core` symbol is referenced by emitted code. */
+  /** Record that a `@ignex/core` symbol is referenced by emitted code. */
   markCore(name: string): void {
     this.core.add(name);
   }

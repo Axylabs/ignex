@@ -1,7 +1,7 @@
 /**
- * @fileoverview Ignus Core — public entry.
+ * @fileoverview Ignex Core — public entry.
  *
- * This barrel is the single public surface of `@ignus/core`. Internally the
+ * This barrel is the single public surface of `@ignex/core`. Internally the
  * implementation is grouped by use case into domain folders so each concern
  * stays small and discoverable:
  *
@@ -11,16 +11,16 @@
  *   lifecycle/  — hooks, lifecycle, plugin
  *   platform/   — env, config, jobs, errors
  *   content/    — i18n, template
- *   plugins/    — ready-made IgnusPlugin factories
+ *   plugins/    — ready-made IgnexPlugin factories
  *
- * Consumers import everything from `@ignus/core` (or `@ignus/core/http` for the
+ * Consumers import everything from `@ignex/core` (or `@ignex/core/http` for the
  * route DSL) — the folder layout is an internal implementation detail.
  */
 
-// ── unified execution API (@ignus/native) ────────────────────────
+// ── unified execution API (@ignex/native) ────────────────────────
 // The single runtime-switch facade: `backend.*` binds every primitive to its
 // fastest implementation (castrum native on Bun vs pure-TS fallback), driven
-// by the `SELECTION` table in @ignus/native. `SELECTION` is read-only data —
+// by the `SELECTION` table in @ignex/native. `SELECTION` is read-only data —
 // treat it as a snapshot, not something to mutate.
 export {
   backend,
@@ -30,7 +30,7 @@ export {
   type ExecutionOpStatus,
   type ExecutionStatus,
   executionStatus,
-  type IgnusExecution,
+  type IgnexExecution,
   implFor,
   initNative,
   isNativeAvailable,
@@ -38,7 +38,7 @@ export {
   type OpName,
   SELECTION,
   useNative,
-} from "@ignus/native";
+} from "@ignex/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
 export {
   always,
@@ -62,9 +62,9 @@ export {
   tryCatchOr,
   unwrapOr,
   unwrapOrElse,
-} from "@ignus/shared";
+} from "@ignex/shared";
 // ── client / openapi (consumer-facing) ──────────────────────────
-export type { ClientOptions, ClientResponse, IgnusClient } from "./client";
+export type { ClientOptions, ClientResponse, IgnexClient } from "./client";
 export { createClient } from "./client";
 // ── content ─────────────────────────────────────────────────────
 export type { Catalog, Catalogs, I18n, I18nOptions, LoadCatalogDirOptions } from "./content/i18n";
@@ -113,7 +113,7 @@ export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./data/
 // ── http ────────────────────────────────────────────────────────
 export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody } from "./http/body";
-export type { ContextOptions, IgnusContext, IgnusServer } from "./http/context";
+export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";
 export { createContext } from "./http/context";
 export { Cookie, createCookieJar, parseCookieString, serializeCookie } from "./http/cookies";
 export { safeJoin, sendFile, streamDownload } from "./http/files";
@@ -124,7 +124,7 @@ export { formatSSE, sse } from "./http/sse";
 export {
   createWSConnections,
   createWSHandler,
-  IgnusWS,
+  IgnexWS,
   upgradeWS,
   type WSConnections,
   type WSUpgradeOptions,
@@ -139,7 +139,7 @@ export {
   mergeHookArrays,
   mergeLifeCycle,
 } from "./lifecycle/hooks";
-export type { AppOptions, IgnusApp } from "./lifecycle/lifecycle";
+export type { AppOptions, IgnexApp } from "./lifecycle/lifecycle";
 export {
   buildPostStages,
   buildPreStages,
@@ -149,7 +149,7 @@ export {
   runHooks,
   runLifecycle,
 } from "./lifecycle/lifecycle";
-export type { IgnusPlugin, PluginContext } from "./lifecycle/plugin";
+export type { IgnexPlugin, PluginContext } from "./lifecycle/plugin";
 export {
   composePlugins,
   createPluginContext,

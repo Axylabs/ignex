@@ -1,5 +1,5 @@
 /**
- * Ignus Compiler Type System
+ * Ignex Compiler Type System
  *
  * AOT upgrade:
  * - unified ContextUsage from shared
@@ -7,8 +7,8 @@
  * - added route metadata for future validators/serializers/OpenAPI
  */
 
-import type { ContextUsage, HttpMethod } from "@ignus/shared";
-import { FULL_USAGE, HTTP_METHODS } from "@ignus/shared";
+import type { ContextUsage, HttpMethod } from "@ignex/shared";
+import { FULL_USAGE, HTTP_METHODS } from "@ignex/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
 import type { SourceFile } from "./frontend/source-file";
 import type { SourceManager } from "./frontend/source-manager";
@@ -31,7 +31,7 @@ export interface AppConfigInfo {
 }
 
 export type { HttpMethod };
-// Shared method vocabulary (single source of truth in @ignus/shared).
+// Shared method vocabulary (single source of truth in @ignex/shared).
 export { HTTP_METHODS };
 
 /**
@@ -129,7 +129,7 @@ export interface CompilerOptions {
 
   /**
    * Skip the full build when inputs are unchanged (content-hash cache).
-   * Persists a `.ignus-cache.json` fingerprint inside `outDir`.
+   * Persists a `.ignex-cache.json` fingerprint inside `outDir`.
    */
   readonly incremental?: boolean;
 
@@ -217,7 +217,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   maxRequestBodySize: 128 * 1024 * 1024,
   strictRouteConflicts: false,
   validateCookies: true,
-  outDir: process.env.OUT_DIR || "./.ignus",
+  outDir: process.env.OUT_DIR || "./.ignex",
   outFile: process.env.OUT_FILE || "server.js",
   target: "bun",
 
@@ -231,7 +231,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   enableAccessLog: false,
   enableTraceHeaders: false,
 
-  serviceName: "ignus",
+  serviceName: "ignex",
   exposeErrorDetails: process.env.NODE_ENV !== "production",
 
   generateTypes: true,

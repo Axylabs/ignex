@@ -6,14 +6,14 @@
  * - exactOptionalPropertyTypes-safe pino options
  */
 import pino, { type Logger as PinoLogger } from "pino";
-import type { IgnusContext } from "../http/context";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+import type { IgnexContext } from "../http/context";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link logger}. */
 export interface LoggerOptions {
   level?: string;
   logger?: PinoLogger;
-  skip?: (ctx: IgnusContext) => boolean;
+  skip?: (ctx: IgnexContext) => boolean;
 }
 
 const REDACT_PATHS = [
@@ -39,7 +39,7 @@ const createPinoLogger = (options: LoggerOptions): PinoLogger => {
 /**
  * Build structured access-log payload.
  */
-const createLogPayload = (ctx: IgnusContext, response: Response) => {
+const createLogPayload = (ctx: IgnexContext, response: Response) => {
   const duration = performance.now() - ctx.startTime;
 
   return {
@@ -58,7 +58,7 @@ const createLogPayload = (ctx: IgnusContext, response: Response) => {
  * @param options - Log level, custom logger, or a `skip` predicate.
  * @returns The logger plugin.
  */
-export const logger = (options: LoggerOptions = {}): IgnusPlugin => {
+export const logger = (options: LoggerOptions = {}): IgnexPlugin => {
   const log = createPinoLogger(options);
 
   return {

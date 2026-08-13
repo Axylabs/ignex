@@ -1,20 +1,20 @@
 /**
- * WebSocket depth tests: `IgnusWS` send semantics, `createWSHandler` event
+ * WebSocket depth tests: `IgnexWS` send semantics, `createWSHandler` event
  * wiring (with a single wrapper instance per socket), `upgradeWS` data
  * resolution, and the live-connection registry.
  */
 import { describe, expect, it, vi } from "vitest";
-import type { IgnusContext } from "../src/index.js";
+import type { IgnexContext } from "../src/index.js";
 import {
   createWSConnections,
   createWSHandler,
-  IgnusWS,
+  IgnexWS,
   upgradeWS,
   type WSLocalHook,
 } from "../src/index.js";
 import type { ServerWebSocket } from "../src/types/index.js";
 
-/** Minimal structural fake of Bun's ServerWebSocket (the subset IgnusWS uses). */
+/** Minimal structural fake of Bun's ServerWebSocket (the subset IgnexWS uses). */
 const fakeSocket = (data: unknown = {}) => {
   const sent: unknown[] = [];
   const socket = {
@@ -49,12 +49,12 @@ const fakeSocket = (data: unknown = {}) => {
 };
 
 const makeCtx = (server: unknown) =>
-  ({ req: new Request("http://x/"), server }) as unknown as IgnusContext;
+  ({ req: new Request("http://x/"), server }) as unknown as IgnexContext;
 
-describe("IgnusWS.send", () => {
+describe("IgnexWS.send", () => {
   it("passes strings and binary through verbatim", () => {
     const { socket, sent } = fakeSocket();
-    const ws = new IgnusWS(socket, {}, undefined);
+    const ws = new IgnexWS(socket, {}, undefined);
     ws.send("hi");
     ws.send(new Uint8Array([1, 2]));
     expect(sent[0]).toBe("hi");
@@ -63,7 +63,7 @@ describe("IgnusWS.send", () => {
 
   it("JSON-stringifies plain objects and sendJson is explicit", () => {
     const { socket, sent } = fakeSocket();
-    const ws = new IgnusWS(socket, {}, undefined);
+    const ws = new IgnexWS(socket, {}, undefined);
     ws.send({ a: 1 });
     ws.sendJson({ b: 2 });
     expect(sent[0]).toBe('{"a":1}');
@@ -72,7 +72,7 @@ describe("IgnusWS.send", () => {
 });
 
 describe("createWSHandler", () => {
-  it("delivers the same IgnusWS instance across open/message/close", () => {
+  it("delivers the same IgnexWS instance across open/message/close", () => {
     let inMessage: unknown;
     let inClose: unknown;
     const hook: WSLocalHook = {
@@ -151,8 +151,8 @@ describe("createWSConnections", () => {
     const connections = createWSConnections<unknown, unknown, unknown>();
     const { socket: s1 } = fakeSocket();
     const { socket: s2 } = fakeSocket();
-    const w1 = new IgnusWS(s1, {}, undefined);
-    const w2 = new IgnusWS(s2, {}, undefined);
+    const w1 = new IgnexWS(s1, {}, undefined);
+    const w2 = new IgnexWS(s2, {}, undefined);
 
     connections.add(w1);
     connections.add(w2);
@@ -171,8 +171,8 @@ describe("createWSConnections", () => {
     const connections = createWSConnections<unknown, unknown, unknown>();
     const a = fakeSocket();
     const b = fakeSocket();
-    connections.add(new IgnusWS(a.socket, {}, undefined));
-    connections.add(new IgnusWS(b.socket, {}, undefined));
+    connections.add(new IgnexWS(a.socket, {}, undefined));
+    connections.add(new IgnexWS(b.socket, {}, undefined));
 
     connections.broadcast("hi");
     expect(a.sent).toEqual(["hi"]);

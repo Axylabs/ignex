@@ -1,6 +1,6 @@
 {
-  "name": "@ignus/shared",
-  "version": "0.1.0",
+  "name": "@ignex/shared",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Shared types and constants for Ignus.",
+  "description": "Shared types and constants for Ignex.",
   "exports": {
     ".": "./src/index.ts"
   },

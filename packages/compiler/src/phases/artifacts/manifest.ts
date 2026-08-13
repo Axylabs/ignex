@@ -9,7 +9,7 @@ export const generateManifest = (
   opts: CompilerOptions,
 ): Record<string, unknown> => ({
   generatedAt: new Date().toISOString(),
-  serviceName: opts.serviceName ?? "ignus",
+  serviceName: opts.serviceName ?? "ignex",
   target: opts.target,
   optimizationLevel: opts.optimizationLevel,
   routes: routes.map((r) => ({

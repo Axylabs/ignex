@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createI18nFromDir, loadCatalogDir, negotiateLocale, withI18n } from "../src/content/i18n";
 
-const tmp = () => mkdtempSync(join(tmpdir(), "ignus-i18n-"));
+const tmp = () => mkdtempSync(join(tmpdir(), "ignex-i18n-"));
 
 const makeLayout = (dir: string) => {
   // en.json (flat) + en/errors.json (namespaced) + es.json

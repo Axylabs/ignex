@@ -5,23 +5,23 @@
  * Each factory returns a `HookFn` that resolves a user onto `ctx.state` (via
  * {@link getUser}/{@link setUser}) or halts with a 401.
  */
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { MaybePromise } from "../types";
 import { createJwt, type JwtServiceOptions } from "./crypto";
 
 /** Key under which the resolved user is stored on `ctx.state`. */
-export const USER_KEY = Symbol.for("ignus.user");
+export const USER_KEY = Symbol.for("ignex.user");
 
 /** The authenticated user shape stored on `ctx.state` (an arbitrary record). */
 export type AuthUser = Record<string, unknown>;
 
 /** Read the authenticated user from a context. */
-export const getUser = <T = AuthUser>(ctx: IgnusContext): T | undefined =>
+export const getUser = <T = AuthUser>(ctx: IgnexContext): T | undefined =>
   ctx.getState<T>(USER_KEY);
 
 /** Attach the authenticated user to a context. */
-export const setUser = (ctx: IgnusContext, user: unknown): void => ctx.setState(USER_KEY, user);
+export const setUser = (ctx: IgnexContext, user: unknown): void => ctx.setState(USER_KEY, user);
 
 /**
  * Build a 401 JSON response, optionally with a `WWW-Authenticate` challenge.
@@ -37,7 +37,7 @@ export const unauthorized = (challenge?: string): Response => {
  * `ctx.state`; on failure the request is halted with a 401.
  */
 export const requireAuth =
-  <T>(extract: (ctx: IgnusContext) => MaybePromise<T | null>): HookFn =>
+  <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
   async (ctx) => {
     const user = await extract(ctx);
     if (user == null) return haltHook(unauthorized());
@@ -50,7 +50,7 @@ export const requireAuth =
  * that work for guests and authenticated users alike.
  */
 export const optionalAuth =
-  <T>(extract: (ctx: IgnusContext) => MaybePromise<T | null>): HookFn =>
+  <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
   async (ctx) => {
     const user = await extract(ctx);
     if (user != null) setUser(ctx, user);
@@ -58,7 +58,7 @@ export const optionalAuth =
   };
 
 /** Split an `Authorization` header into its (lowercased) scheme + credentials. */
-const parseAuthorizationHeader = (ctx: IgnusContext): { scheme: string; credentials: string } => {
+const parseAuthorizationHeader = (ctx: IgnexContext): { scheme: string; credentials: string } => {
   const header = ctx.headers.get("authorization") ?? "";
   const space = header.indexOf(" ");
   const scheme = space < 0 ? header : header.slice(0, space);
@@ -70,20 +70,20 @@ const parseAuthorizationHeader = (ctx: IgnusContext): { scheme: string; credenti
 /** Parse + verify HTTP Basic credentials (`Authorization: Basic base64(u:p)`). */
 export const basicAuth =
   (
-    verify: (username: string, password: string, ctx: IgnusContext) => MaybePromise<unknown | null>,
+    verify: (username: string, password: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
   ): HookFn =>
   async (ctx) => {
     const { scheme, credentials } = parseAuthorizationHeader(ctx);
 
     if (scheme !== "basic" || !credentials) {
-      return haltHook(unauthorized('Basic realm="ignus"'));
+      return haltHook(unauthorized('Basic realm="ignex"'));
     }
 
     let decoded: string;
     try {
       decoded = Buffer.from(credentials, "base64").toString("utf8");
     } catch {
-      return haltHook(unauthorized('Basic realm="ignus"'));
+      return haltHook(unauthorized('Basic realm="ignex"'));
     }
 
     const colon = decoded.indexOf(":");
@@ -91,7 +91,7 @@ export const basicAuth =
     const password = colon < 0 ? "" : decoded.slice(colon + 1);
 
     const user = await verify(username, password, ctx);
-    if (user == null) return haltHook(unauthorized('Basic realm="ignus"'));
+    if (user == null) return haltHook(unauthorized('Basic realm="ignex"'));
     setUser(ctx, user);
     return continueHook(ctx);
   };
@@ -99,7 +99,7 @@ export const basicAuth =
 /** Parse + verify HTTP Bearer credentials (`Authorization: Bearer <token>`). */
 export const bearerAuth =
   (
-    verify: (token: string, ctx: IgnusContext) => MaybePromise<unknown | null>,
+    verify: (token: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
     challenge = "Bearer",
   ): HookFn =>
   async (ctx) => {

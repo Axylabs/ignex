@@ -1,6 +1,6 @@
-# @ignus/mcp
+# @ignex/mcp
 
-> mcp package for Ignus.
+> mcp package for Ignex.
 
 ## Development
 

@@ -84,9 +84,9 @@ describe("compile (end-to-end)", () => {
     const layout = materializeFixture("basic");
     const result = await buildAsync(baseOptions(layout));
 
-    // The generated server imports runHooks from @ignus/core and no longer
+    // The generated server imports runHooks from @ignex/core and no longer
     // embeds its own __runHooks copy.
-    expect(result.code).toMatch(/import \{[^}]*\brunHooks\b[^}]*\} from "@ignus\/core"/);
+    expect(result.code).toMatch(/import \{[^}]*\brunHooks\b[^}]*\} from "@ignex\/core"/);
     expect(result.code).not.toContain("function __runHooks");
     expect(result.code).not.toContain("__runHooks");
   });

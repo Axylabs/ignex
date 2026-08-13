@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ignus",
+      "name": "ignex",
       "devDependencies": {
         "@biomejs/biome": "^2.5.5",
         "@hey-api/openapi-ts": "^0.99.0",
@@ -21,29 +21,29 @@
       },
     },
     "packages/app": {
-      "name": "@ignus/app",
+      "name": "@ignex/app",
       "version": "0.1.0",
       "dependencies": {
         "@hey-api/client-fetch": "^0.13.1",
-        "@ignus/core": "workspace:*",
+        "@ignex/core": "workspace:*",
         "@sinclair/typebox": "^0.34.52",
       },
       "devDependencies": {
-        "@ignus/compiler": "workspace:*",
+        "@ignex/compiler": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^7.0.2",
         "vitest": "^4.1.10",
       },
     },
     "packages/cli": {
-      "name": "@ignus/cli",
+      "name": "@ignex/cli",
       "version": "0.1.0",
       "bin": {
-        "ignus": "./bin/ignus.js",
+        "ignex": "./bin/ignex.js",
       },
       "dependencies": {
-        "@ignus/compiler": "workspace:*",
-        "@ignus/mcp": "workspace:*",
+        "@ignex/compiler": "workspace:*",
+        "@ignex/mcp": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "^24.0.0",
@@ -52,11 +52,11 @@
       },
     },
     "packages/compiler": {
-      "name": "@ignus/compiler",
+      "name": "@ignex/compiler",
       "version": "0.1.0",
       "dependencies": {
-        "@ignus/core": "workspace:*",
-        "@ignus/shared": "workspace:*",
+        "@ignex/core": "workspace:*",
+        "@ignex/shared": "workspace:*",
         "@sinclair/typebox": "^0.34.52",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
@@ -73,11 +73,11 @@
       },
     },
     "packages/core": {
-      "name": "@ignus/core",
+      "name": "@ignex/core",
       "version": "0.1.0",
       "dependencies": {
-        "@ignus/native": "workspace:*",
-        "@ignus/shared": "workspace:*",
+        "@ignex/native": "workspace:*",
+        "@ignex/shared": "workspace:*",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "fast-querystring": "^1.1.2",
@@ -89,15 +89,15 @@
       },
     },
     "packages/mcp": {
-      "name": "@ignus/mcp",
+      "name": "@ignex/mcp",
       "version": "0.1.0",
       "bin": {
-        "ignus-mcp": "./bin/ignus-mcp.js",
+        "ignex-mcp": "./bin/ignex-mcp.js",
       },
       "dependencies": {
-        "@ignus/cli": "workspace:*",
-        "@ignus/compiler": "workspace:*",
-        "@ignus/native": "workspace:*",
+        "@ignex/cli": "workspace:*",
+        "@ignex/compiler": "workspace:*",
+        "@ignex/native": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "zod": "^3.24.0",
       },
@@ -107,7 +107,7 @@
       },
     },
     "packages/native": {
-      "name": "@ignus/native",
+      "name": "@ignex/native",
       "version": "0.1.0",
       "devDependencies": {
         "typescript": "^7.0.2",
@@ -118,7 +118,7 @@
       },
     },
     "packages/shared": {
-      "name": "@ignus/shared",
+      "name": "@ignex/shared",
       "version": "0.1.0",
       "devDependencies": {
         "typescript": "^7.0.2",
@@ -126,7 +126,7 @@
       },
     },
     "packages/test-utils": {
-      "name": "@ignus/test-utils",
+      "name": "@ignex/test-utils",
       "version": "0.1.0",
       "dependencies": {
         "fast-check": "^4.9.0",
@@ -190,21 +190,21 @@
 
     "@hono/node-server": ["@hono/node-server@2.1.0", "", { "peerDependencies": { "hono": "^4" } }, "sha512-XovyyCCnBzW+zKu+z/zq8hwNs4KOR5rEMAOxo2f40Q5xoOI37IMm6MIg2COOUtUApo0i6850MTBKH2u4QLGIqg=="],
 
-    "@ignus/app": ["@ignus/app@workspace:packages/app"],
+    "@ignex/app": ["@ignex/app@workspace:packages/app"],
 
-    "@ignus/cli": ["@ignus/cli@workspace:packages/cli"],
+    "@ignex/cli": ["@ignex/cli@workspace:packages/cli"],
 
-    "@ignus/compiler": ["@ignus/compiler@workspace:packages/compiler"],
+    "@ignex/compiler": ["@ignex/compiler@workspace:packages/compiler"],
 
-    "@ignus/core": ["@ignus/core@workspace:packages/core"],
+    "@ignex/core": ["@ignex/core@workspace:packages/core"],
 
-    "@ignus/mcp": ["@ignus/mcp@workspace:packages/mcp"],
+    "@ignex/mcp": ["@ignex/mcp@workspace:packages/mcp"],
 
-    "@ignus/native": ["@ignus/native@workspace:packages/native"],
+    "@ignex/native": ["@ignex/native@workspace:packages/native"],
 
-    "@ignus/shared": ["@ignus/shared@workspace:packages/shared"],
+    "@ignex/shared": ["@ignex/shared@workspace:packages/shared"],
 
-    "@ignus/test-utils": ["@ignus/test-utils@workspace:packages/test-utils"],
+    "@ignex/test-utils": ["@ignex/test-utils@workspace:packages/test-utils"],
 
     "@inquirer/ansi": ["@inquirer/ansi@2.0.7", "", {}, "sha512-3eTuUO1vH2cZm2ZKHeQxnOqlTi9EfZDGgIe3BL3I4u+rJHocr9Fz86M4fjYABPvFnQG/gGK551HqDiIcETwU6Q=="],
 
@@ -1098,7 +1098,7 @@
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
-    "@ignus/native/castrum": ["castrum@file:../bun-rust-runtime-bench", { "devDependencies": { "@elysia/cors": "^1.4.2", "@napi-rs/cli": "^3.7.4", "@types/bun": "^1.3.14", "@types/mime-types": "^3.0.1", "@types/validator": "^13.15.10", "ajv": "^8.20.0", "crc-32": "^1.2.2", "dts-bundle-generator": "^9.5.1", "elysia": "^1.4.0", "fast-json-patch": "^3.1.1", "mime-types": "^3.0.2", "typescript": "5.9.3", "validator": "^13.15.35" }, "peerDependencies": { "@types/node": ">=20" }, "optionalPeers": ["@types/node"] }],
+    "@ignex/native/castrum": ["castrum@file:../bun-rust-runtime-bench", { "devDependencies": { "@elysia/cors": "^1.4.2", "@napi-rs/cli": "^3.7.4", "@types/bun": "^1.3.14", "@types/mime-types": "^3.0.1", "@types/validator": "^13.15.10", "ajv": "^8.20.0", "crc-32": "^1.2.2", "dts-bundle-generator": "^9.5.1", "elysia": "^1.4.0", "fast-json-patch": "^3.1.1", "mime-types": "^3.0.2", "typescript": "5.9.3", "validator": "^13.15.35" }, "peerDependencies": { "@types/node": ">=20" }, "optionalPeers": ["@types/node"] }],
 
     "@modelcontextprotocol/sdk/zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 
@@ -1132,7 +1132,7 @@
 
     "vitest/tinybench": ["tinybench@2.9.0", "https://repo.traderverse.net/tinybench/-/tinybench-2.9.0.tgz", {}, "sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg=="],
 
-    "@ignus/native/castrum/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+    "@ignex/native/castrum/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@napi-rs/wasm-tools-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 

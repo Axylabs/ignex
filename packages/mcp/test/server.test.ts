@@ -1,5 +1,5 @@
 /**
- * @ignus/mcp tests — protocol-level (initialize/tools/list/call over an
+ * @ignex/mcp tests — protocol-level (initialize/tools/list/call over an
  * in-memory transport) plus unit checks of the tool implementations.
  */
 
@@ -33,7 +33,7 @@ const textOf = async (
   return content[0]?.text ?? "";
 };
 
-describe("ignus MCP server (protocol)", () => {
+describe("ignex MCP server (protocol)", () => {
   it("lists the expected tools", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
@@ -65,9 +65,9 @@ describe("ignus MCP server (protocol)", () => {
   });
 });
 
-describe("ignus MCP tools (unit)", () => {
+describe("ignex MCP tools (unit)", () => {
   it("route tool scaffolds a route file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ignus-mcp-route-"));
+    const dir = mkdtempSync(join(tmpdir(), "ignex-mcp-route-"));
     const parsed = JSON.parse(await runRouteTool({ root: dir, input: "health.get" })) as {
       ok: boolean;
       path: string;
@@ -84,7 +84,7 @@ describe("ignus MCP tools (unit)", () => {
   });
 
   it("build tool degrades gracefully on a bare project", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ignus-mcp-build-"));
+    const dir = mkdtempSync(join(tmpdir(), "ignex-mcp-build-"));
     const parsed = JSON.parse(await runBuildTool({ root: dir })) as { ok?: boolean };
     // A bare dir compiles to an empty server (ok) or reports a structured
     // error — it must never throw into the protocol.

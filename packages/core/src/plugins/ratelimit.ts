@@ -9,7 +9,7 @@
  * limiter with the same behavior.
  */
 
-import { createRateLimiter } from "@ignus/native";
+import { createRateLimiter } from "@ignex/native";
 import { LRUCache } from "../data/lru";
 import {
   checkFixedWindow,
@@ -24,9 +24,9 @@ import {
   type SlidingWindowEntry,
   type TokenBucketEntry,
 } from "../data/ratelimit";
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { reWrapResponse } from "../http/headers";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 import { firstForwardedIp } from "../platform/coerce";
 
 /** Options for {@link rateLimit}. */
@@ -35,8 +35,8 @@ export interface RateLimitOptions {
   maxRequests?: number;
   storeMax?: number;
   trustProxy?: boolean;
-  keyGenerator?: (ctx: IgnusContext) => string;
-  skip?: (ctx: IgnusContext) => boolean;
+  keyGenerator?: (ctx: IgnexContext) => string;
+  skip?: (ctx: IgnexContext) => boolean;
   message?: string;
   /**
    * Limiting algorithm. `fixed-window` (default) is the classic reset-per-
@@ -65,7 +65,7 @@ interface RateState {
  * @param options - Window/limit tuning, algorithm, key generator, skip.
  * @returns The rate-limit plugin.
  */
-export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
+export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
   const {
     windowMs = 60_000,
     maxRequests = 100,
@@ -77,7 +77,7 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnusPlugin => {
     native = false,
   } = options;
 
-  const defaultKeyGenerator = (ctx: IgnusContext): string => {
+  const defaultKeyGenerator = (ctx: IgnexContext): string => {
     if (trustProxy) {
       const xff = ctx.headers.get("x-forwarded-for");
 

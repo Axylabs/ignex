@@ -1,6 +1,6 @@
-# @ignus/compiler
+# @ignex/compiler
 
-Ahead-of-time compiler for Ignus: discovers file-system routes, analyzes them with a
+Ahead-of-time compiler for Ignex: discovers file-system routes, analyzes them with a
 Svelte-style phased pipeline, and emits a clean, optimized Bun server with generated
 types, OpenAPI artifacts, precompiled validators/serializers, and structured diagnostics.
 
@@ -38,11 +38,11 @@ never silently swallowed.
 ## Public API
 
 ```ts
-import { buildAsync, type CompileResult } from "@ignus/compiler";
+import { buildAsync, type CompileResult } from "@ignex/compiler";
 
 const result: CompileResult = await buildAsync({
   routesDir: "src/routes",
-  outDir: ".ignus",
+  outDir: ".ignex",
   outFile: "server.js",
 });
 ```
@@ -63,10 +63,10 @@ interface CompileResult {
 
 ### Entry points
 
-- `buildAsync(options?)` / `new IgnusCompiler(options).compileAsync()` — **canonical**.
+- `buildAsync(options?)` / `new IgnexCompiler(options).compileAsync()` — **canonical**.
   Enables validator/serializer precompilation, minification, source maps, and the
   incremental cache.
-- `build(options?)` / `new IgnusCompiler(options).compile()` — **deprecated** sync
+- `build(options?)` / `new IgnexCompiler(options).compile()` — **deprecated** sync
   path. It cannot precompile validators/serializers, minify, or emit source maps;
   it emits an informational `IGN_SYNC_LIMITED` diagnostic.
 - `mergeOptions(partial)` — fill defaults (`defu`).
@@ -76,7 +76,7 @@ interface CompileResult {
 | Option | Default | Notes |
 | --- | --- | --- |
 | `routesDir` | `./src/routes` | Route source directory. |
-| `outDir` / `outFile` | `./.ignus` / `server.js` | Output location. |
+| `outDir` / `outFile` | `./.ignex` / `server.js` | Output location. |
 | `appConfig` | `./src/app.config.ts` | Optional runtime config (`plugins`, `lifecycle`, `server`). |
 | `hooksDir` | — | Directory containing hook modules referenced by route `config`. |
 | `minify` / `sourceMap` | `false` | Passed to `Bun.build` in the linker. |
@@ -138,7 +138,7 @@ When `incremental` is enabled, the compiler fingerprints the effective options,
 compiler version, and the content + mtime of every route/hook/app-config file. If
 nothing changed and the previous output still exists, the whole pipeline is skipped
 and the result is returned with `cached: true`. The fingerprint lives in
-`outDir/.ignus-cache.json`.
+`outDir/.ignex-cache.json`.
 
 On cache hits the compiler also verifies the companion artifacts the generated
 server depends on (`validators/*`, `serializers/*`, `openapi.json`, `client.ts`,
@@ -148,7 +148,7 @@ again instead of serving broken output.
 ### Persistent module cache
 
 Every module's `ParseResult` (imports/exports/symbols/handler/config + AST) is
-persisted to `outDir/.ignus-modules.json`, keyed by content hash. Cache-hit
+persisted to `outDir/.ignex-modules.json`, keyed by content hash. Cache-hit
 artifact regeneration and full rebuilds rehydrate unchanged modules from disk
 instead of re-parsing them — an edit to one route re-parses only that route.
 Bump `MODULES_CACHE_VERSION` (in `src/frontend/persist.ts`) when the persisted
@@ -158,7 +158,7 @@ shape changes.
 
 With default options the server entry is readable and deterministic:
 
-- A single `@ignus/core` import (symbols pruned to what is used).
+- A single `@ignex/core` import (symbols pruned to what is used).
 - Frozen header constants (`EMPTY_PARAMS`, `BODY_LIMITS`, `EXPOSE_ERRORS`).
 - Only the runtime helpers actually referenced by a route (`// ==== Generated runtime helpers ====`).
 - Inlined handlers for fully self-contained route modules (no imports, no other
@@ -181,7 +181,7 @@ Explicit option values always override the preset.
 ## New in this version
 
 - **Persistent module parse cache** — `SourceFile` parse results are persisted
-  across builds (`.ignus-modules.json`, content-hash keyed); cache-hit paths
+  across builds (`.ignex-modules.json`, content-hash keyed); cache-hit paths
   rehydrate instead of re-parsing.
 - **Standard-Schema build-time codegen** — convertible parts are turned into
   plain JSON Schema (`toJSONSchema`/`toJsonSchema`, zod, valibot) and precompiled
@@ -194,7 +194,7 @@ Explicit option values always override the preset.
 - **Hook read-failure detection** — an unreadable hook surfaces
   `IGN_IO_READ_FAILED` instead of being treated as an empty hook.
 - **Parse memoization** — modules are parsed once per content (was up to 5×).
-- **Native hashing** — cache fingerprints / content keys use `@ignus/native` FNV-1a 64.
+- **Native hashing** — cache fingerprints / content keys use `@ignex/native` FNV-1a 64.
 - **Real optimization metadata** — `CompileResult.metadata` reflects the build and is persisted across cache hits.
 - **Hook analysis** — referenced hooks are validated (`IGN_HOOK_MISSING` when missing).
 - **OpenAPI schemas** — `openapi.json` now emits real request/response schemas from route schemas.

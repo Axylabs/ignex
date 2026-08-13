@@ -1,3 +1,3 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
-export default get(() => "ignus zero-runtime API");
+export default get(() => "ignex zero-runtime API");

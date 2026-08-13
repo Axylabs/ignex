@@ -1,5 +1,5 @@
 /**
- * Ignus MCP server — registers the agent-facing tools on an `McpServer`.
+ * Ignex MCP server — registers the agent-facing tools on an `McpServer`.
  */
 
 import { readFileSync } from "node:fs";
@@ -22,7 +22,7 @@ import {
 } from "./tools.js";
 
 /** The MCP server name advertised in the protocol handshake. */
-export const MCP_SERVER_NAME = "ignus";
+export const MCP_SERVER_NAME = "ignex";
 
 // Single source of truth: read the version from package.json so the advertised
 // protocol version can never drift from the published package.
@@ -50,7 +50,7 @@ type RegisterFn = (
   cb: ToolHandler,
 ) => void;
 
-/** Build an McpServer with all Ignus tools registered. */
+/** Build an McpServer with all Ignex tools registered. */
 export const createMcpServer = (): McpServer => {
   const server = new McpServer({
     name: MCP_SERVER_NAME,
@@ -61,12 +61,12 @@ export const createMcpServer = (): McpServer => {
   register(
     "build",
     {
-      title: "Build an Ignus project",
+      title: "Build an Ignex project",
       description:
-        "AOT-compile an ignus project (discovery → analysis → codegen → link → artifacts). Returns cached status, out file, warnings, errors, and optimization metadata.",
+        "AOT-compile an ignex project (discovery → analysis → codegen → link → artifacts). Returns cached status, out file, warnings, errors, and optimization metadata.",
       inputSchema: {
         root: z.string().optional().describe("Project root (default: cwd)"),
-        outDir: z.string().optional().describe("Compiler output directory (default: .ignus)"),
+        outDir: z.string().optional().describe("Compiler output directory (default: .ignex)"),
         routesDir: z.string().optional().describe("Route source directory (default: src/routes)"),
         minify: z.boolean().optional().describe("Enable minification (default: false)"),
       },
@@ -139,7 +139,7 @@ export const createMcpServer = (): McpServer => {
     "dev",
     {
       title: "Start the dev server",
-      description: "Spawn `ignus dev` for the project in the background and report the process.",
+      description: "Spawn `ignex dev` for the project in the background and report the process.",
       inputSchema: {
         root: z.string().optional().describe("Project root (default: cwd)"),
         port: z.number().optional().describe("PORT env for the spawned server"),

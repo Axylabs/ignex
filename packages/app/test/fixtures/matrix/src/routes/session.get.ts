@@ -1,5 +1,5 @@
-import { getSession } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { getSession } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 /** GET /session — read/write the signed-cookie session (attached by plugin). */
 export default get(async (ctx) => {

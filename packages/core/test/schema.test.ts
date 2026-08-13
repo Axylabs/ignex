@@ -17,8 +17,8 @@
  *      straight to Ajv so their semantics never regress.
  */
 
-import { compileValidator, ValidationError, validateAsync, validateOrThrow } from "@ignus/core";
-import { createSchemaValidator, isNativeAvailable } from "@ignus/native";
+import { compileValidator, ValidationError, validateAsync, validateOrThrow } from "@ignex/core";
+import { createSchemaValidator, isNativeAvailable } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
 const enc = new TextEncoder();

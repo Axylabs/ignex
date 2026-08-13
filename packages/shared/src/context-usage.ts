@@ -12,7 +12,7 @@
  * Shared by compiler and runtime: the compiler statically computes which
  * `ctx` members a handler touches and records them in this record, and the
  * generated server uses it to emit only the context plumbing the routes need.
- * Every member must mirror the matching `IgnusContext` field in `@ignus/core`.
+ * Every member must mirror the matching `IgnexContext` field in `@ignex/core`.
  */
 export interface ContextUsage {
   body: boolean;

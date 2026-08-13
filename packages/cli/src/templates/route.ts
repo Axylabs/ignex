@@ -65,7 +65,7 @@ export function routeFileTemplate(
       : `() => Response.json({ ok: true })`;
 
     return `import { Type } from "@sinclair/typebox";
-import { ${fn} } from "@ignus/core/http";
+import { ${fn} } from "@ignex/core/http";
 
 export const schema = {
 ${schemaParts.join("\n")}
@@ -78,7 +78,7 @@ ${exportLine(`${fn}(${handler}, schema)`)}
   if (params.length > 0) {
     const json = params.map((param) => `${param}: String(${param})`).join(", ");
 
-    return `import { ${fn} } from "@ignus/core/http";
+    return `import { ${fn} } from "@ignex/core/http";
 
 ${exportLine(`${fn}((ctx) => {
   const { ${params.join(", ")} } = ctx.params;
@@ -89,7 +89,7 @@ ${exportLine(`${fn}((ctx) => {
   }
 
   if (hasBody) {
-    return `import { ${fn} } from "@ignus/core/http";
+    return `import { ${fn} } from "@ignex/core/http";
 
 ${exportLine(`${fn}(async (ctx) => {
   const body = await ctx.body.json();
@@ -100,13 +100,13 @@ ${exportLine(`${fn}(async (ctx) => {
   }
 
   if (route.method === "all") {
-    return `import { all } from "@ignus/core/http";
+    return `import { all } from "@ignex/core/http";
 
 ${exportLine(`all(() => new Response("OK"))`)}
 `;
   }
 
-  return `import { ${fn} } from "@ignus/core/http";
+  return `import { ${fn} } from "@ignex/core/http";
 
 ${exportLine(`${fn}(() => new Response("OK"))`)}
 `;

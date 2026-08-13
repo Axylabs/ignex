@@ -9,7 +9,7 @@ import { mergeOptions } from "../src/index";
 import { silentLogger } from "../src/logger";
 
 const makeLayout = () => {
-  const outDir = mkdtempSync(join(tmpdir(), "ignus-cache-"));
+  const outDir = mkdtempSync(join(tmpdir(), "ignex-cache-"));
   const routesDir = join(outDir, "routes");
   mkdirSync(routesDir, { recursive: true });
   writeFileSync(join(routesDir, "index.get.ts"), "export default () => 'hi';\n");

@@ -1,7 +1,7 @@
 /**
  * Ambient type surface for the `castrum` NAPI addon.
  *
- * This is the SUB-SET of castrum's generated `index.d.ts` that ignus uses.
+ * This is the SUB-SET of castrum's generated `index.d.ts` that ignex uses.
  * It is mapped through the root tsconfig `paths` (`"castrum": [...]`), so
  * TypeScript resolves the module even when the addon isn't installed; at
  * runtime the loader resolves the real package (native) or falls back to
@@ -201,7 +201,7 @@ export declare class SchemaValidator {
   validateBatchPackedCount(packed: Uint8Array): number;
   validateBatchPackedBitset(packed: Uint8Array): Uint8Array;
   validateBatchStreaming(batchBytes: Uint8Array): number;
-  /** One-pass validate + extract (see `@ignus/native` `JsonDeriveResult`). */
+  /** One-pass validate + extract (see `@ignex/native` `JsonDeriveResult`). */
   derive(input: Uint8Array, paths: string[]): CastrumJsonDeriveResult | null;
 }
 

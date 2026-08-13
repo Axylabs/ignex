@@ -179,7 +179,7 @@ describe("lowerRoute (source → RouteIR)", () => {
     const source = makeSource(
       sm,
       "echo.get.ts",
-      `import { get } from "@ignus/core";
+      `import { get } from "@ignex/core";
 export const config = { cache: { maxAge: 60 }, hooks: ["auth"] };
 export const httpGet = get((ctx) => ctx.json({ ok: true }));
 `,

@@ -15,7 +15,7 @@ export interface FixtureLayout {
  * write into the repository.
  */
 export const materializeFixture = (name: string): FixtureLayout => {
-  const outDir = mkdtempSync(join(tmpdir(), "ignus-compiler-"));
+  const outDir = mkdtempSync(join(tmpdir(), "ignex-compiler-"));
   const routesDir = join(outDir, "routes");
   mkdirSync(routesDir, { recursive: true });
   cpSync(join(fixturesDir, name), routesDir, { recursive: true });

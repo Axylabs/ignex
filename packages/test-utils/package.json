@@ -1,6 +1,6 @@
 {
-  "name": "@ignus/test-utils",
-  "version": "0.1.0",
+  "name": "@ignex/test-utils",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
   "engines": {
     "bun": ">=1.4"
   },
-  "description": "Shared test helpers + fast-check arbitraries for the ignus monorepo (dev-only, never published).",
+  "description": "Shared test helpers + fast-check arbitraries for the ignex monorepo (dev-only, never published).",
   "exports": {
     ".": "./src/index.ts"
   },

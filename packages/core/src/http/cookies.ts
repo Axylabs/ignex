@@ -6,7 +6,7 @@
  * emits identical `set-cookie` values.
  */
 
-import { batch, cookiePairs } from "@ignus/native";
+import { batch, cookiePairs } from "@ignex/native";
 import { BATCH_PARSE_THRESHOLD } from "../data/query";
 import type { CookieOptions, ElysiaCookie } from "../types";
 import type { SetHeaders } from "./headers";

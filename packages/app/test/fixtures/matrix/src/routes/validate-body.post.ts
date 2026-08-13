@@ -1,4 +1,4 @@
-import { post } from "@ignus/core/http";
+import { post } from "@ignex/core/http";
 import { Type } from "@sinclair/typebox";
 
 /** POST /validate-body — body schema (`name` required, `age` optional number). */

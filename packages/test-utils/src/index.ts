@@ -1,8 +1,8 @@
 /**
- * @fileoverview `@ignus/test-utils` — shared, dev-only test toolkit.
+ * @fileoverview `@ignex/test-utils` — shared, dev-only test toolkit.
  *
  * This package is never published (it ships only to the workspace) and is
- * wired through the vitest alias `@ignus/test-utils`. It centralises the
+ * wired through the vitest alias `@ignex/test-utils`. It centralises the
  * arbitraries (data-variety generators) and generic response/fs helpers that
  * were previously duplicated across package test folders.
  */

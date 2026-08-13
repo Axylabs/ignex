@@ -3,7 +3,7 @@
  * Streaming responses with proper formatting.
  */
 
-import { sseEncode } from "@ignus/native";
+import { sseEncode } from "@ignex/native";
 
 /** Options for an individual SSE event frame. */
 export interface SSEOptions {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Benchmark-driven native-vs-JS auto-selection for `@ignus/native`.
+ * Benchmark-driven native-vs-JS auto-selection for `@ignex/native`.
  *
  * Measures the RAW castrum addon implementation against the pure-TS
  * `*Fallback` for every op in the SELECTION table (NOT wrapper-vs-wrapper,
@@ -82,7 +82,7 @@ const MODE = isNativeAvailable() ? "NATIVE" : "FALLBACK";
 
 if (!native) {
   console.error(
-    "select-native: castrum addon not loaded — cannot measure native. Install/build it or set IGNUS_NATIVE_PATH.",
+    "select-native: castrum addon not loaded — cannot measure native. Install/build it or set IGNEX_NATIVE_PATH.",
   );
   process.exit(2);
 }

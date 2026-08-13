@@ -3,7 +3,7 @@
  * generator (single source of truth).
  */
 
-import { generateOpenAPI } from "@ignus/shared";
+import { generateOpenAPI } from "@ignex/shared";
 import type { CompilerOptions, RouteIR } from "../../types";
 
 const toRouteDefinition = (route: RouteIR): Parameters<typeof generateOpenAPI>[1][number] => {
@@ -33,7 +33,7 @@ const toRouteDefinition = (route: RouteIR): Parameters<typeof generateOpenAPI>[1
 
 /**
  * OpenAPI 3.1 shaping for the built app. This delegates to the shared
- * `generateOpenAPI` (from `@ignus/shared`) — the single source of truth — so
+ * `generateOpenAPI` (from `@ignex/shared`) — the single source of truth — so
  * the runtime docs and the compiled `openapi.json` can never drift. Only the
  * RouteIR → `RouteDefinition` mapping lives here.
  */
@@ -43,7 +43,7 @@ export const generateOpenApi = (
 ): Record<string, unknown> =>
   generateOpenAPI(
     {
-      title: opts.serviceName ?? "ignus",
+      title: opts.serviceName ?? "ignex",
       version: "1.0.0",
     },
     routes.map(toRouteDefinition),

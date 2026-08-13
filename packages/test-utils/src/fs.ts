@@ -18,7 +18,7 @@ export interface TmpWorkspace {
 }
 
 /** Create a throwaway temp workspace under the OS tmp dir. */
-export const tmpWorkspace = async (prefix = "ignus-test-"): Promise<TmpWorkspace> => {
+export const tmpWorkspace = async (prefix = "ignex-test-"): Promise<TmpWorkspace> => {
   const dir = await mkdtemp(join(tmpdir(), prefix));
   return {
     dir,
@@ -37,7 +37,7 @@ export const tmpWorkspace = async (prefix = "ignus-test-"): Promise<TmpWorkspace
 /** Materialize a flat or nested `{ "dir/file.ts": "content" }` map into tmp. */
 export const materializeFiles = async (
   files: Record<string, string>,
-  prefix = "ignus-fixture-",
+  prefix = "ignex-fixture-",
 ): Promise<TmpWorkspace> => {
   const ws = await tmpWorkspace(prefix);
   for (const [relPath, content] of Object.entries(files)) {

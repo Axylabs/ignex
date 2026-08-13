@@ -1,5 +1,5 @@
-import { safeJoin } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { safeJoin } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 export default get(async (ctx) => {
   const name = ctx.params.name;

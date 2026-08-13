@@ -1,4 +1,4 @@
-import { post } from "@ignus/core/http";
+import { post } from "@ignex/core/http";
 
 /** POST /body — content-type-driven parse summary (json/form/text/raw). */
 export default post(async (ctx) => {

@@ -2,13 +2,13 @@
  * @fileoverview CORS plugin — Bun 1.4 hardened edition.
  */
 
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { appendVary, mutateHeaders } from "../http/headers";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link cors}. */
 export interface CorsOptions {
-  origin?: string | string[] | ((origin: string, ctx: IgnusContext) => boolean);
+  origin?: string | string[] | ((origin: string, ctx: IgnexContext) => boolean);
   methods?: string[];
   allowedHeaders?: string[];
   exposedHeaders?: string[];
@@ -27,7 +27,7 @@ const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
  * (a browser-forbidden, insecure combination).
  * @returns The CORS plugin.
  */
-export const cors = (options: CorsOptions = {}): IgnusPlugin => {
+export const cors = (options: CorsOptions = {}): IgnexPlugin => {
   const {
     origin = "*",
     methods = DEFAULT_METHODS,
@@ -44,7 +44,7 @@ export const cors = (options: CorsOptions = {}): IgnusPlugin => {
     );
   }
 
-  const isOriginAllowed = (requestOrigin: string, ctx: IgnusContext): boolean => {
+  const isOriginAllowed = (requestOrigin: string, ctx: IgnexContext): boolean => {
     if (origin === "*") return true;
     if (typeof origin === "string") return origin === requestOrigin;
     if (Array.isArray(origin)) return origin.includes(requestOrigin);
@@ -53,7 +53,7 @@ export const cors = (options: CorsOptions = {}): IgnusPlugin => {
 
   // `requestOrigin` is pre-fetched by the caller (the onResponse gate fetches
   // it once) so the Origin header is not converted to a JS string twice.
-  const setCorsHeaders = (ctx: IgnusContext, headers: Headers, requestOrigin?: string): void => {
+  const setCorsHeaders = (ctx: IgnexContext, headers: Headers, requestOrigin?: string): void => {
     const originValue = requestOrigin ?? ctx.headers.get("origin") ?? "";
     // No Origin header → nothing to echo and nothing to vary on (matches
     // express-cors: `Vary: Origin` is only emitted when an Origin is present).

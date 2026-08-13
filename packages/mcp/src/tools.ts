@@ -1,5 +1,5 @@
 /**
- * Ignus MCP tools — the agent-facing operations.
+ * Ignex MCP tools — the agent-facing operations.
  *
  * Each tool returns a plain string (or JSON string) rendered as a text block,
  * and degrades gracefully: build/route/openapi never throw into the protocol
@@ -10,9 +10,9 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { parseRouteInput, routeFileTemplate } from "@ignus/cli/route";
-import { buildAsync } from "@ignus/compiler";
-import { isNativeAvailable } from "@ignus/native";
+import { parseRouteInput, routeFileTemplate } from "@ignex/cli/route";
+import { buildAsync } from "@ignex/compiler";
+import { isNativeAvailable } from "@ignex/native";
 
 const cwd = (root?: string): string => resolve(root ?? process.cwd());
 
@@ -41,7 +41,7 @@ export const runBuildTool = async (args: BuildToolArgs): Promise<string> => {
   try {
     const result = await buildAsync({
       routesDir: args.routesDir ? resolve(root, args.routesDir) : join(root, "src/routes"),
-      outDir: args.outDir ? resolve(root, args.outDir) : join(root, ".ignus"),
+      outDir: args.outDir ? resolve(root, args.outDir) : join(root, ".ignex"),
       outFile: "server.js",
       minify: args.minify ?? false,
       generateTypes: true,
@@ -124,7 +124,7 @@ export interface InfoToolArgs {
 /** Environment + config snapshot for the project root. */
 export const runInfoTool = async (args: InfoToolArgs): Promise<string> => {
   const root = cwd(args.root);
-  const configPath = join(root, "ignus.config.mjs");
+  const configPath = join(root, "ignex.config.mjs");
   const appConfigPath = join(root, "src/app.config.ts");
 
   return safeJson({
@@ -158,12 +158,12 @@ export const runDoctorTool = async (): Promise<string> => {
       ok: isNativeAvailable(),
       detail: isNativeAvailable()
         ? "native addon (castrum) active"
-        : "native addon missing — pure-TS fallbacks active (set IGNUS_NATIVE_PATH to override)",
+        : "native addon missing — pure-TS fallbacks active (set IGNEX_NATIVE_PATH to override)",
     },
     {
       name: "compiler",
       ok: true,
-      detail: "@ignus/compiler importable",
+      detail: "@ignex/compiler importable",
     },
   ];
 
@@ -178,7 +178,7 @@ export interface OpenApiToolArgs {
 /** Build (if needed) and return the generated openapi.json. */
 export const runOpenApiTool = async (args: OpenApiToolArgs): Promise<string> => {
   const root = cwd(args.root);
-  const outDir = join(root, ".ignus");
+  const outDir = join(root, ".ignex");
   const openapiPath = join(outDir, "openapi.json");
 
   await runBuildTool({ root: args.root, outDir, routesDir: undefined, minify: undefined });
@@ -200,10 +200,10 @@ export interface DevToolArgs {
   port: number | undefined;
 }
 
-/** Spawn `ignus dev` in the project and report the process. */
+/** Spawn `ignex dev` in the project and report the process. */
 export const runDevTool = (args: DevToolArgs): string => {
   const root = cwd(args.root);
-  const argsList = ["ignus", "dev", root];
+  const argsList = ["ignex", "dev", root];
   if (args.port) argsList.push("--port", String(args.port));
 
   const child = spawn("bunx", argsList, {

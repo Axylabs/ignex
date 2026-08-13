@@ -10,7 +10,7 @@
  * (404/405/OPTIONS/HEAD), CORS, security headers, gzip compression, and a
  * concurrency sanity check. Exits non-zero if the server fails to boot or any
  * assertion fails. Used by `bun run smoke` (and `bun run smoke:fallback` with
- * `IGNUS_NATIVE=off`) and the CI pipeline.
+ * `IGNEX_NATIVE=off`) and the CI pipeline.
  *
  * Requires the app to be built first (`bun run build`).
  *
@@ -152,7 +152,7 @@ try {
     expectStatus(res, 200);
     // The constant string is serialized as JSON, so the raw body is quoted.
     const parsed = JSON.parse(await res.text()) as unknown;
-    if (parsed !== "ignus zero-runtime API") {
+    if (parsed !== "ignex zero-runtime API") {
       throw new Error(`body ${JSON.stringify(parsed)}`);
     }
   });
@@ -235,7 +235,7 @@ try {
   await check("GET /page → 200 text/html + rendered title", async () => {
     const res = await fetch(`${BASE}/page`);
     expectHeaderContains(res, "content-type", "text/html");
-    await expectText(res, 200, "Ignus demo");
+    await expectText(res, 200, "Ignex demo");
   });
 
   await check("GET /page?name=Ada → name reflected", async () => {

@@ -2,7 +2,7 @@
  * ContextUsage tests — the compiler ↔ runtime AOT contract bitmap.
  */
 
-import { type ContextUsage, EMPTY_USAGE, FULL_USAGE } from "@ignus/shared";
+import { type ContextUsage, EMPTY_USAGE, FULL_USAGE } from "@ignex/shared";
 import { describe, expect, it } from "vitest";
 
 const FLAGS: (keyof ContextUsage)[] = [

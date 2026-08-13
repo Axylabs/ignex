@@ -10,12 +10,12 @@
     "noEmit": true,
     "types": ["node"],
     "paths": {
-      "@ignus/shared": ["../shared/src/index.ts"],
-      "@ignus/core": ["../core/src/index.ts"],
-      "@ignus/core/http": ["../core/src/http/route.ts"],
-      "@ignus/core/*": ["../core/src/*"],
-      "@ignus/compiler": ["../compiler/src/index.ts"],
-      "@ignus/native": ["../native/src/index.ts"],
+      "@ignex/shared": ["../shared/src/index.ts"],
+      "@ignex/core": ["../core/src/index.ts"],
+      "@ignex/core/http": ["../core/src/http/route.ts"],
+      "@ignex/core/*": ["../core/src/*"],
+      "@ignex/compiler": ["../compiler/src/index.ts"],
+      "@ignex/native": ["../native/src/index.ts"],
       "castrum": ["../native/src/vendor/castrum.d.ts"]
     }
   },

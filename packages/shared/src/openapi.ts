@@ -1,8 +1,8 @@
 /**
  * @fileoverview OpenAPI 3.1 Specification Generator (shared).
  *
- * Lives in `@ignus/shared` — the compiler ↔ runtime contract vocabulary — so
- * `@ignus/core` (runtime docs) and `@ignus/compiler` (generated openapi.json)
+ * Lives in `@ignex/shared` — the compiler ↔ runtime contract vocabulary — so
+ * `@ignex/core` (runtime docs) and `@ignex/compiler` (generated openapi.json)
  * share ONE implementation with zero cross-package import risk. `shared` has
  * no runtime dependencies, so this module is importable from anywhere.
  *
@@ -34,7 +34,7 @@ export interface OpenAPIRouteSchema {
 /**
  * A route as the OpenAPI generator consumes it: one HTTP operation.
  *
- * This is the compiler↔shared contract — `@ignus/compiler` maps its internal
+ * This is the compiler↔shared contract — `@ignex/compiler` maps its internal
  * route IR onto this shape before calling {@link generateOpenAPI}.
  */
 export interface RouteDefinition {

@@ -13,7 +13,7 @@
  * `form-data.ts`, `limits.ts`, `errors.ts`).
  */
 
-import { formPairs } from "@ignus/native";
+import { formPairs } from "@ignex/native";
 import { convertBody } from "./conversion";
 import { BodyParseError } from "./errors";
 import {

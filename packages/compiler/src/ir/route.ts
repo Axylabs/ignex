@@ -16,7 +16,7 @@
  * - {@link RouteIRCodegen}  — codegen-owned identifiers (e.g. `handlerRef`).
  */
 
-import type { ContextUsage } from "@ignus/shared";
+import type { ContextUsage } from "@ignex/shared";
 import type {
   HttpMethod,
   ResponseType,

@@ -8,7 +8,7 @@ import {
   createContext,
   createPluginContext,
   pluginContextToLifecycle,
-} from "@ignus/core";
+} from "@ignex/core";
 import { describe, expect, it } from "vitest";
 
 const req = () => new Request("http://localhost:3000/");
@@ -113,8 +113,8 @@ describe("pluginsToLifeCycle", () => {
 describe("pluginContextToLifecycle", () => {
   it("converts hooks registered on the plugin context into lifecycle stages", () => {
     const ctx = createPluginContext();
-    const ignusCtx = createContext(req(), {});
-    ctx.addHook("beforeHandle", async () => ({ ok: true, ctx: ignusCtx }));
+    const ignexCtx = createContext(req(), {});
+    ctx.addHook("beforeHandle", async () => ({ ok: true, ctx: ignexCtx }));
 
     const lc = pluginContextToLifecycle(ctx);
     expect(lc.beforeHandle).toHaveLength(1);

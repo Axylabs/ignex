@@ -43,7 +43,7 @@ export async function runDev(args: string[]): Promise<void> {
   }
 
   const config = await loadConfig(root);
-  const outDir = String(values.outDir ?? config.outDir ?? ".ignus");
+  const outDir = String(values.outDir ?? config.outDir ?? ".ignex");
 
   let child: ChildProcess | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -290,7 +290,7 @@ export async function runDev(args: string[]): Promise<void> {
         }
       }
 
-      // Single source of truth for config files (includes ignus.config.json).
+      // Single source of truth for config files (includes ignex.config.json).
       for (const file of CONFIG_FILES) {
         try {
           const watcher = watch(resolve(root, file), () => {

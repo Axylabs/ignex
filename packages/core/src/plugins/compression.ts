@@ -6,11 +6,11 @@
  * path remains the fallback (deflate, brotli, or native unavailable).
  */
 
-import { gzipCompress, isNativeAvailable } from "@ignus/native";
+import { gzipCompress, isNativeAvailable } from "@ignex/native";
 import { etagWithEncoding, isCompressible, negotiateEncoding } from "../data/content-encoding";
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { appendVary } from "../http/headers";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link compression}. */
 export interface CompressionOptions {
@@ -40,7 +40,7 @@ try {
  * @param options - Size threshold, content-type filter, native toggle.
  * @returns The compression plugin.
  */
-export const compression = (options: CompressionOptions = {}): IgnusPlugin => {
+export const compression = (options: CompressionOptions = {}): IgnexPlugin => {
   const { threshold = 1024, filter = isCompressible, native = true } = options;
 
   const serveUncompressed = (
@@ -112,7 +112,7 @@ interface CompressPlan {
  * no acceptable encoding, or unreadable body).
  */
 async function buildPlan(
-  ctx: IgnusContext,
+  ctx: IgnexContext,
   response: Response,
   threshold: number,
   filter: (contentType: string) => boolean,

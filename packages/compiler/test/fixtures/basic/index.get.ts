@@ -1,2 +1,2 @@
 // Constant text response — pure, so it is emitted as a constant body.
-export default () => "ignus zero-runtime API";
+export default () => "ignex zero-runtime API";

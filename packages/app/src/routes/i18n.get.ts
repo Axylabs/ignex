@@ -1,5 +1,5 @@
-import { createI18n } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { createI18n } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 const i18n = createI18n(
   {

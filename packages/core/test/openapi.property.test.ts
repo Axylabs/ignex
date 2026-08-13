@@ -2,10 +2,10 @@
  * Property-based tests for the OpenAPI generator: invariants that must hold
  * over generated route sets — unique operationIds, path/parameter agreement,
  * ALL/WS exclusion, and structural validity. Uses fast-check + shared
- * arbitraries from `@ignus/test-utils` for data variety.
+ * arbitraries from `@ignex/test-utils` for data variety.
  */
 
-import { arbHttpMethod, arbJsonObject, arbRoutePath } from "@ignus/test-utils";
+import { arbHttpMethod, arbJsonObject, arbRoutePath } from "@ignex/test-utils";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { HttpMethod, RouteDefinition } from "../src/index.js";

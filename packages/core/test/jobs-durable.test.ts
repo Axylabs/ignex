@@ -14,7 +14,7 @@ import {
   type StoredJob,
 } from "../src/platform";
 
-const tmp = () => mkdtempSync(join(tmpdir(), "ignus-jobs-"));
+const tmp = () => mkdtempSync(join(tmpdir(), "ignex-jobs-"));
 
 const waitFor = async (fn: () => boolean, timeoutMs = 2000): Promise<void> => {
   const start = Date.now();

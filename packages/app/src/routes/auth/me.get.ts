@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 export const config = { hooks: ["require-auth"] };
 

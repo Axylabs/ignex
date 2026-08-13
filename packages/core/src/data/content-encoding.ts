@@ -5,7 +5,7 @@
  * testable in isolation and shared by the compression plugin.
  */
 
-import { parseAcceptEncoding } from "@ignus/native";
+import { parseAcceptEncoding } from "@ignex/native";
 
 /** Content-type prefixes that are safe to compress (text-like, not media). */
 const COMPRESSIBLE_PREFIXES = [

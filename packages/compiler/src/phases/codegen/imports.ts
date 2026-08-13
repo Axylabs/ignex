@@ -1,5 +1,5 @@
 /**
- * @fileoverview Codegen: stage 1 — `@ignus/core` import assembly + per-route
+ * @fileoverview Codegen: stage 1 — `@ignex/core` import assembly + per-route
  * imports (handlers, validators, serializers, hooks, app config).
  */
 

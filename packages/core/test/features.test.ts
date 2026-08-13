@@ -21,7 +21,7 @@ import {
   withLayout,
   withRetry,
   withTimeout,
-} from "@ignus/core";
+} from "@ignex/core";
 import { afterAll, describe, expect, it } from "vitest";
 
 describe("templates", () => {
@@ -51,19 +51,19 @@ describe("templates", () => {
 });
 
 describe("env & config", () => {
-  const dir = mkdtempSync(join(tmpdir(), "ignus-env-"));
+  const dir = mkdtempSync(join(tmpdir(), "ignex-env-"));
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it("loadEnv parses dotenv files without overriding real env", () => {
     writeFileSync(
       join(dir, ".env"),
-      'IGNUS_TEST_A=hello\nIGNUS_TEST_N=42\nIGNUS_TEST_B=true\n# comment\nIGNUS_TEST_J={"x":1}\n',
+      'IGNEX_TEST_A=hello\nIGNEX_TEST_N=42\nIGNEX_TEST_B=true\n# comment\nIGNEX_TEST_J={"x":1}\n',
     );
     const prev = { ...process.env };
     loadEnv([join(dir, ".env")]);
-    expect(process.env.IGNUS_TEST_A).toBe("hello");
-    expect(process.env.IGNUS_TEST_N).toBe("42");
+    expect(process.env.IGNEX_TEST_A).toBe("hello");
+    expect(process.env.IGNEX_TEST_N).toBe("42");
     // restore
     for (const k of Object.keys(process.env)) if (!(k in prev)) delete process.env[k];
   });

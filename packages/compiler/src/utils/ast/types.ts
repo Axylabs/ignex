@@ -6,7 +6,7 @@
  * machinery.
  */
 
-import type { ContextUsage } from "@ignus/shared";
+import type { ContextUsage } from "@ignex/shared";
 
 /** A route handler extracted from a module's default or named export. */
 export interface ExtractedHandler {

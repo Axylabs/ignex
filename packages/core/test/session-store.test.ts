@@ -73,7 +73,7 @@ describe("createSqliteSessionStore", () => {
   it("persists across store instances when file-backed", async () => {
     const file = join(
       tmpdir(),
-      `ignus-session-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
+      `ignex-session-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
     );
     const store1 = await createSqliteSessionStore(file);
     if (!store1) return;

@@ -2,7 +2,7 @@
  * @fileoverview Session plugin — attaches the current session to every request.
  */
 
-import { hookToPlugin, type IgnusPlugin } from "../lifecycle/plugin";
+import { hookToPlugin, type IgnexPlugin } from "../lifecycle/plugin";
 import { createSessionManager, type SessionManagerOptions } from "../security/session";
 
 /** Options for {@link session}. */
@@ -23,7 +23,7 @@ export interface SessionPluginOptions extends SessionManagerOptions {
  * @param options - Session manager options + creation policy (`createIfMissing`).
  * @returns The session plugin (closes the backing store on shutdown).
  */
-export const session = (options: SessionPluginOptions): IgnusPlugin => {
+export const session = (options: SessionPluginOptions): IgnexPlugin => {
   const manager = createSessionManager(options);
   const hook = manager.middleware({ createIfMissing: options.createIfMissing ?? false });
 

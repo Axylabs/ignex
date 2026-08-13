@@ -1,10 +1,10 @@
-# @ignus/core
+# @ignex/core
 
-Runtime primitives for ignus — the HTTP context, lifecycle, auth, plugins,
+Runtime primitives for ignex — the HTTP context, lifecycle, auth, plugins,
 validation, and every helper the generated server imports at runtime.
 
 Source-only package (`exports` → `src/index.ts`), imported directly by
-`@ignus/compiler`'s generated code. This is the **single source of truth** for
+`@ignex/compiler`'s generated code. This is the **single source of truth** for
 runtime behavior; the compiler never duplicates it.
 
 ## Module map (`src/`)
@@ -15,10 +15,10 @@ Grouped **by use case** into domain folders (each with a pure re-export
 | Folder         | Modules                                                              |
 | -------------- | -------------------------------------------------------------------- |
 | `security/`    | `auth` (requireAuth/optionalAuth/JWT/basic/bearer), `session` (signed-cookie + store), `csrf` (double-submit), `crypto` (JWT / cookie signer / CSRF / password hash / AEAD) |
-| `http/`        | `context` (`IgnusContext` + `createContext`), `cookies`, `headers` (`set`/`applySet`), `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first helpers `get`/`post`/… — subpath `@ignus/core/http`), `conditional` |
+| `http/`        | `context` (`IgnexContext` + `createContext`), `cookies`, `headers` (`set`/`applySet`), `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first helpers `get`/`post`/… — subpath `@ignex/core/http`), `conditional` |
 | `data/`        | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
 | `lifecycle/`   | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics + `mergeLifeCycle`), `plugin` (+ `hookToPlugin`) |
-| `platform/`    | `env` (typed accessors), `config` (`defineConfig` — subpath `@ignus/core/config`), `coerce` (shared string coercion), `jobs`, `errors` (`HTTPError` family) |
+| `platform/`    | `env` (typed accessors), `config` (`defineConfig` — subpath `@ignex/core/config`), `coerce` (shared string coercion), `jobs`, `errors` (`HTTPError` family) |
 | `content/`     | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |
 | `plugins/`     | auth / session / csrf / cors / compression / security / logger / ratelimit / native-preflight factories |
 | `types/`       | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
@@ -28,7 +28,7 @@ generator), `index.ts` (public barrel).
 
 ## The `ctx.set` contract
 
-`IgnusContext.set` is the outgoing channel. The generated server's `__applySet`
+`IgnexContext.set` is the outgoing channel. The generated server's `__applySet`
 helper merges `set.headers`, serializes `set.cookie`, and applies `set.status`.
 Every runtime path that mutates the response goes through it — never write
 headers directly in a way that bypasses `set`.

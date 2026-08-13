@@ -26,7 +26,7 @@ import {
   requireAuth,
   signCookie,
   verifyCookie,
-} from "@ignus/core";
+} from "@ignex/core";
 import { describe, expect, it } from "vitest";
 
 const ctx = (req = new Request("http://localhost:3000/")) => createContext(req, {});
@@ -36,23 +36,23 @@ describe("crypto", () => {
     const jwt = createJwt({
       secret: "s3cret",
       ttlSeconds: 3600,
-      issuer: "ignus",
+      issuer: "ignex",
       audience: "web",
     });
     const token = jwt.sign({ sub: "1", role: "admin" });
     const claims = jwt.verify(token) as Record<string, unknown>;
     expect(claims.sub).toBe("1");
-    expect(claims.iss).toBe("ignus");
+    expect(claims.iss).toBe("ignex");
     expect(claims.aud).toBe("web");
     expect(claims.iat).toBeTypeOf("number");
     expect(claims.exp).toBeTypeOf("number");
   });
 
   it("rejects wrong issuer/audience", () => {
-    const jwt = createJwt({ secret: "s3cret", issuer: "ignus", audience: "web" });
+    const jwt = createJwt({ secret: "s3cret", issuer: "ignex", audience: "web" });
     const token = jwt.sign({ sub: "1" });
     const otherIssuer = createJwt({ secret: "s3cret", issuer: "other", audience: "web" });
-    const otherAudience = createJwt({ secret: "s3cret", issuer: "ignus", audience: "mobile" });
+    const otherAudience = createJwt({ secret: "s3cret", issuer: "ignex", audience: "mobile" });
     expect(otherIssuer.verify(token)).toBeNull();
     expect(otherAudience.verify(token)).toBeNull();
   });

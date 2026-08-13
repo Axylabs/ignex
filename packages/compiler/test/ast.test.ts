@@ -212,7 +212,7 @@ describe("hasDefaultExportAST", () => {
 
 describe("extractHandler / extractHandlerExport", () => {
   it("extracts a default wrapper export (get(async () => …))", () => {
-    const src = `import { get } from "@ignus/core/http";\nexport default get(async (ctx) => ctx.json({ ok: true }));\n`;
+    const src = `import { get } from "@ignex/core/http";\nexport default get(async (ctx) => ctx.json({ ok: true }));\n`;
     const parsed = parseModule(src);
 
     expect(parsed.handler).not.toBeNull();
@@ -588,9 +588,9 @@ describe("extractConstantReturn (hardening)", () => {
 
   it("extracts constants from named-export handlers", () => {
     const r = extractConstantReturn(
-      parseModule(`export const httpGet = () => "ignus named export";`).ast,
+      parseModule(`export const httpGet = () => "ignex named export";`).ast,
     );
-    expect(r).toEqual(expect.objectContaining({ ok: true, value: "ignus named export" }));
+    expect(r).toEqual(expect.objectContaining({ ok: true, value: "ignex named export" }));
   });
 
   it("rejects multi-return handlers (regression: was mis-hoisted)", () => {

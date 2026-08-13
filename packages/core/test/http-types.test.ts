@@ -1,12 +1,12 @@
 /**
- * Type-level tests for the schema-first route helpers (`@ignus/core/http`).
+ * Type-level tests for the schema-first route helpers (`@ignex/core/http`).
  *
  * These lock the inference contract: the schema passed as the second
  * argument types `ctx.query`, `ctx.body`, and the response value. They are
  * compile-time assertions only — use `expect-type`.
  */
 
-import { get, head, options, post } from "@ignus/core/http";
+import { get, head, options, post } from "@ignex/core/http";
 import { expectTypeOf } from "expect-type";
 import { describe, it } from "vitest";
 

@@ -1,6 +1,6 @@
 /**
  * High-level security primitives: JWT, signed cookies, CSRF, passwords and
- * AEAD encryption — backed by the Rust addon through `@ignus/native` (with
+ * AEAD encryption — backed by the Rust addon through `@ignex/native` (with
  * byte-compatible pure-TS fallbacks). Composable, stateless, safe by default.
  */
 import { randomBytes } from "node:crypto";
@@ -20,13 +20,13 @@ import {
   randomToken,
   signCookie,
   verifyCookie,
-} from "@ignus/native";
+} from "@ignex/native";
 
 export type {
   JwtSignOptions,
   JwtVerifyOptions,
   PasswordHashOptions,
-} from "@ignus/native";
+} from "@ignex/native";
 
 // Low-level primitives (re-exported for direct use).
 export {

@@ -3,19 +3,19 @@
  *
  * Loads the castrum NAPI addon (.node binary) once, lazily, and NEVER throws:
  * when the addon is missing (or fails to load) we fall back to the pure-TS
- * implementations, so ignus works everywhere and native is purely an
+ * implementations, so ignex works everywhere and native is purely an
  * acceleration layer.
  *
  * Why not `import("castrum")`? The bare specifier is mapped by the root
  * tsconfig `paths` to `./vendor/castrum.d.ts` (a type-only stub), and Bun
  * honors tsconfig `paths` at runtime — so a bare import would resolve to an
  * empty module. Instead we locate the castrum package directory via
- * `@ignus/native`'s own `node_modules` symlink (or the `file:` target from our
+ * `@ignex/native`'s own `node_modules` symlink (or the `file:` target from our
  * package.json) and load the addon BINARY directly. Node-API modules must be
  * loaded with `require`/`process.dlopen`, not ESM `import`.
  *
  * Resolution order:
- *   1. `IGNUS_NATIVE_PATH` — explicit override (.node path or module specifier).
+ *   1. `IGNEX_NATIVE_PATH` — explicit override (.node path or module specifier).
  *   2. The castrum package's `*.node` binary (scanned in the package root,
  *      then `dist/`).
  *   3. The castrum package entry (index.ts under Bun / dist/index.js) via an
@@ -183,18 +183,18 @@ const normalize = (mod: unknown): unknown =>
 /** One-time (and debug-gated) log so broken addon loads are diagnosable. */
 let reportedLoadFailure = false;
 const reportLoadFailure = (err: unknown): void => {
-  if (reportedLoadFailure || process.env.IGNUS_NATIVE !== "debug") return;
+  if (reportedLoadFailure || process.env.IGNEX_NATIVE !== "debug") return;
   reportedLoadFailure = true;
-  console.info("[ignus-native] failed to load addon:", err);
+  console.info("[ignex-native] failed to load addon:", err);
 };
 
 const init = (async (): Promise<void> => {
-  // Master switch: `IGNUS_NATIVE=off` disables the addon even when installed
+  // Master switch: `IGNEX_NATIVE=off` disables the addon even when installed
   // (e.g. for parity debugging). Anything else (auto/unset) uses it when present.
-  if (process.env.IGNUS_NATIVE === "off") return;
+  if (process.env.IGNEX_NATIVE === "off") return;
 
   try {
-    const override = process.env.IGNUS_NATIVE_PATH;
+    const override = process.env.IGNEX_NATIVE_PATH;
 
     if (override) {
       const mod = override.endsWith(".node") ? requireAddon(override) : await import(override);

@@ -1,5 +1,5 @@
 /**
- * Public route-scaffolding helpers — reused by `@ignus/mcp` and other tooling
+ * Public route-scaffolding helpers — reused by `@ignex/mcp` and other tooling
  * so route generation never drifts from the CLI's implementation.
  */
 

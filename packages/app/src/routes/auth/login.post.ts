@@ -1,10 +1,10 @@
-import { createJwt } from "@ignus/core";
-import { post } from "@ignus/core/http";
+import { createJwt } from "@ignex/core";
+import { post } from "@ignex/core/http";
 
 const jwt = createJwt({
   secret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   ttlSeconds: 3600,
-  issuer: "ignus-demo",
+  issuer: "ignex-demo",
 });
 
 const USERS: Record<string, string> = {

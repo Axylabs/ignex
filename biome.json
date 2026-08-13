@@ -5,7 +5,7 @@
     "includes": [
       "**",
       "!**/dist",
-      "!**/.ignus",
+      "!**/.ignex",
       "!**/node_modules",
       "!**/.git",
       "!coverage",

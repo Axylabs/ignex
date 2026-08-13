@@ -63,7 +63,7 @@ export interface JsonDeriveResult {
  * backed by `fast_schema` + the `jsonschema` crate).
  *
  * Returns `null` when the Rust addon is unavailable — callers (e.g.
- * `@ignus/core` runtime validation) keep their own TS validator (Ajv) as the
+ * `@ignex/core` runtime validation) keep their own TS validator (Ajv) as the
  * fallback instead of duplicating a full JSON-Schema engine here. Native
  * validation is proven fastest for large schemas / batch workloads; prefer
  * the TS validator for small one-off documents.

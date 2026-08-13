@@ -80,7 +80,7 @@ Large inputs (≥128 bytes) so the adaptive native path engages. `ratio = native
 ## End-to-end compiled-server benchmark (`bun run bench:server`) — 2026-08-12
 
 A repeatable, interleaved median-of-3 HTTP load bench of the **AOT-compiled**
-`packages/app/dist/__server.js` (native-on vs `IGNUS_NATIVE=off`), reporting
+`packages/app/dist/__server.js` (native-on vs `IGNEX_NATIVE=off`), reporting
 per-route req/s + p50/p95/p99. Results in `bench/results/server/{latest,<ts>}.json`.
 Methodology: modes are interleaved (alternating which runs first) and the reported
 numbers are the median across repeats — this cancels the order/thermal noise that
@@ -119,7 +119,7 @@ isolated** (`scripts/bench-server-routes.ts`) so routes don't throttle each othe
 
 ### Findings (all measured)
 
-1. **Core ignus runtime ≈ raw-Bun.** With no plugins, `/health` = 62K rps
+1. **Core ignex runtime ≈ raw-Bun.** With no plugins, `/health` = 62K rps
    (0.33ms) vs raw-Bun 85K (0.25ms) — the framework core is 1.36× of raw Bun.
 2. **The compression plugin was the dominant cost.** Bun sets **no
    `content-length`** on any `Response`, so the plugin's `threshold` pre-check
@@ -183,7 +183,7 @@ its computed headers so the response can be assembled without a JS re-wrap.
 - `createPipeline` (castrum) bakes security headers from
   **`runtime.securityHeaders`** into its terminal/error templates — not from
   `options.security` (that only drives the legacy `buildFastTemplates` path).
-- Added a `runtime` pass-through to `@ignus/native` (`NativePipelineOptions`) and
+- Added a `runtime` pass-through to `@ignex/native` (`NativePipelineOptions`) and
   to `nativePreflight({ runtime })`, and configured the app to pre-bake
   `x-frame-options: DENY`, `x-content-type-options: nosniff`,
   `referrer-policy: no-referrer` at boot (`init()`).
@@ -200,7 +200,7 @@ its computed headers so the response can be assembled without a JS re-wrap.
   bench numbers are unchanged (native ≈ 1.09 ms /health ≈ the committed 1.02 ms
   baseline — no regression; note the bench box thermal-throttles, absolute
   numbers varied 7–19K rps for identical code on 2026-08-12).
-- ignus's own body-size 413 (`BODY_PARSE_ERROR`, `http/body.ts`) fires before the
+- ignex's own body-size 413 (`BODY_PARSE_ERROR`, `http/body.ts`) fires before the
   pipeline when `readBody:false`, so that path is not Rust-served yet.
 - Castrum's baked OK templates do not emit `access-control-allow-origin` (it is
   added dynamically per request on terminal CORS via `responseHeaders`). Moving
@@ -251,7 +251,7 @@ would save <0.2% of `/api/orders` (2.8 ms) and requires a compiler change to
 pass per-route schemas to the (global) pipeline. **Keep precompiled Ajv.**
 
 ### Follow-up #3 (body guard) — closed in JS, NOT in the pipeline
-The pipeline has a single `maxBodyBytes` but ignus has per-body-type limits
+The pipeline has a single `maxBodyBytes` but ignex has per-body-type limits
 (JSON/text/form 2 MB, files 20 MB) — a global pipeline guard would break
 `/upload`. The "413 lacks security headers" gap is instead closed at the
 framework error envelope: `platform/errors.ts` `JSON_HEADERS` now always carries
@@ -290,7 +290,7 @@ cost). Changes landed across BOTH repos:
    413 short-circuit). Typecheck clean; 580 TS tests pass; `bench:http:smoke`
    gate green (0 shape failures).
 
-### ignus — `packages/core/src/plugins/`
+### ignex — `packages/core/src/plugins/`
 1. **CORS no-Origin fast path** (`cors.ts`): `onResponse` now returns the
    *identical* Response object when the request has no `Origin` header — zero
    `Headers` copy + zero re-wrap on the common path (matches express-cors:
@@ -307,9 +307,9 @@ cost). Changes landed across BOTH repos:
   tail is the signature of reduced per-request allocation/GC pressure.
   Single-run caveat applies (laptop noise), but p50 being stable strengthens
   the signal.
-- **ignus interleaved A/B `/health`**: native ≈ fallback p50 0.85 ms (ratio
+- **ignex interleaved A/B `/health`**: native ≈ fallback p50 0.85 ms (ratio
   1.00) — parity confirmed, no regression from the plugin changes.
-- **ignus verify**: 780/780 vitest, typecheck + lint green. Biome now ignores
+- **ignex verify**: 780/780 vitest, typecheck + lint green. Biome now ignores
   `bench/results/` (generated benchmark JSON was failing the formatting gate).
 
 ### Deferred (documented follow-ups, not regressions)
@@ -323,7 +323,7 @@ cost). Changes landed across BOTH repos:
   plugins (`tryNormalizeConstant` bails on global hooks), so it won't move the
   bench app. Pre-baking plugin headers (security/CORS) into static responses at
   build time is the real feature — larger, deferred.
-- **Dynamic routing**: compiled ignus already handles `:param` via Bun's native
+- **Dynamic routing**: compiled ignex already handles `:param` via Bun's native
   router; the gap is castrum's static-only `createIngressServer(ServerNode)`
   and the interpreted `createApp` (no router). Feature-sized, deferred.
 - **castrum lint debt (pre-existing)**: `src/ingress/` uses double quotes while
@@ -337,7 +337,7 @@ native execution. Honest finding from grounding: castrum's pipeline is ALREADY
 Rust (parse/guard/validate/serialize/rate/CORS); the remaining per-request wins
 are structural JS around it — so P1 landed two verifiable slices.
 
-### 1. ignus: reply builders emit `content-length` (`packages/compiler/src/phases/codegen/helpers.ts`)
+### 1. ignex: reply builders emit `content-length` (`packages/compiler/src/phases/codegen/helpers.ts`)
 - New `__withBody` codegen helper encodes a string body via `TextEncoder`
   (one pass) and sets an accurate `content-length`. `jsonReply`/`textReply`/
   `htmlReply` and `__finalize`'s serializer path go through it.
@@ -523,11 +523,11 @@ Elysia uses (`src/context.ts`, a per-app `WeakMap`-cached class).
 
 ### The change (`packages/core/src/http/context.ts`)
 - Replaced the object-literal `createContext` with a shared-prototype
-  **`IgnusContextImpl` class**: every method + getter (`json/text/html/stream/
+  **`IgnexContextImpl` class**: every method + getter (`json/text/html/stream/
   empty/status/redirect/sendFile/proxy/forward/cache/loader`, `url/path/query/
   requestId/ip/state`) lives on the prototype once; each request only allocates
   the instance DATA fields (req, params, set, body, cookie jar, startTime).
-  `createContext` is now `new IgnusContextImpl(req, params, opts)`.
+  `createContext` is now `new IgnexContextImpl(req, params, opts)`.
 - Also made `ctx.requestId` lazily generated (cached getter) — most requests
   never read it, so the ~2-string id is no longer built eagerly.
 - Behavior-preserving: same getters/semantics; the compiled server's
@@ -598,7 +598,7 @@ fallback with 0 errors.
 
 ## Round 10 — dynamic routing for castrum (feature, 2026-08-13)
 
-The compiled ignus server already handles `:param` via Bun's native router. This
+The compiled ignex server already handles `:param` via Bun's native router. This
 round closed the gap for castrum's own `createIngressServer` / Node adapter.
 
 Key probe finding: **Bun's native `routes` handlers receive `(req, params,
@@ -676,7 +676,7 @@ For routes with a body schema whose handler does **not** read `ctx.body`
 validation on the raw bytes with a lazy `body.json` parse (Ajv fallback when
 the addon is absent). Avoids `JSON.parse` + the DOM/GC on the happy path for
 the common validate-and-ack pattern. Requires a compiler change (native
-validator emission + `@ignus/native` dependency in the generated server) — not
+validator emission + `@ignex/native` dependency in the generated server) — not
 yet implemented; the app currently has no qualifying ack-route to demonstrate
 it, and the change is fixture/parity-sensitive.
 
@@ -733,7 +733,7 @@ Findings:
   trial-and-error artifact).
 
 ### Wired into the compiled server (`/api/orders`)
-- `@ignus/native`: `SchemaValidator.derive` bridge + `JsonDeriveResult` types.
+- `@ignex/native`: `SchemaValidator.derive` bridge + `JsonDeriveResult` types.
 - `packages/native/src/loader.ts`: **bundled-entry fallback** — when the addon
   code is inlined into `dist/__server.js`, `import.meta.url` points at the app,
   so castrum wasn't found (validator silently null). Now walks up from the

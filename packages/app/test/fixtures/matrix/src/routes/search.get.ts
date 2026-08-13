@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 /** GET /search — echoes the parsed query string (duplicate keys preserved). */
 export default get(async (ctx) => {

@@ -8,14 +8,14 @@
  * (`@hey-api/openapi-ts`) then turns that document into a typed SDK under
  * {@link CLIENT_OUT}.
  *
- * Delegating to `@ignus/compiler` keeps this script's output from ever
- * drifting from `ignus build`'s `openapi.json`.
+ * Delegating to `@ignex/compiler` keeps this script's output from ever
+ * drifting from `ignex build`'s `openapi.json`.
  */
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { CompilerOptions, RouteIR } from "@ignus/compiler";
-import { generateOpenApi, parseRouteFilename } from "@ignus/compiler";
+import type { CompilerOptions, RouteIR } from "@ignex/compiler";
+import { generateOpenApi, parseRouteFilename } from "@ignex/compiler";
 
 const ROUTES_DIR = process.env.ROUTES_DIR || "./packages/app/src/routes";
 const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json";
@@ -71,7 +71,7 @@ async function main() {
     } as unknown as RouteIR);
   }
 
-  const openapi = generateOpenApi(routes, { serviceName: "ignus" } as CompilerOptions);
+  const openapi = generateOpenApi(routes, { serviceName: "ignex" } as CompilerOptions);
 
   mkdirSync(dirname(OPENAPI_OUT), { recursive: true });
 

@@ -1,5 +1,5 @@
 /**
- * Ignus application configuration.
+ * Ignex application configuration.
  *
  * The compiler reads this file at build time and merges `plugins`, `lifecycle`
  * and `server` into the generated `Bun.serve` entry.
@@ -8,15 +8,15 @@ import {
   compression,
   cors,
   createI18n,
-  type IgnusPlugin,
+  type IgnexPlugin,
   nativePreflight,
   security,
   session,
-} from "@ignus/core";
+} from "@ignex/core";
 
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 
-export const plugins: IgnusPlugin[] = [
+export const plugins: IgnexPlugin[] = [
   cors(),
   compression(),
   security(),
@@ -36,7 +36,7 @@ export const plugins: IgnusPlugin[] = [
   // CORS preflight (OPTIONS) stays with the JS `cors()` plugin because it
   // echoes the per-request origin. `readBody` stays false so the framework
   // owns the request body. A safe no-op when the Rust addon is absent (or
-  // with IGNUS_NATIVE=off).
+  // with IGNEX_NATIVE=off).
   nativePreflight({
     runtime: {
       // Baked into castrum's terminal/error header templates (frameOptions,

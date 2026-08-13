@@ -15,7 +15,7 @@
  * - compiled validator cache
  */
 
-import { createSchemaValidator } from "@ignus/native";
+import { createSchemaValidator } from "@ignex/native";
 import Ajv, { type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { ValidationError } from "../platform/errors";

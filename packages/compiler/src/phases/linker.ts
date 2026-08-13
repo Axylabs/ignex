@@ -176,7 +176,7 @@ export const runLinkerAsync = async (
    *   dist/.__server.js.entry.js
    *
    * Wrong:
-   *   dist/.ignus-link/__server.js
+   *   dist/.ignex-link/__server.js
    *
    * Because generated imports are relative to dist/.
    */

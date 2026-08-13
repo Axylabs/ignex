@@ -1,4 +1,4 @@
-# @ignus/shared
+# @ignex/shared
 
 Dependency-free shared toolkit used by every other package: the functional
 core and the **compiler ↔ runtime AOT contract**.

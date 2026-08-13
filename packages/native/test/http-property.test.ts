@@ -4,7 +4,7 @@
  * parity suite with generated-input invariants ("variety of data").
  */
 
-import { arbCookiePair, arbQsValue, arbQueryPair } from "@ignus/test-utils";
+import { arbCookiePair, arbQsValue, arbQueryPair } from "@ignex/test-utils";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {

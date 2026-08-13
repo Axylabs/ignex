@@ -1,5 +1,5 @@
-import { sse } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { sse } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 /** GET /sse — streaming Server-Sent Events. */
 export default get(async () => {

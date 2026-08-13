@@ -4,7 +4,7 @@
  * `scripts/generate-openapi-client.ts` delegates to the compiler — route
  * parsing via `parseRouteFilename` and OpenAPI shaping via `generateOpenApi`
  * over a minimal RouteIR shape it builds from loaded route modules. These
- * tests lock that public contract so the script and `ignus build` can never
+ * tests lock that public contract so the script and `ignex build` can never
  * drift apart again.
  */
 import { describe, expect, it } from "vitest";
@@ -25,7 +25,7 @@ const scriptRoute = (
     decisions: { schemaDoc },
   }) as unknown as RouteIR;
 
-const opts = { serviceName: "ignus" } as CompilerOptions;
+const opts = { serviceName: "ignex" } as CompilerOptions;
 
 describe("parseRouteFilename (shared by CLI, compiler, script)", () => {
   it("decodes the file-based routing convention", () => {

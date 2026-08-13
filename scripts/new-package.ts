@@ -2,14 +2,14 @@
 /**
  * Workspace package scaffolder — `bun scripts/new-package.ts <name>`.
  *
- * Creates `packages/<name>/` following the ignus monorepo conventions
+ * Creates `packages/<name>/` following the ignex monorepo conventions
  * (source-only: exports point at `src/*.ts`, no build step). Reduces the
  * boilerplate of hand-copying package.json/tsconfig/test conventions when
  * adding a new workspace package.
  *
  * Next steps after scaffolding:
  *   - add an alias to `vitest.config.ts` if the package imports other
- *     `@ignus/*` packages from source,
+ *     `@ignex/*` packages from source,
  *   - `bun run --cwd packages/<name> test`.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -22,10 +22,10 @@ if (!input) {
 }
 
 const safe = input
-  .replace(/^@ignus\//, "")
+  .replace(/^@ignex\//, "")
   .replace(/[^a-z0-9-]/gi, "-")
   .toLowerCase();
-const pkgName = `@ignus/${safe}`;
+const pkgName = `@ignex/${safe}`;
 const root = resolve(import.meta.dir, "..");
 const dir = join(root, "packages", safe);
 
@@ -51,7 +51,7 @@ const packageJson = {
     typecheck: "tsc --noEmit -p ../../tsconfig.json",
     test: "vitest run",
   },
-  description: `${safe} package for Ignus.`,
+  description: `${safe} package for Ignex.`,
   exports: { ".": "./src/index.ts" },
   devDependencies: {
     typescript: "^7.0.2",
@@ -77,7 +77,7 @@ describe("${safe}", () => {
 
 const readme = `# ${pkgName}
 
-> ${safe} package for Ignus.
+> ${safe} package for Ignex.
 
 ## Development
 
@@ -95,6 +95,6 @@ writeFileSync(join(dir, "README.md"), readme);
 console.log(`✔ Created ${pkgName} at packages/${safe}`);
 console.log("Next steps:");
 console.log(
-  "  - Add an alias to vitest.config.ts if this package imports other @ignus packages from source.",
+  "  - Add an alias to vitest.config.ts if this package imports other @ignex packages from source.",
 );
 console.log(`  - Run: bun run --cwd packages/${safe} test`);

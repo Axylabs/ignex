@@ -32,7 +32,7 @@ export interface ClientResponse<T> {
  * Method helpers (`get`/`post`/…) throw an {@link HTTPError} on non-2xx
  * responses; `raw` never throws and returns the full {@link ClientResponse}.
  */
-export interface IgnusClient {
+export interface IgnexClient {
   readonly baseUrl: string;
   /** Perform a JSON request and return the parsed body (throws on non-2xx). */
   request<T>(method: string, path: string, body?: unknown, init?: RequestInit): Promise<T>;
@@ -56,7 +56,7 @@ export interface IgnusClient {
  * @param options - Base URL, default headers, optional custom fetch/credentials.
  * @returns A client with raw and typed request helpers.
  */
-export const createClient = (options: ClientOptions): IgnusClient => {
+export const createClient = (options: ClientOptions): IgnexClient => {
   const base = options.baseUrl.replace(/\/+$/, "");
   const baseHeaders = options.headers ?? {};
   const fetcher = options.fetch ?? globalThis.fetch;

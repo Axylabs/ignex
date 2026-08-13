@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 /** GET /api/search — many query params; the iteration forces the parse work. */
 export default get(async (ctx) => {

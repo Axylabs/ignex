@@ -1,5 +1,5 @@
 /**
- * @fileoverview Ignus Context — the per-request object and its factory.
+ * @fileoverview Ignex Context — the per-request object and its factory.
  *
  * Bun 1.4 edition. Optimizations:
  * - lazy cookie parsing (delegated to `./cookies`)
@@ -22,14 +22,14 @@ import { forwardRequest, type ProxyOptions, proxyRequest } from "./proxy";
 import { generateRequestId } from "./request-id";
 
 /**
- * Narrow, Bun-free view of the server handle exposed on {@link IgnusContext}.
+ * Narrow, Bun-free view of the server handle exposed on {@link IgnexContext}.
  *
  * The generated server assigns the Bun `Server` instance here; this structural
  * subset is all the runtime reads (client IP lookup). Keeping it Bun-free lets
- * `@ignus/core` typecheck under non-Bun tsconfigs (e.g. the CLI's `types:
+ * `@ignex/core` typecheck under non-Bun tsconfigs (e.g. the CLI's `types:
  * ["node"]`).
  */
-export interface IgnusServer {
+export interface IgnexServer {
   requestIP(req: Request): { address: string; family?: string; port?: number } | null;
   /**
    * Upgrade an HTTP request to a WebSocket (Bun `Server.upgrade`). Optional
@@ -80,7 +80,7 @@ export interface ContextOptions {
  * accumulator are the primary write surface; `sendFile`/`proxy`/`forward`/
  * `cache`/`loader` are the extended capabilities.
  */
-export interface IgnusContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
+export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B = unknown> {
   readonly req: Request;
   readonly url: URL;
   readonly method: HttpMethod;
@@ -132,7 +132,7 @@ export interface IgnusContext<P = Record<string, string>, Q = URLSearchParams, B
    */
   readonly loader: DataLoaderFactory;
 
-  readonly server: IgnusServer | null;
+  readonly server: IgnexServer | null;
 }
 
 const defaultCache = new HttpResponseCache({
@@ -149,7 +149,7 @@ const defaultCache = new HttpResponseCache({
  * object literal. This is the biggest single per-request JS cost in the
  * `needsFull` compiled path and the interpreted `createApp` path.
  */
-class IgnusContextImpl<P = Record<string, string>> implements IgnusContext<P, URLSearchParams> {
+class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, URLSearchParams> {
   readonly req: Request;
   readonly method: HttpMethod;
   readonly route: string;
@@ -159,7 +159,7 @@ class IgnusContextImpl<P = Record<string, string>> implements IgnusContext<P, UR
   cookie: Record<string, Cookie<string | undefined>>;
   readonly set: SetHeaders;
   readonly startTime: number;
-  server: IgnusServer | null = null;
+  server: IgnexServer | null = null;
 
   private _url: URL | undefined;
   private _query: URLSearchParams | undefined;
@@ -212,7 +212,7 @@ class IgnusContextImpl<P = Record<string, string>> implements IgnusContext<P, UR
       // `requestIP` is non-standard on some runtimes and may throw rather
       // than return undefined — surface it at info level instead of
       // silently masking the failure, then fall through to headers.
-      console.info("[ignus] requestIP unavailable:", err);
+      console.info("[ignex] requestIP unavailable:", err);
     }
 
     // Client-supplied IP headers are spoofable; only honor them when the app
@@ -333,6 +333,6 @@ export function createContext<P = Record<string, string>>(
   req: Request,
   params: P,
   opts: ContextOptions = {},
-): IgnusContext<P, URLSearchParams> {
-  return new IgnusContextImpl(req, params, opts);
+): IgnexContext<P, URLSearchParams> {
+  return new IgnexContextImpl(req, params, opts);
 }

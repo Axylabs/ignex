@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 /** GET /slow — responds after a short delay (concurrency / timeout tests). */
 export default get(async (ctx) => {

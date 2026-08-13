@@ -28,7 +28,7 @@ const makeCtx = () => ({
 
 const tmpDirs: string[] = [];
 const tmpDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "ignus-route-cache-"));
+  const dir = mkdtempSync(join(tmpdir(), "ignex-route-cache-"));
   tmpDirs.push(dir);
   return dir;
 };

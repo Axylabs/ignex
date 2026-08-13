@@ -123,8 +123,8 @@ export const isPlainJavaScriptBody = (body: string, isAsync: boolean): boolean =
     const parseSync = mod.parseSync;
     if (typeof parseSync !== "function") return false;
 
-    const wrapped = `${isAsync ? "async " : ""}function __ignusInline() { ${body} }`;
-    const result = parseSync("__ignus_inline.js", wrapped, {
+    const wrapped = `${isAsync ? "async " : ""}function __ignexInline() { ${body} }`;
+    const result = parseSync("__ignex_inline.js", wrapped, {
       sourceType: "script",
       lang: "js",
     }) as { errors?: unknown[] } | null;

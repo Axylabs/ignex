@@ -6,11 +6,11 @@
 /** A value or a `Promise` of that value. */
 export type MaybePromise<T> = T | Promise<T>;
 
-// Shared method vocabulary (single source of truth in @ignus/shared).
-export { HTTP_METHODS, type HttpMethod } from "@ignus/shared";
+// Shared method vocabulary (single source of truth in @ignex/shared).
+export { HTTP_METHODS, type HttpMethod } from "@ignex/shared";
 
 /**
- * The Standard Schema v1 interface — the validation interop standard ignus
+ * The Standard Schema v1 interface — the validation interop standard ignex
  * accepts from schema libraries (TypeBox, Zod, Valibot, ArkType, …).
  *
  * @see https://github.com/standard-schema/standard-schema
@@ -33,7 +33,7 @@ export interface SchemaIssue {
 }
 
 /**
- * The structural subset of JSON Schema ignus understands (TypeBox-compatible
+ * The structural subset of JSON Schema ignex understands (TypeBox-compatible
  * shape) for route schemas, static types, and OpenAPI generation.
  */
 export interface TSchema {
@@ -60,7 +60,7 @@ export interface TSchema {
   noValidate?: boolean;
 }
 
-/** Any schema ignus accepts: a structural {@link TSchema} or Standard Schema. */
+/** Any schema ignex accepts: a structural {@link TSchema} or Standard Schema. */
 export type AnySchema = TSchema | StandardSchemaV1;
 
 /**

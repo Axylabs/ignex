@@ -1,5 +1,5 @@
-import { verifyCookie } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { verifyCookie } from "@ignex/core";
+import { get } from "@ignex/core/http";
 import { BENCH_SECRET } from "../../bench-data";
 
 /** GET /api/me — parse many cookies + verify the signed session cookie. */

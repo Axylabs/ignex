@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
   createTemplate as createNativeTemplate,
   renderTemplate as renderNative,
-} from "@ignus/native";
+} from "@ignex/native";
 
 /** Variables passed to a template render. */
 export type TemplateContext = Record<string, unknown>;

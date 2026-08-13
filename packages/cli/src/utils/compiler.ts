@@ -1,5 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import { type CompileResult, type CompilerOptions, formatDiagnostic } from "@ignus/compiler";
+import { type CompileResult, type CompilerOptions, formatDiagnostic } from "@ignex/compiler";
 import { loadConfig } from "./config.js";
 import { exists } from "./fs.js";
 import { step, warn } from "./logger.js";
@@ -42,7 +42,7 @@ const ROOTED_PATH_KEYS = ["routesDir", "hooksDir", "outDir", "appConfig"] as con
 /**
  * Resolve project-relative compiler paths against `root`. The compiler treats
  * these as cwd-relative, so without this a non-cwd `--root` (e.g. running
- * `ignus build --root ../app` from a monorepo root) scans the wrong directory
+ * `ignex build --root ../app` from a monorepo root) scans the wrong directory
  * and emits an empty server. Absolute values pass through unchanged.
  */
 function resolveRootedPaths(root: string, input: Record<string, unknown>): Record<string, unknown> {
@@ -71,12 +71,12 @@ export async function buildProject(
 ): Promise<BuildOutcome> {
   const config = await loadConfig(root);
 
-  let compiler: typeof import("@ignus/compiler");
+  let compiler: typeof import("@ignex/compiler");
   try {
-    compiler = await import("@ignus/compiler");
+    compiler = await import("@ignex/compiler");
   } catch (err) {
     throw new Error(
-      `Failed to load @ignus/compiler. Make sure it is installed in your workspace.\n${
+      `Failed to load @ignex/compiler. Make sure it is installed in your workspace.\n${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -86,7 +86,7 @@ export async function buildProject(
   Object.assign(input, mapCliFlags(flags));
 
   // Single rooting pass AFTER mergeOptions: the compiler defaults (`./src/routes`,
-  // `.ignus`) are also relative, so pre-rooting the input first would be redundant
+  // `.ignex`) are also relative, so pre-rooting the input first would be redundant
   // work against two sources of truth. Absolute values pass through unchanged.
   const opts = compiler.mergeOptions(input as Partial<CompilerOptions>);
   const rootedOpts = {
@@ -96,7 +96,7 @@ export async function buildProject(
 
   step(
     `Compiling ${String(rootedOpts.routesDir ?? "src/routes")} → ${String(
-      rootedOpts.outDir ?? ".ignus",
+      rootedOpts.outDir ?? ".ignex",
     )}`,
   );
 
@@ -119,11 +119,11 @@ export async function findServerEntry(
   root: string,
   opts: CompilerOptions,
 ): Promise<string | undefined> {
-  const outDir = opts.outDir ?? ".ignus";
+  const outDir = opts.outDir ?? ".ignex";
   const outFile = opts.outFile ?? "server.js";
 
   // Candidates are all joined under the (already rooted) `outDir`; the hardcoded
-  // root-relative `.ignus`/`dist` tails were leftover heuristics that duplicated
+  // root-relative `.ignex`/`dist` tails were leftover heuristics that duplicated
   // the configured output and are undocumented — dropped.
   const candidates = [
     join(outDir, outFile),

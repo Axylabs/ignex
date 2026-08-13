@@ -3,7 +3,7 @@
  * Lifecycle hooks, extensibility, composable plugins.
  */
 
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import type { HookContainer, LifeCycleStore } from "../types";
 import type { HookFn } from "./hooks";
 
@@ -17,7 +17,7 @@ import type { HookFn } from "./hooks";
  * `onRequest`/`onResponse`/`onError` run in onion order around the handler.
  * `init`/`close` manage resources (stores, timers) at app boot/shutdown.
  */
-export interface IgnusPlugin {
+export interface IgnexPlugin {
   readonly name: string;
   readonly version?: string;
 
@@ -26,9 +26,9 @@ export interface IgnusPlugin {
   close?(): MaybePromise<void>;
 
   // Request lifecycle
-  onRequest?(ctx: IgnusContext): MaybePromise<IgnusContext | Response>;
-  onResponse?(ctx: IgnusContext, response: Response): MaybePromise<Response>;
-  onError?(error: Error, ctx: IgnusContext): MaybePromise<Response | undefined>;
+  onRequest?(ctx: IgnexContext): MaybePromise<IgnexContext | Response>;
+  onResponse?(ctx: IgnexContext, response: Response): MaybePromise<Response>;
+  onError?(error: Error, ctx: IgnexContext): MaybePromise<Response | undefined>;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -42,11 +42,11 @@ type MaybePromise<T> = T | Promise<T>;
  * the init/close lifecycle. Underpins `createApp`'s plugin handling.
  */
 export interface PluginContext {
-  plugins: IgnusPlugin[];
+  plugins: IgnexPlugin[];
   hooks: Map<string, HookFn[]>;
   addHook(name: string, hook: HookFn): void;
   getHooks(name: string): readonly HookFn[];
-  register(plugin: IgnusPlugin): void;
+  register(plugin: IgnexPlugin): void;
   initAll(): Promise<void>;
   closeAll(): Promise<void>;
 }
@@ -60,7 +60,7 @@ export interface PluginContext {
  */
 export const createPluginContext = (): PluginContext => {
   const hooks = new Map<string, HookFn[]>();
-  const plugins: IgnusPlugin[] = [];
+  const plugins: IgnexPlugin[] = [];
 
   return {
     plugins,
@@ -81,7 +81,7 @@ export const createPluginContext = (): PluginContext => {
       // leave later plugins un-initialized.
       const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
       for (const r of results) {
-        if (r.status === "rejected") console.error("[ignus] plugin init failed:", r.reason);
+        if (r.status === "rejected") console.error("[ignex] plugin init failed:", r.reason);
       }
     },
     async closeAll() {
@@ -89,7 +89,7 @@ export const createPluginContext = (): PluginContext => {
       // one plugin's close failure never skips the remaining plugins' cleanup.
       const results = await Promise.allSettled([...plugins].reverse().map((p) => p.close?.()));
       for (const r of results) {
-        if (r.status === "rejected") console.error("[ignus] plugin close failed:", r.reason);
+        if (r.status === "rejected") console.error("[ignex] plugin close failed:", r.reason);
       }
     },
   };
@@ -104,7 +104,7 @@ export const createPluginContext = (): PluginContext => {
  *
  * `init` runs in registration order; `close`/`onResponse` in reverse.
  */
-export const composePlugins = (...plugins: IgnusPlugin[]): IgnusPlugin => ({
+export const composePlugins = (...plugins: IgnexPlugin[]): IgnexPlugin => ({
   name: plugins.map((p) => p.name).join("+"),
   async init() {
     for (const p of plugins) await p.init?.();
@@ -140,7 +140,7 @@ export const composePlugins = (...plugins: IgnusPlugin[]): IgnusPlugin => ({
 // Plugin -> Lifecycle Bridge
 // ============================================================================
 
-function isIgnusPlugin(value: unknown): value is IgnusPlugin {
+function isIgnexPlugin(value: unknown): value is IgnexPlugin {
   return typeof value === "object" && value !== null && "name" in value;
 }
 
@@ -184,13 +184,13 @@ export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleS
  * `error` stage. Non-plugin entries are filtered out.
  */
 export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> => {
-  const list = (plugins ?? []).flat().filter(isIgnusPlugin);
+  const list = (plugins ?? []).flat().filter(isIgnexPlugin);
 
   const request: HookContainer[] = list
     .filter((p) => typeof p.onRequest === "function")
     .map((p) => ({
       scope: "global" as const,
-      fn: async (ctx: IgnusContext) => {
+      fn: async (ctx: IgnexContext) => {
         const result = await p.onRequest?.(ctx);
         if (result instanceof Response) {
           return { response: result };
@@ -219,7 +219,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
       : [
           {
             scope: "global" as const,
-            fn: async (ctx: IgnusContext, response: Response) => {
+            fn: async (ctx: IgnexContext, response: Response) => {
               let current = response;
               for (const p of onResponsePlugins) {
                 const result = await p.onResponse?.(ctx, current);
@@ -234,7 +234,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .filter((p) => typeof p.onError === "function")
     .map((p) => ({
       scope: "global" as const,
-      fn: async (ctx: IgnusContext, error: unknown) => {
+      fn: async (ctx: IgnexContext, error: unknown) => {
         const result = await p.onError?.(
           error instanceof Error ? error : new Error(String(error)),
           ctx,
@@ -254,12 +254,12 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
 };
 
 /**
- * Wrap a single `HookFn` as a `IgnusPlugin` — the shared adapter behind the
+ * Wrap a single `HookFn` as a `IgnexPlugin` — the shared adapter behind the
  * auth / csrf / session plugin factories. An optional `close` callback is wired
  * to the plugin's `close()` so resources (stores, timers) are released on app
  * shutdown.
  */
-export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): IgnusPlugin => ({
+export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): IgnexPlugin => ({
   name,
   async onRequest(ctx) {
     const result = await hook(ctx);

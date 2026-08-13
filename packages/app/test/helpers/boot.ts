@@ -55,7 +55,7 @@ const ensureBuilt = (appDir: string): void => {
 };
 
 /**
- * Compile-if-needed and boot a generated ignus server, waiting for it to
+ * Compile-if-needed and boot a generated ignex server, waiting for it to
  * become ready. Throws (after killing the child) if it never responds.
  */
 export const bootServer = async (

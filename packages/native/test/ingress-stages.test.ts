@@ -1,8 +1,8 @@
 /**
  * Tests for the native ingress pipeline stages reachable through
- * `@ignus/native` `createNativePipeline` — the Rust fixed-window rate-limit
+ * `@ignex/native` `createNativePipeline` — the Rust fixed-window rate-limit
  * stage and the CORS stage. These prove the (previously dormant) stages work
- * end-to-end through the ignus bridge:
+ * end-to-end through the ignex bridge:
  *
  * - rate limit: allow `limit` requests per window, then terminal 429 from Rust
  * - CORS: OPTIONS preflight is terminal 204 (allowed, echoed origin) / 403
@@ -11,7 +11,7 @@
  * Skipped when the Rust addon is absent (fallback behavior is a no-op).
  */
 
-import { createNativePipeline, isNativeAvailable } from "@ignus/native";
+import { createNativePipeline, isNativeAvailable } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
 const available = isNativeAvailable();

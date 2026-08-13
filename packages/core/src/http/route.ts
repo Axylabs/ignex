@@ -8,7 +8,7 @@
  *
  * Example:
  * ```ts
- * import { get } from "@ignus/core/http";
+ * import { get } from "@ignex/core/http";
  * import { Type } from "@sinclair/typebox";
  *
  * export default get(async (ctx) => ctx.json({ q: ctx.query.q }), {
@@ -22,7 +22,7 @@
 
 import type { AnySchema, MaybePromise, StandardSchemaV1 } from "../types";
 import type { LazyBody } from "./body";
-import type { IgnusContext } from "./context";
+import type { IgnexContext } from "./context";
 
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
@@ -94,7 +94,7 @@ type TypedLazyBody<B> = {
  * and a typed `body` (with typed `json`/`form`/`multipart` accessors).
  */
 export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
-  IgnusContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
+  IgnexContext<InferParams<S>, InferQuery<S>, InferBody<S>>,
   "body" | "query"
 > & {
   body: TypedLazyBody<InferBody<S>>;
@@ -129,7 +129,7 @@ export type RouteHandler<S extends Partial<RouteSchemas>> = (
  * Backward-compatible handler type.
  */
 export type Handler<B = unknown, Q = URLSearchParams, P = Record<string, string>> = (
-  ctx: IgnusContext<P, Q, B>,
+  ctx: IgnexContext<P, Q, B>,
 ) => MaybePromise<unknown>;
 
 type AnyFunction = (...args: any[]) => any;

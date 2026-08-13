@@ -28,7 +28,7 @@ const baseOptions = (layout: FixtureLayout) => ({
 
 describe("AST: named-export handler extraction", () => {
   it("extracts a named wrapper export (get(...))", () => {
-    const src = `import { get } from "@ignus/core/http";\nexport const httpGet = get(() => "Hello World");\n`;
+    const src = `import { get } from "@ignex/core/http";\nexport const httpGet = get(() => "Hello World");\n`;
     const parsed = parseModule(src);
 
     expect(parsed.hasHandlerExport).toBe(true);
@@ -60,7 +60,7 @@ describe("AST: named-export handler extraction", () => {
   });
 
   it("detects schema on a named wrapper export (get(handler, schema))", () => {
-    const src = `import { get } from "@ignus/core/http";\nexport const httpGet = get((ctx) => ({}), { query: { type: "object" } });\n`;
+    const src = `import { get } from "@ignex/core/http";\nexport const httpGet = get((ctx) => ({}), { query: { type: "object" } });\n`;
     const parsed = parseModule(src);
 
     expect(parsed.schemaExport).toBe(true);
@@ -68,7 +68,7 @@ describe("AST: named-export handler extraction", () => {
   });
 
   it("tracks referenced named handlers as routes without inlining them", () => {
-    const src = `import { get } from "@ignus/core/http";\nexport const httpGet = get(myHandler);\n`;
+    const src = `import { get } from "@ignex/core/http";\nexport const httpGet = get(myHandler);\n`;
     const parsed = parseModule(src);
 
     expect(parsed.hasHandlerExport).toBe(true);
@@ -111,7 +111,7 @@ describe("named-export routes (end-to-end compile)", () => {
     const layout = materializeFixture("named-export");
     const result = await buildAsync(baseOptions(layout));
 
-    expect(result.code).toContain("ignus named export");
+    expect(result.code).toContain("ignex named export");
   });
 
   it("inlines named-export handlers from self-contained modules", async () => {

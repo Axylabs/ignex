@@ -47,3 +47,4 @@ packages/*/dist
 *.pre-monorepo
 .backup-*
 bench/results/server
+.npmrc

@@ -1,5 +1,5 @@
 /**
- * Import-surface drift guard for `@ignus/core`.
+ * Import-surface drift guard for `@ignex/core`.
  *
  * Several implemented + tested features historically lived only in internal
  * domain barrels and were unreachable from the public entry. This test locks
@@ -8,11 +8,11 @@
  * subpath resolves.
  */
 
-import * as jobs from "@ignus/core/jobs";
+import * as jobs from "@ignex/core/jobs";
 import { describe, expect, it } from "vitest";
 import * as core from "../src/index.js";
 
-describe("@ignus/core public surface", () => {
+describe("@ignex/core public surface", () => {
   it("exposes the durable-jobs API from the barrel", () => {
     expect(typeof core.createDurableJobQueue).toBe("function");
     expect(typeof core.createFileJobStore).toBe("function");
@@ -31,7 +31,7 @@ describe("@ignus/core public surface", () => {
     expect(typeof core.generateOpenAPI).toBe("function");
   });
 
-  it("resolves the @ignus/core/jobs subpath with a complete surface", () => {
+  it("resolves the @ignex/core/jobs subpath with a complete surface", () => {
     expect(typeof jobs.createJobQueue).toBe("function");
     expect(typeof jobs.withRetry).toBe("function");
     expect(typeof jobs.createDurableJobQueue).toBe("function");

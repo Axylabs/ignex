@@ -14,7 +14,7 @@ import {
   createContext,
   EMPTY_LIFECYCLE,
   runLifecycle,
-} from "@ignus/core";
+} from "@ignex/core";
 import { describe, expect, it } from "vitest";
 
 const req = () => new Request("http://localhost:3000/");

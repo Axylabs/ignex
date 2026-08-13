@@ -69,7 +69,7 @@ export async function runRoute(args: string[]): Promise<void> {
   if (values.schema) {
     info("Schema template uses @sinclair/typebox.");
     // Offer to add the dependency when it is not already declared, mirroring
-    // `ignus create --features examples` (which adds it for you).
+    // `ignex create --features examples` (which adds it for you).
     const pkgPath = join(root, "package.json");
     let hasTypebox = false;
     try {

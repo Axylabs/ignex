@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createTemplateRegistry } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { createTemplateRegistry } from "@ignex/core";
+import { get } from "@ignex/core/http";
 import { catalogItems } from "../bench-data";
 
 // Template lives in a .html file (NOT a JS template literal) so the AOT

@@ -19,7 +19,7 @@ export interface CodegenState {
   // Helper usage tracking (dead-code elimination of generated boilerplate).
   helpers: Emitter;
 
-  // `@ignus/core` import assembly.
+  // `@ignex/core` import assembly.
   coreNames: string[];
   uniqueCore: string[];
 

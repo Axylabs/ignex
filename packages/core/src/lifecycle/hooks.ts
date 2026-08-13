@@ -3,7 +3,7 @@
  * Composable, async middleware with scoped lifecycle.
  */
 
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import type { HookContainer, LifeCycleStore } from "../types";
 
 // ============================================================================
@@ -15,18 +15,18 @@ import type { HookContainer, LifeCycleStore } from "../types";
  * with a `Response`.
  */
 export type HookResult =
-  | { readonly ok: true; ctx: IgnusContext }
+  | { readonly ok: true; ctx: IgnexContext }
   | { readonly ok: false; response: Response };
 
 /** A lifecycle hook: receives the context and returns the next step. */
-export type HookFn = (ctx: IgnusContext) => Promise<HookResult> | HookResult;
+export type HookFn = (ctx: IgnexContext) => Promise<HookResult> | HookResult;
 
 // ============================================================================
 // Hook Constructors
 // ============================================================================
 
 /** Continue the hook chain with the given context. */
-export const continueHook = (ctx: IgnusContext): HookResult => ({ ok: true, ctx });
+export const continueHook = (ctx: IgnexContext): HookResult => ({ ok: true, ctx });
 
 /** Halt the hook chain with a response. */
 export const haltHook = (response: Response): HookResult => ({ ok: false, response });
@@ -41,9 +41,9 @@ export const haltHook = (response: Response): HookResult => ({ ok: false, respon
  * @returns The final context, plus the halting `Response` when the chain stopped.
  */
 export const executeHooks = async (
-  ctx: IgnusContext,
+  ctx: IgnexContext,
   hooks: readonly HookFn[],
-): Promise<{ ctx: IgnusContext; halted?: Response }> => {
+): Promise<{ ctx: IgnexContext; halted?: Response }> => {
   let current = ctx;
   for (const hook of hooks) {
     const result = await hook(current);

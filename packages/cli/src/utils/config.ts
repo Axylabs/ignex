@@ -5,14 +5,14 @@ import { warn } from "./logger.js";
 
 /** All config filenames `loadConfig` reads, in priority order. */
 export const CONFIG_FILES = [
-  "ignus.config.ts",
-  "ignus.config.mts",
-  "ignus.config.mjs",
-  "ignus.config.js",
-  "ignus.config.json",
+  "ignex.config.ts",
+  "ignex.config.mts",
+  "ignex.config.mjs",
+  "ignex.config.js",
+  "ignex.config.json",
 ] as const;
 
-/** Parse a `ignus.config.json` file; warns + returns `{}` on failure. */
+/** Parse a `ignex.config.json` file; warns + returns `{}` on failure. */
 async function loadJsonConfig(configPath: string, file: string): Promise<Record<string, unknown>> {
   try {
     return JSON.parse(await readTextFile(configPath)) as Record<string, unknown>;
@@ -22,7 +22,7 @@ async function loadJsonConfig(configPath: string, file: string): Promise<Record<
   }
 }
 
-/** Import a `ignus.config.{ts,mts,mjs,js}` module; warns + returns `null` on failure. */
+/** Import a `ignex.config.{ts,mts,mjs,js}` module; warns + returns `null` on failure. */
 async function loadModuleConfig(
   configPath: string,
   file: string,
@@ -47,7 +47,7 @@ async function loadModuleConfig(
     return value as Record<string, unknown>;
   } catch (err) {
     if (file.endsWith(".ts") || file.endsWith(".mts")) {
-      warn(`Could not import ${file}. Use ignus.config.mjs with Node, or run the CLI with Bun.`);
+      warn(`Could not import ${file}. Use ignex.config.mjs with Node, or run the CLI with Bun.`);
     } else {
       warn(`Failed to load ${file}: ${err instanceof Error ? err.message : String(err)}`);
     }

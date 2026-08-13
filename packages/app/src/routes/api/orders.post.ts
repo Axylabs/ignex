@@ -1,6 +1,6 @@
-import { BadRequestError } from "@ignus/core";
-import { post } from "@ignus/core/http";
-import { createSchemaValidator } from "@ignus/native";
+import { BadRequestError } from "@ignex/core";
+import { post } from "@ignex/core/http";
+import { createSchemaValidator } from "@ignex/native";
 import { Type } from "@sinclair/typebox";
 
 const LineItem = Type.Object({

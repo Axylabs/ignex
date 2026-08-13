@@ -5,13 +5,13 @@
  * Generated with a fixed-seed LCG so the native / fallback / raw-bun modes all
  * receive byte-identical payloads. The session cookie (hex HMAC, matching
  * castrum's signed-cookie format) and the HS256 JWT (base64url HMAC) are
- * produced with node:crypto so both the raw-Bun baseline and ignus's native
+ * produced with node:crypto so both the raw-Bun baseline and ignex's native
  * verifiers accept them with the shared {@link BENCH_SECRET}.
  */
 import { createHmac } from "node:crypto";
 
 /** Shared signing secret used by the bench servers + fixtures. */
-export const BENCH_SECRET = "ignus-bench-secret";
+export const BENCH_SECRET = "ignex-bench-secret";
 
 /** Deterministic 32-bit LCG (fixed seed) — identical values across runs. */
 let lcgState = 0x9e3779b9;

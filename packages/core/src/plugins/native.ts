@@ -3,10 +3,10 @@
  *
  * Embeds castrum's Rust ingress pipeline (CORS, rate-limit, IP-trust,
  * body-guard, JSON-schema) as a request stage via
- * `@ignus/native#createNativePipeline` — the "route manager" bridge.
+ * `@ignex/native#createNativePipeline` — the "route manager" bridge.
  *
  * When the Rust addon is NOT installed this plugin is a complete no-op and
- * the normal ignus lifecycle runs untouched, so it is safe to enable
+ * the normal ignex lifecycle runs untouched, so it is safe to enable
  * everywhere. When native IS available, the 8-stage pipeline runs BEFORE the
  * app handler on `onRequest` and short-circuits with its terminal response
  * (e.g. 204 CORS preflight, 429, 413, 400/422) when it decides to.
@@ -20,9 +20,9 @@ import {
   type NativePipeline,
   type NativePipelineOptions,
   type NativeRateLimitOptions,
-} from "@ignus/native";
-import type { IgnusContext } from "../http/context";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+} from "@ignex/native";
+import type { IgnexContext } from "../http/context";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link nativePreflight}. */
 export interface NativePreflightOptions {
@@ -72,7 +72,7 @@ export interface NativePreflightOptions {
 /**
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
-export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin => {
+export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin => {
   const { options, runtime, enabled = true, readBody = false, rateLimit, cors } = opts;
   // Merge the top-level rate-limit/CORS conveniences into the ingress option
   // bag (top-level wins on conflict) so the pipeline is configured in one place.
@@ -107,7 +107,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnusPlugin 
       }
     },
 
-    async onRequest(ctx: IgnusContext) {
+    async onRequest(ctx: IgnexContext) {
       if (!enabled || !isNativeAvailable()) return ctx;
 
       if (pipeline === undefined) {

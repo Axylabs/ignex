@@ -1,6 +1,6 @@
 # Release Process
 
-Ignus uses a source-only, Bun-first monorepo. This document is the checklist for
+Ignex uses a source-only, Bun-first monorepo. This document is the checklist for
 cutting a release. Every package is versioned independently
 (`packages/*/package.json`) with a shared root version bump as a convenience.
 
@@ -38,13 +38,13 @@ cutting a release. Every package is versioned independently
 
 ## Tag & publish
 
-Publish order (dependency order): `@ignus/shared` → `@ignus/native` →
-`@ignus/core` → `@ignus/compiler` → `@ignus/cli` → `@ignus/mcp`.
+Publish order (dependency order): `@ignex/shared` → `@ignex/native` →
+`@ignex/core` → `@ignex/compiler` → `@ignex/cli` → `@ignex/mcp`.
 
 ```sh
 # 1. Commit with a conventional message
 git add -A
-git commit -m "release(ignus): v0.2.0"
+git commit -m "release(ignex): v0.2.0"
 
 # 2. Tag
 git tag v0.2.0
@@ -58,16 +58,16 @@ npm publish --workspace packages/compiler
 npm publish --workspace packages/cli
 ```
 
-> The CLI is source-only (`bin/ignus.js` imports `../src/index.ts`), so the
+> The CLI is source-only (`bin/ignex.js` imports `../src/index.ts`), so the
 > published tarball must include `src` — it does via `files: ["bin", "src"]`.
 
 ## Post-release
 
-- Update `packages/app` and the CLI's scaffolded `@ignus/*` dependency versions.
+- Update `packages/app` and the CLI's scaffolded `@ignex/*` dependency versions.
 - Bump the `castrum` addon version in `packages/native` if the Rust surface
   changed (keep `Cargo.toml` ↔ `package.json` in sync).
 - Verify a fresh `bun install` from the tarballs in a clean project
-  (`bunx ignus create my-app`).
+  (`bunx ignex create my-app`).
 
 ## Security
 

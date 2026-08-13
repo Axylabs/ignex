@@ -5,7 +5,7 @@
  * Every arbitrary here is deliberately small and composable so tests read as
  * invariants over generated inputs rather than hand-picked vectors. Keep them
  * generic (no framework imports) so any package can use them without pulling
- * in @ignus/core etc.
+ * in @ignex/core etc.
  */
 
 import * as fc from "fast-check";
@@ -25,7 +25,7 @@ export const arbJsonObject: fc.Arbitrary<Record<string, unknown>> = fc.dictionar
 /** A small, collision-prone array of JSON values (good for dedup/merge tests). */
 export const arbJsonArray: fc.Arbitrary<unknown[]> = fc.array(arbJsonValue, { maxLength: 12 });
 
-/** HTTP method vocabulary (must stay aligned with `@ignus/shared` HTTP_METHODS). */
+/** HTTP method vocabulary (must stay aligned with `@ignex/shared` HTTP_METHODS). */
 export const arbHttpMethod = fc.constantFrom(
   "GET",
   "POST",

@@ -1,15 +1,15 @@
 /**
- * Scaffold template tests — the generated `ignus.config.mjs` must carry the
+ * Scaffold template tests — the generated `ignex.config.mjs` must carry the
  * production optimization profile (parity with packages/app/builder.ts) so a
- * fresh `ignus create` project gets the tuned defaults, not the compiler's
+ * fresh `ignex create` project gets the tuned defaults, not the compiler's
  * raw defaults.
  */
 
 import { expect, test } from "vitest";
-import { ignusConfigTemplate } from "../src/templates/project.js";
+import { ignexConfigTemplate } from "../src/templates/project.js";
 
-test("ignusConfigTemplate emits the production optimization profile", () => {
-  const config = ignusConfigTemplate();
+test("ignexConfigTemplate emits the production optimization profile", () => {
+  const config = ignexConfigTemplate();
 
   expect(config).toContain("optimizationLevel: 3");
   expect(config).toContain("precompileValidators: true");

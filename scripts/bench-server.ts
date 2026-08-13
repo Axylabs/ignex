@@ -5,7 +5,7 @@
  * Boots `packages/app/dist/__server.js` as a child process and runs a mixed
  * HTTP load across the app's hot routes, measuring per-route request rate and
  * latency percentiles. Runs the server with the Rust addon ON and (optionally)
- * with `IGNUS_NATIVE=off` so native-vs-fallback is comparable in one pass.
+ * with `IGNEX_NATIVE=off` so native-vs-fallback is comparable in one pass.
  *
  * To cancel machine drift, thermal state and per-run noise, the modes are
  * INTERLEAVED (`REPEATS` times, alternating which mode runs first) and the
@@ -196,7 +196,7 @@ async function runOnce(mode: Mode): Promise<{
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PORT: String(PORT),
-    ...(mode === "fallback" ? { IGNUS_NATIVE: "off" } : {}),
+    ...(mode === "fallback" ? { IGNEX_NATIVE: "off" } : {}),
   };
 
   const isRawBun = mode === "raw-bun";

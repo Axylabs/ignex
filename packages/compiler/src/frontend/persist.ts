@@ -20,7 +20,7 @@ import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
 const MODULES_CACHE_VERSION = "1";
-const MODULES_CACHE_FILE = ".ignus-modules.json";
+const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {
   readonly hash: string;

@@ -6,4 +6,4 @@ export {
   validateIpv4,
   validateIpv6,
   validateUuid,
-} from "@ignus/native";
+} from "@ignex/native";

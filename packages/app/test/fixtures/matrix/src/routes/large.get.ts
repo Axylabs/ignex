@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 /** GET /large — returns a JSON body above the compression threshold (1024 B). */
 export default get(async (ctx) => {

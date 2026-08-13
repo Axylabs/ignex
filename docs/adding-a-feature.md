@@ -1,6 +1,6 @@
 # Adding a Feature
 
-A step-by-step guide for extending ignus safely. Follow the checklist for
+A step-by-step guide for extending ignex safely. Follow the checklist for
 your feature type, keep the one-way dependency rule, and always run the gates.
 
 ## Before you start
@@ -19,11 +19,11 @@ your feature type, keep the one-way dependency rule, and always run the gates.
 Plugins live in `packages/core/src/plugins/` and are thin lifecycle wrappers.
 
 1. Create `packages/core/src/plugins/my-plugin.ts` exporting a factory that
-   returns a `IgnusPlugin` (or a lifecycle fragment).
+   returns a `IgnexPlugin` (or a lifecycle fragment).
 
    ```ts
    // plugins/ratelimit.ts (existing example)
-   export const rateLimit = (opts: RateLimitOptions): IgnusPlugin => {
+   export const rateLimit = (opts: RateLimitOptions): IgnexPlugin => {
      const bucket = createTokenBucket(opts);
      return {
        name: "rate-limit",
@@ -65,7 +65,7 @@ Hooks run in one of the named stages in `LifeCycleStore`
 ## C: Add a route type / helper
 
 `packages/core/src/http/route.ts` defines the schema-first helpers
-(`get`, `post`, …), exposed as the `@ignus/core/http` subpath. Each helper is a
+(`get`, `post`, …), exposed as the `@ignex/core/http` subpath. Each helper is a
 one-line instantiation of the `defineMethod` curried factory with its schema
 bound.
 
@@ -86,7 +86,7 @@ bound.
 3. If you also have a Rust implementation, add it to the `castrum` addon and
    declare it in `packages/native/src/vendor/castrum.d.ts`.
 4. Add parity vectors to `packages/native/test/native.test.ts` (runs against
-   the fallback by default; `IGNUS_NATIVE_PATH` switches to the real addon).
+   the fallback by default; `IGNEX_NATIVE_PATH` switches to the real addon).
 
 ## E: Add a `ctx` member (AOT contract)
 
@@ -94,7 +94,7 @@ This is the one that crosses the compiler boundary — follow it precisely.
 
 1. **shared**: add the flag to `ContextUsage` in `packages/shared/src/context-usage.ts`
    (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).
-2. **core**: add the member to `IgnusContext` in `core/src/http/context.ts` and
+2. **core**: add the member to `IgnexContext` in `core/src/http/context.ts` and
    implement it in `createContext`.
 3. **compiler**: add the member name to `USAGE_FLAGS` in
    `utils/ast/usage.ts`; gate the context emission in `phases/codegen/` (the

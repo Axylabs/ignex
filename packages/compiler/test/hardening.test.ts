@@ -15,7 +15,7 @@ import { SourceManager } from "../src/frontend/source-manager.js";
 import { resolveHook } from "../src/phases/analysis/hooks.js";
 import { clearModuleCache, loadRouteModule } from "../src/phases/schema-loader.js";
 
-const tmp = () => mkdtempSync(join(tmpdir(), "ignus-hardening-"));
+const tmp = () => mkdtempSync(join(tmpdir(), "ignex-hardening-"));
 
 const mkCtx = () => {
   const d = new DiagnosticCollector();

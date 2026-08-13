@@ -1,5 +1,5 @@
 /**
- * `@ignus/native` — Rust-accelerated primitives with pure-TS fallbacks.
+ * `@ignex/native` — Rust-accelerated primitives with pure-TS fallbacks.
  *
  * Every function prefers the `castrum` NAPI addon when it is installed and
  * loadable, and otherwise falls back to a byte-compatible pure-TS
@@ -50,7 +50,7 @@ export {
   type ExecutionOpStatus,
   type ExecutionStatus,
   executionStatus,
-  type IgnusExecution,
+  type IgnexExecution,
   implFor,
 } from "./execution";
 export { crc32, fnv1a64, fnv1a64Fallback, fnv1a64String } from "./hash";

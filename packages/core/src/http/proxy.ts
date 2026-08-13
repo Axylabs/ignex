@@ -123,7 +123,7 @@ const createBadGateway = (): Response =>
 
 /**
  * Proxy a request to an upstream `target`, returning the upstream response
- * (auto-decompressed; hop-by-hop headers stripped; `x-proxy: ignus` added).
+ * (auto-decompressed; hop-by-hop headers stripped; `x-proxy: ignex` added).
  *
  * Never throws: timeouts become a 504 and other upstream failures a 502.
  *
@@ -152,7 +152,7 @@ export async function proxyRequest(
       responseHeaders.delete("content-length");
     }
 
-    responseHeaders.set("x-proxy", "ignus");
+    responseHeaders.set("x-proxy", "ignex");
 
     return new Response(upstream.body, {
       status: upstream.status,

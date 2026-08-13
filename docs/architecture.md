@@ -1,4 +1,4 @@
-# Ignus Architecture
+# Ignex Architecture
 
 This document explains how the pieces fit together so you can navigate the
 codebase and make changes without breaking the AOT contract.
@@ -7,12 +7,12 @@ codebase and make changes without breaking the AOT contract.
 
 | Package          | Role                                                              | Entry           |
 | ---------------- | ----------------------------------------------------------------- | --------------- |
-| `@ignus/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
-| `@ignus/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
-| `@ignus/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
-| `@ignus/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
-| `@ignus/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
-| `@ignus/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
+| `@ignex/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
+| `@ignex/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
+| `@ignex/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
+| `@ignex/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
+| `@ignex/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
+| `@ignex/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
 | `packages/app`   | Example application (routes, views, hooks) + benchmarks           | `builder.ts`    |
 
 All packages ship **source-only**: `exports` point at `src/*.ts`, and Bun runs
@@ -87,12 +87,12 @@ Two cross-cutting layers sit directly under `src/`:
 
 The pipeline itself is composed declaratively in `src/index.ts`: each phase is
 a pure function over a `PipelineState`, threaded with `pipe` (sync path) or
-`pipeAsync` (async path) from `@ignus/shared`. The whole build reads as:
+`pipeAsync` (async path) from `@ignex/shared`. The whole build reads as:
 `validate → discover → analyze → optimize → precompile → artifacts → codegen
 → link → cache`.
 
-The build writes two cache artifacts into `outDir`: `.ignus-cache.json` (the
-whole-build fingerprint) and `.ignus-modules.json` (the **persistent module
+The build writes two cache artifacts into `outDir`: `.ignex-cache.json` (the
+whole-build fingerprint) and `.ignex-modules.json` (the **persistent module
 parse cache** — `frontend/persist.ts` serializes each `SourceFile`'s
 `ParseResult`, keyed by content hash, so `SourceManager` rehydrates unchanged
 modules instead of re-parsing them on cache-hit regeneration and rebuilds).
@@ -121,7 +121,7 @@ everything downstream is typed against the `Node` union in `ast-types.ts`.
 
 ### The AOT contract: `ContextUsage`
 
-`ContextUsage` (in `@ignus/shared`) is a bitmap of which `ctx.*` members a
+`ContextUsage` (in `@ignex/shared`) is a bitmap of which `ctx.*` members a
 handler touches (`body`, `query`, `params`, `set`, `loader`, …). The compiler
 emits a context that only carries the used members; `EMPTY_USAGE` /
 `FULL_USAGE` are the extremes. When you add a new `ctx` member:
@@ -133,14 +133,14 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 
 ## Runtime lifecycle
 
-`@ignus/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
+`@ignex/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
 composes the pre-handler stages (`beforeHandle` …), runs the handler, then the
 post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as a
 `pipeAsync` composition of named stages over a `LifecycleState` carrier. The
-generated server imports `runHooks`/`runLifecycle` from `@ignus/core` — there is
+generated server imports `runHooks`/`runLifecycle` from `@ignex/core` — there is
 **one** implementation, not a compiled copy.
 
-`IgnusContext` (`core/src/http/context.ts`) is the per-request object: read-only
+`IgnexContext` (`core/src/http/context.ts`) is the per-request object: read-only
 request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
 `body`/`cookie`/`state`, the `set` outgoing channel, and response builders
 (`json`/`text`/`redirect`/`stream`/…). `ctx.set` mutations are applied by the
@@ -161,13 +161,13 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 | `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, plugin |
 | `platform/`  | App runtime infrastructure                                 | env, config, coerce, jobs, durable jobs (`jobs-store.ts` / `jobs-durable.ts`), errors |
 | `content/`    | Rendering & localization                                   | i18n, template |
-| `plugins/`    | Ready-made `IgnusPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
+| `plugins/`    | Ready-made `IgnexPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
 | `types/`      | Unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) | — |
 
 `client.ts` and `openapi.ts` stay top-level (consumer-facing). The public
 surface is `src/index.ts` — a grouped barrel that re-exports from the domain
 folders, so the internal layout never leaks to consumers. Subpath exports:
-`@ignus/core/http` → `src/http/route.ts`, `@ignus/core/config` →
+`@ignex/core/http` → `src/http/route.ts`, `@ignex/core/config` →
 `src/platform/config.ts`.
 
 ## Maintainability conventions
@@ -188,7 +188,7 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   `compiler/validate.ts` (`mergeOptions` — preset application happens once),
   `compiler/phases/schema-loader.ts` (`forEachRouteWithSchema`).
 - **Compose with the FP toolkit.** `pipe`/`pipeAsync`/`fold`/`Result` from
-  `@ignus/shared` are used where they make control flow explicit (the compiler
+  `@ignex/shared` are used where they make control flow explicit (the compiler
   pipeline, `runLifecycle`, `negotiateLocale`, `defineConfig`, session cookie
   decoding). The route DSL is a curried factory (`defineMethod`) so each
   `get`/`post`/… helper stays a one-liner with its own schema bound. Hot-path
@@ -200,14 +200,14 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
 
 ## Cache / determinism
 
-The compiler keeps an incremental cache (`.ignus-cache.json`) fingerprinted by
+The compiler keeps an incremental cache (`.ignex-cache.json`) fingerprinted by
 `COMPILER_CACHE_VERSION` in `packages/compiler/src/cache.ts`. **Bump it
 whenever generated code changes** — a stale version silently disables the
 cache, a stale hash can serve stale output.
 
 ## Native acceleration
 
-`@ignus/native` resolves the `castrum` Rust addon when available and falls back
+`@ignex/native` resolves the `castrum` Rust addon when available and falls back
 to pure-TS implementations otherwise (never throws). Both paths are locked by
 the parity suite in `packages/native/test/native.test.ts`. See
 `packages/native/README.md`.

@@ -6,7 +6,7 @@
 /**
  * Base class for the structured HTTP error family.
  *
- * Every ignus error extends this so it carries an HTTP `status`, a machine
+ * Every ignex error extends this so it carries an HTTP `status`, a machine
  * `code`, and optional `details`, serializes via {@link toJSON}, and converts
  * to a JSON `Response` via {@link toResponse}. `errorToResponse` and the
  * lifecycle `error` stage recognize it, so throwing one from a handler yields

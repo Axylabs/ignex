@@ -1,8 +1,8 @@
-# ignus
+# ignex
 
 > Work-in-progress TypeScript framework for building high-performance HTTP APIs on **Bun 1.4**, using **native Bun routing** and **ahead-of-time compilation** for maximum performance.
 
-`ignus` is an AOT-first web framework designed to achieve native-like performance while keeping a TypeScript-friendly developer experience. Routes are written as simple file-system modules, then compiled into an optimized Bun server with generated types, OpenAPI artifacts, precompiled validators, and specialized request handlers.
+`ignex` is an AOT-first web framework designed to achieve native-like performance while keeping a TypeScript-friendly developer experience. Routes are written as simple file-system modules, then compiled into an optimized Bun server with generated types, OpenAPI artifacts, precompiled validators, and specialized request handlers.
 
 ---
 
@@ -28,17 +28,17 @@
 
 ## Overview
 
-`ignus` is a TypeScript framework and compiler toolchain for building production-oriented HTTP APIs on Bun.
+`ignex` is a TypeScript framework and compiler toolchain for building production-oriented HTTP APIs on Bun.
 
-Instead of relying only on a runtime router, `ignus` compiles your file-based routes into a highly optimized Bun server. The compiler analyzes route files ahead of time, detects context usage, precompiles validation and serialization where possible, and emits a server that uses Bun 1.4’s native routing capabilities.
+Instead of relying only on a runtime router, `ignex` compiles your file-based routes into a highly optimized Bun server. The compiler analyzes route files ahead of time, detects context usage, precompiles validation and serialization where possible, and emits a server that uses Bun 1.4’s native routing capabilities.
 
 The project is composed of several workspace packages:
 
-- `@ignus/compiler` — AOT compiler pipeline
-- `@ignus/core` — runtime primitives and HTTP helpers
-- `@ignus/cli` — developer CLI for scaffolding, building, and dev mode
-- `@ignus/shared` — shared types, FP core, and compile-time/runtime flags
-- `@ignus/native` — Rust-accelerated primitives with pure-TS fallbacks
+- `@ignex/compiler` — AOT compiler pipeline
+- `@ignex/core` — runtime primitives and HTTP helpers
+- `@ignex/cli` — developer CLI for scaffolding, building, and dev mode
+- `@ignex/shared` — shared types, FP core, and compile-time/runtime flags
+- `@ignex/native` — Rust-accelerated primitives with pure-TS fallbacks
 - `packages/app` — example application used for testing and benchmarking
 - `scripts/` — benchmarking and OpenAPI client generation utilities
 
@@ -46,7 +46,7 @@ The project is composed of several workspace packages:
 
 ## Project Goals
 
-The main goal of `ignus` is to build a high-performance TypeScript web framework that feels ergonomic while compiling away as much runtime overhead as possible.
+The main goal of `ignex` is to build a high-performance TypeScript web framework that feels ergonomic while compiling away as much runtime overhead as possible.
 
 ### Primary Goals
 
@@ -102,7 +102,7 @@ The main goal of `ignus` is to build a high-performance TypeScript web framework
 
 ## Why Bun 1.4 Native Routing?
 
-`ignus` targets Bun 1.4 because Bun provides a high-performance JavaScript/TypeScript runtime with built-in primitives that are ideal for an AOT framework.
+`ignex` targets Bun 1.4 because Bun provides a high-performance JavaScript/TypeScript runtime with built-in primitives that are ideal for an AOT framework.
 
 The compiler emits a server that uses **Bun’s native routing** instead of implementing a custom regex trie or runtime route matcher.
 
@@ -115,7 +115,7 @@ This gives several advantages:
 - Simpler generated server entry.
 - Static, dynamic, and wildcard routes handled directly by Bun.
 
-In short: route matching is delegated to Bun, while `ignus` focuses on compile-time optimization, typed context, validation, serialization, and production HTTP primitives.
+In short: route matching is delegated to Bun, while `ignex` focuses on compile-time optimization, typed context, validation, serialization, and production HTTP primitives.
 
 ---
 
@@ -154,14 +154,14 @@ discovers either, and the route path + method still come from the filename:
 
 ```ts
 // src/routes/hello.get.ts → GET /hello
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 export default get(() => "Hello World");
 ```
 
 ```ts
 // Same route, named export
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 
 export const httpGet = get(() => "Hello World");
 ```
@@ -170,9 +170,9 @@ Both compile to the same optimized `Bun.serve` route table. Scaffold either styl
 with the CLI:
 
 ```sh
-ignus create my-api --yes        # generates hello-world routes (named-export style)
-ignus route products/featured --named   # export const httpGet = ...
-ignus route about                # export default ...
+ignex create my-api --yes        # generates hello-world routes (named-export style)
+ignex route products/featured --named   # export const httpGet = ...
+ignex route about                # export default ...
 ```
 
 **DataLoaders are available by default** on every request context — batching,
@@ -192,7 +192,7 @@ export const httpGet = get(async (ctx) => {
 
 ## How the Compiler Works
 
-`@ignus/compiler` runs a Svelte-style phased pipeline over your route files and emits a
+`@ignex/compiler` runs a Svelte-style phased pipeline over your route files and emits a
 single Bun server entry plus typed/OpenAPI artifacts:
 
 1. **Discovery** — scans `routesDir`, parses each module to an AST (oxc-parser with
@@ -217,30 +217,30 @@ options, and diagnostic-code reference.
 
 ## Generated Artifacts
 
-`build`/`dev` write into `outDir` (default `.ignus`):
+`build`/`dev` write into `outDir` (default `.ignex`):
 
 | Artifact | Description |
 | --- | --- |
 | `server.js` | The generated Bun server entry. |
 | `routes.d.ts` | Typed route map consumed by the generated client. |
-| `client.d.ts` + `client.ts` | Typed `IgnusClient` types + a real `createApiClient` implementation. |
+| `client.d.ts` + `client.ts` | Typed `IgnexClient` types + a real `createApiClient` implementation. |
 | `openapi.json` | OpenAPI 3.1 document derived from route metadata and real schemas. |
 | `manifest.json` | Per-route metadata (path, method, usage, hotness, constants). |
 | `validators/*.cjs` | Precompiled Ajv validators per schema part. |
 | `serializers/*.mjs` | Precompiled response serializers per status code. |
-| `.ignus-cache.json` | Incremental build fingerprint. |
-| `.ignus-modules.json` | Persistent per-module parse cache (content-hash keyed). |
+| `.ignex-cache.json` | Incremental build fingerprint. |
+| `.ignex-modules.json` | Persistent per-module parse cache (content-hash keyed). |
 
 ### Developer experience & automations
 
-- **`@ignus/mcp`** — a Model Context Protocol server exposing `build`, `route`,
+- **`@ignex/mcp`** — a Model Context Protocol server exposing `build`, `route`,
   `info`, `doctor`, `openapi`, and `dev` as agent tools over stdio. Launch it with
-  `ignus mcp` and point an MCP client (Claude, Copilot, Codex, …) at it to scaffold,
+  `ignex mcp` and point an MCP client (Claude, Copilot, Codex, …) at it to scaffold,
   compile, and inspect projects without hand-running commands.
-- **`ignus create`** now scaffolds the production optimization profile
+- **`ignex create`** now scaffolds the production optimization profile
   (`optimizationLevel: 3`, precompiled validators/serializers, all artifact
   generation, context specialization) so new projects start from the tuned defaults.
-- **`ignus route --schema`** offers to install `@sinclair/typebox` when missing.
+- **`ignex route --schema`** offers to install `@sinclair/typebox` when missing.
 - **`scripts/new-package.ts`** scaffolds a new workspace package in seconds.
 
 ## Compiler Hardening
@@ -287,7 +287,7 @@ bun run test            # full vitest suite (all packages)
 
 ## Feature Overview
 
-`ignus` is a **complete, Rust-accelerated backend framework** on Bun. It combines an AOT compiler with a rich runtime:
+`ignex` is a **complete, Rust-accelerated backend framework** on Bun. It combines an AOT compiler with a rich runtime:
 
 | Area | What's included |
 | --- | --- |
@@ -308,18 +308,18 @@ bun run test            # full vitest suite (all packages)
 | Client | Generated typed client (`client.ts`) backed by a runtime `createClient`. |
 | Artifacts | `routes.d.ts`, `client.d.ts` + `client.ts`, `openapi.json` (real schemas), `manifest.json`. |
 
-### Native acceleration (`@ignus/native`)
+### Native acceleration (`@ignex/native`)
 
 The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a 64/CRC-32), crypto (JWT, cookie signing, CSRF, HMAC, AEAD, argon2, random tokens), HTTP parsing (query/cookie/multipart/media-type/ETag), SSE/WebSocket framing, compression, JSON validation/patch, template rendering and input validation.
 
-- Every function falls back to a **byte-compatible pure-TS implementation**, so ignus works everywhere; native is a pure acceleration layer.
-- Check `isNativeAvailable()` from `@ignus/native` for observability; override the resolved addon with `IGNUS_NATIVE_PATH`.
+- Every function falls back to a **byte-compatible pure-TS implementation**, so ignex works everywhere; native is a pure acceleration layer.
+- Check `isNativeAvailable()` from `@ignex/native` for observability; override the resolved addon with `IGNEX_NATIVE_PATH`.
 - Native is used **only where proven faster** (castrum's `proven` registry) — the framework never regresses on non-proven surfaces.
 
 ## What Is Done
 
 - ✅ AOT compiler pipeline (discovery → analysis → optimization → precompile → codegen → linker → artifacts) with content-keyed **parse memoization** (kills the 5× re-parse).
-- ✅ **Persistent per-module parse cache across builds** — `SourceFile` parse results (AST included) are persisted to `.ignus-modules.json` keyed by content hash; cache-hit artifact regeneration and full rebuilds rehydrate unchanged modules instead of re-parsing.
+- ✅ **Persistent per-module parse cache across builds** — `SourceFile` parse results (AST included) are persisted to `.ignex-modules.json` keyed by content hash; cache-hit artifact regeneration and full rebuilds rehydrate unchanged modules instead of re-parsing.
 - ✅ Native-accelerated hashing for cache fingerprints and content keys.
 - ✅ Real optimization metadata (`inlinedHandlers`, `deduplicatedHandlers`, `eliminatedRoutes`) persisted across incremental cache hits.
 - ✅ Incremental cache integrity — companion artifacts (validators/serializers/artifacts) are verified on cache hits, so stale/missing outputs trigger a rebuild.
@@ -332,7 +332,7 @@ The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a
 - ✅ **i18n JSON catalog loading** — `loadCatalogDir` / `createI18nFromDir` read `locales/*.json` (incl. namespaced `en/errors.json`) alongside TS catalogs; `withI18n` middleware alias.
 - ✅ Runtime security suite (JWT, auth hooks, sessions, CSRF, signed cookies, password hashing, AEAD).
 - ✅ Templates (minijinja native / JS fallback), i18n, env/config, background jobs, graceful shutdown, typed client.
-- ✅ **MCP server + automation** — `@ignus/mcp` exposes `build`/`route`/`info`/`doctor`/`openapi`/`dev` tools over stdio, launched via `ignus mcp`; scaffolded `ignus create` projects now ship the production optimization profile.
+- ✅ **MCP server + automation** — `@ignex/mcp` exposes `build`/`route`/`info`/`doctor`/`openapi`/`dev` tools over stdio, launched via `ignex mcp`; scaffolded `ignex create` projects now ship the production optimization profile.
 - ✅ Core bug fix: `ctx.set` is now exposed, so cookies/headers set via `ctx.cookie`/`ctx.set` are serialized into responses.
 - ✅ Core bug fix: plugin `onResponse` hooks no longer run on raw (non-`Response`) handler results.
 
@@ -342,7 +342,7 @@ The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a
 
 ## Roadmap
 
-1. **Publish** — `@ignus/native` + `castrum` binaries for all major platforms; publish `@ignus/mcp`.
+1. **Publish** — `@ignex/native` + `castrum` binaries for all major platforms; publish `@ignex/mcp`.
 2. **OAuth2 providers** — authorization-code flow, provider registry, PKCE, token refresh on top of the JWT/Basic primitives.
 3. **Schema-first runtime** — deepen Standard-Schema vendor coverage (more converters, native JSON-schema where it wins).
 4. **i18n catalog hot-reload** — watch `locales/` in dev mode.

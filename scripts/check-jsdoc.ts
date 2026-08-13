@@ -1,5 +1,5 @@
 /**
- * @fileoverview JSDoc completeness checker for the ignus public API.
+ * @fileoverview JSDoc completeness checker for the ignex public API.
  *
  * Walks the export graph of every scoped package's `exports` entry points
  * (`packages/{core,shared,compiler,cli,mcp,native}/src/*.ts`) and flags any
@@ -40,7 +40,7 @@ const onlyPackages = packagesArg
   : undefined;
 
 /* ------------------------------------------------------------------ *
- * Module resolution (relative + workspace `@ignus/*` only).          *
+ * Module resolution (relative + workspace `@ignex/*` only).          *
  * ------------------------------------------------------------------ */
 
 interface PkgJson {
@@ -103,8 +103,8 @@ function resolveModule(spec: string, fromFile: string): string | null {
   if (spec.startsWith(".")) {
     return resolveFile(resolve(dirname(fromFile), spec));
   }
-  if (spec.startsWith("@ignus/")) {
-    const rest = spec.slice("@ignus/".length);
+  if (spec.startsWith("@ignex/")) {
+    const rest = spec.slice("@ignex/".length);
     const slash = rest.indexOf("/");
     const pkg = slash === -1 ? rest : rest.slice(0, slash);
     const sub = slash === -1 ? "." : `./${rest.slice(slash + 1)}`;

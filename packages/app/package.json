@@ -1,6 +1,6 @@
 {
-  "name": "@ignus/app",
-  "version": "0.1.0",
+  "name": "@ignex/app",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,12 +10,12 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
-    "@ignus/core": "workspace:*",
+    "@ignex/core": "workspace:*",
     "@sinclair/typebox": "^0.34.52",
     "@hey-api/client-fetch": "^0.13.1"
   },
   "devDependencies": {
-    "@ignus/compiler": "workspace:*",
+    "@ignex/compiler": "workspace:*",
     "@types/bun": "^1.3.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

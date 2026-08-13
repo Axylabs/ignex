@@ -11,12 +11,12 @@ const alias = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@ignus/shared": alias("../shared/src/index.ts"),
-      "@ignus/core": alias("../core/src/index.ts"),
-      "@ignus/native": alias("../native/src/index.ts"),
-      "@ignus/test-utils": alias("../test-utils/src/index.ts"),
+      "@ignex/shared": alias("../shared/src/index.ts"),
+      "@ignex/core": alias("../core/src/index.ts"),
+      "@ignex/native": alias("../native/src/index.ts"),
+      "@ignex/test-utils": alias("../test-utils/src/index.ts"),
       // Keep the Rust addon out of unit tests (fallbacks only) unless
-      // IGNUS_NATIVE_PATH is explicitly set — matches the root config.
+      // IGNEX_NATIVE_PATH is explicitly set — matches the root config.
       castrum: alias("../native/src/vendor/castrum.d.ts"),
     },
   },

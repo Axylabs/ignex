@@ -24,7 +24,7 @@ import {
   tryCatchOr,
   unwrapOr,
   unwrapOrElse,
-} from "@ignus/shared";
+} from "@ignex/shared";
 import { describe, expect, it } from "vitest";
 
 describe("Result", () => {

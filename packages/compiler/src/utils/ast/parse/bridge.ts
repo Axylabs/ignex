@@ -44,7 +44,7 @@ function tryOxcParser(source: string): unknown | undefined {
 
   const attempts = [
     () =>
-      parseSync("ignus.ts", source, {
+      parseSync("ignex.ts", source, {
         sourceType: "module",
         target: "esnext",
       }),

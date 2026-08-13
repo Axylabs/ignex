@@ -9,7 +9,7 @@ import type { CodegenState } from "./state";
 
 /**
  * Emit the `Bun.serve` bootstrap, prune generated helpers to those actually
- * referenced, compute the minimal `@ignus/core` import, and assemble the final
+ * referenced, compute the minimal `@ignex/core` import, and assemble the final
  * module string (imports → header → helpers → cache decls → functions).
  */
 export const stageServer = (state: CodegenState, opts: CompilerOptions): string => {
@@ -46,7 +46,7 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // Emit runtime helpers (pruned to what is actually referenced).
   const usedHelpers = resolveUsedHelpers(helpers);
 
-  // Prune the `@ignus/core` import to only the symbols the emitted code
+  // Prune the `@ignex/core` import to only the symbols the emitted code
   // actually references: header-required symbols, per-route core deps
   // (markCore), and the transitive core deps of used generated helpers.
   const neededCore = new Set<string>(["EMPTY_LIFECYCLE"]);

@@ -1,4 +1,4 @@
-import { get } from "@ignus/core/http";
+import { get } from "@ignex/core/http";
 import { Type } from "@sinclair/typebox";
 
 /** GET /validate-query — query schema (required `q`, optional `n` coerced to number). */

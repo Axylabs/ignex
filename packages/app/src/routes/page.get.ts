@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { createTemplateDir, withLayout } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { createTemplateDir, withLayout } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 /** GET /page — server-rendered HTML via templates (minijinja native / JS fallback). */
 export default get(async (ctx) => {
@@ -14,7 +14,7 @@ export default get(async (ctx) => {
   );
 
   const html = page({
-    title: "Ignus demo",
+    title: "Ignex demo",
     name: ctx.query.get("name") ?? "world",
     locale: ctx.getState<string>("locale") ?? "en",
     features: ["routing", "templates", "i18n", "native"],

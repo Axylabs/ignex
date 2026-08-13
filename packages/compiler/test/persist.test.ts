@@ -16,7 +16,7 @@ import {
 import { SourceManager } from "../src/frontend/source-manager.js";
 import { hashString } from "../src/utils/hash.js";
 
-const tmp = () => mkdtempSync(join(tmpdir(), "ignus-persist-"));
+const tmp = () => mkdtempSync(join(tmpdir(), "ignex-persist-"));
 
 const mkSourceManager = (): SourceManager => {
   const sm = new SourceManager();

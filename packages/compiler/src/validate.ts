@@ -84,7 +84,7 @@ const CompilerOptionsSchema = Type.Object(
  * configs do not hard-fail.
  */
 const DEPRECATED_OPTIONS: Record<string, string> = {
-  router: "Ignus always emits Bun's native router. Remove this option.",
+  router: "Ignex always emits Bun's native router. Remove this option.",
   cluster:
     "Cluster mode is configured at the runtime/Bun level, not the compiler. Remove this option.",
   inlineHooks: "Hooks are always invoked at runtime. Remove this option.",
@@ -152,7 +152,7 @@ export const validateOptions = (
     if (!SCHEMA_KEYS.has(key)) {
       diagnostics?.warn({
         code: DiagnosticCodes.OptionUnknown,
-        message: `Unknown compiler option: '${key}'. It is ignored; check for typos or a newer @ignus/compiler version.`,
+        message: `Unknown compiler option: '${key}'. It is ignored; check for typos or a newer @ignex/compiler version.`,
       });
       // Strip the unknown key so schema validation (additionalProperties) does
       // not treat it as fatal — mirroring the deprecated-option behavior.

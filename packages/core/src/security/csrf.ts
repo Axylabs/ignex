@@ -5,13 +5,13 @@
  * state-changing methods, requires the client to echo it in a header. This is
  * both a double-submit check and an HMAC signature check (native-accelerated).
  */
-import { csrfToken, csrfVerify } from "@ignus/native";
-import type { IgnusContext } from "../http/context";
+import { csrfToken, csrfVerify } from "@ignex/native";
+import type { IgnexContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { HttpMethod } from "../types";
 
-export { csrfToken, csrfVerify } from "@ignus/native";
+export { csrfToken, csrfVerify } from "@ignex/native";
 
 /** Options for {@link createCsrfGuard}. */
 export interface CsrfGuardOptions {
@@ -22,7 +22,7 @@ export interface CsrfGuardOptions {
   methods?: readonly HttpMethod[];
   cookieOptions?: Partial<Record<string, unknown>>;
   /** Skip the guard for matching requests (e.g. public webhooks). */
-  ignore?: (ctx: IgnusContext) => boolean;
+  ignore?: (ctx: IgnexContext) => boolean;
 }
 
 const DEFAULT_METHODS: readonly HttpMethod[] = ["POST", "PUT", "PATCH", "DELETE"];

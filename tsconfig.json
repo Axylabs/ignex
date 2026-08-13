@@ -18,13 +18,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "@ignus/shared": ["./packages/shared/src/index.ts"],
-      "@ignus/core": ["./packages/core/src/index.ts"],
-      "@ignus/core/http": ["./packages/core/src/http/route.ts"],
-      "@ignus/core/*": ["./packages/core/src/*"],
-      "@ignus/compiler": ["./packages/compiler/src/index.ts"],
-      "@ignus/native": ["./packages/native/src/index.ts"],
-      "@ignus/test-utils": ["./packages/test-utils/src/index.ts"],
+      "@ignex/shared": ["./packages/shared/src/index.ts"],
+      "@ignex/core": ["./packages/core/src/index.ts"],
+      "@ignex/core/http": ["./packages/core/src/http/route.ts"],
+      "@ignex/core/*": ["./packages/core/src/*"],
+      "@ignex/compiler": ["./packages/compiler/src/index.ts"],
+      "@ignex/native": ["./packages/native/src/index.ts"],
+      "@ignex/test-utils": ["./packages/test-utils/src/index.ts"],
       "castrum": ["./packages/native/src/vendor/castrum.d.ts"]
     }
   },

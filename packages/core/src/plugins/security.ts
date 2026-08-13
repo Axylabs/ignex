@@ -4,9 +4,9 @@
  * HSTS only on HTTPS requests.
  */
 
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { mutateHeaders } from "../http/headers";
-import type { IgnusPlugin } from "../lifecycle/plugin";
+import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link security}. */
 export interface SecurityOptions {
@@ -36,7 +36,7 @@ const DEFAULTS: SecurityOptions = {
   xssFilter: true,
 };
 
-const isHttpsRequest = (ctx: IgnusContext): boolean => {
+const isHttpsRequest = (ctx: IgnexContext): boolean => {
   const forwardedProto = ctx.headers.get("x-forwarded-proto");
 
   if (forwardedProto?.toLowerCase().includes("https")) {
@@ -55,7 +55,7 @@ const isHttpsRequest = (ctx: IgnusContext): boolean => {
  * @param options - Header overrides; each defaults to a hardened value.
  * @returns The security plugin.
  */
-export const security = (options: SecurityOptions = {}): IgnusPlugin => {
+export const security = (options: SecurityOptions = {}): IgnexPlugin => {
   const opts = { ...DEFAULTS, ...options };
 
   // Pre-bake the per-request-invariant security headers ONCE (frozen array),

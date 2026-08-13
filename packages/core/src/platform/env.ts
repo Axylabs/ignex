@@ -2,7 +2,7 @@
  * Environment & typed config — dotenv loading + typed accessors.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { tryCatchOr } from "@ignus/shared";
+import { tryCatchOr } from "@ignex/shared";
 import { coerceBoolean } from "./coerce";
 
 /** Parse a dotenv-style line into `[key, value]` (or `null`). */

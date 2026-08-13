@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "ignus: verify",
+      "label": "ignex: verify",
       "type": "shell",
       "command": "bun run verify",
       "problemMatcher": [],
@@ -10,7 +10,7 @@
       "detail": "Typecheck + lint + all tests (CI gate)."
     },
     {
-      "label": "ignus: test",
+      "label": "ignex: test",
       "type": "shell",
       "command": "bun run test:all",
       "problemMatcher": [],
@@ -18,7 +18,7 @@
       "detail": "Run the full vitest suite."
     },
     {
-      "label": "ignus: build (app)",
+      "label": "ignex: build (app)",
       "type": "shell",
       "command": "bun run build",
       "problemMatcher": [],
@@ -26,7 +26,7 @@
       "detail": "AOT-compile the example app."
     },
     {
-      "label": "ignus: smoke",
+      "label": "ignex: smoke",
       "type": "shell",
       "command": "bun run smoke",
       "problemMatcher": [],
@@ -34,7 +34,7 @@
       "detail": "Boot the compiled server and assert every route/flow."
     },
     {
-      "label": "ignus: dev (app)",
+      "label": "ignex: dev (app)",
       "type": "shell",
       "command": "bun run dev",
       "problemMatcher": [],

@@ -5,7 +5,7 @@ import {
   biomeTemplate,
   gitignoreTemplate,
   hasPluginFeatures,
-  ignusConfigTemplate,
+  ignexConfigTemplate,
   packageJsonTemplate,
   pluginsTemplate,
   readmeTemplate,
@@ -56,7 +56,7 @@ interface CreateDefaults {
 async function resolveInteractive(options: CreateDefaults): Promise<Required<CreateDefaults>> {
   const rl = openPrompt();
   try {
-    const name = options.name ?? (await ask(rl, "Project name", "ignus-app"));
+    const name = options.name ?? (await ask(rl, "Project name", "ignex-app"));
     const runtime = options.runtime ?? (await ask(rl, "Runtime (bun/node)", "bun"));
     const pm =
       options.pm ??
@@ -77,7 +77,7 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
   const features = opts.features;
   await writeFileEnsuringDir(join(target, "package.json"), packageJsonTemplate(opts));
   await writeFileEnsuringDir(join(target, "tsconfig.json"), tsconfigTemplate(opts));
-  await writeFileEnsuringDir(join(target, "ignus.config.mjs"), ignusConfigTemplate());
+  await writeFileEnsuringDir(join(target, "ignex.config.mjs"), ignexConfigTemplate());
   await writeFileEnsuringDir(join(target, "biome.json"), biomeTemplate());
   await writeFileEnsuringDir(join(target, ".gitignore"), gitignoreTemplate());
   await writeFileEnsuringDir(join(target, "README.md"), readmeTemplate(opts));
@@ -237,7 +237,7 @@ export async function runCreate(args: string[]): Promise<void> {
     git = resolved.git;
   }
 
-  name = name ?? "ignus-app";
+  name = name ?? "ignex-app";
 
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);

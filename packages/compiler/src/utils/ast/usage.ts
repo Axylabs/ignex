@@ -8,7 +8,7 @@
  * "specialize context" optimization.
  */
 
-import { type ContextUsage, EMPTY_USAGE } from "@ignus/shared";
+import { type ContextUsage, EMPTY_USAGE } from "@ignex/shared";
 import { type Expression, type Node, type Pattern, propertyName } from "./ast-types";
 import { walk } from "./walk";
 

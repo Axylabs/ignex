@@ -4,7 +4,7 @@
  *
  * Parity is the contract: each facade method must produce the same output as
  * the flat wrapper (and the fallback), whether the castrum addon is loaded
- * (real-addon mode via `IGNUS_NATIVE_PATH`) or not (default CI mode).
+ * (real-addon mode via `IGNEX_NATIVE_PATH`) or not (default CI mode).
  */
 import { describe, expect, it } from "vitest";
 import {

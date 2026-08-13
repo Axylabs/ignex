@@ -2,7 +2,7 @@
  * @fileoverview Command registry — the single place CLI commands are declared.
  *
  * Each command carries its name, aliases, description, the flag docs shown in
- * `ignus help`, and its `run` function. `main` in `src/index.ts` dispatches by
+ * `ignex help`, and its `run` function. `main` in `src/index.ts` dispatches by
  * looking up this registry (no hard-coded switch), so adding a command is a
  * one-line addition here.
  */
@@ -18,7 +18,7 @@ export interface Command {
   name: string;
   aliases?: readonly string[];
   description: string;
-  /** Flag docs / usage shown under this command in `ignus help`. */
+  /** Flag docs / usage shown under this command in `ignex help`. */
   options?: string;
   run(args: string[]): Promise<void>;
 }
@@ -63,7 +63,7 @@ export const commands: readonly Command[] = [
   --minify                      Enable minification if supported
   --sourcemap                   Enable sourcemaps if supported
   --verbose                     Verbose compiler logs
-  --watch                       Alias for ignus dev`,
+  --watch                       Alias for ignex dev`,
     run: runBuild,
   },
   {
@@ -87,7 +87,7 @@ export const commands: readonly Command[] = [
     name: "mcp",
     description: "Run the Model Context Protocol server (stdio)",
     options: `  Exposes agent tools: build, route, info, doctor, openapi, dev
-  Run via an MCP client (e.g. npx @modelcontextprotocol/inspector ignus mcp)`,
+  Run via an MCP client (e.g. npx @modelcontextprotocol/inspector ignex mcp)`,
     run: runMcp,
   },
 ];
@@ -99,9 +99,9 @@ export const findCommand = (name: string): Command | undefined =>
 const ALIAS_LABEL = (aliases: readonly string[] | undefined): string =>
   aliases && aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
 
-/** Render the full `ignus help` text from the registry. */
+/** Render the full `ignex help` text from the registry. */
 export const renderHelp = (): string => {
-  const usage = commands.map((c) => `  ignus ${c.name} [options]`).join("\n");
+  const usage = commands.map((c) => `  ignex ${c.name} [options]`).join("\n");
   const list = commands
     .map((c) => `  ${c.name}${ALIAS_LABEL(c.aliases)}   ${c.description}`)
     .join("\n");
@@ -112,7 +112,7 @@ export const renderHelp = (): string => {
     .join("\n\n");
 
   return `
-@ignus/cli
+@ignex/cli
 
 Usage:
 ${usage}
@@ -123,10 +123,10 @@ ${list}
 ${options}
 
 Examples:
-  ignus create my-app --runtime bun --features openapi,files,tests --pm bun
-  ignus dev packages/app
-  ignus build packages/app --minify
-  ignus route products/[id].get --schema
-  ignus route upload.post --method post
+  ignex create my-app --runtime bun --features openapi,files,tests --pm bun
+  ignex dev packages/app
+  ignex build packages/app --minify
+  ignex route products/[id].get --schema
+  ignex route upload.post --method post
 `;
 };

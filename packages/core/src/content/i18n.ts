@@ -5,7 +5,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LRUCache } from "../data/lru";
-import type { IgnusContext } from "../http/context";
+import type { IgnexContext } from "../http/context";
 import { continueHook, type HookFn } from "../lifecycle/hooks";
 
 /** A single locale's message catalog: message key → translated string. */
@@ -35,7 +35,7 @@ export interface I18n {
    */
   t(key: string, params?: Record<string, unknown>, locale?: string): string;
   /** Resolve the active locale for a context. */
-  locale(ctx: IgnusContext): string;
+  locale(ctx: IgnexContext): string;
   /** Resolve a plural message key for `count` (`key.one` / `key.few` / `key.other` …). */
   pluralize(key: string, count: number, locale?: string): string;
   /** Format a number (Intl.NumberFormat). */
@@ -49,7 +49,7 @@ export interface I18n {
 }
 
 /** Locale state key on `ctx.state`. */
-export const LOCALE_KEY = Symbol.for("ignus.locale");
+export const LOCALE_KEY = Symbol.for("ignex.locale");
 
 /** CLDR plural categories (see `pluralCategory`). */
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
@@ -274,7 +274,7 @@ export const createI18n = (catalogs: Catalogs, options: I18nOptions = {}): I18n 
         ctx.setState(LOCALE_KEY, locale);
         ctx.setState(stateKey, locale);
 
-        (ctx as IgnusContext & { t: I18n["t"] }).t = (key, params) =>
+        (ctx as IgnexContext & { t: I18n["t"] }).t = (key, params) =>
           translate(key, params, locale);
 
         return continueHook(ctx);

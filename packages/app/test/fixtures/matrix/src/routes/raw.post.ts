@@ -1,4 +1,4 @@
-import { post } from "@ignus/core/http";
+import { post } from "@ignex/core/http";
 
 /** POST /raw — echoes raw byte length + first bytes (application/octet-stream). */
 export default post(async (ctx) => {

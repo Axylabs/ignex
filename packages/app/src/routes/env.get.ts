@@ -1,5 +1,5 @@
-import { defineConfig, env, loadEnv } from "@ignus/core";
-import { get } from "@ignus/core/http";
+import { defineConfig, env, loadEnv } from "@ignex/core";
+import { get } from "@ignex/core/http";
 
 loadEnv();
 

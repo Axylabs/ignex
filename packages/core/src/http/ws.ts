@@ -4,7 +4,7 @@
  */
 
 import type { ServerWebSocket, WebSocketHandler } from "../types";
-import type { IgnusContext } from "./context";
+import type { IgnexContext } from "./context";
 
 /**
  * Typed websocket wrapper around a raw {@link ServerWebSocket}.
@@ -12,7 +12,7 @@ import type { IgnusContext } from "./context";
  * `send`/`publish` pass strings and binary through verbatim and JSON-stringify
  * any other object, so handlers can send plain objects directly.
  */
-export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
+export class IgnexWS<Context = unknown, Body = unknown, Response = unknown> {
   constructor(
     public raw: ServerWebSocket<Context>,
     public data: Context,
@@ -71,7 +71,7 @@ export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
   isSubscribed(topic: string): boolean {
     return this.raw.isSubscribed(topic);
   }
-  cork<T>(cb: (ws: IgnusWS<Context, Body, Response>) => T): T {
+  cork<T>(cb: (ws: IgnexWS<Context, Body, Response>) => T): T {
     return this.raw.cork(() => cb(this));
   }
 
@@ -93,16 +93,16 @@ export class IgnusWS<Context = unknown, Body = unknown, Response = unknown> {
  * string and parsed successfully, otherwise the raw string/Buffer).
  */
 export interface WSLocalHook<Context = unknown, Body = unknown, Response = unknown> {
-  open?(ws: IgnusWS<Context, Body, Response>): void | Promise<void>;
-  message?(ws: IgnusWS<Context, Body, Response>, message: Body): void | Promise<void>;
-  drain?(ws: IgnusWS<Context, Body, Response>): void | Promise<void>;
-  close?(ws: IgnusWS<Context, Body, Response>, code: number, reason: string): void | Promise<void>;
+  open?(ws: IgnexWS<Context, Body, Response>): void | Promise<void>;
+  message?(ws: IgnexWS<Context, Body, Response>, message: Body): void | Promise<void>;
+  drain?(ws: IgnexWS<Context, Body, Response>): void | Promise<void>;
+  close?(ws: IgnexWS<Context, Body, Response>, code: number, reason: string): void | Promise<void>;
   /**
    * Upgrade customization. Either a static object merged into the socket's
    * `data` payload, or a function receiving the request context and returning
    * the socket's `data` (e.g. a loaded user). Consumed by {@link upgradeWS}.
    */
-  upgrade?: Record<string, unknown> | ((ctx: IgnusContext) => unknown);
+  upgrade?: Record<string, unknown> | ((ctx: IgnexContext) => unknown);
 }
 
 /** Options for {@link upgradeWS} / {@link createWSHandler}. */
@@ -120,7 +120,7 @@ export interface WSUpgradeOptions<Context> {
  * (e.g. the interpreted path without a real `Bun.serve` handle).
  */
 export const upgradeWS = <Context>(
-  ctx: IgnusContext,
+  ctx: IgnexContext,
   hook: WSLocalHook<Context>,
   options: WSUpgradeOptions<Context> = {},
 ): boolean => {
@@ -149,9 +149,9 @@ export const upgradeWS = <Context>(
  */
 export interface WSConnections<Context = unknown, Body = unknown, Response = unknown> {
   readonly size: number;
-  has(ws: IgnusWS<Context, Body, Response>): boolean;
-  add(ws: IgnusWS<Context, Body, Response>): void;
-  delete(ws: IgnusWS<Context, Body, Response>): void;
+  has(ws: IgnexWS<Context, Body, Response>): boolean;
+  add(ws: IgnexWS<Context, Body, Response>): void;
+  delete(ws: IgnexWS<Context, Body, Response>): void;
   clear(): void;
   /** Send a string/JSON-object message to every connected socket. */
   broadcast(data: Response | string | ArrayBuffer, compress?: boolean): void;
@@ -160,14 +160,14 @@ export interface WSConnections<Context = unknown, Body = unknown, Response = unk
 }
 
 /**
- * A live registry of connected {@link IgnusWS} sockets, with broadcast helpers.
+ * A live registry of connected {@link IgnexWS} sockets, with broadcast helpers.
  */
 export const createWSConnections = <Context, Body, Response>(): WSConnections<
   Context,
   Body,
   Response
 > => {
-  const set = new Set<IgnusWS<Context, Body, Response>>();
+  const set = new Set<IgnexWS<Context, Body, Response>>();
 
   return {
     get size() {
@@ -195,7 +195,7 @@ export const createWSConnections = <Context, Body, Response>(): WSConnections<
 /**
  * Build a raw {@link WebSocketHandler} from a {@link WSLocalHook}.
  *
- * Wraps each raw socket in a single persistent {@link IgnusWS} so hooks can
+ * Wraps each raw socket in a single persistent {@link IgnexWS} so hooks can
  * stash per-socket state on it. When `connections` is provided, sockets are
  * added on open and removed on close (so `broadcast` never hits dead sockets).
  *
@@ -207,15 +207,15 @@ export const createWSHandler = <Context, Body, Response>(
   hook: WSLocalHook<Context, Body, Response>,
   connections?: WSConnections<Context, Body, Response>,
 ): WebSocketHandler<Context> => {
-  // One IgnusWS wrapper per raw socket so the SAME instance is delivered to
+  // One IgnexWS wrapper per raw socket so the SAME instance is delivered to
   // every event (open/message/close). That identity is required for the
   // connection registry and lets hooks stash per-socket state on `ws`.
-  const bySocket = new WeakMap<ServerWebSocket<Context>, IgnusWS<Context, Body, Response>>();
+  const bySocket = new WeakMap<ServerWebSocket<Context>, IgnexWS<Context, Body, Response>>();
 
-  const wrap = (ws: ServerWebSocket<Context>): IgnusWS<Context, Body, Response> => {
+  const wrap = (ws: ServerWebSocket<Context>): IgnexWS<Context, Body, Response> => {
     let wrapped = bySocket.get(ws);
     if (!wrapped) {
-      wrapped = new IgnusWS(ws, ws.data, undefined as Body);
+      wrapped = new IgnexWS(ws, ws.data, undefined as Body);
       bySocket.set(ws, wrapped);
     }
     return wrapped;

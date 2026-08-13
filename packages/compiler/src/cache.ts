@@ -28,7 +28,7 @@ import { projectPath } from "./utils/path";
  */
 const COMPILER_CACHE_VERSION = "0.6.0";
 
-const CACHE_FILE = ".ignus-cache.json";
+const CACHE_FILE = ".ignex-cache.json";
 
 interface CacheRecord {
   readonly version: string;
@@ -126,22 +126,22 @@ const stableOptions = (opts: CompilerOptions): string => {
 };
 
 /**
- * Resolve the on-disk `@ignus/core` package directory so its shipped source can
- * be fingerprinted. The linker bundles `@ignus/core` into the output, so a core
+ * Resolve the on-disk `@ignex/core` package directory so its shipped source can
+ * be fingerprinted. The linker bundles `@ignex/core` into the output, so a core
  * source change must invalidate the cache even when routes/hooks/config are
  * unchanged.
  */
 const corePackageDir = (): string | undefined => {
   const req = createRequire(import.meta.url);
 
-  // Installed layout: node_modules/@ignus/core/package.json (via exports).
+  // Installed layout: node_modules/@ignex/core/package.json (via exports).
   try {
-    return dirname(req.resolve("@ignus/core/package.json"));
+    return dirname(req.resolve("@ignex/core/package.json"));
   } catch {
     // Workspace/source layout (no node_modules symlinks): resolve the main
     // entry (<root>/src/index.ts) and climb to the package root.
     try {
-      const entry = req.resolve("@ignus/core");
+      const entry = req.resolve("@ignex/core");
       const root = dirname(dirname(entry)); // <root>/src → <root>
       return existsSync(join(root, "package.json")) ? root : undefined;
     } catch {
