@@ -118,6 +118,13 @@ export class MethodNotAllowedError extends HTTPError {
     super(405, message, "METHOD_NOT_ALLOWED");
     this.name = "MethodNotAllowedError";
   }
+
+  toResponse(headers?: Record<string, string>): Response {
+    // Surface the permitted methods on the wire (`Allow`) — previously the
+    // `allow` field was never emitted, so clients had no way to discover the
+    // allowed methods after a 405.
+    return super.toResponse(this.allow === undefined ? headers : { allow: this.allow, ...headers });
+  }
 }
 
 /** Narrowing guard for the whole HTTP error family. */

@@ -245,13 +245,29 @@ export const mutateHeaders = (response: Response, mutate: (headers: Headers) => 
   }
 };
 
+/**
+ * Strip CR/LF/NUL from a header value before it is written to the wire.
+ *
+ * Reflected user input (query/body values echoed into headers) must never be
+ * able to smuggle a second header nor crash the whole request: the runtime
+ * rejects invalid header values (`Headers.set` throws on CR/LF/NUL), which
+ * turns a hostile `?v=foo%0d%0ax-injected: pwned` into a 500. Dropping the
+ * control characters instead keeps the request healthy (200) while the
+ * injection never reaches the wire. Matches Elysia's CRLF-drop behavior.
+ *
+ * The regex only runs when a control char is actually present — the hot path
+ * (well-formed values) skips it entirely.
+ */
+const sanitizeHeaderValue = (value: string): string =>
+  /[\r\n\0]/.test(value) ? value.replace(/[\r\n\0]/g, "") : value;
+
 /** Set (or append, for array values) a single header value on a Headers. */
 const applyHeaderValue = (h: Headers, key: string, value: string | string[]): void => {
   if (Array.isArray(value)) {
     h.delete(key);
-    for (const x of value) h.append(key, String(x));
+    for (const x of value) h.append(key, sanitizeHeaderValue(String(x)));
   } else {
-    h.set(key, String(value));
+    h.set(key, sanitizeHeaderValue(String(value)));
   }
 };
 
@@ -325,7 +341,13 @@ export const applySet = (
   }
 
   if (redirect !== undefined) {
-    return Response.redirect(redirect, status ?? 302);
+    // Build the redirect manually rather than `Response.redirect()`: the
+    // standard helper requires an *absolute* URL and throws on relative
+    // `Location` values (e.g. undici under vitest, and Bun for relative
+    // paths), while relative redirects are the common case (`/login`, `/home`)
+    // — matches `ctx.redirect()`. Setting the Location header directly is
+    // runtime-agnostic (matches Fastify).
+    return new Response(null, { status: status ?? 302, headers: { location: redirect } });
   }
 
   // Header/cookie-only mutations (no status change): mutate the response's

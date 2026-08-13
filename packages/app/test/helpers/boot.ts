@@ -25,6 +25,8 @@ export interface BootOptions {
   port?: number;
   /** Extra environment variables for the server process. */
   env?: Record<string, string>;
+  /** Force an AOT rebuild even when `dist/__server.js` already exists. */
+  rebuild?: boolean;
 }
 
 export interface BootedServer {
@@ -54,6 +56,17 @@ const ensureBuilt = (appDir: string): void => {
   }
 };
 
+/** Force a fresh AOT build (used by parity suites that compare current code). */
+const forceBuild = (appDir: string): void => {
+  const build = spawnSync("bun", ["builder.ts"], {
+    cwd: appDir,
+    stdio: "ignore",
+  });
+  if (build.status !== 0) {
+    throw new Error(`app build failed in ${appDir} with code ${build.status}`);
+  }
+};
+
 /**
  * Compile-if-needed and boot a generated ignex server, waiting for it to
  * become ready. Throws (after killing the child) if it never responds.
@@ -62,7 +75,8 @@ export const bootServer = async (
   appDir: string,
   options: BootOptions = {},
 ): Promise<BootedServer> => {
-  ensureBuilt(appDir);
+  if (options.rebuild) forceBuild(appDir);
+  else ensureBuilt(appDir);
 
   const port = options.port ?? 3100 + Math.floor(Math.random() * 200);
   const base = `http://127.0.0.1:${port}`;

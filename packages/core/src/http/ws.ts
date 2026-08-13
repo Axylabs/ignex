@@ -56,8 +56,15 @@ export class IgnexWS<Context = unknown, Body = unknown, Response = unknown> {
   publish(topic: string, data: Response | string | ArrayBuffer, compress?: boolean): number {
     // Pass strings / binary through verbatim; JSON-stringify any other object.
     // `Response` is a generic type parameter — see `send`.
+    //
+    // A `Uint8Array` must NOT be JSON-stringified: that would corrupt binary
+    // frames into `{"0":1}`-style text. Route it through `publishBinary` so
+    // raw bytes reach the topic (matching `send`'s binary handling).
     if (typeof data !== "object" || data instanceof ArrayBuffer) {
       return this.raw.publish(topic, data as string | ArrayBuffer, compress);
+    }
+    if (data instanceof Uint8Array) {
+      return this.raw.publishBinary(topic, data, compress);
     }
     return this.raw.publish(topic, JSON.stringify(data), compress);
   }
@@ -221,11 +228,29 @@ export const createWSHandler = <Context, Body, Response>(
     return wrapped;
   };
 
+  /**
+   * Invoke a user hook with error containment: a synchronously-throwing (or
+   * rejecting) message/open/close/drain hook must never crash socket dispatch
+   * or take down the connection registry bookkeeping. Async rejections are
+   * surfaced (unhandled) rather than silently swallowed; sync throws are
+   * caught and reported so the event loop stays healthy.
+   */
+  const invoke = (fn: () => unknown): void => {
+    try {
+      const result = fn();
+      if (result instanceof Promise) {
+        void result.catch((err) => console.error("[ignex] websocket hook error:", err));
+      }
+    } catch (err) {
+      console.error("[ignex] websocket hook error:", err);
+    }
+  };
+
   return {
     open(ws) {
       const wrapped = wrap(ws);
       connections?.add(wrapped);
-      void hook.open?.(wrapped);
+      invoke(() => hook.open?.(wrapped));
     },
 
     message(ws, message) {
@@ -239,16 +264,16 @@ export const createWSHandler = <Context, Body, Response>(
         }
       }
 
-      void hook.message?.(wrap(ws), parsed as Body);
+      invoke(() => hook.message?.(wrap(ws), parsed as Body));
     },
 
     drain(ws) {
-      void hook.drain?.(wrap(ws));
+      invoke(() => hook.drain?.(wrap(ws)));
     },
 
     close(ws, code, reason) {
       const wrapped = wrap(ws);
-      void hook.close?.(wrapped, code, reason);
+      invoke(() => hook.close?.(wrapped, code, reason));
       connections?.delete(wrapped);
     },
   };

@@ -103,7 +103,8 @@ export const HELPER_SOURCES: Record<string, string> = {
   __withBody(new TextEncoder().encode(String(data)), "text/html; charset=utf-8", init);`,
   streamReply: `const streamReply = (stream, init) => new Response(stream, init);`,
   emptyReply: `const emptyReply = (status = 204) => new Response(null, { status });`,
-  redirectReply: `const redirectReply = (url, status = 302) => Response.redirect(url, status);`,
+  redirectReply: `const redirectReply = (url, status = 302) =>
+  new Response(null, { status, headers: { location: String(url) } });`,
   statusReply: `const statusReply = (code) => new Response(null, { status: code });`,
   validationError: `const validationError = (errors, on) =>
   new ValidationError("Validation failed", errors, on);`,

@@ -24,5 +24,10 @@ export interface InjectInit {
 export const inject = async (app: IgnexApp, init: InjectInit = {}): Promise<Response> => {
   const { method = "GET", url = "/", headers, body } = init;
   const target = /^https?:\/\//.test(url) ? url : `http://localhost${url}`;
-  return app.handler(new Request(target, { method, headers, body }));
+  // exactOptionalPropertyTypes: omit `body`/`headers` when undefined instead
+  // of passing `{ body: undefined }` (which RequestInit rejects).
+  const requestInit: RequestInit = { method };
+  if (headers !== undefined) requestInit.headers = headers;
+  if (body !== undefined) requestInit.body = body;
+  return app.handler(new Request(target, requestInit));
 };
