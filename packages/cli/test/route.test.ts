@@ -49,7 +49,7 @@ test("default route template uses export default", () => {
   const code = routeFileTemplate(parsed);
 
   expect(code).toContain('import { get } from "@ignex/core/http";');
-  expect(code).toContain('export default get(() => new Response("OK"));');
+  expect(code).toContain('export default get((ctx) => ctx.text("OK"));');
   expect(code).not.toContain("export const httpGet");
 });
 
@@ -58,7 +58,7 @@ test("named route template uses export const httpGet", () => {
   const code = routeFileTemplate(parsed, { named: true });
 
   expect(code).toContain('import { get } from "@ignex/core/http";');
-  expect(code).toContain('export const httpGet = get(() => new Response("OK"));');
+  expect(code).toContain('export const httpGet = get((ctx) => ctx.text("OK"));');
   expect(code).not.toContain("export default");
 });
 

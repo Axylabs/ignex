@@ -6,14 +6,14 @@ export function indexRouteTemplate(name: string): string {
   //   export const httpGet = get(() => ...)
   return `import { get } from "@ignex/core/http";
 
-export const httpGet = get(() => Response.json({ name: "${safe}" }));
+export const httpGet = get((ctx) => ctx.json({ name: "${safe}" }));
 `;
 }
 
 export function healthRouteTemplate(): string {
   return `import { get } from "@ignex/core/http";
 
-export const httpGet = get(() => new Response("ok"));
+export const httpGet = get((ctx) => ctx.text("ok"));
 `;
 }
 
@@ -23,8 +23,8 @@ export function openApiRouteTemplate(name: string): string {
   return `import { get } from "@ignex/core/http";
 import { generateOpenAPI } from "@ignex/core";
 
-export default get(() =>
-  Response.json(
+export default get((ctx) =>
+  ctx.json(
     generateOpenAPI(
       {
         title: "${safe}",
@@ -43,7 +43,7 @@ export function productByIdRouteTemplate(): string {
 export default get((ctx) => {
   const id = ctx.params.id;
 
-  return Response.json({ id });
+  return ctx.json({ id });
 });
 `;
 }
@@ -54,7 +54,7 @@ export function productAddRouteTemplate(): string {
 export default post(async (ctx) => {
   const body = await ctx.body.json();
 
-  return Response.json({ created: true, body }, { status: 201 });
+  return ctx.json({ created: true, body }, { status: 201 });
 });
 `;
 }
@@ -66,7 +66,7 @@ export default post(async (ctx) => {
   const form = await ctx.body.formData();
   const file = form.get("file");
 
-  return Response.json(
+  return ctx.json(
     {
       uploaded: file instanceof File ? file.name : null
     },
@@ -93,7 +93,7 @@ export function cacheRouteTemplate(): string {
 import { withBrowserCache } from "@ignex/core";
 
 export default get(() =>
-  withBrowserCache(Response.json({ cached: true }), { maxAge: 10 })
+  withBrowserCache(ctx.json({ cached: true }), { maxAge: 10 })
 );
 `;
 }
@@ -158,7 +158,7 @@ export default (async (ctx) => {
     : null;
 
   if (!claims) {
-    return haltHook(Response.json({ error: "Unauthorized" }, { status: 401 }));
+    return haltHook(ctx.json({ error: "Unauthorized" }, { status: 401 }));
   }
 
   ctx.setState("user", claims);
@@ -293,9 +293,9 @@ const task = withTimeout(5000)(
   })
 );
 
-export default get(() => {
+export default get((ctx) => {
   queue.enqueue("demo", task);
-  return Response.json({ enqueued: true, pending: queue.pending, running: queue.running });
+  return ctx.json({ enqueued: true, pending: queue.pending, running: queue.running });
 });
 `;
 }

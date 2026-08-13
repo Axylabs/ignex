@@ -55,7 +55,12 @@ export {
   parseModule,
 } from "./parse";
 export { flattenMember, isPureBodyAST } from "./purity";
-export { type InferredResponseType, inferResponseTypeAST } from "./response";
+export {
+  findResponseJsonReturn,
+  type InferredResponseType,
+  inferResponseTypeAST,
+  isResponseJsonCall,
+} from "./response";
 export { collectTopLevelBindingNames, extractSymbolsAST } from "./symbols";
 export type { ExtractedHandler } from "./types";
 export { buildContextMapping, detectUsage } from "./usage";

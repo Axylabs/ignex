@@ -60,6 +60,8 @@ export const DiagnosticCodes = {
   ValidatorCompileFailed: "IGN_VALIDATOR_COMPILE_FAILED",
   /** Response schema serialization fell back to JSON.stringify. */
   SerializerFallback: "IGN_SERIALIZER_FALLBACK",
+  /** A route handler returns `Response.json(...)` directly, bypassing AOT optimizations. */
+  NonOptimizableResponse: "IGN_NON_OPTIMIZABLE_RESPONSE",
   /** A Standard-Schema part has no build-time codegen and is validated/serialized at runtime. */
   StandardSchemaRuntime: "IGN_STANDARD_SCHEMA_RUNTIME",
   /** A route `config` export could not be evaluated at build time. */

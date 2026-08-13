@@ -58,11 +58,11 @@ export function routeFileTemplate(
       handlerLines.push(`  await ctx.body.json();`);
     }
 
-    handlerLines.push(`  return Response.json({ ok: true });`);
+    handlerLines.push(`  return ctx.json({ ok: true });`);
 
     const handler = usesCtx
       ? `async (ctx) => {\n${handlerLines.join("\n")}\n}`
-      : `() => Response.json({ ok: true })`;
+      : `(ctx) => ctx.json({ ok: true })`;
 
     return `import { Type } from "@sinclair/typebox";
 import { ${fn} } from "@ignex/core/http";
@@ -83,7 +83,7 @@ ${exportLine(`${fn}(${handler}, schema)`)}
 ${exportLine(`${fn}((ctx) => {
   const { ${params.join(", ")} } = ctx.params;
 
-  return Response.json({ ${json} });
+  return ctx.json({ ${json} });
 })`)}
 `;
   }
@@ -94,7 +94,7 @@ ${exportLine(`${fn}((ctx) => {
 ${exportLine(`${fn}(async (ctx) => {
   const body = await ctx.body.json();
 
-  return Response.json({ received: body }, { status: 201 });
+  return ctx.json({ received: body }, { status: 201 });
 })`)}
 `;
   }
@@ -102,12 +102,12 @@ ${exportLine(`${fn}(async (ctx) => {
   if (route.method === "all") {
     return `import { all } from "@ignex/core/http";
 
-${exportLine(`all(() => new Response("OK"))`)}
+${exportLine(`all((ctx) => ctx.text("OK"))`)}
 `;
   }
 
   return `import { ${fn} } from "@ignex/core/http";
 
-${exportLine(`${fn}(() => new Response("OK"))`)}
+${exportLine(`${fn}((ctx) => ctx.text("OK"))`)}
 `;
 }

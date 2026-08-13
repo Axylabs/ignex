@@ -92,6 +92,28 @@ describe("compiler features", () => {
     expect(result.warnings.filter((w) => w.code === "IGN_HOOK_MISSING")).toHaveLength(0);
   });
 
+  it("warns IGN_NON_OPTIMIZABLE_RESPONSE on direct Response.json returns", async () => {
+    const { routesDir, outDir } = materializeFixture("non-optimizable");
+    const result = await buildAsync({
+      routesDir,
+      outDir,
+      outFile: "server.js",
+      incremental: false,
+    });
+
+    expect(result.errors).toHaveLength(0);
+
+    // index.get.ts returns Response.json(...) directly → warning with a position.
+    const warnings = result.warnings.filter((w) => w.code === "IGN_NON_OPTIMIZABLE_RESPONSE");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.file).toContain("index.get.ts");
+    expect(warnings[0]?.position).toBeDefined();
+
+    // health.get.ts uses ctx.json(...) → not flagged.
+    const healthWarning = warnings.find((w) => w.file?.includes("health.get.ts"));
+    expect(healthWarning).toBeUndefined();
+  });
+
   it("never runs plugin afterHandle on raw (non-Response) results (regression)", async () => {
     const { routesDir, outDir } = materializeFixture("basic");
     const result = await buildAsync({

@@ -231,6 +231,10 @@ export const reWrapResponse = (
  * discarded and re-applied on the copied headers in the fallback path.
  */
 export const mutateHeaders = (response: Response, mutate: (headers: Headers) => void): Response => {
+  // Never re-wrap a non-`Response`: `reWrapResponse` reads `response.body`
+  // (undefined on a plain object) and would silently drop the payload.
+  if (!(response instanceof Response)) return response;
+
   try {
     mutate(response.headers);
     return response;
@@ -296,6 +300,16 @@ export const applySet = (
   trace = false,
 ): Response => {
   if (!set) return response;
+
+  // Only apply mutations to a real `Response`. The interpreted `createApp`
+  // pipeline has no `__finalize` equivalent (compiled routes run `__finalize`
+  // before `__applySet`), so a handler returning a plain object / `undefined`
+  // can reach this boundary as a non-`Response`. Re-wrapping such a value
+  // would silently drop its body (the `reWrapResponse` fallback reads
+  // `response.body`, which is `undefined` on a plain object). Return it
+  // untouched so the invalid return surfaces loudly at the server boundary
+  // instead of corrupting data.
+  if (!(response instanceof Response)) return response;
 
   const { headers, cookie, status, redirect } = set;
 

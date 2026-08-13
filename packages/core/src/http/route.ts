@@ -101,6 +101,33 @@ export type RouteContext<S extends Partial<RouteSchemas>> = Omit<
   query: InferQuery<S>;
 };
 
+/**
+ * The allowed return value of a route handler.
+ *
+ * All forms below are valid in BOTH the interpreted (`createApp`) and the
+ * AOT-compiled pipeline, but they are NOT equal at compile time. Prefer the
+ * forms that let the compiler optimize the response at build time:
+ *
+ * 1. `ctx.json(data)` / `ctx.text(data)` / `ctx.html(data)` — the compiler
+ *    replaces these with precompiled `jsonReply`/`textReply`/`htmlReply`
+ *    helpers that encode the body ONCE (`TextEncoder`), set an exact
+ *    `content-length` (so compression never buffers), and route through the
+ *    precompiled `fast-json-stringify` serializer when a response schema is
+ *    present. **This is the default recommended form.**
+ * 2. A plain value (`InferResponse<S>`) matching the `response` schema — the
+ *    compiled `__finalize` serializes it with the precompiled serializer.
+ *    Compile-time-constant literals are additionally hoisted to zero-cost
+ *    frozen response bodies.
+ * 3. `{ status, body }` ({@link StatusBodyResult}) — multi-status responses,
+ *    serialized against the schema for that status.
+ *
+ * Returning a raw `Response` (e.g. `Response.json(...)` or `new Response(...)`)
+ * is a passthrough: the compiled pipeline leaves it untouched. This is needed
+ * for streams, files, SSE, redirects and proxies, but it BYPASSES the
+ * compile-time optimizations above (no pre-encoding, no `content-length`,
+ * no schema serializer). Prefer `ctx.*` / plain values unless you must build
+ * a `Response` yourself.
+ */
 type RouteResult<S extends Partial<RouteSchemas>> = MaybePromise<
   Response | InferResponse<S> | StatusBodyResult<S>
 >;
@@ -119,7 +146,14 @@ type StatusBodyResult<S extends Partial<RouteSchemas>> = S extends { response: i
 
 /**
  * A route handler: receives the schema-typed {@link RouteContext} and returns
- * a response (or a plain value validated against the response schema).
+ * a response.
+ *
+ * Prefer returning `ctx.json(...)` / `ctx.text(...)` or a plain value
+ * validated against the `response` schema — both are AOT-optimized at compile
+ * time (pre-encoded body, exact `content-length`, precompiled serializer).
+ * Returning a raw `Response` is a passthrough and skips those optimizations;
+ * reserve it for streams, files, SSE, redirects and proxies (see
+ * {@link RouteResult} for the full contract).
  */
 export type RouteHandler<S extends Partial<RouteSchemas>> = (
   ctx: RouteContext<S>,

@@ -35,10 +35,20 @@ import type {
   CompilerOptions,
   DiscoveryResult,
 } from "../../types";
+import { findResponseJsonReturn, nodeStart } from "../../utils/ast";
 import { resolveAppConfig } from "./app-config";
 import { detectDeadRoutes, detectRouteConflicts } from "./conflicts";
 import { resolveHooks } from "./hooks";
 import { buildRouteGraph, findHandlerSymbol } from "./route-graph";
+
+/** Convert a source offset to a 1-based line / 0-based column position. */
+const offsetToPosition = (source: string, offset: number): { line: number; column: number } => {
+  const before = source.slice(0, offset);
+  return {
+    line: before.split("\n").length,
+    column: offset - before.lastIndexOf("\n") - 1,
+  };
+};
 
 export const runAnalysis = (
   discovery: DiscoveryResult,
@@ -60,6 +70,28 @@ export const runAnalysis = (
     }
 
     detectRouteConflicts(alive, opts, ctx);
+
+    // Compile-time enforcement: flag route handlers that return
+    // `Response.json(...)` directly. That bypasses the AOT optimizations
+    // (jsonReply pre-encoding + exact content-length + schema serializer) and
+    // is a per-request runtime call. Steer to `ctx.json(...)` / plain-value
+    // returns so the compiler can optimize the response at build time.
+    for (const route of alive) {
+      const mod = discovery.modules[route.source.moduleIdx];
+      if (!mod?.ast) continue;
+      const call = findResponseJsonReturn(mod.ast);
+      if (!call) continue;
+      const offset = nodeStart(call);
+      ctx.diagnostics.warn({
+        code: DiagnosticCodes.NonOptimizableResponse,
+        message:
+          `Route handler returns Response.json(...) directly, bypassing AOT optimizations. ` +
+          `Prefer ctx.json(...) (pre-encoded body + exact content-length + schema serializer) ` +
+          `or a plain-value return with a response schema for a compile-time-optimized response.`,
+        file: route.source.file,
+        ...(offset !== undefined ? { position: offsetToPosition(mod.content, offset) } : {}),
+      });
+    }
 
     const modules = discovery.modules;
 

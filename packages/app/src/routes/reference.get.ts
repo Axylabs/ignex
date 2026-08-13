@@ -1,6 +1,6 @@
 import { get } from "@ignex/core/http";
 
-export default get(() => {
+export default get((ctx) => {
   const html = `<!doctype html>
 <html>
   <head>
@@ -17,9 +17,8 @@ export default get(() => {
   </body>
 </html>`;
 
-  return new Response(html, {
+  return ctx.html(html, {
     headers: {
-      "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     },
   });

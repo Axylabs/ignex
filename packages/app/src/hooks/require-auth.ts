@@ -11,7 +11,7 @@ export default (async (ctx) => {
   const claims = token ? jwtVerify(token, process.env.JWT_SECRET ?? "dev-secret-change-me") : null;
 
   if (!claims) {
-    return haltHook(Response.json({ error: "Unauthorized" }, { status: 401 }));
+    return haltHook(ctx.json({ error: "Unauthorized" }, { status: 401 }));
   }
 
   ctx.setState("user", claims);
