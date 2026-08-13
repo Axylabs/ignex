@@ -20,12 +20,12 @@
  *   bun scripts/publish.ts --no-commit     # bump + publish, no git commit/tag
  *   bun scripts/publish.ts --no-bump       # reuse current versions (retry)
  *   bun scripts/publish.ts --yes           # skip the confirmation prompt
- *   bun scripts/publish.ts --packages core,shared
+ *   bun scripts/publish.ts --packages core,shared # + auto-bump their dependents (parents)
  *   bun scripts/publish.ts --no-check      # skip the npm auth/scope pre-flight
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -300,6 +300,36 @@ function selectTargets(args: CliArgs, allPackages: PkgInfo[]): PkgInfo[] {
   });
 }
 
+/**
+ * Expand the selected packages to include every workspace package that
+ * transitively depends on them. Bumping a child therefore automatically bumps
+ * its parents (and their parents, and so on) plus the root, keeping the whole
+ * published dependency graph consistent — `--packages shared` will also bump
+ * core, compiler, cli and mcp, but leave unrelated leaves like native alone.
+ */
+function expandDependents(selected: PkgInfo[], allPackages: PkgInfo[]): PkgInfo[] {
+  const dependents = new Map<string, string[]>();
+  for (const pkg of allPackages) {
+    for (const dep of pkg.ignexDeps) {
+      const list = dependents.get(dep) ?? [];
+      list.push(pkg.name);
+      dependents.set(dep, list);
+    }
+  }
+  const included = new Set(selected.map((pkg) => pkg.name));
+  const queue = [...included];
+  while (queue.length > 0) {
+    const name = queue.pop() as string;
+    for (const parent of dependents.get(name) ?? []) {
+      if (!included.has(parent)) {
+        included.add(parent);
+        queue.push(parent);
+      }
+    }
+  }
+  return allPackages.filter((pkg) => included.has(pkg.name));
+}
+
 function printPlan(
   args: CliArgs,
   currentVersion: string,
@@ -384,9 +414,71 @@ function bumpAllVersions(targets: PkgInfo[], rootManifest: PackageJson, nextVers
   }
   rootManifest.version = nextVersion;
   writeJson(ROOT_MANIFEST, rootManifest);
-  if (run("bun", ["install"], { check: false }) !== 0) {
-    console.warn("⚠  `bun install` failed — verify the lockfile before committing.");
+
+  // bun caches each workspace package's version in bun.lock and a plain
+  // `bun install` does NOT refresh it after a bump (it reports "no changes").
+  // That would make `bun publish` rewrite `workspace:*` deps to the stale
+  // version and ship broken tarballs — so delete the lockfile and regenerate.
+  const lockfile = join(ROOT, "bun.lock");
+  if (existsSync(lockfile)) {
+    unlinkSync(lockfile);
   }
+  if (run("bun", ["install"], { check: false }) !== 0) {
+    console.warn(
+      "⚠  `bun install` failed — the lockfile may be incomplete. Verify before publishing.",
+    );
+  }
+}
+
+/** bun.lock is JSONC (trailing commas); make it strict-JSON parseable. */
+function stripTrailingCommas(text: string): string {
+  return text.replace(/,([\s]*[}\]])/g, "$1");
+}
+
+interface LockWorkspaceMeta {
+  name?: string;
+  version?: string;
+}
+interface LockfileShape {
+  workspaces?: Record<string, LockWorkspaceMeta>;
+}
+
+/**
+ * Fail-fast guard against the stale-lockfile trap: bun records each workspace
+ * package's version in bun.lock and won't refresh it on a plain `bun install`
+ * after a bump. A stale entry makes `bun publish` rewrite `workspace:*` deps to
+ * the old version (non-existent on npm), producing broken tarballs. Verify the
+ * lockfile records each package being released (`targetNames`) at `nextVersion`.
+ */
+function verifyLockfileVersions(nextVersion: string, targetNames: Set<string>): void {
+  const lockfile = join(ROOT, "bun.lock");
+  if (!existsSync(lockfile)) {
+    die("bun.lock is missing — run `bun install` before releasing.");
+  }
+  let lock: LockfileShape;
+  try {
+    lock = JSON.parse(stripTrailingCommas(readFileSync(lockfile, "utf8"))) as LockfileShape;
+  } catch {
+    die("could not parse bun.lock — run `bun install` to regenerate it.");
+  }
+  const stale: string[] = [];
+  for (const meta of Object.values(lock.workspaces ?? {})) {
+    if (typeof meta?.name !== "string" || !targetNames.has(meta.name)) {
+      continue;
+    }
+    if (meta.version !== nextVersion) {
+      stale.push(`${meta.name}@${meta.version}`);
+    }
+  }
+  if (stale.length > 0) {
+    die(
+      `bun.lock records stale workspace versions (${stale.join(", ")}) — expected these packages at ${nextVersion}.\n` +
+        "  bun caches workspace versions in the lockfile; a plain `bun install` won't refresh them after a bump,\n" +
+        "  so `bun publish` would rewrite `workspace:*` deps to the old version (broken tarballs).\n" +
+        "  Fix: delete bun.lock, run `bun install`, then re-run.",
+    );
+  }
+  console.log(`✔ bun.lock workspace versions verified at v${nextVersion}.`);
 }
 
 function gitCommitAndTag(args: CliArgs, nextVersion: string): void {
@@ -453,7 +545,9 @@ async function main(): Promise<void> {
   const currentVersion = rootManifest.version ?? "0.0.0";
   const nextVersion = resolveNextVersion(args, currentVersion);
 
-  const targets = selectTargets(args, discoverPackages());
+  const allPackages = discoverPackages();
+  const targets = expandDependents(selectTargets(args, allPackages), allPackages);
+  const targetNames = new Set(targets.map((pkg) => pkg.name));
   const order = publishOrder(targets.filter((pkg) => !pkg.isPrivate));
   printPlan(args, currentVersion, nextVersion, targets, order);
 
@@ -471,6 +565,7 @@ async function main(): Promise<void> {
 
   if (args.bumpVersions) {
     bumpAllVersions(targets, rootManifest, nextVersion);
+    verifyLockfileVersions(nextVersion, targetNames);
   }
   warnIfDirty(args);
 
@@ -484,6 +579,7 @@ async function main(): Promise<void> {
   }
 
   if (args.publish) {
+    verifyLockfileVersions(nextVersion, targetNames);
     await runPublish(args, order, nextVersion);
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "ignex",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -40,7 +40,8 @@
     "bench:realworld": "bun scripts/bench-realworld.ts",
     "bench:products": "oha http://localhost:3000/products/123",
     "release": "bun scripts/publish.ts",
-    "release:dry": "bun scripts/publish.ts --dry-run"
+    "release:dry": "bun scripts/publish.ts --dry-run",
+    "release:bump": "bun scripts/publish.ts --no-publish"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",
