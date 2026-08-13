@@ -21,6 +21,7 @@
  *   bun scripts/publish.ts --no-bump       # reuse current versions (retry)
  *   bun scripts/publish.ts --yes           # skip the confirmation prompt
  *   bun scripts/publish.ts --packages core,shared
+ *   bun scripts/publish.ts --no-check      # skip the npm auth/scope pre-flight
  */
 
 import { spawnSync } from "node:child_process";
@@ -72,6 +73,7 @@ interface CliArgs {
   access: string;
   otp: string | null;
   packageFilter: string[] | null;
+  check: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,6 +172,7 @@ function parseCli(argv: string[]): CliArgs {
         ?.split(",")
         .map((s) => s.trim())
         .filter(Boolean) ?? null,
+    check: !has("no-check"),
   };
 }
 
@@ -329,6 +332,49 @@ function warnIfDirty(args: CliArgs): void {
   }
 }
 
+function getNpmAccount(): string | null {
+  const result = spawnSync("npm", ["whoami"], { cwd: ROOT, encoding: "utf8" });
+  if (result.status !== 0 || result.error !== undefined) {
+    return null;
+  }
+  const account = result.stdout.trim();
+  return account === "" ? null : account;
+}
+
+/**
+ * Fail-fast check that runs before any version bump or commit: confirms the
+ * configured npm token can actually publish to the package scope. npm returns
+ * 403 from `npm org ls <scope>` when the account is not a member of that org,
+ * and the registry answers 404 on the publish PUT — the exact failure you'd
+ * otherwise hit halfway through the release.
+ */
+function checkPublishAccess(order: PkgInfo[]): void {
+  const first = order[0];
+  if (first === undefined) {
+    return;
+  }
+  const slash = first.name.indexOf("/");
+  const scope = slash === -1 ? null : first.name.slice(1, slash);
+  const account = getNpmAccount();
+  if (account === null) {
+    console.warn(
+      "⚠  could not verify npm auth (npm CLI unavailable or not logged in) — continuing without a publish pre-flight.",
+    );
+    return;
+  }
+  console.log(`\n🔐 npm auth: ${account} (verified via npm whoami)`);
+  if (scope === null) {
+    return; // unscoped packages don't require an org
+  }
+  const org = spawnSync("npm", ["org", "ls", scope], { cwd: ROOT, encoding: "utf8" });
+  if (org.status !== 0) {
+    die(
+      `account "${account}" cannot publish to @${scope}/* — it is not a member of the "${scope}" npm org (or the org does not exist).\n` +
+        `  Fix once: create the "${scope}" org at https://www.npmjs.com/org/create and add "${account}" as an Owner, then re-run.`,
+    );
+  }
+}
+
 function bumpAllVersions(targets: PkgInfo[], rootManifest: PackageJson, nextVersion: string): void {
   console.log(`✏️  Bumping ${targets.length} package(s) + root to v${nextVersion} …`);
   for (const pkg of targets) {
@@ -417,6 +463,10 @@ async function main(): Promise<void> {
       `✔ dry-run — ${targets.length} package(s) would be ${bumpAction}, ${order.length} published. No changes made.`,
     );
     return;
+  }
+
+  if (args.publish && args.check) {
+    checkPublishAccess(order);
   }
 
   if (args.bumpVersions) {

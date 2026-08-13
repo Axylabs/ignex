@@ -99,15 +99,25 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
     return null;
   }
   for (const name of pkgs) {
+    const pkgDir = join(ancestor, "packages", name);
     try {
-      const pkg = JSON.parse(
-        readFileSync(join(ancestor, "packages", name, "package.json"), "utf8"),
-      ) as { optionalDependencies?: Record<string, string> };
+      const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
+        optionalDependencies?: Record<string, string>;
+      };
       const spec = pkg.optionalDependencies?.castrum;
-      if (typeof spec === "string" && spec.startsWith("file:")) {
-        const target = join(ancestor, "packages", name, spec.slice("file:".length));
+      if (typeof spec !== "string") {
+        continue;
+      }
+      if (spec.startsWith("file:")) {
+        const target = join(pkgDir, spec.slice("file:".length));
         if (existsSync(join(target, "package.json"))) return target;
       }
+      // Registry-installed castrum (e.g. "^0.9.0"): resolve via the workspace
+      // package's node_modules, which bun links during install. This keeps the
+      // compiled/bundled entry (e.g. `packages/app/dist/__server.js`) native
+      // when the package no longer declares castrum via a `file:` target.
+      const installed = join(pkgDir, "node_modules", "castrum");
+      if (existsSync(join(installed, "package.json"))) return installed;
     } catch {
       /* ignore */
     }
