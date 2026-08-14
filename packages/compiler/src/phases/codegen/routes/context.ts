@@ -188,11 +188,12 @@ export const buildSpecializedContext = (
   }
 
   if (route.analysis.usage.cookie) {
-    helpers.markCore("createCookieJar");
-    helpers.markCore("parseCookieString");
-    pre.push(
-      `const __cookieJar = createCookieJar(__set, {}, parseCookieString(req.headers.get("cookie")));`,
-    );
+    // Lazy jar: the Cookie header is parsed on first read (cached), so a
+    // handler reading a single cookie does not pay for eagerly parsing the
+    // full header up front (the old `createCookieJar(__set, {}, …)` path also
+    // passed parsed cookies as `initial`, so values were never exposed).
+    helpers.markCore("createLazyCookieJar");
+    pre.push(`const __cookieJar = createLazyCookieJar(__set, () => req.headers.get("cookie"));`);
   }
 
   const props = buildContextProps(route, helpers);

@@ -1,11 +1,13 @@
 # Native acceleration (`@ignex/native` × castrum)
 
-ignex is Rust-accelerated through the **castrum** NAPI addon
+ignex is Rust-accelerated through the **castrum** addon
 (`/home/adeel/poc/bun-rust-runtime-bench`, pinned as an `optionalDependencies`
 `file:` entry in `packages/native/package.json`). The `@ignex/native` package is
-the single, typed bridge: every native primitive ships with a **byte-compatible
-pure-TS fallback**, so ignex behaves identically with or without Rust. Native is
-purely an acceleration layer — importing it **never throws**.
+the single, typed bridge over the SAME cdylib's two transports: **bun:ffi C-ABI
+(primary under Bun)** and **Node-API (fallback)**. Every native primitive ships
+with a **byte-compatible pure-TS fallback**, so ignex behaves identically with or
+without Rust. Native is purely an acceleration layer — importing it **never
+throws**.
 
 ---
 
@@ -17,14 +19,24 @@ purely an acceleration layer — importing it **never throws**.
 │      │  imports                                                   │
 │      ▼                                                           │
 │  @ignex/native  (wrapper + *Fallback per function)              │
-│      │  lazy getNative() / isNativeAvailable()                  │
+│      │  getFfi() (bun:ffi C-ABI) → getNative() (NAPI) → JS       │
 │      ▼                                                           │
-│  castrum .node (raw NAPI binary — loaded via require)           │
+│  castrum .node — SAME binary, TWO transports:                   │
+│    • bun:ffi C-ABI (`castrum_*` extern "C"): PRIMARY on Bun      │
+│    • NAPI (napi-rs `require`): fallback (Node / stateful classes)│
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- `packages/native/src/loader.ts` loads the castrum **`.node` binary directly
-  with `require()`/`process.dlopen`** (Node-API modules cannot be ESM-`import`ed
+- `packages/native/src/ffi.ts` binds the **C-ABI fast path**: `bun:ffi`
+  `dlopen`s the resolved `.node` (via `loader.getAddonPath()`) and binds the hot
+  `castrum_*` symbols (`~10-20ns` crossing vs `~100-350ns` NAPI). A bind-time
+  self-test asserts every C-ABI op matches the NAPI output byte-for-byte and
+  disables ffi on any mismatch (`IGNEX_FFI_MODE=ffi` makes failures loud).
+  `runtime.ts` `nativeFor()` returns a Proxy that prefers C-ABI for covered ops
+  and falls through to NAPI for stateful classes (`SchemaValidator`,
+  `TemplateRenderer`, `ConditionalRequest`, …) and Node.
+- `packages/native/src/loader.ts` loads the castrum **`.node` NAPI surface**
+  with `require()`/`process.dlopen` (Node-API modules cannot be ESM-`import`ed
   in Bun). The binary is located from the castrum package directory (`file:`
   target → `node_modules` symlink), **bypassing the tsconfig `paths` mapping**
   that would otherwise hijack a bare `import("castrum")` at runtime (Bun honors
@@ -48,6 +60,107 @@ purely an acceleration layer — importing it **never throws**.
 | --- | --- |
 | `IGNEX_NATIVE_PATH` | Override the addon (a `.node` path or module specifier). |
 | `IGNEX_NATIVE` | `off` disables the addon even when installed (parity debugging); unset/`auto` uses it when present. |
+| `IGNEX_FFI_MODE` | `auto` (default: bun:ffi on Bun, NAPI otherwise) · `ffi` (force bun:ffi; throws on bind/self-test failure) · `napi` (force NAPI). |
+
+## 2026-08-14 — C-ABI transport, batch stability, task-group
+
+**C-ABI is now the PRIMARY native transport under Bun; NAPI is the fallback.**
+The castrum cdylib exports `#[no_mangle] extern "C"` symbols (`rust/ffi.rs`)
+that Bun JIT-compiles to direct native calls (~10-20ns crossing) vs ~100-350ns
+for Node-API. Measured: `fnv1a64` crossing ~100ns vs ~300ns NAPI (~5×); the
+`fnv1a64` wrapper is x33 vs fallback (was x11.9 on NAPI). Re-selection found no
+flips needed — already-native ops (hash/crypto/etag) got amplified by C-ABI,
+while pair-parse/validators stay JS for single small inputs (the JS regex beats
+even a C-ABI crossing; the win for those is batching / the task-group).
+
+**Native batch is stable and the winners are wired.** The 2026-08-11
+"unreliable under Bun canary" concern does NOT reproduce on the current runtime:
+a fresh 12-op stability probe (`scripts/bench-batch.ts --probe`) passes 40/40
+per op — no corrupt buffers, no crash (the original repro was a script bug:
+wrong unpacker for the flat `crc32BatchPacked` wire). `NativeBatch` now exposes
+the measured winners — `signCookie` (n≥4), `verifyCookie` (n≥4), `hmacSha256`
+(n≥4), `hmacSha256Verify` (n≥16), `csrfVerify` (n≥16), plus `fnv1a64`/`jsonValid`
+— with thresholds from `bench/results/batch-selection.json`.
+
+**Task-group — one FFI call, many actions.** `runTasks([...])`
+(`packages/native/src/tasks.ts` → castrum `castrum_execute_tasks`) packs an
+arbitrary list of DIFFERENT ops (parse query + parse cookies + validate +
+verifyCookie + hmacVerify …) into ONE C-ABI call and returns typed results.
+Wins for native-heavy groups (≥9 ops, ~1.25×); for small request mixes that
+include JS-selected pair parsers, individual C-ABI calls win (JS pack/unpack >
+the ~100ns crossing) — so the core request path keeps per-op calls.
+
+**Pair-parse regression fixed.** Core `parseQueries`/`parseCookies` previously
+routed N≥4 inputs through the native batch, which measures SLOWER than the JS
+scalar parser at every batch size — they now always use the scalar path
+(`BATCH_PARSE_THRESHOLD` retained for API compat).
+
+**Pure-TS parity fix.** `hmacSha256`/`hmacSha256Verify` fallbacks now use the
+native 64-hex contract on every backend (previously Bun→hex but Node→raw, so
+pure-JS sign→verify was broken).
+
+### 2026-08-14 (later) — median-driven FFI re-selection (`FFI_WINS`)
+
+`scripts/bench-ffi.ts` measures the **real C-ABI path** (ffi op + required JS
+unpack) against the exact JS fallback the wrapper would otherwise run, using
+the **median of 5 interleaved trials** for noise stability. This exposed a gap:
+several ops that castrum's NAPI-based `select-native` measured as JS wins were
+already covered by the C-ABI surface but hard-wired to JS in ignex. Under the
+~10-20ns C-ABI crossing (vs ~100-350ns NAPI) those flip to wins.
+
+Proven median gains (reproduced across repeated runs) → wired via an `FFI_WINS`
+override in `packages/native/src/runtime.ts` (applies only while the C-ABI
+transport is live; NAPI/Node keep the castrum decision, where they lose):
+
+| op | median ratio vs JS | JS path it replaces |
+|---|---|---|
+| `fnv1a64` | ~38-46× | pure-TS loop (was already native) |
+| `jsonValid` | ~2.0-2.1× | `JSON.parse` |
+| `validateIpv6` | ~1.6-2.1× | `node:net` `isIP` |
+| `hmacSha256` | ~1.4-1.5× | `Bun.CryptoHasher` |
+| `randomToken` | ~1.3-1.3× | `crypto.getRandomValues` |
+| `etag` | ~1.08-1.14× | `crc32` + hex |
+
+Ops that stay on JS **even on C-ABI** (median-measured): `queryPairs`/`cookiePairs`/
+`formPairs` (~0.3-0.6× — the packed-unpack cost dominates), `validateEmail`/
+`validateUuid`/`validateIpv4` (~0.1-0.3× — tight JS regexes), `crc32` (~0.68× —
+`Bun.hash.crc32` SIMD wins). Note: `scripts/native-bench.ts` reports a misleading
+"queryPairs native x1.54" — that's a false positive (both sides are the same JS
+fallback, differing only in the string→bytes conversion); `bench-ffi.ts` measures
+the true C-ABI path.
+
+### 2026-08-14 (later) — full native surface benchmark (`scripts/bench-native.ts`)
+
+`bench-native.ts` measures the rest of the `@ignex/native` surface (JSON Schema
+validation, the compiled-once stateful classes, and the scalar crypto/codec ops
+that go through NAPI on ignex) with the same median method. Findings:
+
+- **JSON Schema validation — the native fast-gate was a REGRESSION, now fixed.**
+  Core's `nativeFastAccept` re-serialized the already-parsed body
+  (`JSON.stringify`) then re-parsed it in the native engine — measuring
+  **0.01–0.06× vs validating the parsed object with Ajv directly (12–100×
+  slower)** at every doc size. `core/src/data/schema.ts` now routes **parsed
+  objects straight to Ajv** (the proven-fast path); native is only attempted
+  when the input is already raw bytes/JSON string (where native parse+validate
+  wins for large docs). All fast-gate parity tests still pass.
+- **`createAcceptNegotiator` — wired to native.** It was hard-wired to the JS
+  engine despite castrum `opImpl` = native and a measured **~1.7–1.9× median
+  win** on the compiled-once `negotiate` call. Now native-backed (try/catch →
+  JS fallback). NOTE: native wins on the steady-state call; constructing
+  per-request measures ~0.5× — compile once and reuse (the "compiled
+  negotiator" contract).
+- **Already-wired native winners (verified):** `jwtSign` (~1.3×), `jwtVerify`
+  (~3.6×), `passwordHash` (~1.3×), `aeadDecrypt` (~2.6×), `brotliCompress`
+  (~3×), `brotliDecompress` (~12×) — all bound native via `opImpl`.
+- **Confirmed JS stays (median-measured):** `conditional` (~0.08×), `rateLimit.check`
+  (~0.09× — native only in the ingress pipeline), `templateRender` (~0.38×),
+  `sseEncode` (~0.15×), `wsFrameEncode/Decode` (~0.13-0.23×), `wsAcceptKey`
+  (~0.63×), `multipartParse` (~0.9×), `parseMediaType` (~0.4×),
+  `parseAcceptEncoding` (~0.35×), `jsonPatch` (~0.3×); `gzip` uses `Bun.gzipSync`
+  (rust loses to Bun's native). `aeadEncrypt` is parity/noisy (0.87–1.47×) —
+  left as-is.
+- Artifacts: `scripts/bench-native.ts` (`bun run bench:native:all`),
+  `bench/results/native-selection.json`.
 
 ## 2026-08-12 — wiring + measured gate decisions
 
@@ -114,12 +227,12 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
   ~1.69µs vs ajv ~0.04µs on already-valid objects). **Recommendation:** expose a
   per-schema "pure validation" opt-out of coercion; only then route those
   schemas through `createSchemaValidator`.
-- **Native batch pair parsing — remains blocked.** Scalar `queryPairs` /
-  `cookiePairs` / `formPairs` are measured JS-wins (x0.96 / x0.65 / x0.88); the
-  batched `*BatchPacked` APIs (where Rust would win at scale) are unreliable
-  under Bun canary (see "Batch APIs" note). Fixing the castrum batch layer and
-  wiring `batch.queryParse`/`cookieParse`/`formParse` for bulk endpoints is the
-  recommended follow-up.
+- **Native batch pair parsing — kept on JS (fresh 2026-08-14).** Scalar
+  `queryPairs` / `cookiePairs` / `formPairs` win (x0.65–0.96 on single inputs),
+  and the batched `*BatchPacked` pair parsers ALSO lose to the JS scalar parser
+  at every batch size (batch/js ≈ 0.16–0.66 in `bench/results/batch-selection.json`).
+  Core `parseQueries`/`parseCookies` therefore use the scalar path (the old
+  threshold-4 batch wiring was removed as a regression).
 
 ## What's wired today (measured — native where it wins)
 
@@ -133,7 +246,7 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
 
 | Area | Core module | Native primitive(s) | Measured |
 | --- | --- | --- | --- |
-| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` | **x6.74** ✓ (2026-08-11) |
+| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` (C-ABI) | **x33** ✓ (2026-08-14; x6.74 on NAPI 2026-08-11) |
 | Crypto | `security/*` | `hmacSha256`, `jwtSign/Verify`, `signCookie/Verify`, `csrfToken/Verify`, `passwordHash/Verify`, `aeadEncrypt/Decrypt`, `randomToken` | proven wins (argon2 ~18x, csrf ~13x, cookie-sign ~9x) |
 | Compression | `plugins/compression.ts` (native buffered gzip) | `gzipCompress` | native zlib-rs |
 | Templates | `content/template.ts` | `renderTemplate`/`createTemplate` (minijinja) | compiled renderer |
@@ -160,11 +273,12 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 | Media type | `parseMediaType` | JS | native marked @deprecated (slower) |
 
 > The native exports above remain available for apps that batch large inputs
-> (where FFI amortizes). **Exception — do NOT use the native BATCH APIs
-> (`queryParseBatchPacked` etc.) under Bun canary**: they are unreliable (see
-> the "Batch APIs" note below). The wrapper picks the fastest stable
-> implementation per primitive; behavior is identical either way (parity is
-> the contract).
+> (where FFI amortizes). The native BATCH APIs are stable on the current runtime
+> (12-op probe 40/40) — use the measured winners in `NativeBatch`
+> (`signCookie`/`verifyCookie`/`hmacSha256`/`hmacSha256Verify`/`csrfVerify`/`fnv1a64`),
+> or `runTasks([...])` for a heterogeneous group in ONE call. The wrapper picks
+> the fastest stable implementation per primitive; behavior is identical either
+> way (parity is the contract).
 
 ## Castrum fixes made for ignex compatibility
 
@@ -334,19 +448,38 @@ the addon installed they exercise the native paths and assert the same results
   pipeline eagerly at `init()`, and `plugins.test.ts` asserts the real-addon
   terminal responses (429 + `ratelimit-*`, CORS preflight 204, oversize 413).
 
-## Batch APIs — ⚠️ unreliable under Bun canary (2026-08-11)
+## Batch APIs — stable + wired winners (2026-08-14)
 
-The native **batch/packed** APIs (`queryParseBatchPacked`, `cookieParseBatchPacked`,
-`formParseBatchPacked`, `crc32BatchPacked`, `sseEncodeBatchPacked`,
-`jsonValidBatchPacked`, …) are **not wired into ignex**. Measured on
-Bun `1.4.0-canary.1+827475e21` + castrum 0.8/0.9 they are **nondeterministic**:
-the returned Buffer can read corrupt (head shows a valid count yet a DataView
-read throws "Out of bounds access") and Bun can hard-crash inside
-`_tide_enter_transient`. Isolated calls work; specific module/call arrangements
-fail. Repro committed at `bun-rust-runtime-bench/scripts/repro-ignex-batch.ts`
-(Bun only). **Do not wire these until root-caused** (investigate on stable Bun +
-Node). Scalar packed parsers (`queryParsePacked` etc.) are byte-identical to JS
-but slower per-op (0.46-0.97x) — JS stays the scalar path.
+The native **batch/packed** APIs (`*BatchPacked`) are **stable and wired** on the
+current runtime. The 2026-08-11 "unreliable under Bun canary" note described
+Bun `1.4.0-canary.1+827475e21` + castrum 0.8/0.9; a fresh 12-op stability probe
+(`scripts/bench-batch.ts --probe`) passes 40/40 per op on the current build
+(Bun `1.4.0-canary.1+b5afcacd7`) with no corrupt buffers and no crash. The
+original repro was root-caused to a script bug (wrong unpacker for the flat
+`crc32BatchPacked` wire) — castrum `scripts/verify-native-batch.ts` proves
+batch==scalar byte-parity.
+
+Wired (thresholds from `bench/results/batch-selection.json`):
+- `batch.fnv1a64` (n≥16), `batch.jsonValid` (n≥16)
+- `batch.signCookie` / `batch.verifyCookie` / `batch.hmacSha256` (n≥4)
+- `batch.hmacSha256Verify` / `batch.csrfVerify` (n≥16)
+- Pair-parse batches (`queryParse`/`cookieParse`/`formParse`) are exposed for
+  bulk parity but measure slower than the JS scalar at every N — core uses the
+  scalar path.
+
+The C-ABI task-group (`runTasks`, one call for many heterogeneous actions) is
+the higher-level bulk surface; see the 2026-08-14 section above.
+
+### Runtime / Bun version pin (2026-08-14)
+
+The local Bun reports `1.4.0` but is actually the canary family
+(`1.4.0-canary.1+b5afcacd7`) — it **masquerades as stable**. CI installs the
+stable channel via `oven-sh/setup-bun@v2` with `bun-version: latest`, so CI runs
+are stable-channel only. **Recommendation:** pin a stable Bun locally
+(`bun upgrade --stable` or a pinned install) whenever producing definitive perf
+numbers, since benches on the canary build are not directly comparable to CI
+stable numbers. No code change is required — this is a tooling/benchmarking note
+only.
 
 ## Rate limiting (2026-08-11)
 

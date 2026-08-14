@@ -1,0 +1,69 @@
+{
+  "server": "ignus-aot",
+  "scenario": "15-heavy-json-wide",
+  "generatedAt": "2026-08-14T08:40:31.704Z",
+  "totalDurationMs": 50054.293327,
+  "achievedRps": 106.00489283379551,
+  "totalRequests": 5306,
+  "success": 2101,
+  "expectedErrors": 3205,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 5306,
+    "avg": 0.8900003950244992,
+    "min": 0.120921,
+    "p50": 0.896888,
+    "p75": 0.958537,
+    "p90": 1.011518,
+    "p95": 1.050171,
+    "p99": 1.362796,
+    "p999": 2.207578,
+    "max": 38.767669
+  },
+  "routes": [
+    {
+      "name": "POST /api/users",
+      "count": 4773,
+      "errors": 3205,
+      "statuses": {
+        "200": 1568,
+        "422": 3205
+      },
+      "errorPct": 67.14854389272993,
+      "avg": 0.8974484177666036,
+      "min": 0.120921,
+      "p50": 0.904442,
+      "p75": 0.964397,
+      "p90": 1.015765,
+      "p95": 1.055518,
+      "p99": 1.362796,
+      "p999": 2.31556,
+      "max": 38.767669
+    },
+    {
+      "name": "POST /api/echo",
+      "count": 533,
+      "errors": 0,
+      "statuses": {
+        "200": 533
+      },
+      "errorPct": 0,
+      "avg": 0.8233035609756097,
+      "min": 0.224581,
+      "p50": 0.83776,
+      "p75": 0.892488,
+      "p90": 0.953756,
+      "p95": 0.995932,
+      "p99": 1.441207,
+      "p999": 2.043091,
+      "max": 2.043091
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

@@ -1,0 +1,50 @@
+{
+  "server": "elysia",
+  "scenario": "09-large-payload",
+  "generatedAt": "2026-08-14T00:14:34.455Z",
+  "totalDurationMs": 30029.391427,
+  "achievedRps": 10.023513154827544,
+  "totalRequests": 301,
+  "success": 301,
+  "expectedErrors": 0,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 301,
+    "avg": 5.566060797342193,
+    "min": 0.731361,
+    "p50": 4.260166,
+    "p75": 6.185301,
+    "p90": 13.958826,
+    "p95": 15.709757,
+    "p99": 17.445308,
+    "p999": 20.207261,
+    "max": 20.207261
+  },
+  "routes": [
+    {
+      "name": "POST /api/echo",
+      "count": 301,
+      "errors": 0,
+      "statuses": {
+        "200": 301
+      },
+      "errorPct": 0,
+      "avg": 5.566060797342193,
+      "min": 0.731361,
+      "p50": 4.260166,
+      "p75": 6.185301,
+      "p90": 13.958826,
+      "p95": 15.709757,
+      "p99": 17.445308,
+      "p999": 20.207261,
+      "max": 20.207261
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

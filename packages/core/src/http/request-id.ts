@@ -6,7 +6,10 @@
 let requestIdCounter = 0;
 
 export const generateRequestId = (): string => {
-  const ts = performance.now().toString(36).replace(".", "");
+  // `Math.floor` avoids the fractional `.` produced by
+  // `performance.now().toString(36)` (and its `.replace` copy); the monotonic
+  // counter disambiguates requests that land in the same integer millisecond.
+  const ts = Math.floor(performance.now()).toString(36);
   const seq = (++requestIdCounter).toString(36);
   return `${ts}-${seq}`;
 };

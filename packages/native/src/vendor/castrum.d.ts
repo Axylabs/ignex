@@ -103,6 +103,18 @@ export declare function jwtSign(
   ttlSeconds: number | null,
   nowSeconds: number,
 ): Uint8Array;
+/**
+ * Sign from pre-serialized claim JSON bytes — avoids the napi
+ * `serde_json::Value` DOM marshal of `jwtSign` for callers that already hold
+ * the claim bytes (e.g. JSON.stringify'd on the JS side). Semantics are
+ * identical (incl. `iat`/`exp` injection).
+ */
+export declare function jwtSignBytes(
+  claimsJson: Uint8Array,
+  secret: Uint8Array,
+  ttlSeconds: number | null,
+  nowSeconds: number,
+): Uint8Array;
 export declare function jwtVerify(token: Uint8Array, secret: Uint8Array, nowSeconds: number): any;
 export declare function randomToken(byteLen: number): Uint8Array;
 export declare function passwordHash(
@@ -176,6 +188,17 @@ export declare function fnv1A64BatchPacked(input: Uint8Array): Uint8Array;
 export declare function queryParseBatchPacked(input: Uint8Array): Uint8Array;
 export declare function cookieParseBatchPacked(input: Uint8Array): Uint8Array;
 export declare function formParseBatchPacked(input: Uint8Array): Uint8Array;
+// Crypto batches — byte-results (`[u32 count]{[u32 len][bytes]}`) or bitset
+// (`[u32 count][bitset bytes]`) outputs, same wire as the scalar cores.
+export declare function signCookieBatchPacked(input: Uint8Array, secret: Uint8Array): Uint8Array;
+export declare function verifyCookieBatchPacked(input: Uint8Array, secret: Uint8Array): Uint8Array;
+export declare function csrfVerifyBatchPacked(input: Uint8Array, secret: Uint8Array): Uint8Array;
+export declare function hmacSha256BatchPacked(input: Uint8Array, key: Uint8Array): Uint8Array;
+export declare function hmacSha256VerifyBatchPacked(
+  input: Uint8Array,
+  sigs: Uint8Array,
+  key: Uint8Array,
+): Uint8Array;
 
 // ── Compiled-once napi classes (the raw addon surface) ──────────
 

@@ -2,6 +2,8 @@
  * @fileoverview Accept negotiation (Accept-Encoding / Accept-Language).
  */
 
+import { nativeFor } from "../runtime";
+import { toBytes } from "../util";
 import type { EncodingPrefResult } from "./types";
 
 /**
@@ -42,9 +44,33 @@ export const parseAcceptEncodingFallback = (input: string): EncodingPrefResult[]
  * Mirrors castrum's `AcceptNegotiator` (RFC 7231 §5.3.4): specificity first
  * (exact > `*`), then q-value, then earliest client order.
  */
-export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
-  // Selection: js (parity) — see selection.ts.
-  createAcceptNegotiatorFallback(supported);
+/**
+ * Compile a supported-value list once and negotiate headers against it.
+ * Native-backed when the addon is available and the selection binds it
+ * (`opImpl("createAcceptNegotiator") === "native"`, measured ~1.9× faster than
+ * the JS engine on the compiled instance — see `scripts/bench-native.ts`).
+ *
+ * NOTE: native wins on the STEADY-STATE negotiate call; constructing a native
+ * instance per-request measures slower (~0.5×) — compile once and reuse (the
+ * intended "compiled negotiator" contract).
+ */
+export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator => {
+  const n = nativeFor("createAcceptNegotiator");
+  if (n && typeof n.AcceptNegotiator === "function") {
+    try {
+      const inst = new n.AcceptNegotiator(supported);
+      return {
+        negotiate(header) {
+          if (header == null) return null;
+          return inst.negotiate(toBytes(header));
+        },
+      };
+    } catch {
+      // native compile failure → fall back to the pure-TS engine
+    }
+  }
+  return createAcceptNegotiatorFallback(supported);
+};
 
 /** Pure-TS fallback for {@link createAcceptNegotiator} (identical behavior). */
 interface NegotiationCandidate {

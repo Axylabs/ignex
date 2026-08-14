@@ -38,6 +38,22 @@ export const unpackBitset = (packed: Uint8Array): Uint8Array => {
   return out;
 };
 
+/** Unpack a packed byte-results buffer → array of byte subarrays. */
+export const unpackByteResults = (packed: Uint8Array): Uint8Array[] => {
+  if (packed.byteLength < 4) return [];
+  const dv = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+  const count = dv.getUint32(0, true);
+  const out: Uint8Array[] = [];
+  let pos = 4;
+  for (let i = 0; i < count; i++) {
+    const len = dv.getUint32(pos, true);
+    pos += 4;
+    out.push(packed.subarray(pos, pos + len));
+    pos += len;
+  }
+  return out;
+};
+
 /** Unpack a packed u32 result → `Uint32Array` (one per item). */
 export const unpackU32Array = (packed: Uint8Array): Uint32Array => {
   if (packed.byteLength < 4) return new Uint32Array(0);

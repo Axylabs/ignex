@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ignus HTTP comparison report — bun / 06-edge-cases</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; color: #111; }
+  h1, h2 { margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 32px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; vertical-align: top; }
+  th { background: #f6f6f6; text-align: left; }
+  tr:nth-child(even) td { background: #fafafa; }
+  code { background: #f6f6f6; padding: 2px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Ignus HTTP comparison report — bun / 06-edge-cases</h1>
+<p>Generated: 2026-08-14T00:11:04.160Z</p>
+<p>Failure trace: <code>06-edge-cases.failures.ndjson</code></p>
+
+<h2>Overview</h2>
+<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Server</td><td>bun</td></tr><tr><td>Scenario</td><td>06-edge-cases</td></tr><tr><td>Generated</td><td>2026-08-14T00:11:04.160Z</td></tr><tr><td>Total duration ms</td><td>30050.120</td></tr><tr><td>Achieved RPS</td><td>20.03</td></tr><tr><td>Total requests</td><td>602</td></tr><tr><td>Successful requests</td><td>222</td></tr><tr><td>Expected error responses</td><td>380</td></tr><tr><td>Unexpected failed requests</td><td>0</td></tr><tr><td>Timeouts</td><td>0</td></tr><tr><td>Network errors</td><td>0</td></tr><tr><td>Unexpected statuses</td><td>0</td></tr><tr><td>Response shape failures</td><td>0</td></tr><tr><td>Unexpected error rate %</td><td>0.00</td></tr><tr><td>Avg latency ms</td><td>0.942</td></tr><tr><td>Min latency ms</td><td>0.284</td></tr><tr><td>p50 latency ms</td><td>0.957</td></tr><tr><td>p75 latency ms</td><td>1.052</td></tr><tr><td>p90 latency ms</td><td>1.151</td></tr><tr><td>p95 latency ms</td><td>1.223</td></tr><tr><td>p99 latency ms</td><td>1.328</td></tr><tr><td>p99.9 latency ms</td><td>1.466</td></tr><tr><td>Max latency ms</td><td>1.466</td></tr></tbody></table>
+
+<h2>Error groups</h2>
+<table><thead><tr><th>Count</th><th>Method</th><th>Route</th><th>Status</th><th>Error code</th><th>Error message</th><th>First ms</th><th>Last ms</th><th>Sample response</th></tr></thead><tbody></tbody></table>
+
+<h2>Route latency</h2>
+<table><thead><tr><th>Route</th><th>Count</th><th>Errors</th><th>Error %</th><th>Min ms</th><th>Avg ms</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th><th>p99.9 ms</th><th>Max ms</th></tr></thead><tbody><tr><td>GET /api/users</td><td>64</td><td>0</td><td>0.00</td><td>0.332</td><td>1.085</td><td>1.097</td><td>1.325</td><td>1.466</td><td>1.466</td><td>1.466</td></tr><tr><td>POST /api/users</td><td>361</td><td>298</td><td>82.55</td><td>0.376</td><td>0.944</td><td>0.957</td><td>1.210</td><td>1.322</td><td>1.442</td><td>1.442</td></tr><tr><td>GET /api/cookies</td><td>69</td><td>0</td><td>0.00</td><td>0.396</td><td>0.951</td><td>0.981</td><td>1.188</td><td>1.438</td><td>1.438</td><td>1.438</td></tr><tr><td>HEAD /health</td><td>26</td><td>0</td><td>0.00</td><td>0.550</td><td>0.873</td><td>0.951</td><td>1.140</td><td>1.318</td><td>1.318</td><td>1.318</td></tr><tr><td>DELETE /api/users</td><td>22</td><td>22</td><td>100.00</td><td>0.508</td><td>0.892</td><td>0.935</td><td>1.075</td><td>1.114</td><td>1.114</td><td>1.114</td></tr><tr><td>GET /api/nonexistent</td><td>60</td><td>60</td><td>100.00</td><td>0.284</td><td>0.818</td><td>0.848</td><td>1.062</td><td>1.163</td><td>1.163</td><td>1.163</td></tr></tbody></table>
+
+<h2>Failure samples</h2>
+<table><thead><tr><th>Time ms</th><th>VU</th><th>Iter</th><th>Method</th><th>Route</th><th>Status</th><th>Latency ms</th><th>Error code</th><th>Error message</th><th>Response snippet</th></tr></thead><tbody></tbody></table>
+</body>
+</html>

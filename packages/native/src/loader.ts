@@ -198,6 +198,22 @@ const reportLoadFailure = (err: unknown): void => {
   console.info("[ignex-native] failed to load addon:", err);
 };
 
+/** Resolved castrum `.node` binary path (or `null`). Cached for FFI/dlopen reuse. */
+let addonPath: string | null | undefined;
+
+/** Resolve + cache the `.node` binary path (or `null` when no binary exists). */
+const resolveAddonPathOnce = (): string | null => {
+  if (addonPath !== undefined) return addonPath;
+  const override = process.env.IGNEX_NATIVE_PATH;
+  if (override?.endsWith(".node")) {
+    addonPath = override;
+    return addonPath;
+  }
+  const dir = findCastrumDir();
+  addonPath = dir ? findAddonPath(dir) : null;
+  return addonPath;
+};
+
 const init = (async (): Promise<void> => {
   // Master switch: `IGNEX_NATIVE=off` disables the addon even when installed
   // (e.g. for parity debugging). Anything else (auto/unset) uses it when present.
@@ -212,14 +228,14 @@ const init = (async (): Promise<void> => {
       return;
     }
 
-    const dir = findCastrumDir();
-    const nodePath = dir ? findAddonPath(dir) : null;
+    const nodePath = resolveAddonPathOnce();
 
     if (nodePath) {
       const mod = requireAddon(nodePath);
       native = isNativeSurface(normalize(mod)) ? (normalize(mod) as NativeAddon) : null;
     } else {
       // No binary found — fall back to the castrum TS entry (absolute path).
+      const dir = findCastrumDir();
       const entry = dir ? resolveCastrumEntryPath(dir) : null;
       if (entry) {
         const mod = await import(pathToFileURL(entry).href);
@@ -236,6 +252,14 @@ await init;
 
 /** The loaded addon (or `null` when unavailable). */
 export const getNative = (): NativeAddon | null => native;
+
+/**
+ * The resolved castrum `.node` binary path (or `null` when unavailable).
+ *
+ * Shared with the C-ABI (`bun:ffi`) transport so it `dlopen`s the SAME addon
+ * the NAPI loader `require`s — identical Rust cores, byte-identical contracts.
+ */
+export const getAddonPath = (): string | null => resolveAddonPathOnce();
 
 /** True when the Rust addon is present and usable. */
 export const isNativeAvailable = (): boolean => native != null;

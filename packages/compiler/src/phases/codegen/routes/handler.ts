@@ -18,6 +18,8 @@ export interface CoreFnInput {
    * pass. The core fn returns it directly (Elysia's `responseMode: 'compact'`).
    */
   readonly compact: boolean;
+  /** True when the route registers per-route hooks (emits the route-hook stage). */
+  readonly hasRouteHooks: boolean;
   readonly serializersVar: string;
   readonly routeHookVar: string;
   readonly serviceName: string;
@@ -32,6 +34,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     callExpr,
     needsFull,
     compact,
+    hasRouteHooks,
     serializersVar,
     routeHookVar,
     serviceName,
@@ -50,11 +53,18 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
       ctx = gBefore.ctx ?? ctx;
       if (gBefore.response) return __applySet(gBefore.response, ctx.set);
     }
-
-    if (${routeHookVar}.length > 0) {
+    ${
+      // Only routes that register per-route hooks get the route-hook stage.
+      // No-hook routes previously emitted `if ([].length > 0)` — allocating an
+      // empty array on every request — so the stage is omitted entirely.
+      hasRouteHooks
+        ? `if (${routeHookVar}.length > 0) {
       const rBefore = await runHooks(${routeHookVar}, ctx);
       ctx = rBefore.ctx ?? ctx;
       if (rBefore.response) return __applySet(rBefore.response, ctx.set);
+    }
+`
+        : ""
     }
     `
         : ""

@@ -48,6 +48,23 @@ describe("interpreted request handling (createApp.handler)", () => {
     });
   });
 
+  it("computes ctx.path independent of query/fragment (lazy pathname)", async () => {
+    const app = jsonApp((ctx) => ctx.json({ path: ctx.path }));
+    const cases: Array<[string, string]> = [
+      ["/hello/world", "/hello/world"],
+      ["/hello?q=42", "/hello"],
+      ["/a/b#frag", "/a/b"],
+      ["/?q=1", "/"],
+      ["/", "/"],
+      ["http://localhost", "/"],
+      ["http://localhost:9122/api/users?page=1", "/api/users"],
+    ];
+    for (const [url, expected] of cases) {
+      const res = await inject(app, { url });
+      expect((await res.json()) as { path: string }).toEqual({ path: expected });
+    }
+  });
+
   it("parses a JSON request body", async () => {
     const app = jsonApp(async (ctx) => ctx.json({ body: await ctx.body.json() }));
     const res = await inject(app, {

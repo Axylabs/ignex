@@ -1,0 +1,86 @@
+{
+  "server": "bun",
+  "scenario": "01-smoke",
+  "generatedAt": "2026-08-13T23:53:52.508Z",
+  "totalDurationMs": 10201.181219,
+  "achievedRps": 5.097448901618224,
+  "totalRequests": 52,
+  "success": 52,
+  "expectedErrors": 0,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 52,
+    "avg": 0.9995678269230772,
+    "min": 0.332354,
+    "p50": 0.994429,
+    "p75": 1.109576,
+    "p90": 1.215242,
+    "p95": 1.262901,
+    "p99": 2.409365,
+    "p999": 2.409365,
+    "max": 2.409365
+  },
+  "routes": [
+    {
+      "name": "POST /api/users",
+      "count": 16,
+      "errors": 0,
+      "statuses": {
+        "200": 16
+      },
+      "errorPct": 0,
+      "avg": 1.1658624375,
+      "min": 0.705621,
+      "p50": 1.094491,
+      "p75": 1.239773,
+      "p90": 1.313243,
+      "p95": 2.409365,
+      "p99": 2.409365,
+      "p999": 2.409365,
+      "max": 2.409365
+    },
+    {
+      "name": "GET /api/users",
+      "count": 22,
+      "errors": 0,
+      "statuses": {
+        "200": 22
+      },
+      "errorPct": 0,
+      "avg": 0.991208727272727,
+      "min": 0.61315,
+      "p50": 1.048146,
+      "p75": 1.109576,
+      "p90": 1.123008,
+      "p95": 1.14757,
+      "p99": 1.249116,
+      "p999": 1.249116,
+      "max": 1.249116
+    },
+    {
+      "name": "GET /health",
+      "count": 14,
+      "errors": 0,
+      "statuses": {
+        "200": 14
+      },
+      "errorPct": 0,
+      "avg": 0.8226525714285715,
+      "min": 0.332354,
+      "p50": 0.882901,
+      "p75": 0.926712,
+      "p90": 0.955349,
+      "p95": 0.956101,
+      "p99": 0.956101,
+      "p999": 0.956101,
+      "max": 0.956101
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

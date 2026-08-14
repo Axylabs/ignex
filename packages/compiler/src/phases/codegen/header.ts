@@ -27,10 +27,17 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
 
   if (state.hasAppConfig) {
     header.push(`const __pluginContext = createPluginContext();`);
+    // A throwing plugin must fail boot with a clear, attributable error (not a
+    // cryptic module-load failure / unhandled rejection).
     header.push(`for (const __p of __appConfig.plugins ?? []) {
-  if (typeof __p === "function") await __p(__pluginContext);
-  else if (__p && typeof __p.setup === "function") await __p.setup(__pluginContext);
-  else if (__p && typeof __p.init === "function") await __p.init();
+  try {
+    if (typeof __p === "function") await __p(__pluginContext);
+    else if (__p && typeof __p.setup === "function") await __p.setup(__pluginContext);
+    else if (__p && typeof __p.init === "function") await __p.init();
+  } catch (__err) {
+    const __name = (__p && (typeof __p === "object" ? (__p.name ?? __p.constructor?.name) : undefined)) ?? "anonymous plugin";
+    throw new Error("[ignex] plugin boot failed for " + __name + ": " + (__err instanceof Error ? __err.message : String(__err)), { cause: __err });
+  }
 }`);
     header.push(
       `const __pluginLC = mergeLifeCycle(pluginContextToLifecycle(__pluginContext), pluginsToLifeCycle(__appConfig.plugins ?? []));`,

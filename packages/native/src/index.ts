@@ -53,6 +53,7 @@ export {
   type IgnexExecution,
   implFor,
 } from "./execution";
+export { type FfiMode, type FfiSurface, getFfi, getFfiMode, isFfiActive } from "./ffi";
 export { crc32, fnv1a64, fnv1a64Fallback, fnv1a64String } from "./hash";
 export {
   type AcceptNegotiator,
@@ -134,6 +135,7 @@ export {
 } from "./ratelimit";
 export { backendName, useNative } from "./runtime";
 export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
+export { packTasks, runTasks, type Task, type TaskResult } from "./tasks";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export {

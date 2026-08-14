@@ -6,8 +6,7 @@
  * emits identical `set-cookie` values.
  */
 
-import { batch, cookiePairs } from "@ignex/native";
-import { BATCH_PARSE_THRESHOLD } from "../data/query";
+import { cookiePairs } from "@ignex/native";
 import type { CookieOptions, ElysiaCookie } from "../types";
 import type { SetHeaders } from "./headers";
 
@@ -117,47 +116,20 @@ export const parseCookieString = (cookieString: string | null): Record<string, s
 };
 
 /**
- * Parse many `Cookie` headers in ONE native batch call — for bulk endpoints
- * processing many requests' cookies per call. Honors the same
+ * Parse many `Cookie` headers, one record per input. Honors the same
  * {@link MAX_COOKIES} / {@link MAX_COOKIE_HEADER_BYTES} guards as
- * {@link parseCookieString} and produces identical output. Falls back to
- * per-item scalar parsing below {@link BATCH_PARSE_THRESHOLD} inputs or when
- * the Rust addon is absent.
+ * {@link parseCookieString} and produces identical output.
+ *
+ * NOTE: always uses the per-item scalar parser — the native packed-batch path
+ * (`batch.cookieParse`) measured SLOWER than the JS scalar at every batch size
+ * (`bench/results/batch-selection.json`, batch/js ≈ 0.16-0.23) and was removed
+ * 2026-08-14.
  *
  * @param inputs Raw `Cookie` header values (`null`/oversized → `{}`).
  * @returns One `Record<string, string>` per input.
  */
-export const parseCookies = (
-  inputs: ReadonlyArray<string | null>,
-): Array<Record<string, string>> => {
-  if (inputs.length < BATCH_PARSE_THRESHOLD) return inputs.map(parseCookieString);
-
-  // Every slot is filled below (either `{}` for invalid/oversized headers or a
-  // parsed record), so pre-fill with distinct empty objects — `Array.from`
-  // avoids the ambiguous `new Array(length)` form.
-  const out: Array<Record<string, string>> = Array.from({ length: inputs.length }, () => ({}));
-  const batched: string[] = [];
-  const indexes: number[] = [];
-
-  for (let i = 0; i < inputs.length; i++) {
-    const header = inputs[i];
-    if (!header || header.length > MAX_COOKIE_HEADER_BYTES) {
-      out[i] = {};
-      continue;
-    }
-    batched.push(header);
-    indexes.push(i);
-  }
-
-  const parsed = batch.cookieParse(batched);
-  for (let j = 0; j < indexes.length; j++) {
-    const idx = indexes[j];
-    const pairs = parsed[j];
-    if (idx !== undefined && pairs !== undefined) out[idx] = cookiePairsToRecord(pairs);
-  }
-
-  return out;
-};
+export const parseCookies = (inputs: ReadonlyArray<string | null>): Array<Record<string, string>> =>
+  inputs.map(parseCookieString);
 
 /**
  * A mutable view of one cookie inside a cookie jar.
@@ -314,11 +286,15 @@ export const createLazyCookieJar = (
   set: SetHeaders,
   getCookieHeader: () => string | null,
   initial?: Partial<ElysiaCookie>,
+  preParsed?: Record<string, string>,
 ): Record<string, Cookie> => {
   if (!set.cookie) set.cookie = Object.create(null) as Record<string, ElysiaCookie>;
   const cookieStore: Record<string, ElysiaCookie> = set.cookie;
 
-  let parsed: Record<string, string> | undefined;
+  // Seed with an already-parsed header (e.g. the compiled validation prelude
+  // computed `__cookies`) so a handler reading cookies does not re-parse the
+  // Cookie header.
+  let parsed: Record<string, string> | undefined = preParsed;
 
   const ensureParsed = () => {
     if (!parsed) {

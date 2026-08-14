@@ -134,11 +134,12 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 ## Runtime lifecycle
 
 `@ignex/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
-composes the pre-handler stages (`beforeHandle` …), runs the handler, then the
-post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as a
-`pipeAsync` composition of named stages over a `LifecycleState` carrier. The
-generated server imports `runHooks`/`runLifecycle` from `@ignex/core` — there is
-**one** implementation, not a compiled copy.
+runs the pre-handler stages (`beforeHandle` …), the handler, then the
+post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as an
+imperative sequence of named stages — empty stage chains short-circuit with a
+single `if` instead of composing per-request closures. The generated server
+imports `runHooks`/`applySet` from `@ignex/core` — there is **one**
+implementation, not a compiled copy.
 
 `IgnexContext` (`core/src/http/context.ts`) is the per-request object: read-only
 request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
@@ -147,6 +148,17 @@ request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
 generated `__applySet` helper. Cookie parsing/serialization, the `set`/
 response channel and request-id generation live in sibling modules
 (`http/cookies.ts`, `http/headers.ts`, `http/request-id.ts`).
+
+### Interpreted router
+
+`createApp` also accepts a router built by `createRouter()`
+(`core/src/http/router.ts`): fluent `get`/`post`/… registration, a Bun-native
+`routes` table for `serve()`, and a JS `dispatch` for `handler()` calls. Each
+route is wrapped in the same guarded lifecycle + `finalizeResponse` reply path
+as the compiled server, so interpreted apps get native routing and a shared
+reply path without a build step. Pure path/arg helpers live in
+`core/src/http/router-utils.ts`; the shared reply builders in
+`core/src/http/finalize.ts`. See [router.md](router.md).
 
 ## Core domain layout
 

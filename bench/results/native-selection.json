@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-08-14T00:00:00.000Z",
+  "mode": "addon (NAPI on ignex) vs JS fallback",
+  "method": "scripts/bench-native.ts — median of 5 interleaved trials, repeated across runs; win threshold 1.05x",
+  "note": "Measures the full @ignex/native surface NOT covered by bench-ffi.ts (which covers the C-ABI scalar ops). Stateful classes measured on the compiled-once steady-state method. JSON Schema row is the native fast-gate path vs Ajv on the parsed object (native re-serializes + re-parses → loses 12-100x; fast-gate now routes parsed objects straight to Ajv in core/src/data/schema.ts).",
+  "wired": {
+    "alreadyNative": ["jwtSign", "jwtVerify", "passwordHash", "aeadDecrypt", "brotliCompress", "brotliDecompress"],
+    "newlyWired": ["createAcceptNegotiator (compiled-once; ~1.7-1.9x)"],
+    "regressionFixed": ["core schema native fast-gate → objects validate with Ajv directly (was 0.01-0.06x vs Ajv)"],
+    "staysJS": ["conditional", "rateLimit.check", "templateRender", "sseEncode", "wsFrameEncode", "wsFrameDecode", "wsAcceptKey", "multipartParse", "parseMediaType", "parseAcceptEncoding", "jsonPatch", "gzipCompress (Bun.gzip wins)", "gzipDecompress (Bun.gunzip wins)"]
+  },
+  "results": [
+    { "op": "jsonSchemaValidate", "medianRatio": 0.06, "wired": "js (Ajv)", "note": "native fast-gate re-serializes+re-parses the parsed object; Ajv validates it directly — 12-100x faster. Fast-gate fixed." },
+    { "op": "acceptNegotiate", "medianRatio": 1.72, "wired": "native (compiled-once)", "note": "steady-state negotiate ~1.7-1.9x; per-request construction loses (~0.5x) — compile once, reuse" },
+    { "op": "conditional", "medianRatio": 0.08, "wired": "js", "note": "NAPI crossing dominates tiny op" },
+    { "op": "rateLimit.check", "medianRatio": 0.09, "wired": "js", "note": "standalone limiter loses; native only in ingress pipeline" },
+    { "op": "templateRender", "medianRatio": 0.38, "wired": "js", "note": "simple template fallback engine wins on NAPI" },
+    { "op": "jwtSign", "medianRatio": 1.34, "wired": "native", "note": "already wired (opImpl native)" },
+    { "op": "jwtVerify", "medianRatio": 3.58, "wired": "native", "note": "already wired (opImpl native)" },
+    { "op": "passwordHash", "medianRatio": 1.27, "wired": "native", "note": "argon2 vs scrypt; already wired" },
+    { "op": "aeadEncrypt", "medianRatio": 1.47, "wired": "native (noisy)", "note": "noisy 0.87-1.47x — parity-ish, left as-is" },
+    { "op": "aeadDecrypt", "medianRatio": 2.63, "wired": "native", "note": "already wired (opImpl native)" },
+    { "op": "gzipCompress", "medianRatio": 0.64, "wired": "Bun.gzipSync", "note": "rust loses to Bun native builtin" },
+    { "op": "gzipDecompress", "medianRatio": 0.53, "wired": "Bun.gunzipSync", "note": "rust loses to Bun native builtin" },
+    { "op": "brotliCompress", "medianRatio": 3.16, "wired": "native", "note": "rust beats node zlib; already wired" },
+    { "op": "brotliDecompress", "medianRatio": 12.31, "wired": "native", "note": "rust beats node zlib; already wired" },
+    { "op": "sseEncode", "medianRatio": 0.15, "wired": "js", "note": "" },
+    { "op": "wsFrameEncode", "medianRatio": 0.13, "wired": "js", "note": "" },
+    { "op": "wsFrameDecode", "medianRatio": 0.23, "wired": "js", "note": "" },
+    { "op": "wsAcceptKey", "medianRatio": 0.63, "wired": "js", "note": "" },
+    { "op": "multipartParse", "medianRatio": 0.91, "wired": "js", "note": "parity-ish, small inputs" },
+    { "op": "parseMediaType", "medianRatio": 0.40, "wired": "js", "note": "" },
+    { "op": "parseAcceptEncoding", "medianRatio": 0.35, "wired": "js", "note": "" },
+    { "op": "jsonPatch", "medianRatio": 0.32, "wired": "js", "note": "" }
+  ]
+}

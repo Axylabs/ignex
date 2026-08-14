@@ -33,6 +33,8 @@ export type RouteSchemas = {
   query?: SchemaLike;
   params?: SchemaLike;
   headers?: SchemaLike;
+  /** Cookie-header schemas are supported by the compiler and the interpreted router. */
+  cookie?: SchemaLike;
   response?: SchemaLike | Record<number, SchemaLike>;
 };
 

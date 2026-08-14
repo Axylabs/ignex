@@ -2,11 +2,18 @@
  * @fileoverview ETag generation (crc32-based, strong or weak).
  */
 
-import { crc32, toBytes } from "../util";
+import { nativeFor } from "../runtime";
+import { crc32, fromBytes, toBytes } from "../util";
 
-/** Generate a strong (`"<8-hex>"`) or weak (`W/"<8-hex>"`) ETag from a crc32. */
+/**
+ * Generate a strong (`"<8-hex>"`) or weak (`W/"<8-hex>"`) ETag from a crc32.
+ * C-ABI is PROVEN faster than the JS fallback (~1.05-1.21x median, see
+ * `scripts/bench-ffi.ts`) and byte-identical, so nativeFor("etag") is used
+ * when the ffi transport is live; NAPI/Node keep the JS fallback (0.28x there).
+ */
 export const etag = (input: string | Uint8Array, weak = false): string => {
-  // Selection: js (native x0.92) — see selection.ts.
+  const n = nativeFor("etag");
+  if (n) return fromBytes(n.etag(toBytes(input), weak));
   return etagFallback(toBytes(input), weak);
 };
 

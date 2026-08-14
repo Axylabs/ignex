@@ -127,15 +127,20 @@ export const generateRouteCode = (
     callExpr,
     needsFull,
     compact,
+    hasRouteHooks: route.analysis.hooks.length > 0,
     serializersVar,
     routeHookVar,
     serviceName: cfg.serviceName,
     routeReply: routeReplyFn(route),
   });
 
-  functions.push(coreFn);
-
+  // Emit the core handler exactly ONCE. Cached routes additionally emit the
+  // cache wrapper (`methodHandlerName` delegates to `core_<ref>`); non-cached
+  // routes name the core handler `methodHandlerName` directly (the routes
+  // table binds it). Previously the core fn was pushed twice for non-cached
+  // routes, doubling the generated handler (dead bytes; second def wins).
   if (cacheConfig) {
+    functions.push(coreFn);
     emitCacheWrapper(state, route, cacheConfig, coreName);
   } else {
     functions.push(coreFn);

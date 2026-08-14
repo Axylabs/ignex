@@ -426,11 +426,11 @@ const OPS: OpBench[] = [
     mkItems: mk(`payload ${bigChunk}`),
     scalarNative: (items) => {
       const sigs = hmacSigs(items.length);
-      return items.map((x, i) => raw.hmacSha256Verify(key, x, sigs[i]!));
+      return items.map((x, i) => raw.hmacSha256Verify(key, x, sigs[i] as Uint8Array));
     },
     scalarJS: (items) => {
       const sigs = hmacSigs(items.length);
-      return items.map((x, i) => hmacSha256Verify(key, x, sigs[i]!));
+      return items.map((x, i) => hmacSha256Verify(key, x, sigs[i] as Uint8Array));
     },
     batch: (items) => {
       const sigs = hmacSigs(items.length);
@@ -459,7 +459,7 @@ function perItemPerSec(fn: () => unknown, n: number, durationMs = 250): number {
 function timed(fn: () => unknown, n: number): number {
   try {
     return perItemPerSec(fn, n);
-  } catch (e) {
+  } catch {
     return 0;
   }
 }
@@ -549,7 +549,9 @@ for (const op of OPS) {
   let threshold: number | null = null;
   let bvNative = 0;
   let bvJs = 0;
-  for (const row of results[op.name]!) {
+  const rows = results[op.name];
+  if (!rows) continue;
+  for (const row of rows) {
     const rn = ratio(row.batch, row.scalarNative);
     const rj = ratio(row.batch, row.scalarJS);
     bvNative = rn;
@@ -559,13 +561,14 @@ for (const op of OPS) {
       break;
     }
   }
+  const guardOk = rows[2]?.guardOk ?? false;
   decisions[op.name] = {
     threshold,
     batchVsNative: bvNative,
     batchVsJs: bvJs,
-    guardOk: results[op.name]![2]!.guardOk,
+    guardOk,
   };
-  const verdict = !results[op.name]![2]!.guardOk
+  const verdict = !guardOk
     ? "⚠ guard FAILED — untrusted"
     : threshold !== null
       ? `BATCH wins at n>=${threshold}`

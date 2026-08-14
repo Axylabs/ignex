@@ -8,10 +8,15 @@
  * `Bun.serve`; `stop` drains and runs `onStop`/`stop` hooks.
  */
 import { initNative } from "@ignex/native";
-import { pipeAsync } from "@ignex/shared";
 import { HttpResponseCache } from "../data/cache";
-import { type ContextOptions, createContext, type IgnexContext } from "../http/context";
+import {
+  type ContextOptions,
+  createContext,
+  type IgnexContext,
+  type IgnexServer,
+} from "../http/context";
 import { applySet } from "../http/headers";
+import type { IgnexRouter } from "../http/router";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
@@ -29,8 +34,18 @@ export interface AppOptions {
   /** Lifecycle hooks (merged after plugin hooks). */
   lifecycle?: Partial<LifeCycleStore>;
   plugins?: IgnexPlugin[];
-  /** The base handler receiving the resolved context. */
-  handler(ctx: IgnexContext): MaybePromise<Response>;
+  /**
+   * The base handler receiving the resolved context. Required UNLESS a
+   * `router` is provided (routed apps dispatch per-route handlers instead).
+   */
+  handler?(ctx: IgnexContext): MaybePromise<Response>;
+  /**
+   * Optional interpreted router (see `createRouter`). When present, `serve()`
+   * builds a Bun-native `routes` table from it (Rust path/method matching —
+   * no JS per-request scan) and `handler()` dispatches through it. Without a
+   * router, every request reaches the single `handler`.
+   */
+  router?: IgnexRouter;
   onStart?(): MaybePromise<void>;
   onStop?(): MaybePromise<void>;
   /** Expose error details in 500 responses. */
@@ -48,8 +63,12 @@ export interface AppOptions {
  * The runtime app built by {@link createApp}.
  */
 export interface IgnexApp {
-  /** Run the full lifecycle pipeline for a request. */
-  handler(req: Request): Promise<Response>;
+  /**
+   * Run the full lifecycle pipeline for a request. When `server` is provided
+   * (as `serve()` does), it is wired onto `ctx.server` so `ctx.ip` resolves
+   * the real socket address — matching the compiled server.
+   */
+  handler(req: Request, server?: IgnexServer): Promise<Response>;
   /**
    * Run plugin `init` hooks (idempotent). Called automatically by `serve()`
    * before the server starts; call it manually if you use `handler()` only.
@@ -123,6 +142,13 @@ export const createApp = (options: AppOptions): IgnexApp => {
   // cache in http/context.ts).
   const appCache = options.cache ?? new HttpResponseCache();
 
+  // exactOptionalPropertyTypes: only set optional fields that are defined.
+  // The context options are app-invariant (cache + trustProxy are fixed at
+  // createApp time), so they are computed ONCE instead of per request.
+  const ctxOptions: ContextOptions = {};
+  ctxOptions.cache = appCache;
+  if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
+
   const init = async (): Promise<void> => {
     if (initialized) return;
     initialized = true;
@@ -133,22 +159,54 @@ export const createApp = (options: AppOptions): IgnexApp => {
     await pluginContext.initAll();
   };
 
-  const handler = (req: Request): Promise<Response> =>
-    runLifecycle(
-      lifecycle,
-      preStages,
-      postStages,
-      createContext(req, {}, buildContextOptions()),
-      options.handler,
+  // When a router is present, bind the composed lifecycle (plugins + user
+  // hooks) and context options into it once, mirroring the compiled server's
+  // stage arrays (start/request/parse/transform before validation; the rest
+  // after). The router's per-route wrapper then guards each stage with a
+  // length check instead of composing per-request closures.
+  const router = options.router;
+  if (!options.handler && !router) {
+    throw new Error("createApp requires a `handler` unless a `router` is provided.");
+  }
+  // `baseHandler` is guaranteed defined in the non-router branch (guard above);
+  // the nullish fallback only exists to satisfy the type without a non-null
+  // assertion and is never invoked in practice.
+  const baseHandler =
+    options.handler ??
+    (() => {
+      throw new Error("createApp requires a `handler` unless a `router` is provided.");
+    });
+  if (router) {
+    router.bind({
+      preParseStages: [
+        ...(lifecycle.start ?? []),
+        ...(lifecycle.request ?? []),
+        ...(lifecycle.parse ?? []),
+        ...(lifecycle.transform ?? []),
+      ],
+      beforeHandle: lifecycle.beforeHandle ?? [],
+      afterHandle: lifecycle.afterHandle ?? [],
+      mapResponse: lifecycle.mapResponse ?? [],
+      afterResponse: lifecycle.afterResponse ?? [],
+      error: lifecycle.error ?? [],
       exposeErrors,
-    );
+      ctx: ctxOptions,
+    });
+  }
 
-  // exactOptionalPropertyTypes: only set optional fields that are defined.
-  const buildContextOptions = (): ContextOptions => {
-    const ctxOptions: ContextOptions = {};
-    ctxOptions.cache = appCache;
-    if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
-    return ctxOptions;
+  const handler = (req: Request, serverArg?: IgnexServer): Promise<Response> => {
+    // Routed apps dispatch through the router (JS matching) so direct
+    // `handler()` calls behave like the compiled server; `serve()` uses Bun's
+    // native `routes` instead.
+    if (router) return router.dispatch(req, serverArg);
+
+    const ctx = createContext(req, {}, ctxOptions);
+    // Wire the Bun server so `ctx.ip` resolves the real socket address —
+    // matching the compiled server (which emits `ctx.server = server`).
+    // Without this, interpreted `ctx.ip` always fell back to "anonymous"
+    // (skipping the ~375ns `server.requestIP` socket lookup entirely).
+    if (serverArg) ctx.server = serverArg;
+    return runLifecycle(lifecycle, preStages, postStages, ctx, baseHandler, exposeErrors);
   };
 
   return {
@@ -167,7 +225,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
       const { serve } = bun as {
         serve: (
           opts: Record<string, unknown> & {
-            fetch: (req: Request) => Promise<Response>;
+            fetch: (req: Request, server?: unknown) => Promise<Response>;
             port: number;
             hostname: string;
           },
@@ -180,7 +238,25 @@ export const createApp = (options: AppOptions): IgnexApp => {
       void init().catch((err) => {
         console.error("[ignex] plugin init failed:", err);
       });
-      server = serve({ fetch: handler, port, hostname, ...rest });
+      server = serve(
+        router
+          ? {
+              // Routed apps use Bun's native route table (Rust path/method
+              // matching) with the router's fallback for 404/405/OPTIONS —
+              // the same shape as the AOT-compiled server.
+              routes: router.buildRoutes(),
+              fetch: (req, srv) => router.fetch(req, srv as IgnexServer | undefined),
+              port,
+              hostname,
+              ...rest,
+            }
+          : {
+              fetch: (req, srv) => handler(req, srv as IgnexServer | undefined),
+              port,
+              hostname,
+              ...rest,
+            },
+      );
       void Promise.resolve(options.onStart?.()).catch((err) => {
         console.error("[ignex] onStart failed:", err);
       });
@@ -231,17 +307,8 @@ export const buildPreStages = (lc: LifeCycleStore): HookContainer[] =>
 export const buildPostStages = (lc: LifeCycleStore): HookContainer[] =>
   POST_HANDLER_STAGES.flatMap((stage) => lc[stage]);
 
-/** Pipeline state threaded through the composed `runLifecycle` stages. */
-interface LifecycleState {
-  ctx: IgnexContext;
-  /** Set once a stage halts or the handler produces a response. */
-  response?: Response | undefined;
-  /** True when the pipeline halted before the handler — skips post/afterResponse/applySet. */
-  halted: boolean;
-}
-
 /**
- * Run the full request lifecycle pipeline as a composition of named stages.
+ * Run the full request lifecycle pipeline as a sequence of named stages.
  *
  * Shared conceptual model with the compiler-generated server: pre-handler
  * stages (start → request → parse → transform → beforeHandle), the handler,
@@ -249,11 +316,12 @@ interface LifecycleState {
  * the `error` stage catching failures. Any stage may halt by returning a
  * `Response` (or `{ ok: false, response }`).
  *
- * The stages are pure functions over a `LifecycleState` carrier, composed
- * left-to-right with `pipeAsync` from `@ignex/shared`; each stage short-
- * circuits when a previous stage already halted. The pipeline is composed
- * once per request (matching the previous imperative form) and is protected
- * by `lifecycle.test.ts`.
+ * Written imperatively (rather than composing per-request stage closures) so
+ * an empty stage chain costs a single `if` instead of a closure + Promise:
+ * empty afterResponse/trace stages are skipped entirely, `runHooks` is only
+ * awaited when a chain is non-empty, and no `LifecycleState` objects are
+ * spread per request. Semantics are identical to the previous `pipeAsync`
+ * composition and are protected by `lifecycle.test.ts`.
  */
 export const runLifecycle = async (
   lc: LifeCycleStore,
@@ -267,56 +335,8 @@ export const runLifecycle = async (
   // the pre-handler chain succeeds so a parse/handler failure reports the ctx
   // that got that far (same as the compiled `__handleError`).
   let current = ctx;
-
-  const preStages = async (s: LifecycleState): Promise<LifecycleState> => {
-    const preResult = await runHooks(pre, s.ctx);
-    current = preResult.ctx;
-    const halted = preResult.response !== undefined;
-    return { ctx: current, response: preResult.response, halted };
-  };
-
-  const handle = async (s: LifecycleState): Promise<LifecycleState> => {
-    if (s.halted) return s;
-    return { ...s, response: await handler(s.ctx) };
-  };
-
-  const postStages = async (s: LifecycleState): Promise<LifecycleState> => {
-    if (s.halted || s.response === undefined) return s;
-    const postResult = await runHooks(post, s.ctx, s.response);
-    return { ...s, response: postResult.response ?? s.response };
-  };
-
-  const afterResponse = async (s: LifecycleState): Promise<LifecycleState> => {
-    if (s.halted || s.response === undefined) return s;
-    // observe-only: a throwing observability hook must not corrupt an
-    // already-finalized response (e.g. turn a 200 into a 500), but the error
-    // is surfaced so broken hooks are debuggable (matches compiled).
-    try {
-      await runHooks(lc.afterResponse ?? [], s.ctx, s.response);
-    } catch (err) {
-      console.error("[ignex] afterResponse hook error:", err);
-    }
-    return s;
-  };
-
-  const traceStage = async (s: LifecycleState): Promise<LifecycleState> => {
-    if (s.halted || s.response === undefined) return s;
-    // `trace` is the final observe-only stage (declared after `afterResponse`
-    // in LifeCycleStore); it receives the finalized response and can never
-    // replace or corrupt it. A throwing trace hook is a bug — surface it.
-    try {
-      await runHooks(lc.trace ?? [], s.ctx, s.response);
-    } catch (err) {
-      console.error("[ignex] trace hook error:", err);
-    }
-    return s;
-  };
-
-  const applySetStage = async (s: LifecycleState): Promise<Response> =>
-    // A pre-halt returns the response untouched; otherwise apply the
-    // accumulated `set` mutations (headers/status/cookie) — matches the
-    // compiler-generated `__applySet`, so dev and compiled behave identically.
-    s.halted ? (s.response as Response) : applySet(s.response as Response, s.ctx.set);
+  let response: Response | undefined;
+  let halted = false;
 
   const errorStage = async (err: unknown): Promise<Response> => {
     let handled: Awaited<ReturnType<typeof runHooks>>;
@@ -331,14 +351,56 @@ export const runLifecycle = async (
   };
 
   try {
-    return (await pipeAsync({ ctx, halted: false } as LifecycleState)(
-      preStages,
-      handle,
-      postStages,
-      afterResponse,
-      traceStage,
-      applySetStage,
-    )) as Response;
+    // Pre-handler stages. When the chain is empty there is nothing to run —
+    // `current` stays as the incoming ctx and no hook results are synthesized.
+    if (pre.length > 0) {
+      const preResult = await runHooks(pre, current);
+      current = preResult.ctx;
+      halted = preResult.response !== undefined;
+      response = preResult.response;
+    }
+
+    // Handler (skipped when a pre stage already halted).
+    if (!halted) {
+      // When the pre chain is empty, preserve the async boundary the original
+      // pre-stage `await runHooks` provided so a request aborted before the
+      // handler runs is observable via `ctx.req.signal` (see abort-port.test.ts).
+      if (pre.length === 0) await Promise.resolve();
+      response = await handler(current);
+    }
+
+    // Post-handler stages — may replace the response.
+    if (!halted && response !== undefined && post.length > 0) {
+      const postResult = await runHooks(post, current, response);
+      response = postResult.response ?? response;
+    }
+
+    // afterResponse (observe-only): a throwing observability hook must not
+    // corrupt an already-finalized response (e.g. turn a 200 into a 500), but
+    // the error is surfaced so broken hooks are debuggable (matches compiled).
+    if (!halted && response !== undefined && (lc.afterResponse?.length ?? 0) > 0) {
+      try {
+        await runHooks(lc.afterResponse, current, response);
+      } catch (err) {
+        console.error("[ignex] afterResponse hook error:", err);
+      }
+    }
+
+    // `trace` is the final observe-only stage (declared after `afterResponse`
+    // in LifeCycleStore); it receives the finalized response and can never
+    // replace or corrupt it. A throwing trace hook is a bug — surface it.
+    if (!halted && response !== undefined && (lc.trace?.length ?? 0) > 0) {
+      try {
+        await runHooks(lc.trace, current, response);
+      } catch (err) {
+        console.error("[ignex] trace hook error:", err);
+      }
+    }
+
+    // A pre-halt returns the response untouched; otherwise apply the
+    // accumulated `set` mutations (headers/status/cookie) — matches the
+    // compiler-generated `__applySet`, so dev and compiled behave identically.
+    return halted ? (response as Response) : applySet(response as Response, current.set);
   } catch (err) {
     return errorStage(err);
   }

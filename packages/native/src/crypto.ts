@@ -57,7 +57,7 @@ const IAT_LEEWAY_SECONDS = 60;
 
 // ── HMAC-SHA256 ─────────────────────────────────────────────────
 
-/** HMAC-SHA256 digest of `data` under `key`. */
+/** HMAC-SHA256 digest of `data` under `key` (64 lowercase-hex, native contract). */
 export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array): Uint8Array => {
   const k = toBytes(key);
   const d = toBytes(data);
@@ -65,7 +65,9 @@ export const hmacSha256 = (key: string | Uint8Array, data: string | Uint8Array):
   if (nv) return toPlain(nv.hmacSha256(k, d));
   // Under Bun, `Bun.CryptoHasher` is mildly faster than Rust for scalar HMAC.
   if (bunHmacSha256) return bunHmacSha256(k, d);
-  return hmacSha256Bytes(k, d);
+  // Node pure-TS: hex-encode the raw digest so ALL backends (native / Bun /
+  // Node) return the SAME 64-hex contract — sign→verify stays byte-compatible.
+  return encoder.encode(hexEncode(hmacSha256Bytes(k, d)));
 };
 
 /** Constant-time verify of an HMAC-SHA256 signature. */
@@ -79,7 +81,11 @@ export const hmacSha256Verify = (
   const s = toBytes(sig);
   const nv = nativeFor("hmacSha256Verify");
   if (nv) return nv.hmacSha256Verify(k, d, s);
-  return ctEqual(hmacSha256Bytes(k, d), s);
+  // Pure-TS fallback — MUST match the native contract: `hmacSha256`/the addon
+  // produce/expect a 64 lowercase-hex signature, so compare the hex-encoded
+  // digest (a raw 32-byte sig is rejected, exactly like native). Previously
+  // this compared the raw digest, so pure-JS sign→verify was broken.
+  return ctEqual(encoder.encode(hexEncode(hmacSha256Bytes(k, d))), s);
 };
 
 // ── Signed cookies ──────────────────────────────────────────────
@@ -140,11 +146,11 @@ export const csrfTokenFallback = (secret: Uint8Array): string => {
 };
 
 /** Constant-time verify of a CSRF token. */
-export const csrfVerify = (token: string, secret: string | Uint8Array): boolean => {
+export const csrfVerify = (token: string | Uint8Array, secret: string | Uint8Array): boolean => {
   const s = toBytes(secret);
   const nv = nativeFor("csrfVerify");
   if (nv) return nv.csrfVerify(toBytes(token), s);
-  return csrfVerifyFallback(token, s);
+  return csrfVerifyFallback(fromBytes(toBytes(token)), s);
 };
 
 /** Pure-TS fallback for {@link csrfVerify} (identical behavior). */
@@ -162,7 +168,14 @@ export const csrfVerifyFallback = (token: string, secret: Uint8Array): boolean =
 
 // ── JWT (HS256) ─────────────────────────────────────────────────
 
-/** Sign a payload as an HS256 compact JWT; injects `iat`/`exp` when `ttlSeconds > 0`. */
+/**
+ * Sign a payload as an HS256 compact JWT; injects `iat`/`exp` when
+ * `ttlSeconds > 0`. When native is active, claims are pre-serialized to bytes
+ * and passed to castrum's `jwtSignBytes` — its object path (`jwtSign`)
+ * napi-marshals the JS value into a `serde_json::Value`, which dominates the
+ * sign cost. The byte path also avoids a second stringify when the fallback is
+ * used (claims are serialized exactly once here).
+ */
 export const jwtSign = (
   claims: unknown,
   secret: string | Uint8Array,
@@ -172,7 +185,15 @@ export const jwtSign = (
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
   const ttl = options.ttlSeconds ?? null;
   const nv = nativeFor("jwtSign");
-  if (nv) return fromBytes(nv.jwtSign(claims, s, ttl, now));
+  if (nv) {
+    const json = JSON.stringify(claims);
+    // `JSON.stringify(undefined/function/symbol)` → `undefined`; fall back to
+    // the object path in that edge case to preserve prior native behavior.
+    if (json !== undefined && typeof nv.jwtSignBytes === "function") {
+      return fromBytes(nv.jwtSignBytes(encoder.encode(json), s, ttl, now));
+    }
+    return fromBytes(nv.jwtSign(claims, s, ttl, now));
+  }
   return jwtSignFallback(claims, s, ttl, now);
 };
 

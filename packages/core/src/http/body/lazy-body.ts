@@ -128,10 +128,22 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "json",
       async () => {
         try {
-          // Read raw text first so the parsed size can be measured against
-          // maxJsonBytes regardless of whether content-length was present. The
-          // raw wire-byte length is captured here for the size guard — see
-          // `parsedRawBytes`/`assertParsedSize`.
+          // Fast path: when content-length is present the raw wire-byte length
+          // is already known, so parse straight from bytes via Bun's native
+          // req.json() — skipping the text → TextEncoder → JSON.parse
+          // round-trip — and reuse the header value for the post-parse size
+          // guard (`parsedRawBytes`/`assertParsedSize`). Fall back to text +
+          // measure only for chunked bodies that omit content-length, where
+          // the wire-byte length must actually be measured to enforce limits.
+          const contentLength = req.headers.get("content-length");
+          const len =
+            contentLength === null || contentLength.trim() === ""
+              ? Number.NaN
+              : Number(contentLength);
+          if (Number.isFinite(len) && len >= 0) {
+            parsedRawBytes = len;
+            return (await req.json()) as T;
+          }
           const text = await req.text();
           parsedRawBytes = textByteLength(text);
           return JSON.parse(text) as T;

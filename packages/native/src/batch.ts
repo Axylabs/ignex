@@ -6,42 +6,41 @@
  * Rust" counterpart of the scalar auto-selection: bulk work routes through a
  * single Rust call where it measurably wins.
  *
- * MEASURED on this machine (2026-08-11, real addon, 100-item batches):
- *   fnv1a64   batch 4.67x vs per-item JS loop
- *   crc32     batch 1.45x vs per-item JS loop
- *   jsonValid batch 1.57x (small docs) / 1.85x (500-row docs) vs JSON.parse
- *
- * Pair-parse batches (queryParse / cookieParse / formParse) are the "move
- * parsing to Rust at scale" lever for bulk endpoints (many payloads per
- * request): one packed FFI call replaces N scalar parse loops. Scalar pair
- * parsing stays JS (native x0.65–0.96 on a single input — selection.ts);
- * the batch wins by amortizing the FFI crossing across many inputs, so the
- * per-item fallbacks here mirror the scalar JS parsers bit-for-bit.
- *
- * NOT exposed: validate* batches. Although castrum's registry shows large
- * batch wins, that benchmark compared batch vs a NATIVE-scalar loop (100 FFI
- * crossings). Against ignex's fast JS regex (~50ns/email) the packing +
- * unpacking overhead makes the batch ~6x SLOWER — the JS loop wins, so the
- * scalar auto-selection (validate* → js) already picks the faster path.
+ * MEASURED on this machine (fresh 2026-08-14, real addon, `scripts/bench-batch.ts`):
+ *   fnv1a64        batch wins at n>=16 (batch/native 1.2-2.7x; batch/js ~15-36x)
+ *   jsonValid      batch wins at n>=16 (1.2-2.8x)
+ *   signCookie     batch wins at n>=4  (1.8-3.2x)
+ *   verifyCookie   batch wins at n>=4  (1.9-5.2x)
+ *   hmacSha256     batch wins at n>=4  (1.5-3.2x)
+ *   hmacSha256Verify batch wins at n>=16 (1.3-2.8x)
+ *   csrfVerify     batch wins at n>=16 (1.4-2.8x)
+ *   crc32          no win (JS/Bun wins) — kept for bulk parity
+ *   query/cookie/formParse  no win (JS scalar wins at all N) — kept for bulk
+ *     parity; core parseQueries/parseCookies use the scalar path (2026-08-14).
+ *   validate*      NOT exposed: batch loses ~6x vs the JS regex loop (packing
+ *     overhead), so scalar selection (validate* → js) already picks the win.
  *
  * Every function falls back to a per-item JS loop when the addon is absent
  * (parity, not performance, is guaranteed without native). The batch path was
  * previously unwired because of a Bun-canary crash; that is root-caused and
- * verified byte-correct (`bun scripts/verify-native-batch.ts` in castrum).
+ * verified byte-correct (`bun scripts/verify-native-batch.ts` in castrum),
+ * and a fresh 12-op stability probe passes 40/40 per op (2026-08-14).
  */
 
+import { csrfVerifyFallback, signCookieFallback, verifyCookieFallback } from "./crypto";
 import { cookiePairsFallback } from "./http/cookie";
 import { formPairsFallback } from "./http/form";
 import { queryPairsFallback } from "./http/query";
 import {
   packBatch,
   unpackBitset,
+  unpackByteResults,
   unpackPairBatches,
   unpackU32Array,
   unpackU64ArrayAsBigInt,
 } from "./packed";
 import { native } from "./runtime";
-import { crc32 as crc32ScalarFallback, decoder, encoder } from "./util";
+import { crc32 as crc32ScalarFallback, decoder, encoder, hexEncode, hmacSha256Bytes } from "./util";
 
 /** Packed batch surface: one native FFI call for many items, with a per-item JS fallback. */
 export interface NativeBatch {
@@ -57,6 +56,20 @@ export interface NativeBatch {
   cookieParse(items: ReadonlyArray<string | Uint8Array>): Array<Array<[string, string]>>;
   /** Decode many `application/x-www-form-urlencoded` bodies → one pair list per input. */
   formParse(items: ReadonlyArray<string | Uint8Array>): Array<Array<[string, string]>>;
+  /** Sign many cookie values → one `value.<64-hex>` per input. */
+  signCookie(items: ReadonlyArray<string | Uint8Array>, secret: Uint8Array): Uint8Array[];
+  /** Verify many signed cookies → bit-per-item validity (0/1). */
+  verifyCookie(items: ReadonlyArray<string | Uint8Array>, secret: Uint8Array): Uint8Array;
+  /** Verify many CSRF tokens → bit-per-item validity (0/1). */
+  csrfVerify(items: ReadonlyArray<string | Uint8Array>, secret: Uint8Array): Uint8Array;
+  /** HMAC-SHA256 per input (64 lowercase-hex bytes). */
+  hmacSha256(items: ReadonlyArray<string | Uint8Array>, key: Uint8Array): Uint8Array[];
+  /** Verify many `data` + hex-signature pairs → bit-per-item validity (0/1). */
+  hmacSha256Verify(
+    items: ReadonlyArray<string | Uint8Array>,
+    sigs: ReadonlyArray<Uint8Array>,
+    key: Uint8Array,
+  ): Uint8Array;
 }
 
 const toBytes = (input: string | Uint8Array): Uint8Array =>
@@ -81,10 +94,22 @@ export const buildBatch = (): NativeBatch => {
       queryParse: (items) => unpackPairBatches(n.queryParseBatchPacked(packed(items))),
       cookieParse: (items) => unpackPairBatches(n.cookieParseBatchPacked(packed(items))),
       formParse: (items) => unpackPairBatches(n.formParseBatchPacked(packed(items))),
+      signCookie: (items, secret) =>
+        unpackByteResults(n.signCookieBatchPacked(packed(items), secret)),
+      verifyCookie: (items, secret) =>
+        unpackBitset(n.verifyCookieBatchPacked(packed(items), secret)),
+      csrfVerify: (items, secret) => unpackBitset(n.csrfVerifyBatchPacked(packed(items), secret)),
+      hmacSha256: (items, key) => unpackByteResults(n.hmacSha256BatchPacked(packed(items), key)),
+      hmacSha256Verify: (items, sigs, key) =>
+        unpackBitset(
+          n.hmacSha256VerifyBatchPacked(packed(items), packBatch(sigs.map(toBytes)), key),
+        ),
     };
   }
 
   // Pure-TS fallbacks (parity, byte-compatible with the native outputs).
+  const bitset = (bools: boolean[]): Uint8Array => new Uint8Array(bools.map((b) => (b ? 1 : 0)));
+
   return {
     jsonValid: (items) =>
       new Uint8Array(
@@ -121,6 +146,21 @@ export const buildBatch = (): NativeBatch => {
     queryParse: (items) => items.map((it) => [...queryPairsFallback(toBytes(it))]),
     cookieParse: (items) => items.map((it) => [...cookiePairsFallback(toBytes(it))]),
     formParse: (items) => items.map((it) => [...formPairsFallback(toBytes(it))]),
+    signCookie: (items, secret) =>
+      items.map((it) => encoder.encode(signCookieFallback(decoder.decode(toBytes(it)), secret))),
+    verifyCookie: (items, secret) =>
+      bitset(items.map((it) => verifyCookieFallback(decoder.decode(toBytes(it)), secret) !== null)),
+    csrfVerify: (items, secret) =>
+      bitset(items.map((it) => csrfVerifyFallback(decoder.decode(toBytes(it)), secret))),
+    hmacSha256: (items, key) =>
+      items.map((it) => encoder.encode(hexEncode(hmacSha256Bytes(key, toBytes(it))))),
+    hmacSha256Verify: (items, sigs, key) =>
+      bitset(
+        items.map((it, i) => {
+          const sig = sigs[i] ? decoder.decode(sigs[i]) : "";
+          return hexEncode(hmacSha256Bytes(key, toBytes(it))) === sig;
+        }),
+      ),
   };
 };
 

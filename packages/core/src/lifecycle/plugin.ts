@@ -144,6 +144,15 @@ function isIgnexPlugin(value: unknown): value is IgnexPlugin {
   return typeof value === "object" && value !== null && "name" in value;
 }
 
+/**
+ * True when `value` is a thenable (Promise or PromiseLike). Lets the plugin
+ * bridge hooks run synchronously in the common case (a sync `onRequest`/
+ * `onResponse` that no-ops, e.g. cors without an Origin header) while still
+ * awaiting genuinely async plugin hooks — ordering semantics are unchanged.
+ */
+const isThenable = <T>(value: T | PromiseLike<T> | undefined): value is PromiseLike<T> =>
+  value != null && typeof (value as { then?: unknown }).then === "function";
+
 const LIFECYCLE_STAGES = [
   "start",
   "request",
@@ -190,8 +199,19 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .filter((p) => typeof p.onRequest === "function")
     .map((p) => ({
       scope: "global" as const,
-      fn: async (ctx: IgnexContext) => {
-        const result = await p.onRequest?.(ctx);
+      // Deliberately NOT `async`: a synchronous onRequest (e.g. cors without
+      // an Origin header, which no-ops) returns a plain `{ ctx }` with zero
+      // Promise allocation. Genuinely async hooks are awaited via the thenable
+      // branch, so ordering semantics are unchanged.
+      fn: (ctx: IgnexContext) => {
+        const result = p.onRequest?.(ctx);
+        if (isThenable(result)) {
+          return result.then((r) => {
+            if (r instanceof Response) return { response: r };
+            if (r) return { ctx: r };
+            return { ctx };
+          });
+        }
         if (result instanceof Response) {
           return { response: result };
         }
@@ -219,11 +239,34 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
       : [
           {
             scope: "global" as const,
-            fn: async (ctx: IgnexContext, response: Response) => {
-              let current = response;
-              for (const p of onResponsePlugins) {
-                const result = await p.onResponse?.(ctx, current);
-                if (result instanceof Response) current = result;
+            // Deliberately NOT `async`: when every onResponse plugin is
+            // synchronous (e.g. security + cors, the comparison-bench plugins)
+            // the chain runs with zero Promise allocation. If any plugin is
+            // async, it and every later plugin are awaited sequentially, seeded
+            // with the results already applied by the earlier synchronous
+            // plugins — preserving the original in-order semantics exactly.
+            fn: (ctx: IgnexContext, response: Response) => {
+              let current: Response = response;
+              for (let i = 0; i < onResponsePlugins.length; i++) {
+                const result = onResponsePlugins[i].onResponse?.(ctx, current);
+                if (!isThenable(result)) {
+                  if (result instanceof Response) current = result;
+                  continue;
+                }
+                // Async plugin at `i`: use its OWN promise as the chain head
+                // (never re-invoke it), then defer every later plugin off the
+                // chain sequentially. Earlier synchronous plugins already ran
+                // and are baked into `current`. This mirrors the original
+                // `await`-in-loop semantics with exactly one call per plugin.
+                let chain = result.then((r) => (r instanceof Response ? r : current));
+                for (let j = i + 1; j < onResponsePlugins.length; j++) {
+                  const plugin = onResponsePlugins[j];
+                  chain = chain.then(async (prev) => {
+                    const r = await plugin.onResponse?.(ctx, prev);
+                    return r instanceof Response ? r : prev;
+                  });
+                }
+                return chain.then((final) => ({ response: final }));
               }
               return { response: current };
             },

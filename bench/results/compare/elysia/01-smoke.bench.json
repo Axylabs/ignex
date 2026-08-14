@@ -1,0 +1,86 @@
+{
+  "server": "elysia",
+  "scenario": "01-smoke",
+  "generatedAt": "2026-08-14T08:20:07.095Z",
+  "totalDurationMs": 10001.928999,
+  "achievedRps": 5.099016400246294,
+  "totalRequests": 51,
+  "success": 51,
+  "expectedErrors": 0,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 51,
+    "avg": 1.3746668039215686,
+    "min": 0.318285,
+    "p50": 1.017026,
+    "p75": 1.15409,
+    "p90": 1.2457,
+    "p95": 1.784827,
+    "p99": 18.89449,
+    "p999": 18.89449,
+    "max": 18.89449
+  },
+  "routes": [
+    {
+      "name": "POST /api/users",
+      "count": 13,
+      "errors": 0,
+      "statuses": {
+        "200": 13
+      },
+      "errorPct": 0,
+      "avg": 2.4728219230769235,
+      "min": 0.994466,
+      "p50": 1.104194,
+      "p75": 1.191424,
+      "p90": 1.257549,
+      "p95": 18.89449,
+      "p99": 18.89449,
+      "p999": 18.89449,
+      "max": 18.89449
+    },
+    {
+      "name": "GET /api/users",
+      "count": 19,
+      "errors": 0,
+      "statuses": {
+        "200": 19
+      },
+      "errorPct": 0,
+      "avg": 1.1692572105263157,
+      "min": 0.440809,
+      "p50": 1.09178,
+      "p75": 1.231655,
+      "p90": 1.270804,
+      "p95": 3.581197,
+      "p99": 3.581197,
+      "p999": 3.581197,
+      "max": 3.581197
+    },
+    {
+      "name": "GET /health",
+      "count": 19,
+      "errors": 0,
+      "statuses": {
+        "200": 19
+      },
+      "errorPct": 0,
+      "avg": 0.8287071052631579,
+      "min": 0.318285,
+      "p50": 0.79412,
+      "p75": 0.974544,
+      "p90": 1.066832,
+      "p95": 1.784827,
+      "p99": 1.784827,
+      "p999": 1.784827,
+      "max": 1.784827
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

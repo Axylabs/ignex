@@ -91,6 +91,14 @@ export type OpName =
  * Bun.hash.crc32, Bun.CryptoHasher, crypto.getRandomValues) — never something
  * slower than what Bun natively provides. Under Node the base decision stands
  * (Rust wins there).
+ *
+ * NOTE: `hmacSha256`/`randomToken` also appear in `FFI_WINS` (runtime.ts) —
+ * deliberate, NOT a conflict. The sets apply at different layers: this one
+ * fixes the base `implFor` decision (Bun builtin beats the ~300ns NAPI
+ * crossing), while `FFI_WINS` is a final override that flips those ops back to
+ * native ONLY when the ~10-20ns C-ABI (`bun:ffi`) transport is live, where the
+ * crossing no longer swamps the Rust gain. Keeping them in both sets preserves
+ * "Bun builtin on NAPI, Rust on C-ABI".
  */
 const BUN_WINS: ReadonlySet<string> = new Set([
   "gzipCompress",

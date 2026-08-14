@@ -764,3 +764,52 @@ into the real `/api/orders` route.
 Deferred: compiler auto-emission of `derive` for derive-pattern routes (the
 compiler can't statically infer which body paths the handler derives from, so
 routes currently opt in at the handler).
+
+## Round 13 — interpreted router + usage-driven validation prelude (2026-08-14)
+
+Closed the two structural gaps from Round 10: interpreted `createApp` now has a
+real route table, and validated routes stop parsing parts they don't use.
+
+### 1. Interpreted router (`packages/core/src/http/router.ts`)
+- **`createRouter()`** — fluent `get`/`post`/`put`/`patch`/`delete`/`options`/
+  `head`/`all`/`route` registration; `createApp({ router })` serves a Bun-native
+  `routes` table (Rust path/method matching) with a compiled-style
+  `__fallback`/`__optionsHandler`/`__allowFor` (404/405/OPTIONS) and auto-`HEAD`
+  for `GET` routes. `handler()` dispatches through the registry (exact-static
+  first, then `:param`/`*` in registration order — Bun-native specificity).
+- Per-route wrapper mirrors the compiled `core` fn: guarded lifecycle stages
+  (empty chains cost an `if`, not a Promise), runtime schema validation per
+  part, `finalizeResponse` reply, single `applySet`.
+- Shared reply helpers moved to **`packages/core/src/http/finalize.ts`**
+  (`withBody`/`jsonReply`/`textReply`/`htmlReply`/`finalizeResponse`); pure
+  path/arg helpers to **`http/router-utils.ts`**. Codegen still emits INLINE
+  helpers (perf fallback — no AOT regression; divergence risk documented).
+- `createApp.handler` is now optional when a router is present.
+- Docs: `docs/router.md` (+ README/architecture links).
+
+### 2. Usage-driven validation prelude (`packages/compiler/.../routes/validate.ts`)
+- Per-part emitters: query parsed only when validated OR the handler reads
+  `ctx.query` (`usage.query`); headers only when validated; cookies only when
+  validated OR read (`usage.cookie`). A body-only schema route no longer parses
+  the query string, walks headers, or splits the Cookie header per request.
+- `COMPILER_CACHE_VERSION` → 0.6.7; regenerated all compiled artifacts.
+- Hardening: compiled-server plugin boot failure now surfaces an attributable
+  `[ignex] plugin boot failed for <name>` error (header.ts).
+
+### 3. Comparison-bench results (16-crud-validation-mix, one run, p50 ms)
+| server | p50 | vs bun |
+| --- | --- | --- |
+| bun | 0.328 | — |
+| ignus (interpreted router) | 0.394 | +20% |
+| ignus-aot | 0.393 | +20% |
+
+Interpreted ignus ≈ AOT p50 — the router closed the architecture gap. The
+residual ~+20% over raw Bun is common framework overhead (createContext +
+guarded lifecycle + applySet + hook dispatch), the target of the next pass
+(lazy `ctx.set`, inline-vs-hook guard, reply-path micro-opts). `ignus-aot` is
+now part of the default comparison run + the `bench:compare:check` gate
+(0 unexpected failures, 16 scenarios × 4 servers).
+
+### Deferred (unchanged from prior rounds)
+Compiler pipeline-only native routes; static-response promotion with plugin
+headers; lazy `ctx.set`; legacy single-handler abort-Promise micro-opt.

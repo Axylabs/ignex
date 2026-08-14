@@ -114,6 +114,30 @@ jobs:
           bun run test:native:real
           bun scripts/native-bench.ts
 
+      # C-ABI (bun:ffi) is the PRIMARY transport — force it so a bind/self-test
+      # regression (or a Bun/ABI drift) fails loudly instead of silently falling
+      # back to NAPI. `IGNEX_FFI_MODE=ffi` throws on any ffi failure.
+      - name: Native tests — C-ABI (bun:ffi) forced
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+          IGNEX_FFI_MODE: ffi
+        run: bun run test:native
+
+      # NAPI stays the fallback (Node / stateful classes) — verify it still
+      # passes parity when C-ABI is explicitly disabled.
+      - name: Native tests — NAPI forced
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+          IGNEX_FFI_MODE: napi
+        run: bun run test:native
+
+      # Batch + task-group stability gate: 12 batch entry points x 40 trials
+      # must return 0 malformed results (exits non-zero otherwise).
+      - name: Batch + task-group stability probe
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun scripts/bench-batch.ts --probe
+
   # End-to-end compiled-server regression gate (native on vs fallback).
   # Benchmarks the AOT-compiled app server and compares native req/s against
   # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).

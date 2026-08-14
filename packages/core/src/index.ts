@@ -115,11 +115,31 @@ export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody } from "./http/body";
 export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";
 export { createContext } from "./http/context";
-export { Cookie, createCookieJar, parseCookieString, serializeCookie } from "./http/cookies";
+export {
+  Cookie,
+  createCookieJar,
+  createLazyCookieJar,
+  parseCookieString,
+  serializeCookie,
+} from "./http/cookies";
 export { safeJoin, sendFile, streamDownload } from "./http/files";
+export {
+  finalizeResponse,
+  htmlReply,
+  jsonReply,
+  type StatusSerializerMap,
+  textReply,
+  withBody,
+} from "./http/finalize";
 export type { SetHeaders } from "./http/headers";
 export { applySet } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
+export {
+  createRouter,
+  type IgnexRouter,
+  type RouteRegistration,
+  type RouterMethod,
+} from "./http/router";
 export { formatSSE, sse } from "./http/sse";
 export {
   createWSConnections,

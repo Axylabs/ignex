@@ -275,6 +275,9 @@ bun run test            # full vitest suite (all packages)
 - [docs/architecture.md](docs/architecture.md) — how the packages and the AOT
   compiler fit together, the one-way dependency rule, and the `ContextUsage`
   contract.
+- [docs/router.md](docs/router.md) — the interpreted router
+  (`createRouter` + `createApp({ router })`): Bun-native runtime routing,
+  guarded lifecycle, and the reply path shared with AOT.
 - [docs/adding-a-feature.md](docs/adding-a-feature.md) — step-by-step guides
   for plugins, hooks, routes, native functions, `ctx` members, and compiler
   passes.
@@ -291,7 +294,7 @@ bun run test            # full vitest suite (all packages)
 
 | Area | What's included |
 | --- | --- |
-| Routing | File-system routing, AOT-compiled into Bun's native router; dynamic/catch-all params; auto HEAD/OPTIONS; 404/405. |
+| Routing | File-system routing, AOT-compiled into Bun's native router; dynamic/catch-all params; auto HEAD/OPTIONS; 404/405. Interpreted apps get the same native routing via `createRouter()` (see [docs/router.md](docs/router.md)). |
 | Middleware | Lifecycle hooks, guards, plugins (`cors`, `compression`, `security`, `logger`, `rateLimit`). |
 | Validation | Precompiled Ajv standalone validators (body/query/params/headers/cookie) + runtime Standard-Schema + JSON-Schema fallback. |
 | Serialization | Precompiled `fast-json-stringify` response serializers per status code. |

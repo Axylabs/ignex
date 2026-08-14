@@ -113,9 +113,19 @@ const toNativeBytes = (input: unknown): string | Uint8Array | null =>
  * Fast-accept via the native validator when available; `false` on any native
  * failure so the native path never breaks the public contract (falls through
  * to Ajv for the detailed error).
+ *
+ * NOTE (measured, 2026-08-14 — see `scripts/bench-native.ts`): the native
+ * fast-accept is only attempted when the input is ALREADY raw bytes / a JSON
+ * string. An already-parsed object (the common route-body case) would have to
+ * be re-serialized (`JSON.stringify`) and re-parsed by the native engine,
+ * which measures **50-100× slower** than validating the parsed object with Ajv
+ * directly — so object inputs go straight to Ajv and never touch native.
  */
 const nativeFastAccept = (native: CompiledValidator["native"], input: unknown): boolean => {
   if (!native) return false;
+  if (input !== null && typeof input === "object" && !(input instanceof Uint8Array)) {
+    return false; // parsed object → validate with Ajv directly (proven faster)
+  }
   try {
     const bytes = toNativeBytes(input);
     return bytes !== null && native.validate(bytes);

@@ -13,7 +13,7 @@
 import { HttpResponseCache, type HttpResponseCacheOptions } from "../data/cache";
 import { createDataLoader, type DataLoaderFactory } from "../data/dataloader";
 import { firstForwardedIp } from "../platform/coerce";
-import type { HttpMethod } from "../types";
+import type { ElysiaCookie, HttpMethod } from "../types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
 import { type Cookie, createLazyCookieJar } from "./cookies";
 import { type SendFileOptions, sendFile } from "./files";
@@ -132,8 +132,40 @@ export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B
    */
   readonly loader: DataLoaderFactory;
 
-  readonly server: IgnexServer | null;
+  /**
+   * The Bun server backing this request, wired by `createApp().serve()` and
+   * the compiled server (which emits `ctx.server = server`). Used by `ctx.ip`
+   * for the real socket address. Mutable so the framework can inject it.
+   */
+  server: IgnexServer | null;
 }
+
+/**
+ * Cheap pathname extraction from an absolute request URL without allocating a
+ * full `URL` object. Equivalent to `new URL(url).pathname` for the absolute
+ * URLs Bun's `Request.url` carries (e.g. `http://host:3000/api/users?x=1`):
+ * the path is the percent-encoded substring after the authority, cut at the
+ * first `?` or `#` (never decoded), with a bare authority mapping to `/`.
+ */
+const pathnameOf = (url: string): string => {
+  const schemeEnd = url.indexOf("://");
+  const start =
+    schemeEnd === -1
+      ? url.startsWith("//")
+        ? url.indexOf("/", 2)
+        : 0
+      : url.indexOf("/", schemeEnd + 3);
+  if (start === -1) return "/";
+
+  let end = url.length;
+  const query = url.indexOf("?", start);
+  const fragment = url.indexOf("#", start);
+  if (query !== -1 && query < end) end = query;
+  if (fragment !== -1 && fragment < end) end = fragment;
+
+  const path = url.slice(start, end);
+  return path === "" ? "/" : path;
+};
 
 const defaultCache = new HttpResponseCache({
   max: 1000,
@@ -155,15 +187,17 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   readonly route: string;
   readonly headers: Headers;
   params: P;
-  body: LazyBody;
-  cookie: Record<string, Cookie<string | undefined>>;
   readonly set: SetHeaders;
   readonly startTime: number;
   server: IgnexServer | null = null;
 
+  private _body: LazyBody | undefined;
+  private _cookie: Record<string, Cookie<string | undefined>> | undefined;
   private _url: URL | undefined;
+  private _path: string | undefined;
   private _query: URLSearchParams | undefined;
   private _requestId: string | undefined;
+  private _ip: string | undefined;
   private _state: Map<string | symbol, unknown> | undefined;
   private readonly _opts: ContextOptions;
 
@@ -173,15 +207,49 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     this.route = opts.route ?? "";
     this.headers = req.headers;
     this.params = params;
-    this.body = opts.bodyInstance ?? createLazyBody(req, opts.body);
+    // `body` and `cookie` are created LAZILY on first access (getters below),
+    // so a request that never reads the body or cookies pays zero setup cost.
+    // Previously `createLazyBody` (~300ns) + the cookie-jar proxy (~52ns) were
+    // allocated eagerly on every full-context request, even GET routes that
+    // never touch either. `startTime` stays eager: it must capture the request
+    // START (the access-log/logger duration = now − startTime).
+    this._body = opts.bodyInstance;
     // `status` is intentionally left unset: an explicitly-set `set.status`
     // overrides the response status (see `applySet`), but a default of 200
     // here would clobber handlers returning e.g. 401/redirects.
     this.set = { headers: {}, ...opts.set };
-    this.cookie = createLazyCookieJar(this.set, () => this.req.headers.get("cookie"));
+    // The `set.cookie` accumulator is always initialized so handlers can write
+    // `ctx.set.cookie.name = {...}` directly even when they never read
+    // `ctx.cookie` (the cookie-jar PROXY is created lazily on first `ctx.cookie`
+    // access — previously the eager jar creation did this initialization).
+    if (this.set.cookie === undefined) {
+      this.set.cookie = Object.create(null) as Record<string, ElysiaCookie>;
+    }
     this.startTime = performance.now();
     this._opts = opts;
     this._query = opts.query;
+  }
+
+  get body(): LazyBody {
+    if (this._body === undefined) {
+      this._body = createLazyBody(this.req, this._opts.body);
+    }
+    return this._body;
+  }
+
+  set body(value: LazyBody) {
+    this._body = value;
+  }
+
+  get cookie(): Record<string, Cookie<string | undefined>> {
+    if (this._cookie === undefined) {
+      this._cookie = createLazyCookieJar(this.set, () => this.req.headers.get("cookie"));
+    }
+    return this._cookie;
+  }
+
+  set cookie(value: Record<string, Cookie<string | undefined>>) {
+    this._cookie = value;
   }
 
   get url(): URL {
@@ -192,7 +260,12 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   }
 
   get path(): string {
-    return this.url.pathname;
+    // Cheap pathname extraction — independent of `url` so a request that only
+    // routes on the path (e.g. /health, /api/echo) never allocates a URL.
+    if (this._path === undefined) {
+      this._path = pathnameOf(this.req.url);
+    }
+    return this._path;
   }
 
   get requestId(): string {
@@ -203,11 +276,16 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   }
 
   get ip(): string {
+    if (this._ip !== undefined) return this._ip;
+
     const server = this.server;
 
     try {
       const socketIp = server?.requestIP?.(this.req)?.address;
-      if (socketIp) return socketIp;
+      if (socketIp) {
+        this._ip = socketIp;
+        return socketIp;
+      }
     } catch (err) {
       // `requestIP` is non-standard on some runtimes and may throw rather
       // than return undefined — surface it at info level instead of
@@ -221,9 +299,13 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
       const forwarded =
         this.req.headers.get("x-real-ip") ??
         firstForwardedIp(this.req.headers.get("x-forwarded-for"));
-      if (forwarded) return forwarded;
+      if (forwarded) {
+        this._ip = forwarded;
+        return forwarded;
+      }
     }
 
+    this._ip = "anonymous";
     return "anonymous";
   }
 

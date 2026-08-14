@@ -1,0 +1,68 @@
+{
+  "server": "elysia",
+  "scenario": "04-spike",
+  "generatedAt": "2026-08-14T07:35:40.178Z",
+  "totalDurationMs": 100149.001721,
+  "achievedRps": 833.8375676738216,
+  "totalRequests": 83508,
+  "success": 83508,
+  "expectedErrors": 0,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 83508,
+    "avg": 0.20717227878766056,
+    "min": 0.041104,
+    "p50": 0.118564,
+    "p75": 0.162063,
+    "p90": 0.247773,
+    "p95": 0.480949,
+    "p99": 1.066876,
+    "p999": 14.750851,
+    "max": 19.13859
+  },
+  "routes": [
+    {
+      "name": "GET /api/users",
+      "count": 41754,
+      "errors": 0,
+      "statuses": {
+        "200": 41754
+      },
+      "errorPct": 0,
+      "avg": 0.23423371286583278,
+      "min": 0.041104,
+      "p50": 0.129928,
+      "p75": 0.174891,
+      "p90": 0.262896,
+      "p95": 0.559702,
+      "p99": 1.22862,
+      "p999": 16.931798,
+      "max": 19.13859
+    },
+    {
+      "name": "POST /api/users",
+      "count": 41754,
+      "errors": 0,
+      "statuses": {
+        "200": 41754
+      },
+      "errorPct": 0,
+      "avg": 0.1801108447094879,
+      "min": 0.042428,
+      "p50": 0.104544,
+      "p75": 0.146745,
+      "p90": 0.229551,
+      "p95": 0.428472,
+      "p99": 0.884836,
+      "p999": 11.213683,
+      "max": 18.753677
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

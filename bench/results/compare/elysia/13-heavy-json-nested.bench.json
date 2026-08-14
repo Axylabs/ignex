@@ -1,0 +1,51 @@
+{
+  "server": "elysia",
+  "scenario": "13-heavy-json-nested",
+  "generatedAt": "2026-08-14T00:22:06.274Z",
+  "totalDurationMs": 60043.310118,
+  "achievedRps": 125.00976353983229,
+  "totalRequests": 7506,
+  "success": 6729,
+  "expectedErrors": 777,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 7506,
+    "avg": 1.130708031041826,
+    "min": 0.170018,
+    "p50": 0.978724,
+    "p75": 1.075336,
+    "p90": 1.161989,
+    "p95": 1.227664,
+    "p99": 1.58879,
+    "p999": 24.100974,
+    "max": 129.726675
+  },
+  "routes": [
+    {
+      "name": "POST /api/users",
+      "count": 7506,
+      "errors": 777,
+      "statuses": {
+        "200": 6729,
+        "422": 777
+      },
+      "errorPct": 10.35171862509992,
+      "avg": 1.130708031041826,
+      "min": 0.170018,
+      "p50": 0.978724,
+      "p75": 1.075336,
+      "p90": 1.161989,
+      "p95": 1.227664,
+      "p99": 1.58879,
+      "p999": 24.100974,
+      "max": 129.726675
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

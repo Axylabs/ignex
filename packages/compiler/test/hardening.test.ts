@@ -12,8 +12,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DiagnosticCodes, DiagnosticCollector } from "../src/diagnostics.js";
 import { SourceManager } from "../src/frontend/source-manager.js";
+import { buildAsync } from "../src/index.js";
 import { resolveHook } from "../src/phases/analysis/hooks.js";
 import { clearModuleCache, loadRouteModule } from "../src/phases/schema-loader.js";
+import { fixturePath, materializeFixture } from "./helpers";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "ignex-hardening-"));
 
@@ -102,5 +104,28 @@ describe("schema-loader module cache", () => {
     clearModuleCache();
     const again = await loadRouteModule(file, d);
     expect(again).toBeUndefined();
+  });
+});
+
+describe("plugin boot boundary (compiled server)", () => {
+  it("emits an attributable error when a plugin throws at boot", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      appConfig: fixturePath("basic", "app.config.ts"),
+      optimizationLevel: 3,
+      minify: false,
+      sourceMap: false,
+      incremental: false,
+      precompileValidators: true,
+      precompileSerializers: true,
+    });
+
+    // A throwing plugin must surface a clear, attributable message instead of a
+    // cryptic module-load failure / unhandled rejection.
+    expect(result.code).toContain("[ignex] plugin boot failed");
+    expect(result.code).toContain("catch (__err) {");
   });
 });
