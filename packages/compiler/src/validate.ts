@@ -69,6 +69,7 @@ const CompilerOptionsSchema = Type.Object(
     specializeContext: Type.Optional(Type.Boolean()),
     treeshakeRuntime: Type.Optional(Type.Boolean()),
     routeCache: Type.Optional(Type.Boolean()),
+    nativeRoutes: Type.Optional(Type.Boolean()),
 
     incremental: Type.Optional(Type.Boolean()),
 

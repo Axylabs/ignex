@@ -9,14 +9,14 @@
 
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { getCacheConfig, tryNormalizeConstant } from "../decisions";
-import { coreHandlerName, handlerImportName, routeReplyFn } from "../identifiers";
+import { coreHandlerName, ctxOptsVar, handlerImportName, routeReplyFn } from "../identifiers";
 import type { CodegenState } from "../state";
 import { emitCacheWrapper } from "./cache";
 import { emitConstantRoute } from "./constant";
 import { buildFullContextPrelude, buildSpecializedContext } from "./context";
 import { assembleCoreFn } from "./handler";
+import { emitNativeRouteVar, emitNativeValidationPrelude, nativeRouteEligible } from "./native";
 import { buildRouteHookVar, buildSerializersVar } from "./reply";
-import { emitFullValidationPrelude } from "./validate";
 import { emitWsRoute } from "./ws";
 
 /**
@@ -100,10 +100,23 @@ export const generateRouteCode = (
   let callExpr = "";
 
   if (needsFull) {
+    // Hoist the per-route context options to a frozen module const. The old
+    // `{ body: BODY_LIMITS, route }` object literal was re-allocated on EVERY
+    // request; `IgnexContextImpl` only reads opts, never mutates, so sharing a
+    // frozen instance is safe (removes one allocation + a hidden class change
+    // per request on the full-context path).
+    state.header.push(
+      `const ${ctxOptsVar(route)} = Object.freeze({ body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)} });`,
+    );
     // Full context: create the context, run the pre-parse lifecycle, then the
-    // per-part validation block.
+    // per-part validation block (native-first prelude when the route is
+    // eligible and `nativeRoutes` is on — the addon pre-bakes the exact
+    // query/cookie pipeline; otherwise the plain JS prelude).
     pre.push(...buildFullContextPrelude(route, helpers));
-    pre.push(...emitFullValidationPrelude(route, opts, helpers));
+    if (nativeRouteEligible(route, opts)) {
+      emitNativeRouteVar(state, route, opts);
+    }
+    pre.push(...emitNativeValidationPrelude(route, opts, helpers));
 
     // Call the handler directly. `__lc.afterHandle` (user hooks + plugin
     // `onResponse`) must NOT run on the raw handler result — plugin hooks

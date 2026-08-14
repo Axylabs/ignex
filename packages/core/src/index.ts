@@ -26,6 +26,7 @@ export {
   backend,
   backendName,
   createExecutionBackend,
+  createNativeRoute,
   type ExecutionBackend,
   type ExecutionOpStatus,
   type ExecutionStatus,
@@ -34,6 +35,10 @@ export {
   implFor,
   initNative,
   isNativeAvailable,
+  type NativeRoute,
+  type NativeRouteFrame,
+  type NativeRoutePlan,
+  type NativeRouteRunResult,
   type OpDecision,
   type OpName,
   SELECTION,
@@ -106,7 +111,7 @@ export type {
 } from "./data/dataloader";
 export { createDataLoader } from "./data/dataloader";
 export { LRUCache } from "./data/lru";
-export { parseQuery, parseQueryFromURL } from "./data/query";
+export { groupQueryPairs, parseQuery, parseQueryFromURL } from "./data/query";
 export type { RateLimitAlgorithm } from "./data/ratelimit";
 export { compileValidator, validateAsync, validateOrThrow } from "./data/schema";
 export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./data/validation";
@@ -117,6 +122,7 @@ export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";
 export { createContext } from "./http/context";
 export {
   Cookie,
+  cookiePairsToRecord,
   createCookieJar,
   createLazyCookieJar,
   parseCookieString,

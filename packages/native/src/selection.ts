@@ -52,6 +52,7 @@ export type OpName =
   | "verifyCookie"
   // http
   | "cookiePairs"
+  | "cookiesToJson"
   | "createAcceptNegotiator"
   | "createConditionalRequest"
   | "etag"
@@ -60,6 +61,7 @@ export type OpName =
   | "parseAcceptEncoding"
   | "parseMediaType"
   | "queryPairs"
+  | "queryToJson"
   // json
   | "createSchemaValidator"
   | "jsonPatch"
@@ -137,6 +139,7 @@ export const OPS: readonly OpName[] = [
   "signCookie",
   "verifyCookie",
   "cookiePairs",
+  "cookiesToJson",
   "createAcceptNegotiator",
   "createConditionalRequest",
   "etag",
@@ -145,6 +148,7 @@ export const OPS: readonly OpName[] = [
   "parseAcceptEncoding",
   "parseMediaType",
   "queryPairs",
+  "queryToJson",
   "createSchemaValidator",
   "jsonPatch",
   "jsonValid",

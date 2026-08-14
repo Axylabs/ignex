@@ -28,6 +28,13 @@ export const hookIdent = (name: string): string => `hook_${name.replace(/[^a-zA-
 
 export const cacheVar = (route: RouteIR): string => `CACHE_${route.codegen.handlerRef}`;
 
+/** Frozen per-route context options const (hoisted — was a per-request literal). */
+export const ctxOptsVar = (route: RouteIR): string => `__ctxOpts_${route.codegen.handlerRef}`;
+
+/** Per-route pre-baked native stack const (`createNativeRoute` result, or null). */
+export const nativeRouteVar = (route: RouteIR): string =>
+  `__nativeRoute_${route.codegen.handlerRef}`;
+
 export const coreHandlerName = (route: RouteIR, hasCache: boolean): string =>
   hasCache ? `core_${route.codegen.handlerRef}` : methodHandlerName(route);
 

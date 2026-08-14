@@ -53,13 +53,34 @@ export {
   type IgnexExecution,
   implFor,
 } from "./execution";
-export { type FfiMode, type FfiSurface, getFfi, getFfiMode, isFfiActive } from "./ffi";
+export {
+  type FfiMode,
+  type FfiRouteSurface,
+  type FfiSurface,
+  getFfi,
+  getFfiMode,
+  getFfiRoute,
+  isFfiActive,
+} from "./ffi";
+export {
+  type FfiBuf,
+  ffiBuf,
+  ffiString,
+  ffiU32,
+  ffiU64,
+  isFfiReadAvailable,
+  readString,
+  readU32,
+  readU64,
+} from "./ffi-read";
 export { crc32, fnv1a64, fnv1a64Fallback, fnv1a64String } from "./hash";
 export {
   type AcceptNegotiator,
   type ConditionalRequest,
   cookiePairs,
   cookiePairsFallback,
+  cookiesToJson,
+  cookiesToJsonFallback,
   createAcceptNegotiator,
   createAcceptNegotiatorFallback,
   createConditionalRequest,
@@ -85,6 +106,8 @@ export {
   parseQuery,
   queryPairs,
   queryPairsFallback,
+  queryToJson,
+  queryToJsonFallback,
 } from "./http";
 export {
   createSchemaValidator,
@@ -133,9 +156,55 @@ export {
   type RateLimiter,
   type RateLimiterOptions,
 } from "./ratelimit";
+export {
+  createNativeRoute,
+  type NativeRoute,
+  type NativeRouteFrame,
+  type NativeRoutePlan,
+  type NativeRouteRunResult,
+} from "./route";
+export {
+  type DecodedRouteDescriptor,
+  decodeRouteDescriptor,
+  encodeRouteDescriptor,
+  type NativeRouteStage,
+  packRouteFrame,
+  packRouteFrameInto,
+  packRouteFrameLength,
+  planHasStage,
+  ROUTE_DESC_MAGIC,
+  ROUTE_DESC_VERSION,
+  ROUTE_FRAME_FLAG_HAS_BODY,
+  ROUTE_RESULT_FLAG_BODY_VALID,
+  ROUTE_RESULT_FLAG_BODY_VALID_JSON,
+  ROUTE_RESULT_FLAG_COOKIE_VALID,
+  ROUTE_RESULT_FLAG_HEADERS_VALID,
+  ROUTE_RESULT_FLAG_OK,
+  ROUTE_RESULT_FLAG_PARAMS_VALID,
+  ROUTE_RESULT_FLAG_QUERY_VALID,
+  ROUTE_STAGE_TAG,
+  type RoutePartKind,
+  readRouteResult,
+} from "./route-wire";
 export { backendName, useNative } from "./runtime";
+export {
+  acquire,
+  copyView,
+  MAX_POOLED_BYTES,
+  MAX_SCRATCH_BYTES,
+  poolStats,
+  release,
+  withScratch,
+} from "./scratch";
 export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
-export { packTasks, runTasks, type Task, type TaskResult } from "./tasks";
+export {
+  packTasks,
+  packTasksInto,
+  packTasksLength,
+  runTasks,
+  type Task,
+  type TaskResult,
+} from "./tasks";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export {

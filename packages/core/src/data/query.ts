@@ -14,7 +14,7 @@ import { queryPairs } from "@ignex/native";
  * Group raw `[name, value]` pairs into an object. Duplicate keys become
  * arrays (`a=1&a=2` → `{ a: ["1", "2"] }`); single keys stay strings.
  */
-const groupQueryPairs = (
+export const groupQueryPairs = (
   pairs: ReadonlyArray<[string, string]>,
 ): Record<string, string | string[]> => {
   const out: Record<string, string | string[]> = {};

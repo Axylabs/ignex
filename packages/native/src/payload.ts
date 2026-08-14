@@ -15,7 +15,7 @@ import {
 } from "node:zlib";
 import { bunGunzipSync, bunGzipSync } from "./bun";
 import { nativeFor } from "./runtime";
-import { fromBytes, toBytes, toPlain } from "./util";
+import { fromBytes, toBytes, toPlain, toStr } from "./util";
 
 // ── Compression ─────────────────────────────────────────────────
 
@@ -199,7 +199,7 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /** Compute the RFC 6455 Sec-WebSocket-Accept value from a client key. */
 export const wsAcceptKey = (key: string): string => {
   const n = nativeFor("wsAcceptKey");
-  if (n) return fromBytes(n.wsAcceptKey(toBytes(key)));
+  if (n) return toStr(n.wsAcceptKey(toBytes(key)));
   return createHash("sha1")
     .update(key + WS_GUID)
     .digest("base64");

@@ -1,6 +1,6 @@
 # Ignus HTTP comparison report — ignus / 02-load
 
-Generated: 2026-08-14T07:27:07.271Z
+Generated: 2026-08-14T09:36:24.574Z
 
 Failure trace: `02-load.failures.ndjson`
 
@@ -10,11 +10,11 @@ Failure trace: `02-load.failures.ndjson`
 | --- | --- |
 | Server | ignus |
 | Scenario | 02-load |
-| Generated | 2026-08-14T07:27:07.271Z |
-| Total duration ms | 120544.450 |
-| Achieved RPS | 211.49 |
-| Total requests | 25494 |
-| Successful requests | 25494 |
+| Generated | 2026-08-14T09:36:24.574Z |
+| Total duration ms | 120544.362 |
+| Achieved RPS | 211.33 |
+| Total requests | 25475 |
+| Successful requests | 25475 |
 | Expected error responses | 0 |
 | Unexpected failed requests | 0 |
 | Timeouts | 0 |
@@ -22,15 +22,15 @@ Failure trace: `02-load.failures.ndjson`
 | Unexpected statuses | 0 |
 | Response shape failures | 0 |
 | Unexpected error rate % | 0.00 |
-| Avg latency ms | 0.467 |
-| Min latency ms | 0.057 |
-| p50 latency ms | 0.372 |
-| p75 latency ms | 0.618 |
-| p90 latency ms | 0.799 |
-| p95 latency ms | 0.882 |
-| p99 latency ms | 1.080 |
-| p99.9 latency ms | 9.237 |
-| Max latency ms | 22.306 |
+| Avg latency ms | 0.628 |
+| Min latency ms | 0.060 |
+| p50 latency ms | 0.625 |
+| p75 latency ms | 0.785 |
+| p90 latency ms | 0.890 |
+| p95 latency ms | 0.940 |
+| p99 latency ms | 1.089 |
+| p99.9 latency ms | 6.710 |
+| Max latency ms | 52.935 |
 
 ## Error groups
 
@@ -43,10 +43,10 @@ These are unexpected failures. This table tells you which request failed and why
 
 | Route | Count | Errors | Error % | Min ms | Avg ms | p50 ms | p95 ms | p99 ms | p99.9 ms | Max ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET /api/cookies | 1536 | 0 | 0.00 | 0.100 | 0.526 | 0.397 | 0.962 | 1.275 | 11.588 | 13.287 |
-| GET /api/users | 10488 | 0 | 0.00 | 0.069 | 0.497 | 0.386 | 0.903 | 1.111 | 10.903 | 20.258 |
-| GET /health | 2982 | 0 | 0.00 | 0.057 | 0.440 | 0.369 | 0.833 | 0.983 | 1.862 | 8.592 |
-| POST /api/users | 10488 | 0 | 0.00 | 0.069 | 0.435 | 0.359 | 0.828 | 1.041 | 9.679 | 22.306 |
+| GET /api/cookies | 1493 | 0 | 0.00 | 0.122 | 0.687 | 0.751 | 1.000 | 1.208 | 2.049 | 2.429 |
+| GET /api/users | 10469 | 0 | 0.00 | 0.077 | 0.683 | 0.700 | 0.945 | 1.150 | 14.393 | 52.935 |
+| POST /api/users | 10469 | 0 | 0.00 | 0.060 | 0.574 | 0.557 | 0.927 | 1.042 | 3.831 | 38.590 |
+| GET /health | 3044 | 0 | 0.00 | 0.060 | 0.594 | 0.610 | 0.878 | 1.005 | 3.026 | 23.180 |
 
 ## Failure samples
 

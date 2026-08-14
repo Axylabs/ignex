@@ -23,6 +23,7 @@
     "test:compiler": "bun run --cwd packages/compiler test",
     "test:native": "bun run --cwd packages/native test",
     "test:native:real": "bunx vitest run packages/native/test --no-file-parallelism",
+    "verify:native:route": "bun scripts/verify-native-route.ts",
     "test:cli": "bun run --cwd packages/cli test",
     "test:mcp": "bun run --cwd packages/mcp test",
     "test:shared": "vitest run packages/shared/test",

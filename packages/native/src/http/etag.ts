@@ -3,7 +3,7 @@
  */
 
 import { nativeFor } from "../runtime";
-import { crc32, fromBytes, toBytes } from "../util";
+import { crc32, toBytes, toStr } from "../util";
 
 /**
  * Generate a strong (`"<8-hex>"`) or weak (`W/"<8-hex>"`) ETag from a crc32.
@@ -13,7 +13,7 @@ import { crc32, fromBytes, toBytes } from "../util";
  */
 export const etag = (input: string | Uint8Array, weak = false): string => {
   const n = nativeFor("etag");
-  if (n) return fromBytes(n.etag(toBytes(input), weak));
+  if (n) return toStr(n.etag(toBytes(input), weak));
   return etagFallback(toBytes(input), weak);
 };
 

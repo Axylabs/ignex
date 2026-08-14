@@ -128,6 +128,17 @@ export interface CompilerOptions {
   readonly routeCache?: boolean;
 
   /**
+   * Emit a per-route pre-baked native stack (`createNativeRoute`) for
+   * full-context routes that parse/validate query or cookies. The addon
+   * (castrum with the route module) parses them in ONE C-ABI call; when the
+   * addon lacks the route surface the compiled core fn falls back to the JS
+   * prelude (byte-parity preserved). Default `false` — off unless explicitly
+   * enabled (runtime-dependent; requires a castrum build that ships the route
+   * module).
+   */
+  readonly nativeRoutes?: boolean;
+
+  /**
    * Skip the full build when inputs are unchanged (content-hash cache).
    * Persists a `.ignex-cache.json` fingerprint inside `outDir`.
    */

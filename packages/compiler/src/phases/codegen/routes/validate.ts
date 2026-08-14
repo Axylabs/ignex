@@ -52,7 +52,11 @@ const emitValidatorOrRuntime = (
 };
 
 /** Params — validated only when a params validator/schema part exists. */
-const emitParamsPrelude = (route: RouteIR, hasValidator: boolean, hasPart: boolean): string[] => {
+export const emitParamsPrelude = (
+  route: RouteIR,
+  hasValidator: boolean,
+  hasPart: boolean,
+): string[] => {
   if (!hasValidator && !hasPart) return [];
   return emitValidatorOrRuntime(route, "params", "ctx.params", "__schema?.params");
 };
@@ -86,12 +90,20 @@ const emitQueryPrelude = (
     lines.push(`await __validatePart(__schema?.query, __query, "query");`);
   }
 
-  lines.push(`Object.defineProperty(ctx, "query", { value: __query, configurable: true });`);
+  // Shadow `ctx.query` with the parsed Record via the context's `query`
+  // setter — a plain assignment is ~8x faster than the old per-request
+  // `Object.defineProperty` (which forced a hidden-class transition on a fresh
+  // instance). Observable reads are identical.
+  lines.push(`ctx.query = __query;`);
   return lines;
 };
 
 /** Headers — materialized ONLY when headers are validated. */
-const emitHeadersPrelude = (route: RouteIR, hasValidator: boolean, hasPart: boolean): string[] => {
+export const emitHeadersPrelude = (
+  route: RouteIR,
+  hasValidator: boolean,
+  hasPart: boolean,
+): string[] => {
   if (!hasValidator && !hasPart) return [];
   const lines = [`const __headers = Object.fromEntries(req.headers.entries());`];
   lines.push(...emitValidatorOrRuntime(route, "headers", "__headers", "__schema?.headers"));
@@ -133,7 +145,11 @@ const emitCookiesPrelude = (
 };
 
 /** Body — precompiled validator, or guarded runtime parse for schema parts. */
-const emitBodyPrelude = (route: RouteIR, hasValidator: boolean, hasPart: boolean): string[] => {
+export const emitBodyPrelude = (
+  route: RouteIR,
+  hasValidator: boolean,
+  hasPart: boolean,
+): string[] => {
   if (hasValidator) {
     const name = validatorImportName(route, "body");
     return [
@@ -165,6 +181,32 @@ const emitBodyPrelude = (route: RouteIR, hasValidator: boolean, hasPart: boolean
  * string, walks request headers, or splits the Cookie header on every request
  * — that was the single biggest redundant cost on validated routes.
  */
+/** Emit the shared `__schema` const consumed by the runtime `__validatePart`. */
+export const emitSchemaConst = (route: RouteIR): string =>
+  `const __schema = ${
+    route.analysis.hasValidation ? `__schemaFor(schema_${route.codegen.handlerRef})` : `undefined`
+  };`;
+
+/**
+ * Mark the shared validation-prelude helpers (`__schemaFor`,
+ * `validationError`, `__validatePart`) used by the per-part emitters. Shared
+ * by the plain JS prelude and the native-first prelude (`routes/native.ts`).
+ */
+export const markValidationPreludeHelpers = (
+  route: RouteIR,
+  hasAnyValidator: boolean,
+  helpers: Emitter,
+  hasSchemaPart: (kind: string) => boolean,
+): void => {
+  helpers.markUsed("__schemaFor");
+  if (hasAnyValidator) helpers.markUsed("validationError");
+  // Only mark `__validatePart` when at least one schema part has no
+  // precompiled validator (keeps the generated helper set minimal).
+  if (PART_KINDS.some((kind) => hasSchemaPart(kind) && !route.decisions.validators?.[kind])) {
+    helpers.markUsed("__validatePart");
+  }
+};
+
 export const emitFullValidationPrelude = (
   route: RouteIR,
   opts: CompilerOptions,
@@ -190,20 +232,9 @@ export const emitFullValidationPrelude = (
   const hasSchemaPart = (kind: string): boolean =>
     schemaDoc !== undefined ? schemaDoc[kind] !== undefined : true;
 
-  helpers.markUsed("__schemaFor");
-  if (hasAnyValidator) helpers.markUsed("validationError");
+  markValidationPreludeHelpers(route, hasAnyValidator, helpers, hasSchemaPart);
 
-  // Only mark `__validatePart` when at least one schema part has no
-  // precompiled validator (keeps the generated helper set minimal).
-  if (PART_KINDS.some((kind) => hasSchemaPart(kind) && !route.decisions.validators?.[kind])) {
-    helpers.markUsed("__validatePart");
-  }
-
-  const pre: string[] = [
-    `const __schema = ${
-      route.analysis.hasValidation ? `__schemaFor(schema_${route.codegen.handlerRef})` : `undefined`
-    };`,
-  ];
+  const pre: string[] = [emitSchemaConst(route)];
 
   pre.push(...emitParamsPrelude(route, hasParamsValidator, hasSchemaPart("params")));
   pre.push(

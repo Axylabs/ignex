@@ -813,3 +813,71 @@ now part of the default comparison run + the `bench:compare:check` gate
 ### Deferred (unchanged from prior rounds)
 Compiler pipeline-only native routes; static-response promotion with plugin
 headers; lazy `ctx.set`; legacy single-handler abort-Promise micro-opt.
+
+---
+
+## Round: AOT hot-path allocation cuts (2026-08-14) — VERIFIED
+
+Trial-and-error pass over the AOT-compiled server's per-request hot path,
+driven by a new function-level micro-bench harness
+(`scripts/bench-hotpath.ts` — evals the emitted `HELPER_SOURCES` templates +
+benches core runtime fns with interleaved trials + `Bun.gc()`). **Kept only
+changes that measured ≥5% at function level and held in e2e.**
+
+### Applied (verified, verify gate green — 1028 tests)
+1. Per-route `createContext` opts hoisted to frozen module consts
+   (`__ctxOpts_<ref>`) — kills 1 object/request on the full-context path;
+   shared `__ctxOpts` for the OPTIONS/404/error helpers.
+2. `new TextEncoder()` → module-level `__encoder` in the compiled
+   `jsonReply`/`textReply`/`htmlReply` and core `responseWithBody` — 1 alloc
+   removed per response.
+3. `__finalize`/`finalizeResponse` skip the `{ status }` object when status is
+   200.
+4. `__withBody`/`withBody`/`responseWithBody` fast paths: `init === undefined`
+   (the common `ctx.json(data)`) now builds plain-object headers and returns
+   `new Response(bytes, { headers })` — no `new Headers()`, no rest/spread.
+5. `__isServerLike` hoisted to a module const (removes 2 closures/request).
+6. `ctx.query` setter added — codegen emits `ctx.query = __query` instead of
+   per-request `Object.defineProperty` (~8x slower on a fresh instance).
+
+### Micro-bench deltas (`scripts/bench-hotpath.ts`, ops/s, median-of-5)
+| fn | before | after | Δ |
+| --- | --- | --- | --- |
+| `__withBody` (no init) | 1.09M | 1.77M | +62% |
+| `jsonReply` | 658K | 1.13M | +72% |
+| `jsonReply {status:429}` | 703K | 1.00M | +42% |
+| `__finalize` (200) | 635K | 1.10M | +73% |
+
+### E2E (AOT app, `bench:server` native, median-of-3, 32 conn)
+| route | baseline rps / p50 | final rps / p50 | Δ |
+| --- | --- | --- | --- |
+| GET /health | 2293 / 1.88ms | 2598 / 1.60ms | +13% / −15% |
+| POST /api/orders | 2357 / 1.84ms | 2731 / 1.55ms | +16% / −16% |
+| GET /api/search | 2416 / 1.80ms | 2835 / 1.51ms | +17% / −16% |
+| GET /api/me | 2396 / 1.82ms | 2709 / 1.56ms | +13% / −14% |
+| GET /api/reports/42 | 1847 / 1.87ms | 2075 / 1.61ms | +12% / −14% |
+| GET /catalog | 1802 / 1.88ms | 2070 / 1.62ms | +15% / −14% |
+| GET /api/big | 1381 / 2.84ms | 1618 / 2.45ms | +17% / −14% |
+
+(An earlier repeat measured +19-20% rps — run-to-run variance is ~±3-5%.)
+
+### Rejected / deferred by measurement (trial-and-error)
+- `runHooks` sync fast path (skip `await` for non-thenable hooks): measured
+  **x0.91** — JSC already optimizes `await` on sync values; the thenable check
+  adds overhead. Kept the current implementation.
+- `startTime` opt-in (skip `performance.now()` when access-log off): deferred —
+  the `logger` plugin reads `ctx.startTime`, so skipping it risks silent breakage.
+- `createContext.set` spread removal: no-op (`{ ...undefined }` is free).
+- Double-cookie parse: already fixed (`createLazyCookieJar` `preParsed`).
+
+### Rust FFI transfer assessment (trial, external castrum repo)
+Added `castrum_query_to_json` / `castrum_cookies_to_json` C-ABI exports
+(reusing the ingress's zero-alloc `json_ser::*_into_slice`) and wired them into
+`@ignex/native` + `select-native`. Measured **native x0.16 (query) / x0.07
+(cookies)** vs the JS fallback → **rejected, wired JS**. The FFI crossing + 8x
+output-buffer alloc + UTF-8 decode swamps the Rust parse; Bun's native
+`JSON.stringify` wins. Wrappers + BenchOps kept for future re-trials.
+Conclusion: for the current hot-path ops, JS-side cuts (above) are the win; the
+only remaining structural Rust transfer (whole-lifecycle-in-one-Rust-call
+pipeline routes) is deferred.
+

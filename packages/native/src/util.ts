@@ -21,6 +21,14 @@ export const toBytes = (input: string | Uint8Array): Uint8Array =>
 export const fromBytes = (bytes: Uint8Array): string => decoder.decode(bytes);
 
 /**
+ * String-or-bytes → string. The C-ABI surface returns plain strings
+ * (`cstring` — the engine clones them natively); the NAPI fallback returns
+ * bytes. This normalizes either so wrappers work across both transports.
+ */
+export const toStr = (v: string | Uint8Array): string =>
+  typeof v === "string" ? v : decoder.decode(v);
+
+/**
  * Normalize a `Buffer` (or any bytes) into a plain `Uint8Array` view of the
  * same memory. Keeps deep-equality tests and JSON inspection consistent
  * whether the bytes came from native (Node `Buffer`) or the fallbacks.

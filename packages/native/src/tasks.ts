@@ -23,10 +23,12 @@ import {
   verifyCookie,
 } from "./crypto";
 import { getFfi } from "./ffi";
+import { ffiBuf, ffiU32, ffiU64 } from "./ffi-read";
 import { crc32, fnv1a64 } from "./hash";
 import { cookiePairs, etag, formPairs, queryPairs } from "./http";
 import { jsonValid } from "./json";
 import { readPairsPacked } from "./packed";
+import { withScratch } from "./scratch";
 import { decoder, encoder } from "./util";
 import { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./validation";
 
@@ -186,11 +188,15 @@ const writePayload = (out: Uint8Array, pos: number, task: Task): number => {
   }
 };
 
-/** Pack the full task list into the `[u32 count]{ [u8 op][u32 len][payload] }` wire. */
-export const packTasks = (tasks: readonly Task[]): Uint8Array => {
+/** Packed byte-length of a task list (size a pooled buffer exactly). */
+export const packTasksLength = (tasks: readonly Task[]): number => {
   let total = 4;
   for (const t of tasks) total += 1 + 4 + payloadLen(t);
-  const out = new Uint8Array(total);
+  return total;
+};
+
+/** Write the `[u32 count]{ [u8 op][u32 len][payload] }` wire into `out`. */
+export const packTasksInto = (out: Uint8Array, tasks: readonly Task[]): void => {
   dv(out).setUint32(0, tasks.length, true);
   let pos = 4;
   for (const t of tasks) {
@@ -200,13 +206,17 @@ export const packTasks = (tasks: readonly Task[]): Uint8Array => {
     pos += 4;
     pos = writePayload(out, pos, t);
   }
+};
+
+/** Pack the full task list into a fresh buffer (prefer the pooled `runTasks` path). */
+export const packTasks = (tasks: readonly Task[]): Uint8Array => {
+  const out = new Uint8Array(packTasksLength(tasks));
+  packTasksInto(out, tasks);
   return out;
 };
 
-const readU64 = (b: Uint8Array): bigint =>
-  new DataView(b.buffer, b.byteOffset).getBigUint64(0, true);
-const readU32 = (b: Uint8Array): number =>
-  new DataView(b.buffer, b.byteOffset).getUint32(0, true) >>> 0;
+const readU64 = (b: Uint8Array): bigint => ffiU64(ffiBuf(b), 0);
+const readU32 = (b: Uint8Array): number => ffiU32(ffiBuf(b), 0) >>> 0;
 
 /** Upper bound on one task's result bytes (exact for fixed-size ops). */
 const resultBound = (task: Task): number => {
@@ -349,15 +359,25 @@ export const runTasks = (tasks: readonly Task[]): TaskResult[] => {
   if (tasks.length === 0) return [];
   const ffi = getFfi();
   if (ffi) {
+    // Reuse a pooled scratch buffer for the INPUT wire — the C fn reads it
+    // synchronously, so the borrow cannot escape (packed is released before
+    // `runTasks` returns). The output buffer stays a fresh `growExact` alloc:
+    // it is handed back to the caller (the decode subarrays it), so pooling it
+    // would require copying every byte result out — deferred to the per-route
+    // native arena (Phase 1), which owns a persistent output buffer instead.
+    //
     // Pre-size the output buffer (exact per-op bound) so the C fn runs ONCE —
     // growExact's too-small path would otherwise re-run every task to size it.
-    const out = ffi.executeTasks(packTasks(tasks), outputBound(tasks));
-    const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const count = dv.getUint32(0, true);
+    const out = withScratch(packTasksLength(tasks), (packed) => {
+      packTasksInto(packed, tasks);
+      return ffi.executeTasks(packed, outputBound(tasks));
+    });
+    const b = ffiBuf(out);
+    const count = ffiU32(b, 0);
     let pos = 4;
     const results: TaskResult[] = [];
     for (let i = 0; i < count && i < tasks.length; i++) {
-      const len = dv.getUint32(pos, true);
+      const len = ffiU32(b, pos);
       pos += 4;
       const bytes = out.subarray(pos, pos + len);
       pos += len;

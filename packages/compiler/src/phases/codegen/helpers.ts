@@ -32,8 +32,9 @@ export const HELPERS: Record<string, HelperDef> = {
   },
   __schemaFor: { deps: [], core: [] },
   __validatePart: { deps: [], core: ["validateAsync"] },
-  __extractParams: { deps: [], core: [] },
-  __extractServer: { deps: [], core: [] },
+  __isServerLike: { deps: [], core: [] },
+  __extractParams: { deps: ["__isServerLike"], core: [] },
+  __extractServer: { deps: ["__isServerLike"], core: [] },
   __wrap: {
     deps: ["__extractParams", "__extractServer", "__handleError"],
     core: ["createContext"],
@@ -73,34 +74,39 @@ export const resolveUsedHelpers = (e: Emitter): ReadonlySet<string> => {
  */
 export const HELPER_SOURCES: Record<string, string> = {
   __withBody: `const __withBody = (bytes, type, init) => {
-  const h = new Headers({ "content-type": type });
   const ih = init && init.headers;
-  if (ih) {
-    if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
-      (ih.forEach)((value, key) => h.set(key, value));
-    } else if (Array.isArray(ih)) {
-      for (const [k, v] of ih) h.set(k, v);
-    } else {
-      for (const [k, v] of Object.entries(ih)) if (v != null) h.set(k, String(v));
-    }
-  }
+  // Fast path: no init headers — plain-object headers (no Headers alloc), and
+  // no rest/spread when init is undefined (the common ctx.json(data) call).
   // The body is encoded here (one TextEncoder pass) and the real byte length
   // is authoritative — Bun only materializes content-length at serve time, so
   // without this, middleware (compression) must buffer every response just to
   // learn its size. Emitting it lets compression skip buffering small bodies.
-  if (bytes !== null) h.set("content-length", String(bytes.byteLength));
-  const { headers: _ignored, ...rest } = init ?? {};
-  return new Response(bytes, { ...rest, headers: h });
+  const h = { "content-type": type };
+  if (bytes !== null) h["content-length"] = String(bytes.byteLength);
+  if (!ih) {
+    if (init === undefined) return new Response(bytes, { headers: h });
+    const { headers: _ignored, ...rest } = init;
+    return new Response(bytes, { ...rest, headers: h });
+  }
+  const hh = new Headers(h);
+  if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
+    (ih.forEach)((value, key) => hh.set(key, value));
+  } else if (Array.isArray(ih)) {
+    for (const [k, v] of ih) hh.set(k, v);
+  } else {
+    for (const [k, v] of Object.entries(ih)) if (v != null) hh.set(k, String(v));
+  }
+  return new Response(bytes, { ...init, headers: hh });
 };`,
   jsonReply: `const jsonReply = (data, init) => {
   const s = JSON.stringify(data);
   if (s === undefined) return __withBody(null, "application/json; charset=utf-8", init);
-  return __withBody(new TextEncoder().encode(s), "application/json; charset=utf-8", init);
+  return __withBody(__encoder.encode(s), "application/json; charset=utf-8", init);
 };`,
   textReply: `const textReply = (data, init) =>
-  __withBody(new TextEncoder().encode(String(data)), "text/plain; charset=utf-8", init);`,
+  __withBody(__encoder.encode(String(data)), "text/plain; charset=utf-8", init);`,
   htmlReply: `const htmlReply = (data, init) =>
-  __withBody(new TextEncoder().encode(String(data)), "text/html; charset=utf-8", init);`,
+  __withBody(__encoder.encode(String(data)), "text/html; charset=utf-8", init);`,
   streamReply: `const streamReply = (stream, init) => new Response(stream, init);`,
   emptyReply: `const emptyReply = (status = 204) => new Response(null, { status });`,
   redirectReply: `const redirectReply = (url, status = 302) =>
@@ -124,8 +130,8 @@ export const HELPER_SOURCES: Record<string, string> = {
   }
   status = status ?? 200;
   const ser = serializers?.[String(status)] ?? serializers?.["200"] ?? serializers?.default;
-  if (ser) return __withBody(new TextEncoder().encode(ser(body)), "application/json; charset=utf-8", { status });
-  return reply(body, { status });
+  if (ser) return __withBody(__encoder.encode(ser(body)), "application/json; charset=utf-8", { status });
+  return reply(body, status === 200 ? undefined : { status });
 };`,
   __handleError: `async function __handleError(err, ctx) {
   try {
@@ -142,25 +148,21 @@ export const HELPER_SOURCES: Record<string, string> = {
     await validateAsync(schemaPart, input, on);
   }
 }`,
+  __isServerLike: `const __isServerLike = (x) =>
+  x && typeof x === "object" && ("requestIP" in x || "fetch" in x || "stop" in x);`,
   __extractParams: `function __extractParams(req, a, b) {
   if (req && typeof req === "object" && "params" in req && req.params) {
     return req.params;
   }
 
-  const isServerLike = (x) =>
-    x && typeof x === "object" && ("requestIP" in x || "fetch" in x || "stop" in x);
-
-  if (a && typeof a === "object" && !isServerLike(a)) return a;
-  if (b && typeof b === "object" && !isServerLike(b)) return b;
+  if (a && typeof a === "object" && !__isServerLike(a)) return a;
+  if (b && typeof b === "object" && !__isServerLike(b)) return b;
 
   return EMPTY_PARAMS;
 }`,
   __extractServer: `function __extractServer(a, b) {
-  const isServerLike = (x) =>
-    x && typeof x === "object" && ("requestIP" in x || "fetch" in x || "stop" in x);
-
-  if (isServerLike(a)) return a;
-  if (isServerLike(b)) return b;
+  if (__isServerLike(a)) return a;
+  if (__isServerLike(b)) return b;
   return undefined;
 }`,
   __wrap: `function __wrap(handler, wildcards = [], prefix) {
@@ -196,7 +198,7 @@ export const HELPER_SOURCES: Record<string, string> = {
     try {
       return await handler(req, params ?? EMPTY_PARAMS, server);
     } catch (err) {
-      const ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS });
+      const ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts);
       ctx.server = server;
       return __handleError(err, ctx);
     }
@@ -221,7 +223,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   const url = new URL(req.url);
   const allow = __allowFor(url.pathname) ?? "OPTIONS";
 
-  const ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS });
+  const ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts);
   ctx.server = server;
 
   // Run the full pre-handler chain so plugins/hooks apply to preflight too.
@@ -269,7 +271,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   // Run the lifecycle so plugins/hooks (e.g. CORS, security headers) apply to
   // 404/405 responses too — matching interpreted behavior.
   if (__hasPreStages || __hasPostStages || __hasAfterResponse) {
-    const ctx = createContext(req, EMPTY_PARAMS, { body: BODY_LIMITS });
+    const ctx = createContext(req, EMPTY_PARAMS, __ctxOpts);
     ctx.server = server;
 
     const pre = await runHooks(__preStages, ctx);

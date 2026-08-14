@@ -131,6 +131,10 @@ const applyInitHeaders = (target: Headers, init: ResponseInit["headers"] | undef
   }
 };
 
+// Shared encoder — the old per-call `new TextEncoder()` allocated a fresh
+// encoder for every response. Reuse is safe (TextEncoder is stateless).
+const encoder = new TextEncoder();
+
 /**
  * Build a `Response` from a string body, encoding it once and setting an
  * accurate `content-length`. Bun only materializes `content-length` at serve
@@ -145,19 +149,23 @@ export const responseWithBody = (
   contentType: string,
   init?: ResponseInit,
 ): Response => {
-  const headers = new Headers({ "content-type": contentType });
-  applyInitHeaders(headers, init?.headers);
+  const bytes = body === undefined ? null : encoder.encode(body);
+  // Plain-object headers (no `Headers` alloc) unless `init.headers` is present.
+  const h: Record<string, string> = { "content-type": contentType };
+  if (bytes !== null) h["content-length"] = String(bytes.byteLength);
+
+  let headers: HeadersInit = h;
+  if (init?.headers) {
+    const hh = new Headers(h);
+    applyInitHeaders(hh, init.headers);
+    headers = hh;
+  }
 
   const responseInit: ResponseInit = { headers };
   if (init?.status !== undefined) responseInit.status = init.status;
   if (init?.statusText !== undefined) responseInit.statusText = init.statusText;
 
-  if (body !== undefined) {
-    const bytes = new TextEncoder().encode(body);
-    headers.set("content-length", String(bytes.byteLength));
-    return new Response(bytes, responseInit);
-  }
-  return new Response(null, responseInit);
+  return new Response(bytes as BodyInit, responseInit);
 };
 
 /**

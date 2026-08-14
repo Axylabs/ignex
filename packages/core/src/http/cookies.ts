@@ -83,7 +83,9 @@ const MAX_COOKIE_HEADER_BYTES = 8192;
  * Fold raw cookie pairs into a `Record` (last value wins per key), honoring
  * the {@link MAX_COOKIES} DoS guard.
  */
-const cookiePairsToRecord = (pairs: ReadonlyArray<[string, string]>): Record<string, string> => {
+export const cookiePairsToRecord = (
+  pairs: ReadonlyArray<[string, string]>,
+): Record<string, string> => {
   const out: Record<string, string> = {};
   let count = 0;
 

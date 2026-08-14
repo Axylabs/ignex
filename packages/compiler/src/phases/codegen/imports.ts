@@ -135,12 +135,19 @@ export const stageImports = (
     "sendFile",
     "HttpResponseCache",
     "ValidationError",
+    "BodyParseError",
     "serializeCookie",
     "parseCookieString",
     "createCookieJar",
+    "createLazyCookieJar",
     "validateAsync",
     "EMPTY_LIFECYCLE",
     "runHooks",
+    // Per-route native prelude (`routes/native.ts`): pre-baked query/cookie
+    // parse seeds ctx.query/ctx.cookie via the pair→record helpers.
+    "createNativeRoute",
+    "groupQueryPairs",
+    "cookiePairsToRecord",
   );
 
   if (state.hasAppConfig) {

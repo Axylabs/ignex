@@ -50,6 +50,13 @@ const FFI_WINS: ReadonlySet<string> = new Set([
   "hmacSha256",
   "randomToken",
   "jsonValid",
+  // `queryToJson`/`cookiesToJson` now return `cstring` (the engine clones the
+  // result string natively — zero JS decode/alloc). Re-measured 2026-08-14:
+  // native ~2.7× (queryToJson) / ~2.0× (cookiesToJson) vs the JS fallback —
+  // the previous x0.16/x0.07 rejection was the buffer-return + readString
+  // decode; the cstring return eliminates it. NAPI/Node keep the JS path.
+  "queryToJson",
+  "cookiesToJson",
 ]);
 
 /**

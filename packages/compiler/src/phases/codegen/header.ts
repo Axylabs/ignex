@@ -21,6 +21,16 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   maxFileBytes: ${opts.maxFileBytes ?? 20 * 1024 * 1024},
 });`);
 
+  // Shared context options for non-route contexts (OPTIONS/404/405/error
+  // paths). Hoisted so the `{ body: BODY_LIMITS }` literal is not re-allocated
+  // per request. Declared AFTER `BODY_LIMITS` (const TDZ — this used to
+  // reference it before initialization and every built server failed to load).
+  header.push(`const __ctxOpts = Object.freeze({ body: BODY_LIMITS });`);
+
+  // Shared TextEncoder — reused by jsonReply/textReply/htmlReply. The previous
+  // `new TextEncoder()` per response allocated a fresh encoder per reply.
+  header.push(`const __encoder = new TextEncoder();`);
+
   header.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails ? "true" : "false"};`);
   header.push(`const __TRACE = ${cfg.enableTraceHeaders ? "true" : "false"};`);
   header.push(`const __ACCESS_LOG = ${cfg.enableAccessLog ? "true" : "false"};`);

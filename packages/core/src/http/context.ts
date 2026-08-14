@@ -92,7 +92,7 @@ export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B
   readonly ip: string;
 
   params: P;
-  readonly query: Q;
+  query: Q;
   /** Request body. The `B` type parameter is preserved for API compatibility. */
   body: LazyBody & (B extends unknown ? unknown : never);
   cookie: Record<string, Cookie<string | undefined>>;
@@ -195,7 +195,7 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   private _cookie: Record<string, Cookie<string | undefined>> | undefined;
   private _url: URL | undefined;
   private _path: string | undefined;
-  private _query: URLSearchParams | undefined;
+  private _query: URLSearchParams | Record<string, string | string[]> | undefined;
   private _requestId: string | undefined;
   private _ip: string | undefined;
   private _state: Map<string | symbol, unknown> | undefined;
@@ -313,7 +313,15 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     if (this._query === undefined) {
       this._query = this.url.searchParams;
     }
-    return this._query;
+    return this._query as URLSearchParams;
+  }
+
+  set query(value: URLSearchParams | Record<string, string | string[]>) {
+    // The compiler prelude shadows `ctx.query` with the parsed/validated
+    // Record (previously a per-request `Object.defineProperty`, which is ~8x
+    // slower than a plain assignment through this setter). Observable reads
+    // are identical: after the prelude, `ctx.query` IS the Record.
+    this._query = value;
   }
 
   get state(): Map<string | symbol, unknown> {

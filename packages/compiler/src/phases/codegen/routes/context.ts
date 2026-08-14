@@ -10,7 +10,7 @@
 
 import type { Emitter } from "../../../emitter";
 import type { RouteIR } from "../../../types";
-import { handlerImportName, validatorImportName } from "../identifiers";
+import { ctxOptsVar, handlerImportName, validatorImportName } from "../identifiers";
 import { validationFlags } from "./validate";
 
 /** Build the usage-specialized object-literal props for the handler call. */
@@ -90,8 +90,11 @@ const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
 export const buildFullContextPrelude = (route: RouteIR, helpers: Emitter): string[] => {
   helpers.markCore("runHooks");
   helpers.markCore("createContext");
+  // The per-route opts const (`__ctxOpts_<ref>`, frozen at module scope) is
+  // emitted by `generateRouteCode` — the inline object literal used to be
+  // re-allocated on every request.
   return [
-    `let ctx = createContext(req, params ?? EMPTY_PARAMS, { body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)} });`,
+    `let ctx = createContext(req, params ?? EMPTY_PARAMS, ${ctxOptsVar(route)});`,
     `ctx.server = server;`,
     `{
   // start → request → parse → transform run before validation; beforeHandle

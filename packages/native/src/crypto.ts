@@ -24,6 +24,7 @@ import {
   hmacSha256Bytes,
   toBytes,
   toPlain,
+  toStr,
 } from "./util";
 
 /** Options for {@link jwtSign} (HS256). */
@@ -94,7 +95,7 @@ export const hmacSha256Verify = (
 export const signCookie = (value: string, secret: string | Uint8Array): string => {
   const s = toBytes(secret);
   const nv = nativeFor("signCookie");
-  if (nv) return fromBytes(nv.signCookie(toBytes(value), s));
+  if (nv) return toStr(nv.signCookie(toBytes(value), s));
   return signCookieFallback(value, s);
 };
 
@@ -110,7 +111,8 @@ export const verifyCookie = (signed: string, secret: string | Uint8Array): strin
   const nv = nativeFor("verifyCookie");
   if (nv) {
     const result = nv.verifyCookie(toBytes(signed), s);
-    return result ? fromBytes(result) : null;
+    // `!= null` (not truthy): a successful verify of an EMPTY value yields "".
+    return result != null ? toStr(result) : null;
   }
   return verifyCookieFallback(signed, s);
 };
@@ -134,7 +136,7 @@ export const verifyCookieFallback = (signed: string, secret: Uint8Array): string
 export const csrfToken = (secret: string | Uint8Array): string => {
   const s = toBytes(secret);
   const nv = nativeFor("csrfToken");
-  if (nv) return fromBytes(nv.csrfToken(s));
+  if (nv) return toStr(nv.csrfToken(s));
   return csrfTokenFallback(s);
 };
 
@@ -190,7 +192,7 @@ export const jwtSign = (
     // `JSON.stringify(undefined/function/symbol)` → `undefined`; fall back to
     // the object path in that edge case to preserve prior native behavior.
     if (json !== undefined && typeof nv.jwtSignBytes === "function") {
-      return fromBytes(nv.jwtSignBytes(encoder.encode(json), s, ttl, now));
+      return toStr(nv.jwtSignBytes(encoder.encode(json), s, ttl, now));
     }
     return fromBytes(nv.jwtSign(claims, s, ttl, now));
   }
@@ -295,9 +297,9 @@ const MAX_TOKEN_BYTES = 16 * 1024 * 1024;
 
 /** Generate a hex-encoded CSPRNG token of `byteLen` bytes (2× the length in characters). */
 export const randomToken = (byteLen: number): string => {
-  // Native returns the token as hex-string BYTES (not raw random bytes).
+  // Native returns the token as hex-string (cstring) or hex-string bytes.
   const nv = nativeFor("randomToken");
-  if (nv) return fromBytes(nv.randomToken(byteLen));
+  if (nv) return toStr(nv.randomToken(byteLen));
   return randomTokenFallback(byteLen);
 };
 

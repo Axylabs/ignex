@@ -16,6 +16,10 @@ export interface StatusSerializerMap {
   readonly default?: (value: unknown) => unknown;
 }
 
+// Shared encoder — the old per-call `new TextEncoder()` allocated a fresh
+// encoder for every response. Reuse is safe (TextEncoder is stateless).
+const encoder = new TextEncoder();
+
 /**
  * Build a `Response` from pre-encoded bytes with an exact `content-length`.
  *
@@ -26,41 +30,46 @@ export interface StatusSerializerMap {
  * lets compression skip buffering small bodies.
  */
 export const withBody = (bytes: Uint8Array | null, type: string, init?: ResponseInit): Response => {
-  const h = new Headers({ "content-type": type });
   const ih = init && init.headers;
-  if (ih) {
-    if (
-      ih instanceof Headers ||
-      (typeof (ih as { forEach?: unknown }).forEach === "function" && !Array.isArray(ih))
-    ) {
-      (ih as Headers).forEach((value, key) => h.set(key, value));
-    } else if (Array.isArray(ih)) {
-      for (const [k, v] of ih) h.set(k, v);
-    } else {
-      for (const [k, v] of Object.entries(ih as Record<string, unknown>)) {
-        if (v != null) h.set(k, String(v));
-      }
+  // Fast path: no init headers — plain-object headers (no `Headers` alloc),
+  // and no rest/spread when init is undefined (the common `ctx.json(data)`).
+  const h: Record<string, string> = { "content-type": type };
+  if (bytes !== null) h["content-length"] = String(bytes.byteLength);
+  if (!ih) {
+    if (init === undefined) return new Response(bytes as BodyInit, { headers: h });
+    const { headers: _ignored, ...rest } = init;
+    return new Response(bytes as BodyInit, { ...rest, headers: h });
+  }
+  const hh = new Headers(h);
+  if (
+    ih instanceof Headers ||
+    (typeof (ih as { forEach?: unknown }).forEach === "function" && !Array.isArray(ih))
+  ) {
+    (ih as Headers).forEach((value, key) => hh.set(key, value));
+  } else if (Array.isArray(ih)) {
+    for (const [k, v] of ih) hh.set(k, v);
+  } else {
+    for (const [k, v] of Object.entries(ih as Record<string, unknown>)) {
+      if (v != null) hh.set(k, String(v));
     }
   }
-  if (bytes !== null) h.set("content-length", String(bytes.byteLength));
-  const { headers: _ignored, ...rest } = init ?? {};
-  return new Response(bytes as BodyInit, { ...rest, headers: h });
+  return new Response(bytes as BodyInit, { ...init, headers: hh });
 };
 
 /** Encode `data` as a JSON response (one `TextEncoder` pass, exact length). */
 export const jsonReply = (data: unknown, init?: ResponseInit): Response => {
   const s = JSON.stringify(data);
   if (s === undefined) return withBody(null, "application/json; charset=utf-8", init);
-  return withBody(new TextEncoder().encode(s), "application/json; charset=utf-8", init);
+  return withBody(encoder.encode(s), "application/json; charset=utf-8", init);
 };
 
 /** Encode `data` as a text/plain response. */
 export const textReply = (data: unknown, init?: ResponseInit): Response =>
-  withBody(new TextEncoder().encode(String(data)), "text/plain; charset=utf-8", init);
+  withBody(encoder.encode(String(data)), "text/plain; charset=utf-8", init);
 
 /** Encode `data` as a text/html response. */
 export const htmlReply = (data: unknown, init?: ResponseInit): Response =>
-  withBody(new TextEncoder().encode(String(data)), "text/html; charset=utf-8", init);
+  withBody(encoder.encode(String(data)), "text/html; charset=utf-8", init);
 
 /**
  * Finalize a route-handler result into a `Response`.
@@ -99,11 +108,9 @@ export const finalizeResponse = (
   status = status ?? 200;
   const ser = serializers?.[String(status)] ?? serializers?.["200"] ?? serializers?.default;
   if (ser) {
-    return withBody(
-      new TextEncoder().encode(String(ser(body))),
-      "application/json; charset=utf-8",
-      { status },
-    );
+    return withBody(encoder.encode(String(ser(body))), "application/json; charset=utf-8", {
+      status,
+    });
   }
-  return reply(body, { status });
+  return reply(body, status === 200 ? undefined : { status });
 };
