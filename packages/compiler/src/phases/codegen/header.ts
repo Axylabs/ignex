@@ -62,13 +62,31 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
     header.push(`const __serverCfg = {};`);
   }
 
-  // Prebuilt lifecycle stage chains — composed once, not per request.
+  // Static default response headers (security headers, wildcard CORS) from the
+  // app `server.headers` config. Merged into every framework-built response by
+  // `__withBody` — replaces per-request `security()`/`cors()` hooks with a
+  // frozen-object spread at Response construction. `null` when unset (a module
+  // constant, so the branch folds away and unconfigured servers pay nothing).
+  header.push(
+    `const __DEFAULT_HEADERS = __serverCfg.headers ? Object.freeze({ ...__serverCfg.headers }) : null;`,
+  );
+
+  // Prebuilt lifecycle stage chains — composed once, not per request. Stage
+  // emptiness is hoisted to boot-time module constants so the JIT folds the
+  // per-request guards: empty stages become dead code, non-empty stages are a
+  // const-true branch. Computed once at instantiation — the lifecycle arrays
+  // are immutable after boot.
   header.push(`const __preParseStages = [...__lc.start, ...__lc.request, ...__lc.parse, ...__lc.transform];
 const __preStages = [...__lc.start, ...__lc.request, ...__lc.parse, ...__lc.transform, ...__lc.beforeHandle];
 const __postStages = [...__lc.afterHandle, ...__lc.mapResponse];
+const __hasPreParse = __preParseStages.length > 0;
 const __hasPreStages = __preStages.length > 0;
 const __hasPostStages = __postStages.length > 0;
-const __hasAfterResponse = (__lc.afterResponse ?? []).length > 0;`);
+const __hasBeforeHandle = (__lc.beforeHandle ?? []).length > 0;
+const __hasAfterHandle = (__lc.afterHandle ?? []).length > 0;
+const __hasMapResponse = (__lc.mapResponse ?? []).length > 0;
+const __hasAfterResponse = (__lc.afterResponse ?? []).length > 0;
+const __hasTrace = (__lc.trace ?? []).length > 0;`);
 };
 
 /** Emit inlined handler functions (self-contained modules) before route handlers. */

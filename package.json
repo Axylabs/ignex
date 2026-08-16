@@ -24,6 +24,7 @@
     "test:native": "bun run --cwd packages/native test",
     "test:native:real": "bunx vitest run packages/native/test --no-file-parallelism",
     "verify:native:route": "bun scripts/verify-native-route.ts",
+    "verify:native:ffi": "bun scripts/verify-native-ffi.ts",
     "test:cli": "bun run --cwd packages/cli test",
     "test:mcp": "bun run --cwd packages/mcp test",
     "test:shared": "vitest run packages/shared/test",
@@ -48,6 +49,7 @@
     "bench:compare:crud": "bun bench/compare/run-bench.ts crud",
     "bench:compare:soak": "bun bench/compare/run-bench.ts soak",
     "bench:compare:check": "bun scripts/check-compare-bench.ts",
+    "verify:perf": "bun run bench:server:check && bun run bench:compare:check",
     "bench:realworld": "bun scripts/bench-realworld.ts",
     "bench:products": "oha http://localhost:3000/products/123",
     "release": "bun scripts/publish.ts",
@@ -67,7 +69,6 @@
     "lefthook": "^2.1.10",
     "oxlint": "^1.74.0",
     "oxc-parser": "^0.140.0",
-    "tinybench": "^6.0.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

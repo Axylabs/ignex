@@ -9,7 +9,11 @@ import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../types";
 import { writeGuarded } from "./artifacts";
-import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
+import { cloneSchema, forEachRouteWithSchema, isStandardSchema, STATUS_KEY } from "./schema-loader";
+
+/** Fallback serializer emitted when fast-json-stringify can't compile a schema. */
+const FALLBACK_SERIALIZER_SRC = `export default (input) => JSON.stringify(input);
+`;
 
 const pickResponseSchema = (responseSchema: any): any => {
   if (!responseSchema || typeof responseSchema !== "object") {
@@ -30,7 +34,7 @@ const pickResponseSchema = (responseSchema: any): any => {
 const getStatusSchemas = (responseSchema: any): Record<string, any> | null => {
   if (!responseSchema || typeof responseSchema !== "object") return null;
 
-  const statusKeys = Object.keys(responseSchema).filter((k) => /^\d{3}$/.test(k));
+  const statusKeys = Object.keys(responseSchema).filter((k) => STATUS_KEY.test(k));
   if (statusKeys.length === 0) return null;
 
   const out: Record<string, any> = {};
@@ -99,8 +103,7 @@ export const precompileSerializers = async (
             message: `Standard-Schema response for ${route.source.method} ${route.source.path} (${status}) has no build-time serializer; using JSON.stringify fallback.`,
             file: mod.path,
           });
-          const code = `export default (input) => JSON.stringify(input);
-`;
+          const code = FALLBACK_SERIALIZER_SRC;
 
           writeGuarded(join(serializersDir, fileName), code, ctx, fileName);
           byStatus[status] = importName;
@@ -141,8 +144,7 @@ export default serialize;
             file: mod.path,
           });
 
-          const code = `export default (input) => JSON.stringify(input);
-`;
+          const code = FALLBACK_SERIALIZER_SRC;
 
           writeGuarded(join(serializersDir, fileName), code, ctx, fileName);
           byStatus[status] = importName;

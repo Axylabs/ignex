@@ -100,24 +100,6 @@ const buildExtractedHandler = (
 };
 
 /**
- * Default-export handler extraction.
- *
- * Kept for API compatibility; {@link extractHandlerExport} also understands
- * named exports (`export const httpGet = get(...)`).
- */
-export function extractHandler(source: string, ast: Program): ExtractedHandler | null {
-  const defaultExport = walkUntil(ast, (n) =>
-    n.type === "ExportDefaultDeclaration" ? n : undefined,
-  );
-  if (!defaultExport) return null;
-
-  const extracted = extractHandlerFunction(defaultExport.declaration);
-  if (!extracted) return null;
-
-  return buildExtractedHandler(source, extracted.fn, extracted.isAsync, "default");
-}
-
-/**
  * True when a node is a handler-shaped initializer: an HTTP wrapper call
  * (`get(...)`, `post(...)`, ...), a bare arrow function, or a function
  * expression. Note this is broader than `extractHandlerFunction`: a wrapper

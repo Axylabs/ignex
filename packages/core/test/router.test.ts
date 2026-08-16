@@ -117,6 +117,15 @@ describe("createApp + router (dispatch through handler)", () => {
     });
   });
 
+  it("keeps raw text for malformed percent-encoding (no 500)", async () => {
+    const app = createApp({
+      router: createRouter().get("/api/users/:id", (ctx) => ctx.json({ id: ctx.params.id })),
+    });
+    const res = await inject(app, { url: "/api/users/%zz" });
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ id: "%zz" });
+  });
+
   it("auto-HEAD returns GET headers with an empty body", async () => {
     const app = createApp({
       router: createRouter().get("/health", (ctx) => ctx.json({ ok: true })),

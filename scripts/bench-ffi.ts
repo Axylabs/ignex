@@ -111,22 +111,22 @@ const benchOps: BenchOp[] = [
   },
   {
     name: "validateEmail",
-    native: () => surface.validateEmail(enc.encode("ada@example.com")),
+    native: () => surface.validateEmail("ada@example.com"),
     fallback: () => validateEmailFallback("ada@example.com"),
   },
   {
     name: "validateUuid",
-    native: () => surface.validateUuid(enc.encode("123e4567-e89b-12d3-a456-426614174000")),
+    native: () => surface.validateUuid("123e4567-e89b-12d3-a456-426614174000"),
     fallback: () => validateUuidFallback("123e4567-e89b-12d3-a456-426614174000"),
   },
   {
     name: "validateIpv4",
-    native: () => surface.validateIpv4(enc.encode("192.168.0.1")),
+    native: () => surface.validateIpv4("192.168.0.1"),
     fallback: () => validateIpv4Fallback("192.168.0.1"),
   },
   {
     name: "validateIpv6",
-    native: () => surface.validateIpv6(enc.encode("2001:db8::1")),
+    native: () => surface.validateIpv6("2001:db8::1"),
     fallback: () => validateIpv6Fallback("2001:db8::1"),
   },
   {

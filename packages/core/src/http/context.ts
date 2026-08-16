@@ -217,7 +217,7 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     // `status` is intentionally left unset: an explicitly-set `set.status`
     // overrides the response status (see `applySet`), but a default of 200
     // here would clobber handlers returning e.g. 401/redirects.
-    this.set = { headers: {}, ...opts.set };
+    this.set = { headers: Object.create(null), ...opts.set };
     // The `set.cookie` accumulator is always initialized so handlers can write
     // `ctx.set.cookie.name = {...}` directly even when they never read
     // `ctx.cookie` (the cookie-jar PROXY is created lazily on first `ctx.cookie`

@@ -10,15 +10,13 @@
  * serializer-aware status dispatch.
  */
 
+import { encoder } from "./encoder";
+
 /** A per-status serializer map (`"200"`, `"201"`, …, plus `default`). */
 export interface StatusSerializerMap {
   readonly [status: string]: ((value: unknown) => unknown) | undefined;
   readonly default?: (value: unknown) => unknown;
 }
-
-// Shared encoder — the old per-call `new TextEncoder()` allocated a fresh
-// encoder for every response. Reuse is safe (TextEncoder is stateless).
-const encoder = new TextEncoder();
 
 /**
  * Build a `Response` from pre-encoded bytes with an exact `content-length`.

@@ -136,9 +136,10 @@ describe("generated server (integration)", () => {
   it("answers a CORS preflight", async () => {
     const res = await fetch(`${BASE}/health`, {
       method: "OPTIONS",
-      headers: { origin: "http://example.com" },
+      headers: { origin: "http://example.com", "access-control-request-method": "GET" },
     });
     expect(res.status).toBe(204);
+    // Native castrum CORS owns preflight and echoes the allowed origin.
     expect(res.headers.get("access-control-allow-origin")).toBe("http://example.com");
   });
 

@@ -71,6 +71,26 @@ const castrumFromSymlink = (): string | null => {
   return existsSync(join(symlink, "package.json")) ? symlink : null;
 };
 
+/**
+ * Resolve castrum via a `node_modules/castrum` entry at `ancestor` — covers
+ * `bun link` (root symlink → `~/.bun/install/global/...`) and hoisted
+ * installs in monorepos. Mirrors Node/Bun's own upward module resolution so
+ * the live linked castrum is found even when no workspace package declares it
+ * via a `file:`/registry dependency.
+ */
+const castrumFromNodeModules = (ancestor: string): string | null => {
+  const linked = join(ancestor, "node_modules", "castrum");
+  return existsSync(join(linked, "package.json")) ? linked : null;
+};
+
+/** Resolve castrum from bun's global link store (`~/.bun/install/global/...`). */
+const castrumFromBunLink = (): string | null => {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) return null;
+  const linked = join(home, ".bun", "install", "global", "node_modules", "castrum");
+  return existsSync(join(linked, "package.json")) ? linked : null;
+};
+
 /** Collect the ancestor directories of `start` up to the filesystem root. */
 const ancestorDirs = (start: string): string[] => {
   const roots: string[] = [];
@@ -131,29 +151,59 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
  * 1. The `file:` target from our package.json — the canonical dev setup
  *    (points at the live repo with the freshly-built addon + TS entry).
  * 2. Our own node_modules symlink (created by bun install for the `file:` dep).
- * 3. Bundled-entry fallback: when this module is inlined into a bundled entry
+ * 3. `bun link` / hoisted `node_modules/castrum`: walk up from the module dir
+ *    AND cwd (Node/Bun's own upward resolution) and use the first ancestor's
+ *    `node_modules/castrum` — covers the project linked through `bun link`
+ *    (root symlink → `~/.bun/install/global/...`) and hoisted monorepo
+ *    installs, with no env override required.
+ * 4. bun's global link store (`~/.bun/install/global/node_modules/castrum`)
+ *    directly, for projects outside a linked tree.
+ * 5. Bundled-entry fallback: when this module is inlined into a bundled entry
  *    (e.g. `packages/app/dist/__server.js`), `import.meta.url` points at the
- *    app (or the dist dir), so neither step 1 nor step 2 can find castrum.
- *    Walk up from the module dir AND cwd to the filesystem root; at each
- *    ancestor with a `packages/` directory, look for a workspace package that
- *    declares `optionalDependencies.castrum` as a `file:` target and resolve
- *    that target to the LIVE castrum repo (with the freshly-built addon),
+ *    app (or the dist dir), so the steps above may not resolve. Walk up from
+ *    the module dir AND cwd to the filesystem root; at each ancestor with a
+ *    `packages/` directory, look for a workspace package that declares
+ *    `optionalDependencies.castrum` as a `file:` target and resolve that
+ *    target to the LIVE castrum repo (with the freshly-built addon),
  *    bypassing bun's stale install cache.
  */
 const findCastrumDir = (): string | null =>
   castrumFromOwnPackage() ??
   castrumFromSymlink() ??
   [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
+    (found, ancestor) => found ?? castrumFromNodeModules(ancestor),
+    null,
+  ) ??
+  castrumFromBunLink() ??
+  [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
     (found, ancestor) => found ?? castrumFromWorkspace(ancestor),
     null,
   );
+
+/** True when the host CPU supports the x86-64-v3 SIMD feature set. */
+const supportsX8664V3 = (): boolean => {
+  if (process.platform !== "linux" || process.arch !== "x64") return false;
+  try {
+    const cpuinfo = readFileSync("/proc/cpuinfo", "utf8");
+    return ["avx2", "bmi2", "fma", "sse4_2"].every((f) => new RegExp(`\\b${f}\\b`).test(cpuinfo));
+  } catch {
+    return false;
+  }
+};
 
 /** Find the addon binary (`*.node`) inside a castrum package directory. */
 const findAddonPath = (dir: string): string | null => {
   const scan = (d: string): string | null => {
     try {
-      const file = readdirSync(d).find((e) => e.endsWith(".node"));
-      return file ? join(d, file) : null;
+      const files = readdirSync(d).filter((e) => e.endsWith(".node"));
+      if (files.length === 0) return null;
+      // Dual-binary CPU-detect: castrum ships a baseline + an x86-64-v3 SIMD
+      // variant; prefer the v3 one when the host CPU supports it, else the
+      // baseline (v3 is never chosen on an unsupported CPU — a SIGILL on a
+      // non-v3 machine is not catchable from JS).
+      const v3 = supportsX8664V3() ? files.find((e) => e.includes("-v3-")) : undefined;
+      const chosen = v3 ?? files.find((e) => !e.includes("-v3-")) ?? files[0];
+      return chosen ? join(d, chosen) : null;
     } catch {
       return null;
     }

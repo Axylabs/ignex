@@ -27,6 +27,7 @@ import {
   type NativeRouteRunResult,
   packRouteFrameInto,
   packRouteFrameLength,
+  planHasStage,
   readRouteFrameLengths,
   readRouteResult,
 } from "./route-wire";
@@ -35,6 +36,23 @@ import { withScratch } from "./scratch";
 // Re-export the wire types so `./route` is the single import for the per-route
 // stack (the index barrel re-exports from here).
 export type { NativeRouteFrame, NativeRoutePlan, NativeRouteRunResult } from "./route-wire";
+
+let warnedRouteSurfaceAbsent = false;
+/**
+ * Warn ONCE when the route surface is missing from a LOADED addon (i.e. native
+ * is not force-disabled, but the build predates `castrum_route_*`). This is the
+ * "registry gap" guard: castrum 0.9.0 removed the surface; it returned in
+ * 0.10.0+. A plain `IGNEX_NATIVE=off` stays silent (getNative() is null).
+ */
+function warnRouteSurfaceAbsent(): void {
+  if (warnedRouteSurfaceAbsent || getNative() === null) return;
+  warnedRouteSurfaceAbsent = true;
+  console.warn(
+    "[ignex/native] the castrum addon is loaded but does NOT ship the per-route " +
+      "native stack (castrum_route_*). createNativeRoute() falls back to the JS " +
+      "prelude — ensure castrum >= 0.10.0 (registry 0.9.0 removed the surface).",
+  );
+}
 
 /** A compiled, pre-baked per-route native stack. */
 export interface NativeRoute {
@@ -125,7 +143,21 @@ const bindNapiRoute = (descriptor: Uint8Array): NativeRouteBinding | null => {
 export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => {
   const descriptor = encodeRouteDescriptor(plan);
   const binding = bindFfiRoute(descriptor) ?? bindNapiRoute(descriptor);
-  if (!binding) return null;
+  if (!binding) {
+    // The route stack is OPTIONAL (JS prelude is the byte-parity fallback), but
+    // a loaded addon WITHOUT the surface is a silent regression the framework
+    // should not hide: it means the installed castrum build predates
+    // `castrum_route_*` (registry 0.9.0 removed it; the surface returned in
+    // 0.10.0+). Warn ONCE so the gap is visible instead of quietly measuring JS.
+    warnRouteSurfaceAbsent();
+    return null;
+  }
+
+  // The result wire carries a pair section ONLY for the parse stages in the
+  // plan (body-only routes are a bare 8-byte header). Decode exactly the
+  // sections present so readRouteResult never walks past the wire.
+  const hasQuerySection = planHasStage(plan, "parseQuery");
+  const hasCookieSection = planHasStage(plan, "parseCookies");
 
   return {
     run(frame) {
@@ -145,13 +177,21 @@ export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => 
         return withScratch(initial, (out) => {
           const w = binding.run(packed, out);
           if (w === 0) throw new Error("native route run failed");
-          if (w <= out.length) return readRouteResult(out.subarray(0, w));
+          if (w <= out.length) {
+            return readRouteResult(out.subarray(0, w), {
+              query: hasQuerySection,
+              cookie: hasCookieSection,
+            });
+          }
           // Rare miss: grow EXACTLY to the reported size and retry once.
           const exact = new Uint8Array(w);
           const w2 = binding.run(packed, exact);
           if (w2 === 0) throw new Error("native route run failed");
           if (w2 > exact.length) throw new Error("native route run: unstable needed size");
-          return readRouteResult(exact.subarray(0, w2));
+          return readRouteResult(exact.subarray(0, w2), {
+            query: hasQuerySection,
+            cookie: hasCookieSection,
+          });
         });
       });
     },

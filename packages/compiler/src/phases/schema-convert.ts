@@ -15,10 +15,9 @@
  * RUNTIME`). Conversion is best-effort: failures degrade safely.
  */
 
-type JsonSchema = Record<string, unknown>;
+import { isStandardSchema, STATUS_KEY } from "./schema-loader";
 
-const isStandardSchema = (value: unknown): boolean =>
-  typeof value === "object" && value !== null && "~standard" in value;
+type JsonSchema = Record<string, unknown>;
 
 /** Convert via a `toJSONSchema`/`toJsonSchema` method on the schema itself. */
 const convertViaSelfMethod = async (schema: unknown): Promise<JsonSchema | null> => {
@@ -85,8 +84,6 @@ const convertOne = async (schema: unknown): Promise<JsonSchema | null> => {
     return null;
   }
 };
-
-const STATUS_KEY = /^\d{3}$/;
 
 /**
  * Convert the `response` part of a schema document: a single Standard-Schema

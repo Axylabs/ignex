@@ -33,6 +33,16 @@ const PART_KINDS = ["params", "query", "headers", "cookie", "body"] as const;
 
 type PartKind = (typeof PART_KINDS)[number];
 
+/**
+ * Emit a precompiled-validator guard + `validationError` throw. Single source
+ * for the emitted throw — shared by the full-context, specialized-context and
+ * native validation preludes so the generated guard can't drift.
+ */
+export const emitValidatorThrow = (name: string, kind: string, valueExpr: string): string =>
+  `if (!${name}(${valueExpr})) {
+  throw validationError(${name}.errors ?? {}, "${kind}");
+}`;
+
 /** Lines for a part with a precompiled validator vs runtime `__validatePart`. */
 const emitValidatorOrRuntime = (
   route: RouteIR,
@@ -42,11 +52,7 @@ const emitValidatorOrRuntime = (
 ): string[] => {
   const name = validatorImportName(route, kind);
   if (route.decisions.validators?.[kind]) {
-    return [
-      `if (!${name}(${valueExpr})) {
-  throw validationError(${name}.errors ?? {}, "${kind}");
-}`,
-    ];
+    return [emitValidatorThrow(name, kind, valueExpr)];
   }
   return [`await __validatePart(${schemaExpr}, ${valueExpr}, "${kind}");`];
 };
@@ -81,10 +87,7 @@ const emitQueryPrelude = (
   const lines = [`const __query = parseQueryFromURL(req.url);`];
 
   if (hasValidator) {
-    const name = validatorImportName(route, "query");
-    lines.push(`if (!${name}(__query)) {
-  throw validationError(${name}.errors ?? {}, "query");
-}`);
+    lines.push(emitValidatorThrow(validatorImportName(route, "query"), "query", "__query"));
   } else if (hasPart) {
     // Runtime validation only when a query schema actually exists.
     lines.push(`await __validatePart(__schema?.query, __query, "query");`);
@@ -125,10 +128,7 @@ const emitCookiesPrelude = (
   const lines = [`const __cookies = parseCookieString(req.headers.get("cookie"));`];
 
   if (hasValidator) {
-    const name = validatorImportName(route, "cookie");
-    lines.push(`if (!${name}(__cookies)) {
-  throw validationError(${name}.errors ?? {}, "cookie");
-}`);
+    lines.push(emitValidatorThrow(validatorImportName(route, "cookie"), "cookie", "__cookies"));
   } else if (hasPart) {
     lines.push(`await __validatePart(__schema?.cookie, __cookies, "cookie");`);
   }
@@ -154,9 +154,7 @@ export const emitBodyPrelude = (
     const name = validatorImportName(route, "body");
     return [
       `const __body = await ctx.body.json();`,
-      `if (!${name}(__body)) {
-  throw validationError(${name}.errors ?? {}, "body");
-}`,
+      emitValidatorThrow(name, "body", "__body"),
       `ctx.body.json = async () => __body;`,
     ];
   }

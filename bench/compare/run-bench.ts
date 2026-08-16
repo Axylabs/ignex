@@ -13,19 +13,21 @@
  *   DURATION_SCALE=n    shrink/expand phase durations (passed to the loader)
  */
 
-import { isNativeAvailable } from "@ignex/core";
+import { createNativeRoute, isNativeAvailable } from "@ignex/core";
 import { HTTP_SCENARIO_NAMES, runHttpScenario } from "./load";
 import { PORTS, type ServerKind } from "./shared";
 
 /** All known comparison participants. */
-const ALL_SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-aot"];
+const ALL_SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-native", "ignus-aot"];
 /**
  * Default participant set (also the CI gate's set). Includes `ignus-aot` —
  * the AOT-compiled participant is the framework's flagship path and the
- * fastest one, so the default report must measure it (a `SERVER=` filter
- * still selects a single participant for focused runs).
+ * fastest one, so the default report must measure it — and `ignus-native`,
+ * the interpreted runtime with the Rust pre-flight pipeline, so the default
+ * report also shows the native delta against the pure-JS `ignus` baseline.
+ * (A `SERVER=` filter still selects a single participant for focused runs.)
  */
-const DEFAULT_SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-aot"];
+const DEFAULT_SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-native", "ignus-aot"];
 
 /** Soak scenarios are excluded from a default run (run them explicitly). */
 const SOAK_SCENARIOS = new Set(["05-soak", "18-json-validation-soak"]);
@@ -95,10 +97,39 @@ async function main() {
   // (or hard-fail) if it isn't, so the ignus numbers are never mistaken for the
   // native-accelerated path.
   const nativeActive = isNativeAvailable();
-  if (!nativeActive) {
-    const msg =
-      "The ignus native addon is NOT active — the ignus server will run through " +
-      "the pure-TS fallback. Ensure IGNEX_NATIVE is not off and the addon loads.";
+  // The route surface is a SEPARATE capability from addon presence: a registry
+  // castrum 0.9.0 loads the addon but does NOT ship `castrum_route_*` (removed
+  // in 0.9.0, returned in 0.10.0+) — so `createNativeRoute` silently returns
+  // null and the AOT participant's per-route prelude runs JS. Probe it so a
+  // native-required run fails LOUDLY on that gap instead of measuring JS.
+  let routeSurfaceActive = false;
+  try {
+    const probe = createNativeRoute({
+      pipeline: ["parseQuery"],
+      schemas: {},
+      maxBodyBytes: 1024,
+      maxQueryBytes: 1024,
+      maxCookieBytes: 1024,
+      maxPairs: 0,
+    });
+    if (probe !== null) {
+      probe.destroy();
+      routeSurfaceActive = true;
+    }
+  } catch {
+    routeSurfaceActive = false;
+  }
+
+  const missing = [];
+  if (!nativeActive) missing.push("the addon is NOT active (IGNEX_NATIVE off / load failure)");
+  if (nativeActive && !routeSurfaceActive) {
+    missing.push(
+      "the per-route native stack is absent (registry castrum 0.9.0 removed it — need >= 0.10.0)",
+    );
+  }
+
+  if (missing.length > 0) {
+    const msg = `ignus native backend incomplete: ${missing.join("; ")} — the ignus/AOT servers will run through the pure-TS fallback.`;
     if (process.env.IGNEX_BENCH_REQUIRE_NATIVE === "1") {
       throw new Error(`IGNEX_BENCH_REQUIRE_NATIVE=1: ${msg}`);
     }

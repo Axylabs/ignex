@@ -264,13 +264,14 @@ export const createI18n = (catalogs: Catalogs, options: I18nOptions = {}): I18n 
       const stateKey = middlewareOptions.stateKey ?? "locale";
       const translate = i18n.t;
 
-      return async (ctx) => {
+      // Sync hook: negotiate the locale and attach `ctx.t`/locale state with
+      // no per-request Promise (runHooks only awaits actual Promises).
+      return (ctx) => {
         const locale = negotiateLocaleCompiled(
           ctx.headers.get("accept-language"),
           compiled,
           defaultLocale,
         );
-
         ctx.setState(LOCALE_KEY, locale);
         ctx.setState(stateKey, locale);
 

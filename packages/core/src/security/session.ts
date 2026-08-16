@@ -12,7 +12,8 @@ import { randomToken, signCookie, verifyCookie } from "@ignex/native";
 import { err, isOk, ok, type Result } from "@ignex/shared";
 import type { IgnexContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
-import { continueHook, type HookFn } from "../lifecycle/hooks";
+import { continueHook, type HookFn, type HookResult } from "../lifecycle/hooks";
+import { loadBunSqlite } from "../platform/sqlite";
 
 /** Arbitrary session payload data (JSON-serializable). */
 export type SessionData = Record<string, unknown>;
@@ -99,31 +100,17 @@ export const createSqliteSessionStore = async (
   file = ":memory:",
   options: { ttlSeconds?: number } = {},
 ): Promise<SessionStore | null> => {
-  let Database: new (path: string) => unknown;
-  try {
-    const mod: any = await import("bun:sqlite");
-    Database = mod.Database;
-    if (typeof Database !== "function") return null;
-  } catch {
-    return null;
-  }
+  const Database = await loadBunSqlite();
+  if (!Database) return null;
 
   const ttlMs = (options.ttlSeconds ?? 3600) * 1000;
   const db = new Database(file);
-  (db as { run: (sql: string) => unknown }).run(
+  db.run(
     "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL)",
   );
-  const run = (db as { run: (sql: string, params?: unknown[]) => unknown }).run.bind(db);
+  const run = db.run.bind(db);
   const all = (sql: string, params: unknown[]): Array<{ data: string; expires_at: number }> =>
-    (
-      db as {
-        query: (sql: string) => {
-          all: (...p: unknown[]) => Array<{ data: string; expires_at: number }>;
-        };
-      }
-    )
-      .query(sql)
-      .all(...params);
+    db.query(sql).all(...params) as Array<{ data: string; expires_at: number }>;
 
   return {
     async get(id) {
@@ -157,7 +144,7 @@ export const createSqliteSessionStore = async (
       ]);
     },
     close() {
-      (db as { close: () => void }).close();
+      db.close();
     },
   };
 };
@@ -299,15 +286,24 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
   };
 
   const save = async (ctx: IgnexContext, session: Session): Promise<void> => {
+    await persist(ctx, session);
+  };
+
+  // Sync-capable persist: writes the cookie synchronously when there's no
+  // backing store (the common stateless case) — zero Promise/microtask. With a
+  // store, the cookie write is deferred until the store write resolves (same
+  // ordering as the old `await store.set(...)` then `writeCookie`).
+  const persist = (ctx: IgnexContext, session: Session): void | Promise<void> => {
     const envelope: Envelope = {
       id: session.id,
       exp: Math.floor(session.expiresAt / 1000),
     };
     if (store) {
-      await store.set(session.id, session.data, { expiresAt: session.expiresAt });
-    } else {
-      envelope.data = session.data;
+      return store.set(session.id, session.data, { expiresAt: session.expiresAt }).then(() => {
+        writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
+      });
     }
+    envelope.data = session.data;
     writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
   };
 
@@ -316,58 +312,109 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     ctx.cookie[cookieName]?.remove();
   };
 
-  const load = async (ctx: IgnexContext): Promise<Session | null> => {
+  // Sync-capable session resolution: without a store the cookie decode +
+  // materialize is pure sync (no Promise). With a store, `store.get` is async.
+  const resolveSession = (ctx: IgnexContext): Session | null | Promise<Session | null> => {
     const envelope = decodeEnvelope(ctx.cookie[cookieName]?.value);
     if (!isOk(envelope)) return null;
     const { id, data: envelopeData, exp } = envelope.value;
 
-    let data = envelopeData ?? {};
     if (store) {
-      const stored = await store.get(id);
-      if (!stored) return null;
-      data = stored;
+      return store.get(id).then((stored) => {
+        if (!stored) return null;
+        return makeSession(ctx, id, stored, exp * 1000, exp * 1000, false);
+      });
     }
 
-    return makeSession(ctx, id, data, exp * 1000, exp * 1000, false);
+    return makeSession(ctx, id, envelopeData ?? {}, exp * 1000, exp * 1000, false);
+  };
+
+  const load = async (ctx: IgnexContext): Promise<Session | null> => resolveSession(ctx);
+
+  // Sync-capable create: materialize + persist; sync when there's no store.
+  const createNew = (ctx: IgnexContext): Session | Promise<Session> => {
+    const session = makeSession(ctx, createId(), {}, now(), expiresAtFor(), true);
+    const p = persist(ctx, session);
+    return p instanceof Promise ? p.then(() => session) : session;
   };
 
   const loadOrCreate = async (ctx: IgnexContext): Promise<Session> => {
-    const existing = await load(ctx);
+    const existing = resolveSession(ctx);
+    if (existing instanceof Promise) {
+      const s = await existing;
+      if (s) return s;
+      return createNew(ctx);
+    }
     if (existing) return existing;
-    const session = makeSession(ctx, createId(), {}, now(), expiresAtFor(), true);
-    await save(ctx, session);
-    return session;
+    return createNew(ctx);
   };
 
   const middleware = (opts: { createIfMissing?: boolean | "lazy" } = {}): HookFn => {
     const createIfMissing = opts.createIfMissing ?? false;
-    return async (ctx) => {
-      const existing = await load(ctx);
-      if (existing) {
-        if (rolling && !existing.isNew) {
-          existing.touch();
-          await save(ctx, existing);
-        }
-        ctx.setState(SESSION_KEY, existing);
-        return continueHook(ctx);
-      }
 
-      if (createIfMissing === true) {
-        // Eager: create + persist the session now, so every request carries a
-        // signed session cookie regardless of whether the handler uses it.
-        const session = await loadOrCreate(ctx);
-        if (rolling && !session.isNew) {
-          session.touch();
-          await save(ctx, session);
+    // Attach an existing session; with `rolling` this may rewrite the cookie
+    // (sync without a store). Returns a Promise only when a store write is
+    // involved.
+    const attachExisting = (
+      ctx: IgnexContext,
+      existing: Session,
+    ): HookResult | Promise<HookResult> => {
+      if (rolling && !existing.isNew) {
+        existing.touch();
+        const p = persist(ctx, existing);
+        if (p instanceof Promise) {
+          return p.then(() => {
+            ctx.setState(SESSION_KEY, existing);
+            return continueHook(ctx);
+          });
         }
-        ctx.setState(SESSION_KEY, session);
-      } else if (createIfMissing === "lazy") {
+      }
+      ctx.setState(SESSION_KEY, existing);
+      return continueHook(ctx);
+    };
+
+    // Attach nothing / create eagerly / defer via lazy marker.
+    const attachMissing = (ctx: IgnexContext): HookResult | Promise<HookResult> => {
+      if (createIfMissing === true) {
+        const session = createNew(ctx);
+        const finish = (s: Session): HookResult | Promise<HookResult> => {
+          if (rolling && !s.isNew) {
+            s.touch();
+            const p = persist(ctx, s);
+            if (p instanceof Promise) {
+              return p.then(() => {
+                ctx.setState(SESSION_KEY, s);
+                return continueHook(ctx);
+              });
+            }
+          }
+          ctx.setState(SESSION_KEY, s);
+          return continueHook(ctx);
+        };
+        if (session instanceof Promise) return session.then(finish);
+        return finish(session);
+      }
+      if (createIfMissing === "lazy") {
         // Defer creation until a handler reads the session via getSession().
         // Requests that never touch the session do zero session work (no id
         // generation, no cookie signing, no Set-Cookie on the response).
         ctx.setState(SESSION_CREATE, () => loadOrCreate(ctx));
       }
       return continueHook(ctx);
+    };
+
+    // Sync-capable middleware: without a store, `rolling: false`, and no eager
+    // creation, the whole request path is synchronous (cookie decode + lazy
+    // marker) — zero Promise/microtask, so the compiled sync core fn never
+    // delegates to its async resume. Genuinely async work (store I/O, rolling
+    // save, eager creation) returns a Promise that runHooks awaits.
+    return (ctx) => {
+      const existing = resolveSession(ctx);
+      if (existing instanceof Promise) {
+        return existing.then((s) => (s ? attachExisting(ctx, s) : attachMissing(ctx)));
+      }
+      if (existing) return attachExisting(ctx, existing);
+      return attachMissing(ctx);
     };
   };
 

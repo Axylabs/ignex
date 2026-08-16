@@ -12,6 +12,10 @@ import { generateManifest } from "./manifest";
 import { generateOpenApi } from "./openapi";
 import { generateRouteTypes } from "./route-types";
 
+/**
+ * Write a generated artifact, reporting a diagnostic on failure instead of
+ * throwing (so one bad artifact never aborts the whole build).
+ */
 export const writeGuarded = (
   file: string,
   content: string,
@@ -30,6 +34,11 @@ export const writeGuarded = (
   }
 };
 
+/**
+ * Write every requested artifact (routes.d.ts, client.ts/d.ts, openapi.json,
+ * manifest.json) into `opts.outDir`. Each write is guarded — failures become
+ * diagnostics rather than throwing.
+ */
 export const writeArtifacts = (
   routes: readonly RouteIR[],
   opts: CompilerOptions,

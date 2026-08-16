@@ -72,13 +72,12 @@ jobs:
 
   # Real-addon parity: build the castrum NAPI addon and run the native suites
   # against it (nativePreflight terminal responses, RateLimiter, parity vectors).
-  # `continue-on-error` keeps the pipeline green if the castrum repo URL or
-  # build environment is unavailable — remove once the repo is confirmed.
+  # A hard gate: native parity regressions must fail loudly (the JS fallback
+  # would otherwise mask them silently).
   native-parity:
     name: Native parity (real addon)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - name: Checkout ignex
         uses: actions/checkout@v4
@@ -141,8 +140,8 @@ jobs:
   # End-to-end compiled-server regression gate (native on vs fallback).
   # Benchmarks the AOT-compiled app server and compares native req/s against
   # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).
-  # continue-on-error: perf on shared runners is noisy; once thresholds are tuned
-  # on this runner, drop continue-on-error to make it a hard gate.
+  # continue-on-error: perf on shared runners is noisy; keep this job soft until
+  # thresholds are validated on a stable runner, then drop to make it a hard gate.
   server-bench:
     name: Server bench gate (real addon)
     runs-on: ubuntu-latest

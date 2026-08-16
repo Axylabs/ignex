@@ -1,18 +1,18 @@
 /**
  * Verify the C-ABI scalar writers (`castrum_query_parse_packed`,
- * `castrum_cookie_parse_packed`, `castrum_form_parse_packed`,
- * `castrum_query_to_json`, `castrum_cookies_to_json`) end-to-end under plain
- * Bun — where `bun:ffi` dlopen works (vitest workers do not expose it, so the
- * FFI transport is not exercised there).
+ * `castrum_cookie_parse_packed`, `castrum_form_parse_packed`) end-to-end under
+ * plain Bun — where `bun:ffi` dlopen works (vitest workers do not expose it,
+ * so the FFI transport is not exercised there).
  *
  * This is the parity gate for the Section-C sweep + the cstring-return fix:
  * the pair writers use the needed-size convention (exact required size on a
- * too-small buffer instead of `0`) with the `packedWrite` growExact wrapper;
- * the JSON writers return `cstring` (the engine clones the string natively —
- * zero JS decode/alloc). This script asserts:
+ * too-small buffer instead of `0`) with the `packedWrite` growExact wrapper.
+ * NOTE: the `castrum_query_to_json` / `castrum_cookies_to_json` writers were
+ * REMOVED by castrum — those ops are JS-only now (http/queryToJson.ts), so
+ * this script no longer checks them. It asserts:
  *   1. byte-parity with the JS fallbacks on the parity vectors, AND
  *   2. the growExact path is actually exercised — a pathological input whose
- *      packed/JSON output exceeds the wrapper's TIGHT initial bound
+ *      packed output exceeds the wrapper's TIGHT initial bound
  *      (`len*4+16` / `len*4+64`) forces the miss, and the exact-size retry
  *      still lands byte-identical to the JS fallback.
  *
@@ -29,8 +29,11 @@ import {
   brotliCompress,
   brotliDecompress,
   cookiePairs,
-  cookiesToJson,
-  cookiesToJsonFallback,
+  createAcceptNegotiator,
+  createConditionalRequest,
+  createNativeIngress,
+  createSchemaValidator,
+  createTemplate,
   csrfToken,
   csrfVerify,
   csrfVerifyFallback,
@@ -40,8 +43,6 @@ import {
   getFfi,
   jwtSign,
   queryPairs,
-  queryToJson,
-  queryToJsonFallback,
   randomToken,
   readPairsPacked,
   signCookie,
@@ -80,13 +81,7 @@ const expectParity = (label: string, native: () => unknown, fallback: () => unkn
 const eqBytes = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((v, i) => v === (b[i] as number));
 
-const {
-  queryParsePacked,
-  cookieParsePacked,
-  formParsePacked,
-  queryToJson: ffiQueryToJson,
-  cookiesToJson: ffiCookiesToJson,
-} = ffi;
+const { queryParsePacked, cookieParsePacked, formParsePacked } = ffi;
 
 // ── 1. Byte parity through the public wrappers ────────────────────
 const QUERY_CASES = [
@@ -118,21 +113,6 @@ for (const q of QUERY_CASES) {
     () => readPairsPacked(queryParsePacked(bytes)),
     () => queryPairs(q),
   );
-  // Public wrapper (JS fallback until re-wired) AND the FFI cstring writer
-  // directly — the latter returns a plain string (engine-cloned, zero decode).
-  // Compare PARSED objects: the Rust writer emits repeated keys and the
-  // fallback dedupes the text, but both parse to the same last-wins object
-  // (the documented contract).
-  expectParity(
-    `queryToJson "${q.slice(0, 40)}"`,
-    () => JSON.parse(queryToJson(q)),
-    () => JSON.parse(queryToJsonFallback(q)),
-  );
-  expectParity(
-    `ffi.queryToJson "${q.slice(0, 40)}"`,
-    () => JSON.parse(ffiQueryToJson(bytes)),
-    () => JSON.parse(queryToJsonFallback(q)),
-  );
 }
 for (const c of COOKIE_CASES) {
   const bytes = enc(c);
@@ -140,16 +120,6 @@ for (const c of COOKIE_CASES) {
     `cookiePairs "${c.slice(0, 40)}"`,
     () => readPairsPacked(cookieParsePacked(bytes)),
     () => cookiePairs(c),
-  );
-  expectParity(
-    `cookiesToJson "${c.slice(0, 40)}"`,
-    () => JSON.parse(cookiesToJson(c)),
-    () => JSON.parse(cookiesToJsonFallback(c)),
-  );
-  expectParity(
-    `ffi.cookiesToJson "${c.slice(0, 40)}"`,
-    () => JSON.parse(ffiCookiesToJson(bytes)),
-    () => JSON.parse(cookiesToJsonFallback(c)),
   );
 }
 for (const f of FORM_CASES) {
@@ -272,7 +242,7 @@ for (const f of FORM_CASES) {
   }
   expectParity(
     "ffi.wsAcceptKey",
-    () => ffi.wsAcceptKey(enc(WS_KEY)),
+    () => ffi.wsAcceptKey(WS_KEY),
     () => "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
   );
 
@@ -349,6 +319,194 @@ for (const f of FORM_CASES) {
     console.log(
       `growExact exercised: pathological query needed ${packed.length} bytes (> initial ${initial}) → exact-size retry landed.`,
     );
+  }
+}
+
+// ── 2. Opaque-handle instance ops (opaque-handle C-ABI fast path) ──
+// castrum's Phase-6 instances evaluate per-call ops through `castrum_*` C-ABI
+// symbols via `innerPtr()`. Verify the public wrappers (which now route to the
+// C-ABI when the instance surface is live) match the NAPI/JS semantics.
+{
+  // SchemaValidator: validate against the compiled schema on valid/invalid docs.
+  const svFfi = createSchemaValidator(
+    JSON.stringify({ type: "object", required: ["a"], properties: { a: { type: "number" } } }),
+  );
+  if (!svFfi) {
+    checks++;
+    failures++;
+    console.log("FAIL instance: createSchemaValidator returned null");
+  } else {
+    for (const [label, doc, expect] of [
+      ["valid", '{"a":1}', true],
+      ["missing-required", "{}", false],
+      ["invalid-json", "nope", false],
+    ] as const) {
+      checks++;
+      if (svFfi.validate(doc) !== expect) {
+        failures++;
+        console.log(`FAIL SchemaValidator.validate ${label}: got ${svFfi.validate(doc)}`);
+      }
+    }
+  }
+
+  // TemplateRenderer: render with a pre-serialized JSON context.
+  checks++;
+  const tpl = createTemplate("Hello {{ name }}!");
+  if (tpl({ name: "world" }) !== "Hello world!") {
+    failures++;
+    console.log(`FAIL TemplateRenderer.render: got ${tpl({ name: "world" })}`);
+  }
+
+  // AcceptNegotiator: negotiate a supported + an unsupported header.
+  checks++;
+  const an = createAcceptNegotiator(["gzip", "br"]);
+  if (an.negotiate("gzip, deflate;q=0.5") !== "gzip") {
+    failures++;
+    console.log("FAIL AcceptNegotiator.negotiate gzip");
+  }
+  checks++;
+  if (an.negotiate("deflate") !== null) {
+    failures++;
+    console.log("FAIL AcceptNegotiator.negotiate no-match");
+  }
+
+  // ConditionalRequest: RFC 7232 vectors (If-None-Match precedence, weak
+  // compare, `*`, If-Modified-Since).
+  {
+    const cr = createConditionalRequest('"abc123"', 784111777);
+    const cases: Array<[string | null, string | null, boolean]> = [
+      ['"abc123"', null, true],
+      ['W/"abc123"', null, true],
+      ["*", null, true],
+      ['"xyz", "other"', null, false],
+      [null, "Sun, 06 Nov 1994 08:49:37 GMT", true],
+      [null, "Sun, 06 Nov 1994 08:49:36 GMT", false],
+      [null, null, false],
+    ];
+    for (const [inm, ims, expect] of cases) {
+      checks++;
+      const got = cr.isNotModified(inm, ims);
+      if (got !== expect) {
+        failures++;
+        console.log(`FAIL ConditionalRequest.isNotModified ${inm} / ${ims}: got ${got}`);
+      }
+    }
+  }
+}
+
+// ── 3. Direct C-ABI ingress pipeline (`createNativeIngress`) ──────
+// One `castrum_ingress_handle_components` call per request (cstring url/ip, no
+// JS encode/decode) driving the full native pipeline. Verify the normalized
+// outcome: non-terminal OK, rate-limit terminal (429 + ratelimit-*), CORS
+// preflight terminal (204 + access-control-*), query-limit terminal.
+{
+  const limitsOpts = {
+    limits: {
+      maxUrlBytes: 65536,
+      maxQueryBytes: 16384,
+      maxCookieBytes: 8192,
+      maxHeadersBytes: 65536,
+      maxHeaders: 100,
+    },
+  };
+  const secRuntime = {
+    securityHeaders: [
+      ["x-frame-options", "DENY"],
+      ["x-content-type-options", "nosniff"],
+      ["referrer-policy", "no-referrer"],
+    ] as [string, string][],
+  };
+
+  const ing = createNativeIngress(limitsOpts, secRuntime);
+  if (!ing) {
+    checks++;
+    failures++;
+    console.log("FAIL ingress: createNativeIngress returned null");
+  } else {
+    // OK path — non-terminal.
+    checks++;
+    const ok = await ing.preprocess(
+      new Request("http://localhost:3000/api/users?page=1", { method: "GET" }),
+      "127.0.0.1",
+    );
+    if (ok.terminal || !ok.result?.ok) {
+      failures++;
+      console.log(
+        `FAIL ingress ok-path: terminal=${ok.terminal} result=${JSON.stringify(ok.result)}`,
+      );
+    }
+
+    // Security headers on a terminal response (rate-limit).
+    checks++;
+    const rl = createNativeIngress({ rateLimit: { limit: 1, windowMs: 60000 } }, secRuntime);
+    if (!rl) {
+      failures++;
+      console.log("FAIL ingress: rate-limit instance null");
+    } else {
+      const rr = new Request("http://localhost:3000/x", { method: "GET" });
+      await rl.preprocess(rr, "127.0.0.1");
+      const t = await rl.preprocess(rr, "127.0.0.1");
+      if (
+        !t.terminal ||
+        t.response?.status !== 429 ||
+        t.response.headers.get("ratelimit-limit") !== "1" ||
+        t.response.headers.get("x-frame-options") !== "DENY"
+      ) {
+        failures++;
+        console.log(
+          `FAIL ingress rate-limit terminal: ${JSON.stringify({ status: t.response?.status, rl: t.response?.headers.get("ratelimit-limit"), sec: t.response?.headers.get("x-frame-options") })}`,
+        );
+      }
+    }
+
+    // CORS preflight terminal (204 + echo headers).
+    checks++;
+    const cors = createNativeIngress({
+      cors: {
+        allowOrigin: ["https://app.example.com"],
+        allowMethods: ["GET"],
+        allowCredentials: true,
+      },
+    });
+    if (!cors) {
+      failures++;
+      console.log("FAIL ingress: CORS instance null");
+    } else {
+      const pre = await cors.preprocess(
+        new Request("http://localhost:3000/api", {
+          method: "OPTIONS",
+          headers: { origin: "https://app.example.com", "access-control-request-method": "GET" },
+        }),
+        "127.0.0.1",
+      );
+      if (
+        !pre.terminal ||
+        pre.response?.status !== 204 ||
+        pre.response.headers.get("access-control-allow-origin") !== "https://app.example.com"
+      ) {
+        failures++;
+        console.log(
+          `FAIL ingress CORS preflight: ${JSON.stringify({ status: pre.response?.status, origin: pre.response?.headers.get("access-control-allow-origin") })}`,
+        );
+      }
+    }
+
+    // Query-limit enforcement (parseQuery on).
+    checks++;
+    const pq = createNativeIngress({ parseQuery: true, limits: { maxQueryBytes: 1024 } });
+    if (!pq) {
+      failures++;
+      console.log("FAIL ingress: query-limit instance null");
+    } else {
+      const q = await pq.preprocess(
+        new Request("http://localhost:3000/api?q=" + "a".repeat(5000), { method: "GET" }),
+        "127.0.0.1",
+      );
+      if (!q.terminal) {
+        failures++;
+        console.log("FAIL ingress query-limit: expected terminal");
+      }
+    }
   }
 }
 

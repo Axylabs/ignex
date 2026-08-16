@@ -10,6 +10,13 @@
 import type { RouteIR } from "../../types";
 import type { CodegenConfig } from "./config";
 
+/** `HttpResponseCache` construction options (route `cache` config → options). */
+export interface CacheOptions {
+  ttlMs?: number;
+  staleTtlMs?: number;
+  vary?: string[];
+}
+
 /**
  * When the route's body is a compile-time constant, return the JSON to hoist
  * (or `null` to fall through to the normal path). Hoisting to a frozen
@@ -31,28 +38,15 @@ export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): s
   return route.analysis.constantResponse;
 };
 
-/** Route `cache` config → `HttpResponseCache` options (or `undefined`). */
-export const getCacheConfig = (
-  route: RouteIR,
-  cfg: CodegenConfig,
-):
-  | {
-      ttlMs?: number;
-      staleTtlMs?: number;
-      vary?: string[];
-    }
-  | undefined => {
+/** Route `cache` config → {@link CacheOptions} (or `undefined`). */
+export const getCacheConfig = (route: RouteIR, cfg: CodegenConfig): CacheOptions | undefined => {
   if (!cfg.routeCache) return undefined;
   if (route.source.method !== "GET" && route.source.method !== "HEAD") return undefined;
 
   const cache = route.analysis.cache;
   if (!cache) return undefined;
 
-  const out: {
-    ttlMs?: number;
-    staleTtlMs?: number;
-    vary?: string[];
-  } = {};
+  const out: CacheOptions = {};
 
   if (typeof cache.maxAge === "number") {
     out.ttlMs = cache.maxAge * 1000;

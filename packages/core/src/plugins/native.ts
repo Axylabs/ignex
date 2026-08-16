@@ -13,10 +13,12 @@
  */
 
 import {
+  createNativeIngress,
   createNativePipeline,
   isNativeAvailable,
   type NativeCorsOptions,
   type NativeIngressOptions,
+  type NativeIngressRuntime,
   type NativePipeline,
   type NativePipelineOptions,
   type NativeRateLimitOptions,
@@ -69,6 +71,35 @@ export interface NativePreflightOptions {
   readBody?: boolean;
 }
 
+const DEFAULT_CORS_METHODS = "GET, HEAD, PUT, PATCH, POST, DELETE";
+
+/**
+ * JS CORS preflight fallback used when the Rust addon is absent — parity with
+ * castrum's wildcard preflight so the app's CORS contract holds without
+ * native. Non-preflight requests pass through (the OK-path
+ * `Access-Control-Allow-Origin: *` is served by the compiled server's static
+ * default headers). Returns `ctx` when CORS is unconfigured or not a wildcard
+ * preflight.
+ */
+function corsPreflightFallback(
+  ctx: IgnexContext,
+  cors: NativeCorsOptions | undefined,
+): IgnexContext | Response {
+  if (!cors) return ctx;
+  const origin = ctx.headers.get("origin");
+  if (!origin) return ctx;
+  if (ctx.method !== "OPTIONS") return ctx;
+  if (!ctx.headers.get("access-control-request-method")) return ctx;
+  // Wildcard allowlist → any origin allowed (no credentials).
+  if (!(cors.allowOrigin?.some((o) => o === "*") ?? false)) return ctx;
+  const headers: Record<string, string> = {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": cors.allowMethods?.join(", ") ?? DEFAULT_CORS_METHODS,
+  };
+  if (cors.maxAge != null) headers["access-control-max-age"] = String(cors.maxAge);
+  return new Response(null, { status: 204, headers });
+}
+
 /**
  * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
  */
@@ -91,6 +122,25 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
     readBody,
   });
 
+  /**
+   * Resolve the pre-flight pipeline, preferring the DIRECT C-ABI ingress path
+   * (`createNativeIngress` — one `castrum_ingress_handle_components` call with
+   * `cstring` url/ip, zero JS encode/decode, no castrum TS-layer round trip)
+   * when the framework owns the body (`readBody: false`). When `readBody` is
+   * true (the pipeline must consume the stream itself) we fall back to
+   * castrum's `createPipeline`, which is the only path that reads bodies.
+   */
+  const resolvePipeline = async (): Promise<NativePipeline | null> => {
+    if (!readBody) {
+      const direct = createNativeIngress(
+        mergedOptions,
+        (runtime as NativeIngressRuntime | undefined) ?? {},
+      );
+      if (direct) return direct;
+    }
+    return createNativePipeline(pipelineOptions());
+  };
+
   return {
     name: "native-preflight",
 
@@ -103,19 +153,47 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
     async init() {
       if (!enabled || !isNativeAvailable()) return;
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline(pipelineOptions());
+        pipeline = await resolvePipeline();
       }
     },
 
-    async onRequest(ctx: IgnexContext) {
-      if (!enabled || !isNativeAvailable()) return ctx;
+    onRequest(ctx: IgnexContext) {
+      if (!enabled) return ctx;
+      // Rust CORS preflight parity for fallback runs (no addon): answer
+      // wildcard preflight in JS so the app's CORS contract holds everywhere.
+      if (!isNativeAvailable()) return corsPreflightFallback(ctx, mergedOptions?.cors);
 
       if (pipeline === undefined) {
-        pipeline = await createNativePipeline(pipelineOptions());
+        // Eagerly resolved by `init()` at boot (createApp.serve and the
+        // compiled server both run plugin init). If this fires (first request
+        // before init, or direct `handler()` without init), resolve lazily
+        // and return a Promise — runHooks awaits actual Promises, so the
+        // steady-state sync fast path below stays microtask-free.
+        return resolvePipeline().then((p) => {
+          pipeline = p;
+          if (!p) return ctx;
+          const outcome = p.preprocess(ctx.req, p.needsIp ? ctx.ip : undefined);
+          if (outcome instanceof Promise) {
+            return outcome.then(({ terminal, response }) =>
+              terminal && response ? response : ctx,
+            );
+          }
+          const { terminal, response } = outcome;
+          return terminal && response ? response : ctx;
+        });
       }
       if (!pipeline) return ctx;
 
-      const { terminal, response } = await pipeline.preprocess(ctx.req, ctx.ip);
+      // Only resolve `ctx.ip` (a native `requestIP` socket lookup) when the
+      // pipeline config needs it (rate-limit / trust-proxy); otherwise pass
+      // `undefined` — a free fast path. The direct C-ABI path returns the
+      // outcome synchronously (no Promise/microtask); the castrum-TS fallback
+      // (readBody: true) returns a Promise, which runHooks awaits.
+      const outcome = pipeline.preprocess(ctx.req, pipeline.needsIp ? ctx.ip : undefined);
+      if (outcome instanceof Promise) {
+        return outcome.then(({ terminal, response }) => (terminal && response ? response : ctx));
+      }
+      const { terminal, response } = outcome;
       // Returning a Response from onRequest short-circuits the lifecycle.
       return terminal && response ? response : ctx;
     },

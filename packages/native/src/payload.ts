@@ -14,6 +14,7 @@ import {
   gzipSync,
 } from "node:zlib";
 import { bunGunzipSync, bunGzipSync } from "./bun";
+import { isFfiActive } from "./ffi";
 import { nativeFor } from "./runtime";
 import { fromBytes, toBytes, toPlain, toStr } from "./util";
 
@@ -199,7 +200,13 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /** Compute the RFC 6455 Sec-WebSocket-Accept value from a client key. */
 export const wsAcceptKey = (key: string): string => {
   const n = nativeFor("wsAcceptKey");
-  if (n) return toStr(n.wsAcceptKey(toBytes(key)));
+  if (n) {
+    // C-ABI `cstring` ARG takes the raw key string (zero JS encode); NAPI bytes.
+    if (isFfiActive()) {
+      return (n as unknown as { wsAcceptKey(k: string): string }).wsAcceptKey(key);
+    }
+    return toStr(n.wsAcceptKey(toBytes(key)));
+  }
   return createHash("sha1")
     .update(key + WS_GUID)
     .digest("base64");

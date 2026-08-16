@@ -12,7 +12,7 @@ describe("DiagnosticCollector", () => {
 
     d.warn({ code: DiagnosticCodes.DeadRoute, message: "dead route" });
     d.error({ code: DiagnosticCodes.LinkFailed, message: "link failed" });
-    d.info({ code: DiagnosticCodes.SyncLimited, message: "sync only" });
+    d.info({ code: DiagnosticCodes.OptionUnknown, message: "unknown option" });
 
     expect(d.count).toBe(3);
     expect(d.warnings).toHaveLength(1);

@@ -17,6 +17,318 @@ const CRASH_RESTART_BASE_MS = 250;
 /** A server that stays up this long is considered healthy (resets the crash counter). */
 const HEALTHY_THRESHOLD_MS = 2_000;
 
+/** Raw CLI values forwarded to {@link buildProject}. */
+type BuildArgs = Record<string, unknown>;
+
+/** Send SIGTERM to the child's process group (taskkill on Windows). */
+function killProcess(pid: number | undefined): void {
+  if (process.platform === "win32") {
+    if (pid) spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    return;
+  }
+  if (!pid) return;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // noop
+    }
+  }
+}
+
+/** Runtime state + lifecycle for the `dev` command (build / watch / spawn). */
+class DevServer {
+  private readonly root: string;
+  private readonly runtime: string;
+  private readonly port: string;
+  private readonly shouldSpawn: boolean;
+  private readonly outDir: string;
+  private readonly config: Awaited<ReturnType<typeof loadConfig>>;
+  private readonly buildArgs: BuildArgs;
+  private readonly watchers: FSWatcher[] = [];
+
+  private child: ChildProcess | undefined;
+  private timer: NodeJS.Timeout | undefined;
+  private crashRestartTimer: NodeJS.Timeout | undefined;
+  private building = false;
+  private pending = false;
+  private stopping = false;
+  private stoppingChild = false;
+  private crashRestartAttempts = 0;
+  private lastBuildFailed = false;
+
+  constructor(opts: {
+    root: string;
+    runtime: string;
+    port: string;
+    shouldSpawn: boolean;
+    outDir: string;
+    config: Awaited<ReturnType<typeof loadConfig>>;
+    buildArgs: BuildArgs;
+  }) {
+    this.root = opts.root;
+    this.runtime = opts.runtime;
+    this.port = opts.port;
+    this.shouldSpawn = opts.shouldSpawn;
+    this.outDir = opts.outDir;
+    this.config = opts.config;
+    this.buildArgs = opts.buildArgs;
+  }
+
+  /** Install signal handlers, watch, and run the initial build. */
+  async start(): Promise<void> {
+    process.on("SIGINT", () => void this.shutdown());
+    process.on("SIGTERM", () => void this.shutdown());
+
+    // Attach watchers before the initial build so changes made during the first
+    // (potentially slow) build are not missed.
+    this.setupWatchers();
+
+    await this.buildOnce();
+
+    success(
+      this.shouldSpawn
+        ? "Watching for changes — press Ctrl+C to stop."
+        : "Watching for changes (--no-spawn; no server process).",
+    );
+  }
+
+  /**
+   * Stop the current child and await its exit so the port is released before a
+   * new server spawns (avoids the EADDRINUSE restart race). Falls back to
+   * SIGKILL after 2s.
+   */
+  private async stopChild(): Promise<void> {
+    const current = this.child;
+    if (!current) return;
+
+    // Already exited — nothing left to stop.
+    if (current.exitCode !== null || current.signalCode !== null) {
+      this.child = undefined;
+      return;
+    }
+
+    this.stoppingChild = true;
+
+    const exited = new Promise<void>((resolveExit) => {
+      current.once("exit", () => resolveExit());
+      const force = setTimeout(() => {
+        try {
+          current.kill("SIGKILL");
+        } catch {
+          // noop
+        }
+      }, 2_000);
+      force.unref?.();
+    });
+
+    killProcess(current.pid);
+
+    await exited.then(() => {
+      this.stoppingChild = false;
+      this.child = undefined;
+    });
+  }
+
+  private startChild(entry: string): ChildProcess {
+    step(`Starting ${relative(process.cwd(), entry)} with ${this.runtime}`);
+
+    const spawned = spawnProcess(this.runtime, [entry], {
+      stdio: "inherit",
+      detached: process.platform !== "win32",
+      env: {
+        ...process.env,
+        PORT: String(this.port),
+        NODE_ENV: "development",
+      },
+    });
+
+    this.child = spawned;
+
+    // A server that survives past the healthy threshold resets the crash
+    // counter so a sustained runtime fault doesn't accumulate across restarts.
+    const healthTimer = setTimeout(() => {
+      this.crashRestartAttempts = 0;
+    }, HEALTHY_THRESHOLD_MS);
+    healthTimer.unref?.();
+
+    spawned.on("exit", (code, signal) => {
+      clearTimeout(healthTimer);
+      if (this.child === spawned) this.child = undefined;
+
+      // Intentional stop or no server process — never auto-restart.
+      if (this.stopping || this.stoppingChild || !this.shouldSpawn) return;
+      // Clean exit (code 0) — nothing to do.
+      if (code === 0) return;
+
+      this.crashRestartAttempts += 1;
+
+      if (this.crashRestartAttempts > MAX_CRASH_RESTARTS) {
+        warn(
+          `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
+            `Giving up after ${MAX_CRASH_RESTARTS} rapid restarts — it may be crashing on ` +
+            `boot (e.g. the port is already in use). Waiting for a file change to retry.`,
+        );
+        return;
+      }
+
+      const delay = Math.min(CRASH_RESTART_BASE_MS * 2 ** (this.crashRestartAttempts - 1), 5_000);
+      warn(
+        `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
+          `Restarting in ${delay}ms (attempt ${this.crashRestartAttempts}/${MAX_CRASH_RESTARTS}).`,
+      );
+
+      this.crashRestartTimer = setTimeout(() => {
+        if (this.stopping) return;
+        this.child = this.startChild(entry);
+      }, delay);
+    });
+
+    return spawned;
+  }
+
+  private async restart(entry: string): Promise<void> {
+    await this.stopChild();
+    this.child = this.startChild(entry);
+  }
+
+  private async buildOnce(): Promise<void> {
+    if (this.building) {
+      this.pending = true;
+      return;
+    }
+
+    this.building = true;
+
+    try {
+      const { opts } = await buildProject(this.root, this.buildArgs);
+      const entry = await findServerEntry(this.root, opts);
+
+      if (!entry) {
+        warn("Could not locate generated server entry. Set outDir/output or run with --no-spawn.");
+      } else if (this.shouldSpawn) {
+        await this.restart(entry);
+      }
+
+      this.lastBuildFailed = false;
+      this.crashRestartAttempts = 0;
+      success("Build ok — server is up to date");
+    } catch (err) {
+      this.lastBuildFailed = true;
+      error(formatError(err));
+      warn(
+        "Build failed — the running server (if any) is still serving the previous build. " +
+          "Fix the error and save a file to rebuild.",
+      );
+    } finally {
+      this.building = false;
+
+      if (this.pending) {
+        this.pending = false;
+        await this.buildOnce();
+      }
+    }
+  }
+
+  private scheduleRebuild(): void {
+    if (this.timer) clearTimeout(this.timer);
+
+    this.timer = setTimeout(() => {
+      void this.buildOnce();
+    }, REBUILD_DEBOUNCE_MS);
+  }
+
+  private async shutdown(): Promise<void> {
+    if (this.stopping) return;
+    this.stopping = true;
+
+    if (this.timer) clearTimeout(this.timer);
+    if (this.crashRestartTimer) clearTimeout(this.crashRestartTimer);
+    for (const watcher of this.watchers) watcher.close();
+
+    await this.stopChild();
+    process.exit(this.lastBuildFailed ? 1 : 0);
+  }
+
+  /** Watch the project for changes; debounced rebuilds via {@link scheduleRebuild}. */
+  private setupWatchers(): void {
+    try {
+      const watcher = watch(this.root, { recursive: true }, (_event, filename) => {
+        if (!filename) return;
+        if (shouldIgnore(String(filename), this.outDir, this.root)) return;
+        this.scheduleRebuild();
+      });
+
+      watcher.on("error", () => {
+        // Ignore watch errors; rebuilds are debounced.
+      });
+
+      this.watchers.push(watcher);
+    } catch {
+      warn(
+        "Recursive fs.watch unavailable. Watching src/, routes/, hooks/, and config files non-recursively.",
+      );
+
+      const routesDir = String(this.config.routesDir ?? "src/routes");
+      const hooksDir = String(this.config.hooksDir ?? "src/hooks");
+
+      const dirs = [routesDir, hooksDir, "src"].map((dir) => resolve(this.root, dir));
+
+      for (const dir of dirs) {
+        try {
+          const watcher = watch(dir, (_event, filename) => {
+            if (!filename) return;
+            // Resolve against the watched dir so shouldIgnore sees absolute paths.
+            if (shouldIgnore(resolve(dir, String(filename)), this.outDir, this.root)) return;
+            this.scheduleRebuild();
+          });
+
+          watcher.on("error", () => {
+            // noop
+          });
+
+          this.watchers.push(watcher);
+        } catch {
+          // Directory may not exist.
+        }
+      }
+
+      // Single source of truth for config files (includes ignex.config.json).
+      for (const file of CONFIG_FILES) {
+        try {
+          const watcher = watch(resolve(this.root, file), () => {
+            this.scheduleRebuild();
+          });
+
+          watcher.on("error", () => {
+            // noop
+          });
+
+          this.watchers.push(watcher);
+        } catch {
+          // File may not exist.
+        }
+      }
+
+      try {
+        const watcher = watch(resolve(this.root, "package.json"), () => {
+          this.scheduleRebuild();
+        });
+
+        watcher.on("error", () => {
+          // noop
+        });
+
+        this.watchers.push(watcher);
+      } catch {
+        // File may not exist.
+      }
+    }
+  }
+}
+
 export async function runDev(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
     root: { type: "string" },
@@ -45,281 +357,13 @@ export async function runDev(args: string[]): Promise<void> {
   const config = await loadConfig(root);
   const outDir = String(values.outDir ?? config.outDir ?? ".ignex");
 
-  let child: ChildProcess | undefined;
-  let timer: NodeJS.Timeout | undefined;
-  let crashRestartTimer: NodeJS.Timeout | undefined;
-  let building = false;
-  let pending = false;
-  let stopping = false;
-  let stoppingChild = false;
-  let crashRestartAttempts = 0;
-  let lastBuildFailed = false;
-
-  const watchers: FSWatcher[] = [];
-
-  /** Send SIGTERM to the child's process group (taskkill on Windows). */
-  function killProcess(pid: number | undefined): void {
-    if (process.platform === "win32") {
-      if (pid) spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    }
-    if (!pid) return;
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // noop
-      }
-    }
-  }
-
-  /**
-   * Stop the current child and await its exit so the port is released before a
-   * new server spawns (avoids the EADDRINUSE restart race). Falls back to
-   * SIGKILL after 2s.
-   */
-  function stopChild(): Promise<void> {
-    const current = child;
-    if (!current) return Promise.resolve();
-
-    // Already exited — nothing left to stop.
-    if (current.exitCode !== null || current.signalCode !== null) {
-      child = undefined;
-      return Promise.resolve();
-    }
-
-    stoppingChild = true;
-
-    const exited = new Promise<void>((resolveExit) => {
-      current.once("exit", () => resolveExit());
-      const force = setTimeout(() => {
-        try {
-          current.kill("SIGKILL");
-        } catch {
-          // noop
-        }
-      }, 2_000);
-      force.unref?.();
-    });
-
-    killProcess(current.pid);
-
-    return exited.then(() => {
-      stoppingChild = false;
-      child = undefined;
-    });
-  }
-
-  function startChild(entry: string): ChildProcess {
-    step(`Starting ${relative(process.cwd(), entry)} with ${runtime}`);
-
-    const spawned = spawnProcess(runtime, [entry], {
-      stdio: "inherit",
-      detached: process.platform !== "win32",
-      env: {
-        ...process.env,
-        PORT: String(port),
-        NODE_ENV: "development",
-      },
-    });
-
-    child = spawned;
-
-    // A server that survives past the healthy threshold resets the crash
-    // counter so a sustained runtime fault doesn't accumulate across restarts.
-    const healthTimer = setTimeout(() => {
-      crashRestartAttempts = 0;
-    }, HEALTHY_THRESHOLD_MS);
-    healthTimer.unref?.();
-
-    spawned.on("exit", (code, signal) => {
-      clearTimeout(healthTimer);
-      if (child === spawned) child = undefined;
-
-      // Intentional stop or no server process — never auto-restart.
-      if (stopping || stoppingChild || !shouldSpawn) return;
-      // Clean exit (code 0) — nothing to do.
-      if (code === 0) return;
-
-      crashRestartAttempts += 1;
-
-      if (crashRestartAttempts > MAX_CRASH_RESTARTS) {
-        warn(
-          `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
-            `Giving up after ${MAX_CRASH_RESTARTS} rapid restarts — it may be crashing on ` +
-            `boot (e.g. the port is already in use). Waiting for a file change to retry.`,
-        );
-        return;
-      }
-
-      const delay = Math.min(CRASH_RESTART_BASE_MS * 2 ** (crashRestartAttempts - 1), 5_000);
-      warn(
-        `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
-          `Restarting in ${delay}ms (attempt ${crashRestartAttempts}/${MAX_CRASH_RESTARTS}).`,
-      );
-
-      crashRestartTimer = setTimeout(() => {
-        if (stopping) return;
-        child = startChild(entry);
-      }, delay);
-    });
-
-    return spawned;
-  }
-
-  async function restart(entry: string): Promise<void> {
-    await stopChild();
-    child = startChild(entry);
-  }
-
-  async function buildOnce(): Promise<void> {
-    if (building) {
-      pending = true;
-      return;
-    }
-
-    building = true;
-
-    try {
-      const { opts } = await buildProject(root, values as Record<string, unknown>);
-      const entry = await findServerEntry(root, opts);
-
-      if (!entry) {
-        warn("Could not locate generated server entry. Set outDir/output or run with --no-spawn.");
-      } else if (shouldSpawn) {
-        await restart(entry);
-      }
-
-      lastBuildFailed = false;
-      crashRestartAttempts = 0;
-      success("Build ok — server is up to date");
-    } catch (err) {
-      lastBuildFailed = true;
-      error(formatError(err));
-      warn(
-        "Build failed — the running server (if any) is still serving the previous build. " +
-          "Fix the error and save a file to rebuild.",
-      );
-    } finally {
-      building = false;
-
-      if (pending) {
-        pending = false;
-        await buildOnce();
-      }
-    }
-  }
-
-  function scheduleRebuild(): void {
-    if (timer) clearTimeout(timer);
-
-    timer = setTimeout(() => {
-      void buildOnce();
-    }, REBUILD_DEBOUNCE_MS);
-  }
-
-  async function shutdown(): Promise<void> {
-    if (stopping) return;
-    stopping = true;
-
-    if (timer) clearTimeout(timer);
-    if (crashRestartTimer) clearTimeout(crashRestartTimer);
-    for (const watcher of watchers) watcher.close();
-
-    await stopChild();
-    process.exit(lastBuildFailed ? 1 : 0);
-  }
-
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
-
-  // Attach watchers before the initial build so changes made during the first
-  // (potentially slow) build are not missed.
-  setupWatchers();
-
-  await buildOnce();
-
-  success(
-    shouldSpawn
-      ? "Watching for changes — press Ctrl+C to stop."
-      : "Watching for changes (--no-spawn; no server process).",
-  );
-
-  /** Watch the project for changes; debounced rebuilds via `scheduleRebuild`. */
-  function setupWatchers(): void {
-    try {
-      const watcher = watch(root, { recursive: true }, (_event, filename) => {
-        if (!filename) return;
-        if (shouldIgnore(String(filename), outDir, root)) return;
-        scheduleRebuild();
-      });
-
-      watcher.on("error", () => {
-        // Ignore watch errors; rebuilds are debounced.
-      });
-
-      watchers.push(watcher);
-    } catch {
-      warn(
-        "Recursive fs.watch unavailable. Watching src/, routes/, hooks/, and config files non-recursively.",
-      );
-
-      const routesDir = String(config.routesDir ?? "src/routes");
-      const hooksDir = String(config.hooksDir ?? "src/hooks");
-
-      const dirs = [routesDir, hooksDir, "src"].map((dir) => resolve(root, dir));
-
-      for (const dir of dirs) {
-        try {
-          const watcher = watch(dir, (_event, filename) => {
-            if (!filename) return;
-            // Resolve against the watched dir so shouldIgnore sees absolute paths.
-            if (shouldIgnore(resolve(dir, String(filename)), outDir, root)) return;
-            scheduleRebuild();
-          });
-
-          watcher.on("error", () => {
-            // noop
-          });
-
-          watchers.push(watcher);
-        } catch {
-          // Directory may not exist.
-        }
-      }
-
-      // Single source of truth for config files (includes ignex.config.json).
-      for (const file of CONFIG_FILES) {
-        try {
-          const watcher = watch(resolve(root, file), () => {
-            scheduleRebuild();
-          });
-
-          watcher.on("error", () => {
-            // noop
-          });
-
-          watchers.push(watcher);
-        } catch {
-          // File may not exist.
-        }
-      }
-
-      try {
-        const watcher = watch(resolve(root, "package.json"), () => {
-          scheduleRebuild();
-        });
-
-        watcher.on("error", () => {
-          // noop
-        });
-
-        watchers.push(watcher);
-      } catch {
-        // File may not exist.
-      }
-    }
-  }
+  await new DevServer({
+    root,
+    runtime,
+    port,
+    shouldSpawn,
+    outDir,
+    config,
+    buildArgs: values as BuildArgs,
+  }).start();
 }

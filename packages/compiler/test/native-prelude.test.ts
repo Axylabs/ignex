@@ -42,11 +42,20 @@ describe("per-route native prelude (nativeRoutes)", () => {
     expect(result.code).toContain("parseQueryFromURL");
   });
 
-  it("does NOT emit native code when nativeRoutes is off (default)", async () => {
+  it("does NOT emit native code when nativeRoutes is explicitly off", async () => {
     const layout = materializeFixture("named-export");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(baseOptions(layout, { nativeRoutes: false }));
     expect(result.code).not.toContain("createNativeRoute");
     expect(result.code).not.toContain("__nativeRoute_");
+  });
+
+  it("emits native code by default (Phase 4: nativeRoutes on)", async () => {
+    // Phase 4 flipped the default: an eligible route builds the native stack
+    // WITHOUT explicitly enabling nativeRoutes.
+    const layout = materializeFixture("named-export");
+    const result = await buildAsync(baseOptions(layout));
+    expect(result.code).toContain("createNativeRoute");
+    expect(result.code).toContain("__nativeRoute_");
   });
 
   it("emits native body stages for a validate-and-ack body route (Phase 2)", async () => {

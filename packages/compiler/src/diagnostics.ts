@@ -74,8 +74,6 @@ export const DiagnosticCodes = {
   OptionDeprecated: "IGN_OPTION_DEPRECATED",
   /** An unknown compiler option was passed and ignored. */
   OptionUnknown: "IGN_OPTION_UNKNOWN",
-  /** The sync compile path cannot honor async-only features. */
-  SyncLimited: "IGN_SYNC_LIMITED",
   /** The linker (Bun.build) failed to produce an output file. */
   LinkFailed: "IGN_LINK_FAILED",
   /** The build cache was unusable and was invalidated. */

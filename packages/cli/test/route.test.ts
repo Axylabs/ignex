@@ -35,6 +35,23 @@ test("normalizes delete to del", () => {
   expect(parsed.file).toBe("products/[id].del.ts");
 });
 
+test("rejects parent-directory traversal (../..)", () => {
+  expect(() => parseRouteInput("../../x")).toThrow(/inside the routes directory/);
+  expect(() => parseRouteInput("a/../../b")).toThrow(/inside the routes directory/);
+  expect(() => parseRouteInput("/../x")).toThrow(/inside the routes directory/);
+});
+
+test("rejects Windows/backslash path segments", () => {
+  expect(() => parseRouteInput("api\\users")).toThrow(/inside the routes directory/);
+  expect(() => parseRouteInput("C:\\x")).toThrow(/inside the routes directory/);
+});
+
+test("keeps dotted-but-relative names like foo..bar", () => {
+  const parsed = parseRouteInput("foo..bar");
+  expect(parsed.file).toBe("foo..bar.get.ts");
+  expect(parsed.routePath).toBe("/foo..bar");
+});
+
 test("httpExportName maps methods to conventional identifiers", () => {
   expect(httpExportName("get")).toBe("httpGet");
   expect(httpExportName("post")).toBe("httpPost");

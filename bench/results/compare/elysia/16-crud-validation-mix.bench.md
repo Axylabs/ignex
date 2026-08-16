@@ -1,6 +1,6 @@
 # Ignus HTTP comparison report — elysia / 16-crud-validation-mix
 
-Generated: 2026-08-14T08:24:03.960Z
+Generated: 2026-08-16T19:39:31.647Z
 
 Failure trace: `16-crud-validation-mix.failures.ndjson`
 
@@ -10,27 +10,27 @@ Failure trace: `16-crud-validation-mix.failures.ndjson`
 | --- | --- |
 | Server | elysia |
 | Scenario | 16-crud-validation-mix |
-| Generated | 2026-08-14T08:24:03.960Z |
-| Total duration ms | 100020.499 |
+| Generated | 2026-08-16T19:39:31.647Z |
+| Total duration ms | 100020.235 |
 | Achieved RPS | 260.03 |
 | Total requests | 26008 |
-| Successful requests | 23426 |
-| Expected error responses | 2582 |
+| Successful requests | 23434 |
+| Expected error responses | 2574 |
 | Unexpected failed requests | 0 |
 | Timeouts | 0 |
 | Network errors | 0 |
 | Unexpected statuses | 0 |
 | Response shape failures | 0 |
 | Unexpected error rate % | 0.00 |
-| Avg latency ms | 0.496 |
-| Min latency ms | 0.060 |
-| p50 latency ms | 0.386 |
-| p75 latency ms | 0.623 |
-| p90 latency ms | 0.805 |
-| p95 latency ms | 0.880 |
-| p99 latency ms | 1.209 |
-| p99.9 latency ms | 13.518 |
-| Max latency ms | 44.327 |
+| Avg latency ms | 0.513 |
+| Min latency ms | 0.071 |
+| p50 latency ms | 0.496 |
+| p75 latency ms | 0.630 |
+| p90 latency ms | 0.766 |
+| p95 latency ms | 0.843 |
+| p99 latency ms | 1.050 |
+| p99.9 latency ms | 3.923 |
+| Max latency ms | 47.725 |
 
 ## Error groups
 
@@ -43,10 +43,10 @@ These are unexpected failures. This table tells you which request failed and why
 
 | Route | Count | Errors | Error % | Min ms | Avg ms | p50 ms | p95 ms | p99 ms | p99.9 ms | Max ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| POST /api/users | 9053 | 2582 | 28.52 | 0.072 | 0.505 | 0.398 | 0.897 | 1.172 | 12.235 | 23.609 |
-| PUT /api/users | 3938 | 0 | 0.00 | 0.064 | 0.503 | 0.388 | 0.882 | 1.131 | 17.332 | 24.002 |
-| PATCH /api/users | 2571 | 0 | 0.00 | 0.062 | 0.494 | 0.379 | 0.881 | 1.295 | 19.940 | 25.723 |
-| GET /api/users | 10446 | 0 | 0.00 | 0.060 | 0.485 | 0.375 | 0.860 | 1.300 | 12.414 | 44.327 |
+| POST /api/users | 9143 | 2574 | 28.15 | 0.084 | 0.540 | 0.515 | 0.875 | 1.103 | 4.800 | 47.725 |
+| PUT /api/users | 3885 | 0 | 0.00 | 0.090 | 0.505 | 0.494 | 0.842 | 1.026 | 3.369 | 5.837 |
+| PATCH /api/users | 2668 | 0 | 0.00 | 0.111 | 0.503 | 0.490 | 0.830 | 1.005 | 4.863 | 10.095 |
+| GET /api/users | 10312 | 0 | 0.00 | 0.071 | 0.496 | 0.483 | 0.818 | 1.010 | 4.269 | 21.304 |
 
 ## Failure samples
 

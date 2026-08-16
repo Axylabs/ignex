@@ -2,6 +2,10 @@
  * @fileoverview Conditional requests (ETag / Last-Modified → 304).
  */
 
+import { getFfiInstances } from "../ffi";
+import { getNative } from "../loader";
+import { toBytes } from "../util";
+
 /** A per-resource conditional-request checker (etag + last-modified). */
 export interface ConditionalRequest {
   /** `true` → "304 Not Modified" (If-None-Match wins over If-Modified-Since). */
@@ -10,17 +14,40 @@ export interface ConditionalRequest {
 
 /**
  * Compile a per-resource conditional-check instance (etag + last-modified
- * computed once, then reused across requests). Native-backed when available;
- * the fallback mirrors castrum's `ConditionalRequest` semantics exactly
- * (RFC 7232 §3.2 — weak opaque-tag comparison, `*` short-circuit, and
- * If-None-Match precedence over If-Modified-Since).
+ * computed once, then reused across requests). Opaque-handle C-ABI fast path
+ * (the resource state is compiled once via the napi instance; each 304 check
+ * crosses at ~31ns vs ~42ns JS fallback and ~304ns NAPI — bench 2026-08-16).
+ * Falls back to the pure-TS engine when the instance surface is absent.
+ * (The OLD per-call native construction lost ~12x — the compiled instance is
+ * what makes native win.)
  */
 export const createConditionalRequest = (
   etagValue: string,
   lastModifiedSecs?: number,
-): ConditionalRequest =>
-  // Selection: js — per-call native construction loses (~12x) — see selection.ts.
-  createConditionalRequestFallback(etagValue, lastModifiedSecs);
+): ConditionalRequest => {
+  const ffiInst = getFfiInstances();
+  if (ffiInst) {
+    const addon = getNative();
+    if (addon && typeof addon.ConditionalRequest === "function") {
+      try {
+        const inst = new addon.ConditionalRequest(toBytes(etagValue), lastModifiedSecs ?? null);
+        const inner = Number(inst.innerPtr());
+        if (inner) {
+          return {
+            isNotModified(ifNoneMatch, ifModifiedSince) {
+              const inm = ifNoneMatch ? toBytes(ifNoneMatch) : null;
+              const ims = ifModifiedSince ? toBytes(ifModifiedSince) : null;
+              return ffiInst.conditionalIsNotModified(inner, inm, ims);
+            },
+          };
+        }
+      } catch {
+        // fall through to the JS engine
+      }
+    }
+  }
+  return createConditionalRequestFallback(etagValue, lastModifiedSecs);
+};
 
 /** Pure-TS fallback for {@link createConditionalRequest} (identical behavior). */
 export const createConditionalRequestFallback = (

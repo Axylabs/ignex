@@ -409,6 +409,48 @@ try {
     );
   });
 
+  /* ---------- native body validation (validate-and-ack) ---------- */
+  // /api/orders-ack declares a body schema and never reads ctx.body — the
+  // compiled server's per-route native stack validates the raw bytes (native
+  // when the addon is present, JS fallback otherwise). Same status contract.
+  await check("POST /api/orders-ack valid body → 200 ack", async () => {
+    const body = (await expectJson(
+      await fetch(`${BASE}/api/orders-ack`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orderId: "o1", quantity: 2, totalCents: 100 }),
+      }),
+      200,
+    )) as { ok?: boolean };
+    if (body.ok !== true) throw new Error(`ack ${JSON.stringify(body)}`);
+  });
+
+  await check("POST /api/orders-ack schema-invalid body → 422", async () => {
+    const res = await fetch(`${BASE}/api/orders-ack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orderId: "o1", quantity: 0, totalCents: -5 }),
+    });
+    if (res.status !== 422) throw new Error(`status ${res.status} (expected 422)`);
+    const body = (await res.json()) as { status?: number; details?: { on?: string } };
+    if (body.status !== 422 || body.details?.on !== "body") {
+      throw new Error(`validation error envelope ${JSON.stringify(body)}`);
+    }
+  });
+
+  await check("POST /api/orders-ack non-JSON body → 400", async () => {
+    const res = await fetch(`${BASE}/api/orders-ack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not json",
+    });
+    if (res.status !== 400) throw new Error(`status ${res.status} (expected 400)`);
+    const body = (await res.json()) as { code?: string };
+    if (body.code !== "BODY_PARSE_ERROR") {
+      throw new Error(`body parse error envelope ${JSON.stringify(body)}`);
+    }
+  });
+
   /* ---------- auth (JWT flow) ---------- */
   await check("POST /auth/login valid → 200 JWT", async () => {
     const body = (await expectJson(
@@ -499,16 +541,19 @@ try {
   await check("CORS preflight → 204 + allow-origin", async () => {
     const res = await fetch(`${BASE}/health`, {
       method: "OPTIONS",
-      headers: { origin: "http://example.com" },
+      headers: { origin: "http://example.com", "access-control-request-method": "GET" },
     });
     expectStatus(res, 204);
+    // Native castrum CORS owns preflight and echoes the allowed origin.
     expectHeader(res, "access-control-allow-origin", "http://example.com");
   });
 
-  await check("CORS actual request → allow-origin header", async () => {
+  await check("CORS actual request → wildcard allow-origin", async () => {
     const res = await fetch(`${BASE}/health`, { headers: { origin: "http://example.com" } });
     expectStatus(res, 200);
-    expectHeader(res, "access-control-allow-origin", "http://example.com");
+    // OK-path CORS is served by Bun's default-header sink (`*` — equivalent to
+    // the origin echo for non-credentialed requests).
+    expectHeader(res, "access-control-allow-origin", "*");
   });
 
   await check("security headers applied", async () => {

@@ -10,10 +10,11 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../types";
+import { SCHEMA_PARTS } from "../types";
 import { writeGuarded } from "./artifacts";
 import { cloneSchema, forEachRouteWithSchema, isStandardSchema } from "./schema-loader";
 
-const VALIDATOR_KINDS = ["body", "query", "params", "headers", "cookie"] as const;
+const VALIDATOR_KINDS = SCHEMA_PARTS;
 
 type ValidatorKind = (typeof VALIDATOR_KINDS)[number];
 

@@ -31,7 +31,6 @@
     "@ignex/shared": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "fast-querystring": "^1.1.2",
     "lru-cache": "^11.0.2",
     "pino": "^9.6.0"
   },

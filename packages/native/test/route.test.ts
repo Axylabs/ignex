@@ -71,7 +71,11 @@ describe("per-route native stack (createNativeRoute)", () => {
   });
 
   it.skipIf(!available)("returns ok flags and empty pairs for an absent part", () => {
-    const route = createNativeRoute(plan({ parseQuery: true, parseCookies: false }));
+    // ParseQuery-only plan: the cookie section is absent from the result wire,
+    // so `r.cookie` decodes to `[]` even though the frame carries a cookie.
+    // NOTE: `plan()` merges `pipeline` verbatim — `parseQuery`/`parseCookies`
+    // are NOT `NativeRoutePlan` fields, so pass `pipeline` directly.
+    const route = createNativeRoute(plan({ pipeline: ["parseQuery"] }));
     expect(route).not.toBeNull();
     if (!route) return;
     const r = route.run({ query: "x=1", cookie: "s=v", body: null });

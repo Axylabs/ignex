@@ -77,23 +77,20 @@ even a C-ABI crossing; the win for those is batching / the task-group).
 "unreliable under Bun canary" concern does NOT reproduce on the current runtime:
 a fresh 12-op stability probe (`scripts/bench-batch.ts --probe`) passes 40/40
 per op — no corrupt buffers, no crash (the original repro was a script bug:
-wrong unpacker for the flat `crc32BatchPacked` wire). `NativeBatch` now exposes
-the measured winners — `signCookie` (n≥4), `verifyCookie` (n≥4), `hmacSha256`
-(n≥4), `hmacSha256Verify` (n≥16), `csrfVerify` (n≥16), plus `fnv1a64`/`jsonValid`
-— with thresholds from `bench/results/batch-selection.json`.
+wrong unpacker for the flat `crc32BatchPacked` wire). The batch FFI entry points
+expose the measured winners — `signCookie` (n≥4), `verifyCookie` (n≥4),
+`hmacSha256` (n≥4), `hmacSha256Verify` (n≥16), `csrfVerify` (n≥16), plus
+`fnv1a64`/`jsonValid` — with thresholds from `bench/results/batch-selection.json`.
+The JS `batch` facade and the `runTasks` task-group wrapper were removed
+(2026-08-17, cleanup): castrum dropped the C-ABI symbol and the wrappers had no
+production consumers — they degraded to per-op JS loops. The raw `*BatchPacked`
+FFI entry points remain and are what `scripts/bench-batch.ts` measures.
 
-**Task-group — one FFI call, many actions.** `runTasks([...])`
-(`packages/native/src/tasks.ts` → castrum `castrum_execute_tasks`) packs an
-arbitrary list of DIFFERENT ops (parse query + parse cookies + validate +
-verifyCookie + hmacVerify …) into ONE C-ABI call and returns typed results.
-Wins for native-heavy groups (≥9 ops, ~1.25×); for small request mixes that
-include JS-selected pair parsers, individual C-ABI calls win (JS pack/unpack >
-the ~100ns crossing) — so the core request path keeps per-op calls.
-
-**Pair-parse regression fixed.** Core `parseQueries`/`parseCookies` previously
-routed N≥4 inputs through the native batch, which measures SLOWER than the JS
-scalar parser at every batch size — they now always use the scalar path
-(`BATCH_PARSE_THRESHOLD` retained for API compat).
+**Pair-parse regression fixed.** Core pair parsing previously routed N≥4 inputs
+through the native batch, which measures SLOWER than the JS scalar parser at
+every batch size — the scalar path is used exclusively. The batch pair-parse
+entry points and the `parseQueries`/`parseCookies` wrappers were removed
+(2026-08-17, cleanup); `parseQuery`/`parseCookieString` remain.
 
 **Pure-TS parity fix.** `hmacSha256`/`hmacSha256Verify` fallbacks now use the
 native 64-hex contract on every backend (previously Bun→hex but Node→raw, so
@@ -272,13 +269,11 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 | Accept negotiation | `createAcceptNegotiator`, `parseAcceptEncoding` | JS | parity |
 | Media type | `parseMediaType` | JS | native marked @deprecated (slower) |
 
-> The native exports above remain available for apps that batch large inputs
-> (where FFI amortizes). The native BATCH APIs are stable on the current runtime
-> (12-op probe 40/40) — use the measured winners in `NativeBatch`
-> (`signCookie`/`verifyCookie`/`hmacSha256`/`hmacSha256Verify`/`csrfVerify`/`fnv1a64`),
-> or `runTasks([...])` for a heterogeneous group in ONE call. The wrapper picks
-> the fastest stable implementation per primitive; behavior is identical either
-> way (parity is the contract).
+> The raw native batch FFI entry points (`*BatchPacked`) remain available for
+> apps that batch large inputs (where FFI amortizes); the JS `batch` facade and
+> the `runTasks` task-group wrapper were removed (2026-08-17, cleanup). The
+> scalar wrappers pick the fastest stable implementation per primitive; parity
+> is the contract.
 
 ## Castrum fixes made for ignex compatibility
 
@@ -459,16 +454,17 @@ original repro was root-caused to a script bug (wrong unpacker for the flat
 `crc32BatchPacked` wire) — castrum `scripts/verify-native-batch.ts` proves
 batch==scalar byte-parity.
 
-Wired (thresholds from `bench/results/batch-selection.json`):
-- `batch.fnv1a64` (n≥16), `batch.jsonValid` (n≥16)
-- `batch.signCookie` / `batch.verifyCookie` / `batch.hmacSha256` (n≥4)
-- `batch.hmacSha256Verify` / `batch.csrfVerify` (n≥16)
-- Pair-parse batches (`queryParse`/`cookieParse`/`formParse`) are exposed for
+Measured via `scripts/bench-batch.ts` (thresholds from `bench/results/batch-selection.json`):
+- `fnv1a64` batch (n≥16), `jsonValid` batch (n≥16)
+- `signCookie` / `verifyCookie` / `hmacSha256` batch (n≥4)
+- `hmacSha256Verify` / `csrfVerify` batch (n≥16)
+- Pair-parse batches (`queryParse`/`cookieParse`/`formParse`) exist for
   bulk parity but measure slower than the JS scalar at every N — core uses the
   scalar path.
 
-The C-ABI task-group (`runTasks`, one call for many heterogeneous actions) is
-the higher-level bulk surface; see the 2026-08-14 section above.
+The JS `batch` facade and the C-ABI task-group (`runTasks`) wrapper were removed
+(2026-08-17, cleanup) — castrum dropped the task-group symbol and neither had
+production consumers.
 
 ### Runtime / Bun version pin (2026-08-14)
 

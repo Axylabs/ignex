@@ -370,6 +370,18 @@ export const createRouter = (): IgnexRouter => {
   const methodMatches = (regMethod: RouterMethod, method: string): boolean =>
     regMethod === method || (method === "HEAD" && regMethod === "GET");
 
+  /**
+   * Decode a captured path segment, keeping the raw (undecoded) text when the
+   * percent-encoding is malformed — a client URIError must not become a 500.
+   */
+  const safeDecode = (value: string): string => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
   /** Capture named params from a dynamic match, or `undefined` when no match. */
   const matchDynamic = (
     reg: RouteRegistration,
@@ -378,7 +390,7 @@ export const createRouter = (): IgnexRouter => {
     const { re, keys } = pathToRegex(reg.path);
     const m = re.exec(pathname);
     if (!m) return undefined;
-    return Object.fromEntries(keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+    return Object.fromEntries(keys.map((k, i) => [k, safeDecode(m[i + 1])]));
   };
 
   /** Pass 1 — exact static-path match for `method` (Bun-native specificity). */

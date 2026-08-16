@@ -3,9 +3,10 @@
  */
 
 import { fnv1a64 } from "@ignex/native";
+import { encoder } from "../../http/encoder";
 
 const toBytes = (input: string | ArrayBuffer | Uint8Array): Uint8Array => {
-  if (typeof input === "string") return new TextEncoder().encode(input);
+  if (typeof input === "string") return encoder.encode(input);
   if (input instanceof Uint8Array) return input;
   return new Uint8Array(input);
 };

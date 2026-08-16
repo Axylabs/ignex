@@ -3,15 +3,9 @@
  */
 
 import type { RouteIR } from "../../../types";
+import type { CacheOptions } from "../decisions";
 import { cacheVar, methodHandlerName } from "../identifiers";
 import type { CodegenState } from "../state";
-
-/** `getCacheConfig` return shape (route `cache` config → cache options). */
-export interface RouteCacheConfig {
-  readonly ttlMs?: number;
-  readonly staleTtlMs?: number;
-  readonly vary?: string[];
-}
 
 /**
  * Emit the cache variable and the outer handler that serves/refreshes it.
@@ -20,7 +14,7 @@ export interface RouteCacheConfig {
 export const emitCacheWrapper = (
   state: CodegenState,
   route: RouteIR,
-  cacheConfig: RouteCacheConfig,
+  cacheConfig: CacheOptions,
   coreName: string,
 ): void => {
   state.helpers.markCore("HttpResponseCache");

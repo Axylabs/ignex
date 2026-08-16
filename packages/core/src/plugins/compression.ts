@@ -43,57 +43,19 @@ try {
 export const compression = (options: CompressionOptions = {}): IgnexPlugin => {
   const { threshold = 1024, filter = isCompressible, native = true } = options;
 
-  const serveUncompressed = (
-    body: Uint8Array<ArrayBuffer>,
-    response: Response,
-    headers: Headers,
-  ): Response => {
-    headers.delete("content-encoding");
-    headers.set("content-length", String(body.byteLength));
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  };
-
-  const serveCompressed = (body: BodyInit, response: Response, headers: Headers): Response =>
-    new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-
   return {
     name: "compression",
 
-    async onResponse(ctx, response) {
+    onResponse(ctx, response) {
       const supported = supportsBrotli ? ["br", "gzip", "deflate"] : ["gzip", "deflate"];
-      const plan = await buildPlan(ctx, response, threshold, filter, supported);
-      if (!plan) return response;
-
-      if (plan.body.byteLength < threshold) {
-        return serveUncompressed(plan.body, plan.response, plan.headers);
-      }
-
-      // Rust gzip fast path (buffered). The body is already read once; if
-      // compression fails we serve the same bytes uncompressed.
-      if (native && plan.encoding === "gzip" && isNativeAvailable()) {
-        return compressNativeGzip(plan, serveUncompressed);
-      }
-
-      const CS = (globalThis as any).CompressionStream;
-      if (typeof CS === "undefined") {
-        return response;
-      }
-
-      // Streaming compression over the already-buffered bytes.
-      const bodyStream = new Response(plan.body as unknown as BodyInit).body;
-      if (!bodyStream) {
-        return response;
-      }
-      const compressed = bodyStream.pipeThrough(new CS(plan.encoding));
-      return serveCompressed(compressed, plan.response, plan.headers);
+      // Sync fast path: decide whether compression applies WITHOUT buffering
+      // the body. The common case (no accept-encoding, tiny body, filtered
+      // type, already encoded) returns `null` synchronously — no Promise, no
+      // microtask — so this hook is a plain sync return (runHooks only awaits
+      // actual Promises).
+      const encoding = planEncoding(ctx, response, threshold, filter, supported);
+      if (!encoding) return response;
+      return compressResponse(response, encoding, threshold, native);
     },
   };
 };
@@ -105,19 +67,14 @@ interface CompressPlan {
   encoding: string;
 }
 
-/**
- * Decide whether a response should be compressed and, if so, negotiate the
- * encoding and buffer the body once. Returns `null` when compression does not
- * apply (no body, already encoded, filtered content type, under threshold,
- * no acceptable encoding, or unreadable body).
- */
-async function buildPlan(
+/** Sync: negotiate the encoding and decide whether compression applies. */
+function planEncoding(
   ctx: IgnexContext,
   response: Response,
   threshold: number,
   filter: (contentType: string) => boolean,
   supported: string[],
-): Promise<CompressPlan | null> {
+): string | null {
   if (!response.body) return null;
   if (response.headers.get("content-encoding")) return null;
 
@@ -127,9 +84,41 @@ async function buildPlan(
   const contentLength = Number(response.headers.get("content-length") || "0");
   if (contentLength && contentLength < threshold) return null;
 
-  const encoding = negotiateEncoding(ctx.headers.get("accept-encoding") || "", supported);
-  if (!encoding) return null;
+  return negotiateEncoding(ctx.headers.get("accept-encoding") || "", supported);
+}
 
+const serveUncompressed = (
+  body: Uint8Array<ArrayBuffer>,
+  response: Response,
+  headers: Headers,
+): Response => {
+  headers.delete("content-encoding");
+  headers.set("content-length", String(body.byteLength));
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+const serveCompressed = (body: BodyInit, response: Response, headers: Headers): Response =>
+  new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+
+/**
+ * Async compression path (only reached when compression actually applies):
+ * build the headers, buffer the body once for the REAL size (tiny responses
+ * are skipped), then gzip via Rust / CompressionStream.
+ */
+async function compressResponse(
+  response: Response,
+  encoding: string,
+  threshold: number,
+  native: boolean,
+): Promise<Response> {
   const headers = new Headers(response.headers);
   headers.set("content-encoding", encoding);
   headers.delete("content-length");
@@ -148,10 +137,31 @@ async function buildPlan(
   try {
     body = new Uint8Array(await response.arrayBuffer());
   } catch {
-    return null;
+    return response;
   }
 
-  return { response, headers, body, encoding };
+  if (body.byteLength < threshold) {
+    return serveUncompressed(body, response, headers);
+  }
+
+  // Rust gzip fast path (buffered). If compression fails we serve the same
+  // bytes uncompressed.
+  if (native && encoding === "gzip" && isNativeAvailable()) {
+    return compressNativeGzip({ response, headers, body, encoding }, serveUncompressed);
+  }
+
+  const CS = (globalThis as any).CompressionStream;
+  if (typeof CS === "undefined") {
+    return response;
+  }
+
+  // Streaming compression over the already-buffered bytes.
+  const bodyStream = new Response(body as unknown as BodyInit).body;
+  if (!bodyStream) {
+    return response;
+  }
+  const compressed = bodyStream.pipeThrough(new CS(encoding));
+  return serveCompressed(compressed, response, headers);
 }
 
 /** Rust gzip fast path; serves the bytes uncompressed if compression fails. */

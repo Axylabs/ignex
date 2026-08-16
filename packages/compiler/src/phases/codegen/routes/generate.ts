@@ -91,6 +91,17 @@ export const generateRouteCode = (
   // path (`needsFull` already forces full context for set/cookie usage).
   const compact = !needsFull && !route.analysis.usage.set && !route.analysis.usage.cookie;
 
+  // Fully-synchronous route fast path: a statically-known sync handler → non-
+  // async core fn (zero per-request Promise/microtask — Elysia's JIT sync
+  // path). For compact routes the handler is called directly. For needsFull
+  // routes the sync path additionally requires NO validation (the native/JS
+  // validation prelude awaits body reads) and a statically-resolved handler
+  // (unresolvable → FULL_USAGE → needsFull), so isAsync is exact.
+  const routeIsSync = !route.analysis.isAsync && !(needsFull && route.analysis.hasValidation);
+  // Async resume fn name for the non-async needsFull path (cold, correctness-
+  // only — fires only when a hook returns a Promise, never for all-sync apps).
+  const resumeName = needsFull && routeIsSync ? `${coreName}__resume` : "";
+
   helpers.markUsed(routeReplyFn(route));
   helpers.markUsed("__finalize");
   if (!compact) helpers.markUsed("__applySet");
@@ -112,7 +123,7 @@ export const generateRouteCode = (
     // per-part validation block (native-first prelude when the route is
     // eligible and `nativeRoutes` is on — the addon pre-bakes the exact
     // query/cookie pipeline; otherwise the plain JS prelude).
-    pre.push(...buildFullContextPrelude(route, helpers));
+    pre.push(...buildFullContextPrelude(route, helpers, routeIsSync, resumeName));
     if (nativeRouteEligible(route, opts)) {
       emitNativeRouteVar(state, route, opts);
     }
@@ -141,6 +152,8 @@ export const generateRouteCode = (
     needsFull,
     compact,
     hasRouteHooks: route.analysis.hooks.length > 0,
+    sync: routeIsSync,
+    resumeName,
     serializersVar,
     routeHookVar,
     serviceName: cfg.serviceName,

@@ -22,7 +22,6 @@ import {
   evaluateConstantNode,
   extractConstantReturn,
   extractExportsAST,
-  extractHandler,
   extractHandlerExport,
   extractHandlerExportName,
   extractHandlerNodeAST,
@@ -258,14 +257,6 @@ describe("extractHandler / extractHandlerExport", () => {
     expect(extractHandlerNodeAST(parsed.ast)).toBeNull();
   });
 
-  it("extractHandler (legacy API) only handles default exports", () => {
-    const src = `export default () => "d";`;
-    const parsed = parseModule(src);
-    const h = extractHandler(src, parsed.ast);
-    expect(h).not.toBeNull();
-    expect(h?.exportKind).toBe("default");
-  });
-
   it("extractHandlerExport resolves named exports directly", () => {
     const src = `export const httpGet = (ctx) => ctx.text("hi");`;
     const parsed = parseModule(src);
@@ -275,15 +266,6 @@ describe("extractHandler / extractHandlerExport", () => {
     expect(h?.exportKind).toBe("named");
     expect(h?.exportName).toBe("httpGet");
     expect(h?.usage.text).toBe(true);
-  });
-
-  it("extraction tolerates a missing source string (defensive)", () => {
-    const parsed = parseModule(`export default () => "d";`);
-    // A malformed caller passing no source must not throw; body is empty.
-    const h = extractHandler(undefined as unknown as string, parsed.ast);
-    expect(h).not.toBeNull();
-    expect(h?.exportKind).toBe("default");
-    expect(h?.body).toBe("");
   });
 
   it("prefers the default export over a named handler", () => {

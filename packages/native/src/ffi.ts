@@ -35,11 +35,13 @@ export interface FfiSurface {
   crc32(input: Uint8Array): number;
   // json
   jsonValid(input: Uint8Array): boolean;
-  // validators
-  validateEmail(input: Uint8Array): boolean;
-  validateUuid(input: Uint8Array): boolean;
-  validateIpv4(input: Uint8Array): boolean;
-  validateIpv6(input: Uint8Array): boolean;
+  // validators — C-ABI `cstring` ARG (the engine transcodes the JS string to a
+  // call-scoped NUL-terminated buffer in-engine, so the JS side does ZERO
+  // `encoder.encode` work). NAPI still takes bytes; the wrapper branches.
+  validateEmail(input: string): boolean;
+  validateUuid(input: string): boolean;
+  validateIpv4(input: string): boolean;
+  validateIpv6(input: string): boolean;
   // crypto (cstring returns = engine clones the string natively — zero JS decode/alloc)
   hmacSha256(key: Uint8Array, data: Uint8Array): Uint8Array; // 64 lowercase-hex (bytes contract)
   hmacSha256Verify(key: Uint8Array, data: Uint8Array, sig: Uint8Array): boolean;
@@ -54,11 +56,8 @@ export interface FfiSurface {
   queryParsePacked(input: Uint8Array): Uint8Array;
   cookieParsePacked(input: Uint8Array): Uint8Array;
   formParsePacked(input: Uint8Array): Uint8Array;
-  // query/cookie header → JSON object TEXT (zero JS intermediate)
-  queryToJson(input: Uint8Array): string;
-  cookiesToJson(input: Uint8Array): string;
   // more cstring single-string outputs (engine-cloned) + buffer outputs
-  wsAcceptKey(key: Uint8Array): string; // RFC 6455 accept (28 B)
+  wsAcceptKey(key: string): string; // RFC 6455 accept (28 B) — `cstring` ARG
   jwtSignBytes(claims: Uint8Array, secret: Uint8Array, ttl: number | null, now: number): string;
   /** Verify → parsed claims object (cstring claims JSON) or `null` on invalid. */
   jwtVerify(token: Uint8Array, secret: Uint8Array, now: number): unknown;
@@ -76,15 +75,6 @@ export interface FfiSurface {
     ciphertext: Uint8Array,
     algorithm: string | null,
   ): Uint8Array | null;
-  /**
-   * Heterogeneous task group — MANY different actions in ONE FFI call.
-   * Input wire: `[u32 count]{[u8 op][u32 len][payload]}`; output wire:
-   * `[u32 count]{[u32 len][result]}`. See `tasks.ts` for the typed builder.
-   * `hint` = an upper bound on the output size (pre-sizes the buffer so the
-   * C fn runs ONCE — growExact's too-small path would otherwise re-run every
-   * task).
-   */
-  executeTasks(tasks: Uint8Array, hint?: number): Uint8Array;
 }
 
 // Raw C-ABI symbol signatures (`usize`/`u64`/`u32` returns surface as bigint).
@@ -129,7 +119,7 @@ const resolveFfiMode = (): FfiMode => {
  * C fn reports the EXACT size and this allocates once and retries — never a
  * doubling re-run loop.
  */
-function growExact(
+export function growExact(
   write: (out: Uint8Array) => number,
   initial: number,
   max: number,
@@ -195,10 +185,12 @@ function bind(): FfiSurface | null {
       castrum_fnv1a64: { args: ["ptr", "usize"], returns: "u64" },
       castrum_crc32: { args: ["ptr", "usize"], returns: "u32" },
       castrum_json_valid: { args: ["ptr", "usize"], returns: "u8" },
-      castrum_validate_email: { args: ["ptr", "usize"], returns: "u8" },
-      castrum_validate_uuid: { args: ["ptr", "usize"], returns: "u8" },
-      castrum_validate_ipv4: { args: ["ptr", "usize"], returns: "u8" },
-      castrum_validate_ipv6: { args: ["ptr", "usize"], returns: "u8" },
+      // Validators take a `cstring` ARG (castrum cstring-arg fast path ~76-82%)
+      // — the engine transcodes the JS string in-engine (zero JS encode).
+      castrum_validate_email: { args: ["cstring"], returns: "u8" },
+      castrum_validate_uuid: { args: ["cstring"], returns: "u8" },
+      castrum_validate_ipv4: { args: ["cstring"], returns: "u8" },
+      castrum_validate_ipv6: { args: ["cstring"], returns: "u8" },
       castrum_hmac_sha256: {
         args: ["ptr", "usize", "ptr", "usize", "ptr", "usize"],
         returns: "usize",
@@ -225,9 +217,8 @@ function bind(): FfiSurface | null {
         args: ["ptr", "usize", "ptr", "usize"],
         returns: "usize",
       },
-      castrum_query_to_json: { args: ["ptr", "usize"], returns: "cstring" },
-      castrum_cookies_to_json: { args: ["ptr", "usize"], returns: "cstring" },
-      castrum_ws_accept_key: { args: ["ptr", "usize"], returns: "cstring" },
+      // `ws_accept_key` takes a `cstring` ARG + returns `cstring` (engine-cloned).
+      castrum_ws_accept_key: { args: ["cstring"], returns: "cstring" },
       castrum_jwt_sign_bytes: {
         args: ["ptr", "usize", "ptr", "usize", "i64", "i64"],
         returns: "cstring",
@@ -252,7 +243,6 @@ function bind(): FfiSurface | null {
         args: ["ptr", "usize", "ptr", "usize", "ptr", "usize", "u8", "ptr", "usize"],
         returns: "usize",
       },
-      castrum_execute_tasks: { args: ["ptr", "usize", "ptr", "usize"], returns: "usize" },
     });
 
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint>;
@@ -270,16 +260,6 @@ function bind(): FfiSurface | null {
         `${label}: parse failed`,
       );
 
-    // cstring-returning writer (engine clones the result string natively —
-    // zero JS decode/alloc). `null` = real parse error (malformed %XX).
-    const jsonStr =
-      (raw: ((...a: unknown[]) => unknown) | undefined, label: string) =>
-      (input: Uint8Array): string => {
-        const v = raw?.(input, input.length) as string | null;
-        if (typeof v !== "string") throw new Error(`${label}: parse failed`);
-        return v;
-      };
-
     // Generic cstring-returning symbol → string (null → null). The engine
     // clones the result string natively at the call — zero JS decode/alloc.
     const cstr =
@@ -294,10 +274,12 @@ function bind(): FfiSurface | null {
       fnv1a64: (input) => BigInt(one(s.castrum_fnv1a64 as RawIn, input)),
       crc32: (input) => Number(one(s.castrum_crc32 as RawIn, input)) >>> 0,
       jsonValid: (input) => Number(one(s.castrum_json_valid as RawIn, input)) === 1,
-      validateEmail: (input) => Number(one(s.castrum_validate_email as RawIn, input)) === 1,
-      validateUuid: (input) => Number(one(s.castrum_validate_uuid as RawIn, input)) === 1,
-      validateIpv4: (input) => Number(one(s.castrum_validate_ipv4 as RawIn, input)) === 1,
-      validateIpv6: (input) => Number(one(s.castrum_validate_ipv6 as RawIn, input)) === 1,
+      // C-ABI validators take a `cstring` ARG — pass the JS string directly
+      // (the engine transcodes in-engine; zero JS encode). `null` → false.
+      validateEmail: (input) => Number(s.castrum_validate_email?.(input) ?? 0) === 1,
+      validateUuid: (input) => Number(s.castrum_validate_uuid?.(input) ?? 0) === 1,
+      validateIpv4: (input) => Number(s.castrum_validate_ipv4?.(input) ?? 0) === 1,
+      validateIpv6: (input) => Number(s.castrum_validate_ipv6?.(input) ?? 0) === 1,
 
       hmacSha256: (key, data) => {
         const out = new Uint8Array(64); // 64 lowercase-hex chars
@@ -351,16 +333,11 @@ function bind(): FfiSurface | null {
       cookieParsePacked: (input) =>
         packedWrite(s.castrum_cookie_parse_packed as Raw4, input, "cookie"),
       formParsePacked: (input) => packedWrite(s.castrum_form_parse_packed as Raw4, input, "form"),
-      // JSON-text writers return `cstring`: the ENGINE clones the result string
-      // natively at the call (zero JS decode, zero allocation, zero growExact —
-      // the Rust side owns a per-thread reused buffer). `null` = real parse
-      // error (malformed %XX). This removes the decode side of the
-      // encode→decode round trip for these single-string outputs.
-      queryToJson: jsonStr(s.castrum_query_to_json, "query"),
-      cookiesToJson: jsonStr(s.castrum_cookies_to_json, "cookies"),
       // More cstring single-string outputs (engine clones the string natively).
+      // `ws_accept_key` takes a `cstring` ARG — pass the raw key string (the
+      // engine transcodes in-engine; zero JS encode).
       wsAcceptKey: (key) => {
-        const v = cstr(s.castrum_ws_accept_key)(key, key.length);
+        const v = cstr(s.castrum_ws_accept_key)(key);
         if (v === null) throw new Error("ws accept key: failed");
         return v;
       },
@@ -446,19 +423,6 @@ function bind(): FfiSurface | null {
         );
         return w === 0 ? null : out.subarray(0, w);
       },
-      executeTasks: (tasks, hint) => {
-        // growExact fits perfectly: the C fn returns the EXACT total needed
-        // when the buffer is too small (never a doubling re-run loop). With a
-        // good `hint` (tasks.ts computes the per-op output bound) the first
-        // attempt fits and the group runs ONCE.
-        const execute = s.castrum_execute_tasks as Raw4;
-        return growExact(
-          (out) => Number(execute(tasks, tasks.length, out, out.length)),
-          Math.max(64, hint ?? tasks.length * 2),
-          16 * 1024 * 1024,
-          "execute tasks: output buffer too small",
-        );
-      },
     };
 
     if (!selfTest(surface)) {
@@ -518,16 +482,16 @@ function selfTest(surface: FfiSurface): boolean {
     surface.jsonValid(enc.encode('{"a":1}')) === native.jsonValid(enc.encode('{"a":1}')),
   );
   for (const fn of ["validateEmail", "validateUuid", "validateIpv4", "validateIpv6"] as const) {
-    const input = enc.encode(
+    const str =
       fn === "validateEmail"
         ? "ada@example.com"
         : fn === "validateUuid"
           ? "123e4567-e89b-12d3-a456-426614174000"
           : fn === "validateIpv4"
             ? "192.168.0.1"
-            : "2001:db8::1",
-    );
-    check(fn, surface[fn](input) === native[fn](input));
+            : "2001:db8::1";
+    // FFI takes a `cstring` (JS string); NAPI takes bytes.
+    check(fn, surface[fn](str) === native[fn](enc.encode(str)));
   }
   check("hmacSha256", eq(surface.hmacSha256(key, data), native.hmacSha256(key, data)));
   const sig = surface.hmacSha256(key, data);
@@ -571,31 +535,16 @@ function selfTest(surface: FfiSurface): boolean {
     ),
   );
 
-  // cstring JSON writers: the engine clones the string natively — assert the
-  // exact text (not bytes), and that malformed %XX is a real error (throws).
+  // wsAcceptKey (cstring ARG + cstring return): RFC 6455 test vector. FFI takes
+  // the raw key string; NAPI takes bytes.
   {
-    const q = surface.queryToJson(enc.encode("a=1&b=hello%20world"));
-    check("queryToJson", q === '{"a":"1","b":"hello world"}');
-    const c = surface.cookiesToJson(enc.encode("sid=abc; theme=dark"));
-    check("cookiesToJson", c === '{"sid":"abc","theme":"dark"}');
-    let threw = false;
-    try {
-      surface.queryToJson(enc.encode("a=%ZZ"));
-    } catch {
-      threw = true;
-    }
-    check("queryToJson-malformed-throws", threw);
+    const key = "dGhlIHNhbXBsZSBub25jZQ==";
+    check(
+      "wsAcceptKey",
+      surface.wsAcceptKey(key) === "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" &&
+        eq(enc.encode(surface.wsAcceptKey(key)), native.wsAcceptKey(enc.encode(key))),
+    );
   }
-  // wsAcceptKey (cstring): RFC 6455 test vector.
-  check(
-    "wsAcceptKey",
-    surface.wsAcceptKey(enc.encode("dGhlIHNhbXBsZSBub25jZQ==")) ===
-      "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" &&
-      eq(
-        enc.encode(surface.wsAcceptKey(enc.encode("dGhlIHNhbXBsZSBub25jZQ=="))),
-        native.wsAcceptKey(enc.encode("dGhlIHNhbXBsZSBub25jZQ==")),
-      ),
-  );
   // jwtSignBytes (cstring) round-trips through NAPI verify.
   {
     const claims = enc.encode('{"sub":"user-1"}');
@@ -635,89 +584,9 @@ function selfTest(surface: FfiSurface): boolean {
     );
   }
 
-  // Task-group parity: one executeTasks call must match the per-op NAPI scalar
-  // results byte-for-byte (op tags from tasks.ts: 0 fnv1a64, 3 validateEmail,
-  // 7 hmacSha256, 10 verifyCookie, 15 queryParsePacked).
-  check(
-    "executeTasks",
-    (() => {
-      const packTaskList = (items: Array<[number, Uint8Array]>): Uint8Array => {
-        let total = 4;
-        for (const [, p] of items) total += 1 + 4 + p.length;
-        const buf = new Uint8Array(total);
-        const dv = new DataView(buf.buffer);
-        dv.setUint32(0, items.length, true);
-        let pos = 4;
-        for (const [tag, payload] of items) {
-          buf[pos] = tag;
-          pos += 1;
-          dv.setUint32(pos, payload.length, true);
-          pos += 4;
-          buf.set(payload, pos);
-          pos += payload.length;
-        }
-        return buf;
-      };
-      const lenAt = (buf: Uint8Array, at: number): number =>
-        new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getUint32(at, true);
-      const tKey = enc.encode("k".repeat(32));
-      const tData = enc.encode("hello world");
-      const tSecret = enc.encode("s".repeat(32));
-      const tSigned = surface.signCookie(tData, tSecret); // cstring (string)
-      const tSignedBytes = enc.encode(tSigned);
-      const hmacPayload = (() => {
-        const b = new Uint8Array(4 + tKey.length + tData.length);
-        const dv = new DataView(b.buffer);
-        dv.setUint32(0, tKey.length, true);
-        b.set(tKey, 4);
-        b.set(tData, 4 + tKey.length);
-        return b;
-      })();
-      const vcPayload = (() => {
-        const b = new Uint8Array(4 + tSignedBytes.length + tSecret.length);
-        const dv = new DataView(b.buffer);
-        dv.setUint32(0, tSignedBytes.length, true);
-        b.set(tSignedBytes, 4);
-        b.set(tSecret, 4 + tSignedBytes.length);
-        return b;
-      })();
-      const tOut = surface.executeTasks(
-        packTaskList([
-          [0, tData],
-          [3, enc.encode("ada@example.com")],
-          [7, hmacPayload],
-          [10, vcPayload],
-          [15, q],
-        ]),
-      );
-      const tCount = lenAt(tOut, 0);
-      let tp = 4;
-      const results: Uint8Array[] = [];
-      for (let i = 0; i < tCount; i++) {
-        const len = lenAt(tOut, tp);
-        tp += 4;
-        results.push(tOut.subarray(tp, tp + len));
-        tp += len;
-      }
-      const [fnv, email, mac, cookie, query] = results as [
-        Uint8Array,
-        Uint8Array,
-        Uint8Array,
-        Uint8Array,
-        Uint8Array,
-      ];
-      return (
-        results.length === 5 &&
-        fnv.length === 8 &&
-        new DataView(fnv.buffer, fnv.byteOffset).getBigUint64(0, true) === native.fnv1a64(tData) &&
-        email[0] === (native.validateEmail(enc.encode("ada@example.com")) ? 1 : 0) &&
-        eq(mac, native.hmacSha256(tKey, tData)) &&
-        cookie.length > 0 &&
-        eq(cookie, native.verifyCookie(tSignedBytes, tSecret)) &&
-        eq(query, native.queryParsePacked(q))
-      );
-    })(),
-  );
+  // NOTE: the former task-group (`castrum_execute_tasks`) parity check was
+  // removed — castrum dropped the symbol and the JS `runTasks` wrapper was
+  // deleted (it had no production consumers and degraded to a per-task loop).
 
   if (failures.length > 0 && process.env.IGNEX_FFI_MODE === "ffi") {
     console.error("[ignex-native] ffi self-test failures:", failures.join(", "));
@@ -801,4 +670,308 @@ export const getFfiRoute = (): FfiRouteSurface | null => {
     routeCached = null;
   }
   return routeCached;
+};
+
+/**
+ * The C-ABI opaque-handle instance surface — castrum's Phase-6 stateful
+ * instances evaluate each per-call op through a C-ABI symbol via the opaque
+ * inner pointer (`innerPtr()`), collapsing the ~100-350ns NAPI crossing to the
+ * ~10-20ns C-ABI crossing. The JS wrapper holds the napi instance alive for
+ * the handle's lifetime (same contract as `castrum_route_*`); a null (0)
+ * handle never dereferences freed state. Bound LAZILY in a separate `dlopen`
+ * so a castrum build lacking these symbols cannot break the primary surface.
+ */
+export interface FfiInstancesSurface {
+  /** SchemaValidator: validate a JSON doc against the compiled schema → 1/0. */
+  schemaValidatorValidate(inner: number, doc: Uint8Array): boolean;
+  /**
+   * TemplateRenderer: render the compiled template with pre-serialized JSON
+   * context → bytes written (needed-size convention; 0 = real error).
+   */
+  templateRender(inner: number, context: Uint8Array, out: Uint8Array): number;
+  /** AcceptNegotiator: best supported encoding → cstring (`null` = identity). */
+  acceptNegotiatorNegotiate(inner: number, header: Uint8Array): string | null;
+  /** ConditionalRequest: 304 check → 1 when not-modified (flags = presence bits). */
+  conditionalIsNotModified(
+    inner: number,
+    ifNoneMatch: Uint8Array | null,
+    ifModifiedSince: Uint8Array | null,
+  ): boolean;
+}
+
+let instancesCached: FfiInstancesSurface | null | undefined;
+
+/** Lazy bind of the opaque-handle instance C-ABI surface (`null` when absent). */
+export const getFfiInstances = (): FfiInstancesSurface | null => {
+  if (instancesCached !== undefined) return instancesCached;
+  instancesCached = null;
+  if (process.env.IGNEX_NATIVE === "off") return null;
+
+  const path = getAddonPath();
+  if (!path) return null;
+
+  type DlopenFn = (
+    path: string,
+    symbols: Record<string, { args: readonly string[]; returns: string }>,
+  ) => { symbols: Record<string, (...a: unknown[]) => number | bigint | undefined>; close(): void };
+
+  let dlopen: DlopenFn;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = createRequire(import.meta.url)("bun:ffi") as { dlopen: DlopenFn };
+    dlopen = mod.dlopen;
+  } catch {
+    return null;
+  }
+
+  try {
+    const { symbols } = dlopen(path, {
+      castrum_schema_validator_validate: { args: ["u64", "ptr", "usize"], returns: "u8" },
+      castrum_template_render: {
+        args: ["u64", "ptr", "usize", "ptr", "usize"],
+        returns: "usize",
+      },
+      castrum_accept_negotiator_negotiate: {
+        args: ["u64", "ptr", "usize"],
+        returns: "cstring",
+      },
+      castrum_conditional_is_not_modified: {
+        args: ["u64", "ptr", "usize", "ptr", "usize", "u8"],
+        returns: "u8",
+      },
+    });
+    const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    instancesCached = {
+      schemaValidatorValidate: (inner, doc) =>
+        Number(s.castrum_schema_validator_validate?.(inner, doc, doc.length) ?? 0) === 1,
+      templateRender: (inner, context, out) =>
+        Number(s.castrum_template_render?.(inner, context, context.length, out, out.length) ?? 0),
+      acceptNegotiatorNegotiate: (inner, header) => {
+        const v = s.castrum_accept_negotiator_negotiate?.(inner, header, header.length);
+        return typeof v === "string" ? v : null;
+      },
+      conditionalIsNotModified: (inner, ifNoneMatch, ifModifiedSince) =>
+        Number(
+          s.castrum_conditional_is_not_modified?.(
+            inner,
+            ifNoneMatch,
+            ifNoneMatch?.length ?? 0,
+            ifModifiedSince,
+            ifModifiedSince?.length ?? 0,
+            (ifNoneMatch ? 1 : 0) | (ifModifiedSince ? 2 : 0),
+          ) ?? 0,
+        ) === 1,
+    };
+  } catch {
+    // Addon lacks the instance surface — not an error.
+    instancesCached = null;
+  }
+  return instancesCached;
+};
+
+// ── Ingress pipeline C-ABI (`castrum_ingress_*`) ─────────────────
+// The full native ingress pipeline (CORS / rate-limit / IP-trust / body-guard /
+// JSON-schema) driven directly from ignex — NO castrum TS-layer round trip.
+// Transfer is minimal-overhead by construction:
+//   - `url`/`ip` are `cstring` ARGs — the engine transcodes the JS strings to
+//     call-scoped NUL-terminated buffers in-engine (ZERO JS-side encode, no
+//     frame assembly for URL/IP);
+//   - every `(ptr,len)` pair uses the probe-gated `buffer`/`buffer_length` ABI
+//     (the engine reads ptr + byteLength off the SAME TypedArray at call time —
+//     an atomic snapshot, one JS arg instead of two); falls back to `(ptr,len)`;
+//   - the 48-byte output header is decoded with cached DataView reads (no
+//     TextDecoder, no intermediate objects).
+// The opaque `inner` is the napi `Ingress.ingressInnerPtr()` handle; the JS
+// wrapper holds the napi instance alive for the handle's lifetime (same
+// contract as the route/instance surfaces). Bound LAZILY in a separate dlopen
+// so a build lacking the symbols cannot break the primary surface.
+
+/** Empty view passed for absent optional byte sections (body/rid). */
+const EMPTY_VIEW = new Uint8Array(0);
+
+/** The C-ABI ingress pipeline surface. */
+export interface FfiIngressSurface {
+  /**
+   * Run the full ingress pipeline from raw request components. `url`/`ip` are
+   * passed as JS strings (`cstring` ARGs — the engine transcodes in-engine,
+   * zero JS encode). `headers` is the packed `[u16 count]{[u16 klen][key]
+   * [u32 vlen][value]}` block. Returns bytes written (0 = error/too-small).
+   */
+  ingressHandleComponents(
+    inner: number,
+    methodKind: number,
+    url: string,
+    ip: string,
+    rid: Uint8Array,
+    headers: Uint8Array,
+    body: Uint8Array | null,
+    out: Uint8Array,
+  ): number;
+  /**
+   * Run the ingress pipeline from a packed request frame
+   * (`[method u8][url][ip][rid] len-prefixed sections + [u16 count] headers`).
+   */
+  ingressHandlePacked(
+    inner: number,
+    input: Uint8Array,
+    body: Uint8Array | null,
+    out: Uint8Array,
+  ): number;
+  /** Read the 38×u32 LE ingress layout blob into `out`; returns bytes written. */
+  ingressLayout(out: Uint8Array): number;
+}
+
+let ingressCached: FfiIngressSurface | null | undefined;
+
+/**
+ * Probe whether this Bun accepts the `buffer`/`buffer_length` ABI pair in
+ * `dlopen` (an earlier canary threw "invalid ABI type" for it). When supported
+ * we bind every `(ptr,len)` pair as `(buffer, buffer_length)` — the engine
+ * reads ptr + byteLength off the SAME view at call time (atomic snapshot, one
+ * JS arg instead of two); otherwise we fall back to explicit `(ptr, usize)`.
+ */
+function probeBufferLength(
+  dlopen: (
+    path: string,
+    symbols: Record<string, { args: readonly string[]; returns: string }>,
+  ) => { symbols: Record<string, (...a: unknown[]) => unknown>; close(): void },
+  path: string,
+): boolean {
+  try {
+    const { symbols, close } = dlopen(path, {
+      castrum_crc32: {
+        args: ["buffer", "buffer_length"] as unknown as readonly string[],
+        returns: "u32",
+      },
+    });
+    const view = new Uint8Array([1, 2, 3]);
+    const out = symbols.castrum_crc32?.(view, view);
+    close();
+    return typeof out === "number" && out >= 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Lazy bind of the ingress C-ABI surface (`null` when absent). */
+export const getFfiIngress = (): FfiIngressSurface | null => {
+  if (ingressCached !== undefined) return ingressCached;
+  ingressCached = null;
+  if (process.env.IGNEX_NATIVE === "off") return null;
+
+  const path = getAddonPath();
+  if (!path) return null;
+
+  type DlopenFn = (
+    path: string,
+    symbols: Record<string, { args: readonly string[]; returns: string }>,
+  ) => { symbols: Record<string, (...a: unknown[]) => number | bigint | undefined>; close(): void };
+
+  let dlopen: DlopenFn;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = createRequire(import.meta.url)("bun:ffi") as { dlopen: DlopenFn };
+    dlopen = mod.dlopen;
+  } catch {
+    return null;
+  }
+
+  try {
+    const useBufferLength = probeBufferLength(
+      dlopen as (
+        p: string,
+        s: Record<string, { args: readonly string[]; returns: string }>,
+      ) => {
+        symbols: Record<string, (...a: unknown[]) => unknown>;
+        close(): void;
+      },
+      path,
+    );
+    // Convert `(ptr, usize)` pairs → `(buffer, buffer_length)` when supported
+    // (scalar args like the `usize` inner handle pass through unchanged).
+    const abi = (shape: readonly string[]): readonly string[] => {
+      if (!useBufferLength) return shape;
+      const out: string[] = [];
+      for (let i = 0; i < shape.length; i++) {
+        // len-bound loop → `shape[i]` is always defined (noUncheckedIndexedAccess).
+        const t = shape[i] as string;
+        if (t === "ptr") {
+          out.push("buffer", "buffer_length");
+          i++;
+        } else {
+          out.push(t);
+        }
+      }
+      return out;
+    };
+    const { symbols } = dlopen(path, {
+      castrum_ingress_handle_components: {
+        args: abi([
+          "usize",
+          "u8",
+          "cstring",
+          "cstring",
+          "ptr",
+          "usize",
+          "ptr",
+          "usize",
+          "ptr",
+          "usize",
+          "ptr",
+          "usize",
+        ]),
+        returns: "usize",
+      },
+      castrum_ingress_handle_packed: {
+        args: abi(["usize", "ptr", "usize", "ptr", "usize", "ptr", "usize"]),
+        returns: "usize",
+      },
+      castrum_ingress_layout: { args: abi(["ptr", "usize"]), returns: "usize" },
+    });
+    const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    // Under `buffer`/`buffer_length` the length slot is the SAME view (the
+    // engine reads its byteLength); under `(ptr,len)` it's the explicit length.
+    // Bind-time constant → the JIT folds the branch away.
+    const lenOrView = (v: Uint8Array): Uint8Array | number => (useBufferLength ? v : v.length);
+    ingressCached = {
+      ingressHandleComponents(inner, methodKind, url, ip, rid, headers, body, out) {
+        return Number(
+          s.castrum_ingress_handle_components?.(
+            inner,
+            methodKind,
+            url,
+            ip,
+            rid,
+            lenOrView(rid),
+            headers,
+            lenOrView(headers),
+            body ?? EMPTY_VIEW,
+            body ? lenOrView(body) : lenOrView(EMPTY_VIEW),
+            out,
+            lenOrView(out),
+          ) ?? 0,
+        );
+      },
+      ingressHandlePacked(inner, input, body, out) {
+        return Number(
+          s.castrum_ingress_handle_packed?.(
+            inner,
+            input,
+            lenOrView(input),
+            body ?? EMPTY_VIEW,
+            body ? lenOrView(body) : lenOrView(EMPTY_VIEW),
+            out,
+            lenOrView(out),
+          ) ?? 0,
+        );
+      },
+      ingressLayout(out) {
+        return Number(s.castrum_ingress_layout?.(out, lenOrView(out)) ?? 0);
+      },
+    };
+  } catch {
+    // Addon lacks the ingress surface — not an error.
+    ingressCached = null;
+  }
+  return ingressCached;
 };

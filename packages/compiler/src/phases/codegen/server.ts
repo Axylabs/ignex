@@ -35,6 +35,11 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
     `if (__serverCfg.idleTimeout) __serveOptions.idleTimeout = __serverCfg.idleTimeout;`,
   );
 
+  // Static default response headers (security headers, wildcard CORS): served
+  // natively by Bun's default-header sink — applied to every response with
+  // zero per-request JS (replaces the per-request `security()`/`cors()` hooks).
+  functions.push(`if (__serverCfg.headers) __serveOptions.headers = __serverCfg.headers;`);
+
   functions.push(`const __server = Bun.serve(__serveOptions);`);
 
   functions.push(

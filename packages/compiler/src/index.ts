@@ -31,7 +31,7 @@ import { runAnalysis } from "./phases/analysis";
 import { writeArtifacts } from "./phases/artifacts";
 import { runCodeGen } from "./phases/codegen";
 import { runDiscovery } from "./phases/discovery";
-import { runLinker, runLinkerAsync } from "./phases/linker";
+import { runLinkerAsync } from "./phases/linker";
 import { runOptimization } from "./phases/optimization";
 import { precompileSerializers } from "./phases/serializers";
 import { precompileValidators } from "./phases/validators";
@@ -289,32 +289,23 @@ export const runCodegenPhase = (
     return code;
   });
 
-/**
- * Run the (sync) linking phase: bundle/minify the emitted server via
- * `Bun.build`. Exposed for custom pipelines.
- */
-export const runLinkingPhase = (
-  code: string,
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-): string => runLinker(code, opts, ctx);
-
-/** Async variant of {@link runLinkingPhase}. */
+/** Bundle/minify the emitted server via `Bun.build`. */
 export const runLinkingPhaseAsync = (
   code: string,
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): Promise<string> => runLinkerAsync(code, opts, ctx);
 
-const finish = (
-  code: string,
-  outPath: string,
-  ctx: CompilerContext,
-  elapsed: number,
-  cached = false,
-  meta?: OptimizationMeta,
-  changedRoutes?: string[],
-): CompileResult => {
+const finish = (opts: {
+  code: string;
+  outPath: string;
+  ctx: CompilerContext;
+  elapsed: number;
+  cached?: boolean | undefined;
+  meta?: OptimizationMeta | undefined;
+  changedRoutes?: string[] | undefined;
+}): CompileResult => {
+  const { code, outPath, ctx, elapsed, cached = false, meta, changedRoutes } = opts;
   ctx.logger.info("build complete", {
     elapsedMs: Number(elapsed.toFixed(2)),
     outPath,
@@ -387,7 +378,7 @@ export class IgnexCompiler {
     });
 
     // Incremental fast path: reuse the previous build when nothing changed.
-    let routeChanges = computeRouteChanges(opts);
+    let routeChanges: ReturnType<typeof computeRouteChanges>;
     if (opts.incremental) {
       const cached = await tryCachedBuild(opts, ctx);
       if (cached) {
@@ -417,7 +408,14 @@ export class IgnexCompiler {
           }
         }
         const elapsed = performance.now() - t0;
-        return finish(cached.code, cached.outFile, ctx, elapsed, true, cached.meta);
+        return finish({
+          code: cached.code,
+          outPath: cached.outFile,
+          ctx,
+          elapsed,
+          cached: true,
+          meta: cached.meta,
+        });
       }
 
       // Whole-build cache miss: report exactly which route files changed since
@@ -429,6 +427,9 @@ export class IgnexCompiler {
           `Incremental build — ${routeChanges.changed.length} route(s) changed: ${routeChanges.changed.join(", ")}`,
         );
       }
+    } else {
+      // Non-incremental full build: compute the change set once for metadata.
+      routeChanges = computeRouteChanges(opts);
     }
 
     const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
@@ -454,15 +455,14 @@ export class IgnexCompiler {
       );
     }
 
-    return finish(
-      state.code as string,
-      state.outPath as string,
+    return finish({
+      code: state.code as string,
+      outPath: state.outPath as string,
       ctx,
       elapsed,
-      false,
-      state.meta,
-      routeChanges?.changed,
-    );
+      meta: state.meta,
+      changedRoutes: routeChanges?.changed,
+    });
   }
 }
 

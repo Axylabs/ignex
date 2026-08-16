@@ -13,7 +13,6 @@
  * (each still consults the same table).
  */
 
-export { batch, type NativeBatch } from "./batch";
 export {
   aeadDecrypt,
   aeadDecryptFallback,
@@ -110,6 +109,17 @@ export {
   queryToJsonFallback,
 } from "./http";
 export {
+  buildIngressHeaderPlan,
+  type CreateNativeIngressRouterOptions,
+  createNativeIngress,
+  createNativeIngressRouter,
+  type IngressHeaderPlan,
+  type NativeIngress,
+  type NativeIngressRouter,
+  type NativeIngressRouterRoute,
+  type NativeIngressRuntime,
+} from "./ingress";
+export {
   createSchemaValidator,
   jsonPatch,
   jsonPatchFallback,
@@ -197,14 +207,6 @@ export {
   withScratch,
 } from "./scratch";
 export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
-export {
-  packTasks,
-  packTasksInto,
-  packTasksLength,
-  runTasks,
-  type Task,
-  type TaskResult,
-} from "./tasks";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export {

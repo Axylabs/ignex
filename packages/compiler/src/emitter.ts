@@ -39,10 +39,6 @@ export class Emitter {
     return this;
   }
 
-  get length(): number {
-    return this.out.length;
-  }
-
   toString(): string {
     return this.out.join("\n");
   }

@@ -43,6 +43,20 @@ export function parseRouteInput(raw: string, methodFlag?: string): ParsedRoute {
     throw new Error("Route path is required.");
   }
 
+  // Reject path traversal / absolute segments so `ignex route ../../x` (or via
+  // the MCP route tool) can't write outside the routes dir — mirrors the
+  // `create` command guard. `..` is rejected only as a whole segment so
+  // legitimate names like `foo..bar` still parse.
+  if (
+    input.split("/").some((segment) => segment === "..") ||
+    input.includes("\\") ||
+    /^[A-Za-z]:[\\/]/.test(input)
+  ) {
+    throw new Error(
+      `Invalid route path: "${raw}". Route paths must stay inside the routes directory.`,
+    );
+  }
+
   let method: RouteMethod;
   if (methodFlag !== undefined) {
     const normalized = normalizeMethod(methodFlag);

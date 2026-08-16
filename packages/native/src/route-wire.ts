@@ -23,7 +23,8 @@
  * instead of being misparsed.
  */
 
-import { ffiBuf, ffiString, ffiU32 } from "./ffi-read";
+import { ffiBuf, ffiU32 } from "./ffi-read";
+import { readPairsSection } from "./packed";
 import { encoder } from "./util";
 
 /** Magic that identifies a route descriptor (`"ROUT"`). */
@@ -343,37 +344,51 @@ export interface NativeRouteRunResult {
   readonly cookie: ReadonlyArray<[string, string]>;
 }
 
+/** Which pair sections to decode from a result (match the plan's pipeline). */
+export interface ReadRouteResultOptions {
+  /**
+   * Decode the query pair section. Present ONLY when the plan runs a
+   * `parseQuery` stage — body-only routes carry no query section, so reading
+   * it would walk past the result wire. Default `true`.
+   */
+  readonly query?: boolean;
+  /**
+   * Decode the cookie pair section. Present ONLY when the plan runs a
+   * `parseCookies` stage. Default `true`.
+   */
+  readonly cookie?: boolean;
+}
+
 /**
  * Decode the result wire into a typed {@link NativeRouteRunResult}. The
  * pair sections use the standard packed-pairs layout (`readPairsPacked`), so
  * callers can re-use the existing `pairsToObject` / grouping helpers.
  *
+ * A pair section is present only when the plan runs its parse stage
+ * (`parseQuery` / `parseCookies`) — the Rust writer emits the header plus
+ * exactly the sections its stages produced. Pass `{ query, cookie }` matching
+ * the plan so a body-only route (header-only wire) decodes `[]` instead of
+ * walking past the end of the buffer.
+ *
  * Decodes through the shared bun:ffi fast path (`ffi-read.ts`): no DataView
  * allocation, engine-native `CString` string reads; DataView/TextDecoder
  * fallback under Node. Both are byte-identical.
  */
-export const readRouteResult = (buf: Uint8Array): NativeRouteRunResult => {
+export const readRouteResult = (
+  buf: Uint8Array,
+  opts: ReadRouteResultOptions = {},
+): NativeRouteRunResult => {
   const b = ffiBuf(buf);
   const flags = ffiU32(b, 0);
   const errorCode = ffiU32(b, 4);
+  const readQuery = opts.query !== false;
+  const readCookie = opts.cookie !== false;
   let pos = 8;
 
   const readPairs = (): Array<[string, string]> => {
-    const count = ffiU32(b, pos);
-    pos += 4;
-    const out: Array<[string, string]> = [];
-    for (let i = 0; i < count; i++) {
-      const nameLen = ffiU32(b, pos);
-      pos += 4;
-      const name = ffiString(b, pos, nameLen);
-      pos += nameLen;
-      const valueLen = ffiU32(b, pos);
-      pos += 4;
-      const value = ffiString(b, pos, valueLen);
-      pos += valueLen;
-      out.push([name, value]);
-    }
-    return out;
+    const section = readPairsSection(b, pos);
+    pos = section.nextPos;
+    return section.pairs;
   };
 
   return {
@@ -385,7 +400,7 @@ export const readRouteResult = (buf: Uint8Array): NativeRouteRunResult => {
     bodyValid: (flags & ROUTE_RESULT_FLAG_BODY_VALID) !== 0,
     paramsValid: (flags & ROUTE_RESULT_FLAG_PARAMS_VALID) !== 0,
     headersValid: (flags & ROUTE_RESULT_FLAG_HEADERS_VALID) !== 0,
-    query: readPairs(),
-    cookie: readPairs(),
+    query: readQuery ? readPairs() : [],
+    cookie: readCookie ? readPairs() : [],
   };
 };

@@ -38,9 +38,20 @@ export interface NativePipeline {
   /**
    * Run the native pre-flight pipeline for a request. On any native failure
    * (or when the pipeline is unavailable) this resolves to a non-terminal
-   * outcome so the request flow is never broken by the addon.
+   * outcome so the request flow is never broken by the addon. Returns the
+   * outcome synchronously where possible (the direct C-ABI path) — callers
+   * should `await` only when the value is a Promise.
    */
-  preprocess(request: Request, ip?: string): Promise<NativePreflightOutcome>;
+  preprocess(
+    request: Request,
+    ip?: string,
+  ): NativePreflightOutcome | Promise<NativePreflightOutcome>;
+  /**
+   * True when the pipeline config needs the client IP (rate-limit / trust-proxy
+   * enabled). Callers should only resolve `ctx.ip` (a native `requestIP` lookup)
+   * when this is true — passing `undefined` otherwise is a free fast path.
+   */
+  readonly needsIp: boolean;
 }
 
 /** Minimal structural view of castrum's `createPipeline`/`IngressPipeline`. */
@@ -188,6 +199,10 @@ export const createNativePipeline = async (
   if (!runPipeline) return null;
 
   return {
+    // The legacy (castrum TS) path is async — it may read the request body —
+    // and it always takes the caller-provided ip through to the pipeline, so
+    // `needsIp` is conservatively true (resolving ctx.ip is correct for it).
+    needsIp: true,
     async preprocess(request, ip) {
       try {
         const out = (await runPipeline(request, ip)) as CastrumOutcome;

@@ -11,32 +11,62 @@ import { basename, join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions } from "../types";
 
+/** Minimal Bun.build log shape (message + optional source position). */
+interface BunBuildLog {
+  readonly message?: string;
+  readonly position?: { readonly file?: string; readonly line?: number; readonly column?: number };
+}
+
+/** Minimal Bun.build result surface the linker reads. */
+interface BunBuildResult {
+  readonly success: boolean;
+  readonly logs?: readonly BunBuildLog[];
+  readonly outputs?: ReadonlyArray<{ readonly path?: string }>;
+}
+
+/** The small subset of the Bun runtime the linker uses. */
+interface BunRuntime {
+  build(opts: unknown): Promise<BunBuildResult>;
+  write(path: string, data: string): Promise<number>;
+  file(path: string): { text(): Promise<string> };
+}
+
 export const formatBuildLogs = (input: unknown): string => {
-  const logs: any[] = Array.isArray(input)
+  const raw = Array.isArray(input)
     ? input
     : input && typeof input === "object" && "logs" in input
-      ? ((input as any).logs ?? [])
+      ? ((input as { logs?: unknown }).logs ?? [])
       : [];
+  const logs = Array.isArray(raw) ? raw : [];
 
-  if (!logs.length) return "";
+  if (logs.length === 0) return "";
 
   return (
     "\n" +
     logs
       .map((log) => {
         if (typeof log === "string") return log;
-
-        const pos = log?.position
-          ? ` (${log.position.file}:${log.position.line}:${log.position.column})`
+        if (typeof log !== "object" || log === null) return String(log);
+        const entry = log as BunBuildLog;
+        const pos = entry.position
+          ? ` (${entry.position.file}:${entry.position.line}:${entry.position.column})`
           : "";
-
-        return `${log?.message ?? String(log)}${pos}`;
+        return `${entry.message ?? String(log)}${pos}`;
       })
       .join("\n")
   );
 };
 
-const bun: any = (globalThis as any).Bun;
+const bun = (globalThis as { Bun?: BunRuntime }).Bun;
+
+/** Recursively pull `errors`/`logs` off an unknown Bun.build failure. */
+const errorLogs = (err: unknown): unknown => {
+  if (typeof err !== "object" || err === null) return undefined;
+  const e = err as { errors?: unknown; logs?: unknown; cause?: unknown };
+  if (e.errors) return e.errors;
+  if (e.logs) return e.logs;
+  return errorLogs(e.cause);
+};
 
 const writeRaw = (
   outPath: string,
@@ -60,8 +90,8 @@ const buildWithFallback = async (
   entryPath: string,
   opts: CompilerOptions,
   ctx: CompilerContext,
-): Promise<any | null> => {
-  const buildOptions: any = {
+): Promise<BunBuildResult | null> => {
+  const buildOptions: Record<string, unknown> = {
     entrypoints: [entryPath],
     outdir: opts.outDir,
     target: "bun",
@@ -71,9 +101,10 @@ const buildWithFallback = async (
   };
 
   try {
-    const result = await bun.build(buildOptions);
+    // Only reached after the `!bun?.build` guard in `runLinkerAsync`.
+    const result = await bun!.build(buildOptions);
     if (!result.success) {
-      const message = (result.logs ?? []).map((log: any) => log?.message ?? String(log)).join("\n");
+      const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
       rmSync(entryPath, { force: true });
       ctx.diagnostics.error({
         code: DiagnosticCodes.LinkFailed,
@@ -82,12 +113,10 @@ const buildWithFallback = async (
       return null;
     }
     return result;
-  } catch (err: any) {
+  } catch (err: unknown) {
     rmSync(entryPath, { force: true });
 
-    const details = formatBuildLogs(
-      err?.errors ?? err?.logs ?? err?.cause?.errors ?? err?.cause?.logs,
-    );
+    const details = formatBuildLogs(errorLogs(err));
 
     ctx.diagnostics.error({
       code: DiagnosticCodes.LinkFailed,
@@ -132,12 +161,12 @@ const fixSourceMap = async (
   }
 
   if (existsSync(outPath)) {
-    const text = await bun.file(outPath).text();
+    const text = await bun!.file(outPath).text();
     const fixed = text.replace(
       /\/\/# sourceMappingURL=.*$/m,
       `//# sourceMappingURL=${basename(mapOut)}`,
     );
-    await bun.write(outPath, fixed);
+    await bun!.write(outPath, fixed);
   }
 };
 
@@ -202,23 +231,3 @@ export const runLinkerAsync = async (
 
   return outPath;
 };
-
-/**
- * Sync fallback.
- *
- * Bun.build is async, so synchronous compile() cannot use it.
- * Prefer buildAsync() in production.
- */
-export const runLinker = (code: string, opts: CompilerOptions, ctx: CompilerContext): string =>
-  ctx.logger.time("linker", () => {
-    mkdirSync(opts.outDir, { recursive: true });
-
-    const outPath = join(opts.outDir, opts.outFile);
-
-    return writeRaw(
-      outPath,
-      code,
-      ctx,
-      "Sync linker wrote unminified output. Use buildAsync() for Bun.build minification.",
-    );
-  });

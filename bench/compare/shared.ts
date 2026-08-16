@@ -26,6 +26,8 @@ export const PORTS = {
   ignus: 9122,
   /** AOT-compiled ignus participant (opt-in via `SERVER=ignus-aot`). */
   "ignus-aot": 9123,
+  /** Interpreted ignus + Rust nativePreflight (measures the native delta). */
+  "ignus-native": 9124,
 } as const;
 
 export type ServerKind = keyof typeof PORTS;

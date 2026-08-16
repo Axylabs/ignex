@@ -2,6 +2,7 @@
  * @fileoverview Accept negotiation (Accept-Encoding / Accept-Language).
  */
 
+import { getFfiInstances } from "../ffi";
 import { nativeFor } from "../runtime";
 import { toBytes } from "../util";
 import type { EncodingPrefResult } from "./types";
@@ -59,9 +60,14 @@ export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
   if (n && typeof n.AcceptNegotiator === "function") {
     try {
       const inst = new n.AcceptNegotiator(supported);
+      // Opaque-handle C-ABI fast path — per-call `negotiate` drops from ~395ns
+      // (NAPI) to ~125ns (C-ABI) on the compiled instance (bench 2026-08-16).
+      const ffiInst = getFfiInstances();
+      const inner = ffiInst ? Number(inst.innerPtr()) : 0;
       return {
         negotiate(header) {
           if (header == null) return null;
+          if (inner) return ffiInst!.acceptNegotiatorNegotiate(inner, toBytes(header));
           return inst.negotiate(toBytes(header));
         },
       };

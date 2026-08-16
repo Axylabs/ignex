@@ -4,6 +4,10 @@
 
 import type { CompilerOptions, RouteIR } from "../../types";
 
+/**
+ * Generate the build `manifest.json` — per-route metadata (method, path,
+ * file, response type, usage) for tooling and observability.
+ */
 export const generateManifest = (
   routes: readonly RouteIR[],
   opts: CompilerOptions,

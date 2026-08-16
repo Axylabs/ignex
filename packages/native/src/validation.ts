@@ -3,6 +3,7 @@
  * IPv4 and IPv6 checks. Fallbacks use standard, robust regexes / Node `net`.
  */
 import { isIP } from "node:net";
+import { isFfiActive } from "./ffi";
 import { nativeFor } from "./runtime";
 import { toBytes } from "./util";
 
@@ -29,23 +30,40 @@ export const validateIpv6Fallback = (input: string): boolean => isIP(input) === 
 /** Validate an email address (native-accelerated; regex fallback). */
 export const validateEmail = (input: string): boolean => {
   const n = nativeFor("validateEmail");
-  return n ? n.validateEmail(toBytes(input)) : validateEmailFallback(input);
+  if (!n) return validateEmailFallback(input);
+  // C-ABI `cstring` ARG takes the raw string (zero JS encode); NAPI needs bytes.
+  if (isFfiActive()) {
+    return Boolean((n as unknown as { validateEmail(i: string): boolean }).validateEmail(input));
+  }
+  return Boolean(n.validateEmail(toBytes(input)));
 };
 
 /** Validate a UUID v4 (native-accelerated; regex fallback). */
 export const validateUuid = (input: string): boolean => {
   const n = nativeFor("validateUuid");
-  return n ? n.validateUuid(toBytes(input)) : validateUuidFallback(input);
+  if (!n) return validateUuidFallback(input);
+  if (isFfiActive()) {
+    return Boolean((n as unknown as { validateUuid(i: string): boolean }).validateUuid(input));
+  }
+  return Boolean(n.validateUuid(toBytes(input)));
 };
 
 /** Validate an IPv4 address (native-accelerated; regex fallback). */
 export const validateIpv4 = (input: string): boolean => {
   const n = nativeFor("validateIpv4");
-  return n ? n.validateIpv4(toBytes(input)) : validateIpv4Fallback(input);
+  if (!n) return validateIpv4Fallback(input);
+  if (isFfiActive()) {
+    return Boolean((n as unknown as { validateIpv4(i: string): boolean }).validateIpv4(input));
+  }
+  return Boolean(n.validateIpv4(toBytes(input)));
 };
 
 /** Validate an IPv6 address (native-accelerated; `net.isIP` fallback). */
 export const validateIpv6 = (input: string): boolean => {
   const n = nativeFor("validateIpv6");
-  return n ? n.validateIpv6(toBytes(input)) : validateIpv6Fallback(input);
+  if (!n) return validateIpv6Fallback(input);
+  if (isFfiActive()) {
+    return Boolean((n as unknown as { validateIpv6(i: string): boolean }).validateIpv6(input));
+  }
+  return Boolean(n.validateIpv6(toBytes(input)));
 };

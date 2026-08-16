@@ -3,6 +3,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { DiagnosticCodes } from "../../diagnostics";
 import type { SourceManager } from "../../frontend";
 import type { CompilerContext, HookDef, RouteIR } from "../../types";
@@ -28,7 +29,7 @@ export const resolveHook = (
   sources: SourceManager,
   ctx?: CompilerContext,
 ): HookDef | undefined => {
-  const rel = `${hooksDir}/${name}.ts`;
+  const rel = join(hooksDir, `${name}.ts`);
   const abs = projectPath(rel);
 
   if (!existsSync(abs)) {

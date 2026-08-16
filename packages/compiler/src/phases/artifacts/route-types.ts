@@ -13,6 +13,10 @@ ${lines.join("\n")}
   }`;
 };
 
+/**
+ * Generate `routes.d.ts` — the typed `IgnexRoutes` interface (per-route
+ * params/body/response types) for the emitted server.
+ */
 export const generateRouteTypes = (routes: readonly RouteIR[]): string => {
   const lines: string[] = [];
 

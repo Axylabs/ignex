@@ -11,7 +11,7 @@
 import type { Emitter } from "../../../emitter";
 import type { RouteIR } from "../../../types";
 import { ctxOptsVar, handlerImportName, validatorImportName } from "../identifiers";
-import { validationFlags } from "./validate";
+import { emitValidatorThrow, validationFlags } from "./validate";
 
 /** Build the usage-specialized object-literal props for the handler call. */
 const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
@@ -87,7 +87,12 @@ const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
 };
 
 /** Emit the full-context prelude (context creation + global pre-hooks). */
-export const buildFullContextPrelude = (route: RouteIR, helpers: Emitter): string[] => {
+export const buildFullContextPrelude = (
+  route: RouteIR,
+  helpers: Emitter,
+  sync = false,
+  resumeName = "",
+): string[] => {
   helpers.markCore("runHooks");
   helpers.markCore("createContext");
   // The per-route opts const (`__ctxOpts_<ref>`, frozen at module scope) is
@@ -96,13 +101,28 @@ export const buildFullContextPrelude = (route: RouteIR, helpers: Emitter): strin
   return [
     `let ctx = createContext(req, params ?? EMPTY_PARAMS, ${ctxOptsVar(route)});`,
     `ctx.server = server;`,
-    `{
+    sync
+      ? `{
+  // start → request → parse → transform run before validation; the pre-parse
+  // stage runs in delegation form (non-async core fn): on a Promise the
+  // remainder is handed to the async resume (cold path — only fires for async
+  // hooks, never for all-sync apps).
+  if (__hasPreParse) {
+    const __r = runHooks(__preParseStages, ctx);
+    if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
+    const __globalPre = __r;
+    if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+    ctx = __globalPre.ctx ?? ctx;
+  }
+}`
+      : `{
   // start → request → parse → transform run before validation; beforeHandle
   // and per-route hooks run after validation (see below). This keeps the
   // compiled stage order aligned with the interpreted runLifecycle. Skipped
   // entirely when no pre-parse hooks are registered.
-  if (__preParseStages && __preParseStages.length > 0) {
-    const __globalPre = await runHooks(__preParseStages, ctx);
+  if (__hasPreParse) {
+    const __r = runHooks(__preParseStages, ctx);
+    const __globalPre = __r instanceof Promise ? await __r : __r;
     if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
     ctx = __globalPre.ctx ?? ctx;
   }
@@ -128,9 +148,7 @@ export const buildSpecializedContext = (
 
   if (hasParamsValidator) {
     helpers.markUsed("validationError");
-    pre.push(`if (!${validatorImportName(route, "params")}(__params)) {
-  throw validationError(${validatorImportName(route, "params")}.errors ?? {}, "params");
-}`);
+    pre.push(emitValidatorThrow(validatorImportName(route, "params"), "params", "__params"));
   }
 
   const needUrl = route.analysis.usage.url || (route.analysis.usage.query && !hasQueryValidator);
@@ -144,9 +162,7 @@ export const buildSpecializedContext = (
       helpers.markUsed("validationError");
       helpers.markCore("parseQueryFromURL");
       pre.push(`const query = parseQueryFromURL(req.url);`);
-      pre.push(`if (!${validatorImportName(route, "query")}(query)) {
-  throw validationError(${validatorImportName(route, "query")}.errors ?? {}, "query");
-}`);
+      pre.push(emitValidatorThrow(validatorImportName(route, "query"), "query", "query"));
     } else {
       pre.push(`const query = url.searchParams;`);
     }
@@ -156,9 +172,7 @@ export const buildSpecializedContext = (
     if (hasHeadersValidator) {
       helpers.markUsed("validationError");
       pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
-      pre.push(`if (!${validatorImportName(route, "headers")}(__headers)) {
-  throw validationError(${validatorImportName(route, "headers")}.errors ?? {}, "headers");
-}`);
+      pre.push(emitValidatorThrow(validatorImportName(route, "headers"), "headers", "__headers"));
     }
   }
 
@@ -173,9 +187,7 @@ export const buildSpecializedContext = (
 
     if (hasBodyValidator) {
       pre.push(`const __body = await body.json();`);
-      pre.push(`if (!${validatorImportName(route, "body")}(__body)) {
-  throw validationError(${validatorImportName(route, "body")}.errors ?? {}, "body");
-}`);
+      pre.push(emitValidatorThrow(validatorImportName(route, "body"), "body", "__body"));
       pre.push(`body.json = async () => __body;`);
     }
   }

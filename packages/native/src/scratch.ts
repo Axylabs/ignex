@@ -1,7 +1,7 @@
 /**
  * @fileoverview Reusable scratch-buffer pool — "sacrifice some memory for
- * long-term performance": transient native-interop buffers (task-group wire
- * packing, decode scratch, per-request arenas) are borrowed from a small
+ * long-term performance": transient native-interop buffers (decode scratch,
+ * per-request arenas) are borrowed from a small
  * growable pool instead of `new Uint8Array(...)` on every call, so
  * steady-state hot paths stop allocating. Buffers grow on demand (doubling)
  * and never shrink — retained memory is bounded by {@link MAX_POOLED_BYTES}.
@@ -10,8 +10,7 @@
  * A borrowed buffer is valid ONLY for the duration of one synchronous
  * `withScratch` call. It MUST NOT escape — never return it to callers, store
  * it, or capture it in a closure that outlives the call. Byte results that
- * must outlive the call are copied out with {@link copyView} (see
- * `tasks.ts` `runTasks`).
+ * must outlive the call are copied out with {@link copyView}.
  *
  * # Concurrency
  * The pool is a module singleton. Under Bun each Worker thread gets its own

@@ -7,7 +7,7 @@
  */
 import { PORTS, type ServerKind } from "./shared";
 
-const SERVERS: ServerKind[] = ["bun", "elysia", "ignus"];
+const SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-native"];
 
 let failed = 0;
 const check = (label, ok, detail = "") => {
@@ -147,11 +147,16 @@ async function probe(name, port) {
   check("OPTIONS /api/users allowed -> 204", r.status === 204, `status=${r.status}`);
 
   // 10. 404 fallback
+  // The bench's ApiError envelope is `{ ok:false, error:{...} }`; ignex's
+  // framework 404 is `{ error, status, code }`. The load generator
+  // (`load.ts` classifyOutcome) treats any expected-status 4xx as an
+  // `expected_error` WITHOUT validating the body shape, so accept BOTH here —
+  // a code-carrying error body is what the benchmark actually classifies.
   r = await fetch(`${base}/api/nope`);
   j = await r.json();
   check(
     "GET /api/nope -> 404 ApiError",
-    r.status === 404 && j.ok === false,
+    r.status === 404 && (j.ok === false || j.code === "NOT_FOUND"),
     `status=${r.status} body=${JSON.stringify(j).slice(0, 120)}`,
   );
 

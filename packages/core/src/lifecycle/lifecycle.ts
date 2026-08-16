@@ -81,29 +81,86 @@ export interface IgnexApp {
   readonly lifecycle: LifeCycleStore;
 }
 
-/** Mirror of the compiler-generated `__runHooks` hook-execution semantics. */
-export const runHooks = async (
+/** Outcome of a hook chain: continue with `ctx`, or halt with a `response`. */
+export interface RunHooksResult {
+  ctx: IgnexContext;
+  response?: Response;
+}
+
+/** Interpret one hook result: halt with a Response or continue with a ctx. */
+const interpretHook = (
+  result: unknown,
+  ctx: IgnexContext,
+): { halted: Response | undefined; next: IgnexContext } => {
+  if (result instanceof Response) return { halted: result, next: ctx };
+  if (result && typeof result === "object") {
+    const res = result as { ok?: boolean; response?: Response; ctx?: IgnexContext };
+    if (res.ok === false && res.response instanceof Response)
+      return { halted: res.response, next: ctx };
+    if (res.response instanceof Response) return { halted: res.response, next: ctx };
+    if (res.ctx) return { halted: undefined, next: res.ctx };
+  }
+  return { halted: undefined, next: ctx };
+};
+
+/**
+ * Run hooks until one halts, WITHOUT forcing an async boundary when every hook
+ * is synchronous (the common case: cors/security/ratelimit/logger, native-
+ * preflight steady state, sync i18n). Returns the result object synchronously;
+ * only when a hook actually returns a Promise is an async continuation used
+ * for the remainder. Existing `await` callers keep working; hot-path callers
+ * branch on `instanceof Promise` to stay microtask-free (the compiled server
+ * emits exactly that).
+ */
+export const runHooks = (
   hooks: readonly HookContainer[] | undefined,
   ctx: IgnexContext,
   arg?: unknown,
-): Promise<{ ctx: IgnexContext; response?: Response }> => {
+): RunHooksResult | Promise<RunHooksResult> => {
   let current = ctx;
   if (!hooks || hooks.length === 0) return { ctx: current };
-  for (const entry of hooks) {
-    const fn = typeof entry === "function" ? entry : entry?.fn;
+  for (let i = 0; i < hooks.length; i++) {
+    const entry = hooks[i];
+    if (entry == null) continue;
+    const fn = typeof entry === "function" ? entry : entry.fn;
     if (typeof fn !== "function") continue;
-    const result = arg === undefined ? await fn(current) : await fn(current, arg);
-    if (result instanceof Response) return { response: result, ctx: current };
-    if (result && typeof result === "object") {
-      const r = result as { ok?: boolean; response?: Response; ctx?: IgnexContext };
-      if (r.ok === false && r.response instanceof Response)
-        return { response: r.response, ctx: current };
-      if (r.response instanceof Response) return { response: r.response, ctx: current };
-      if (r.ctx) current = r.ctx;
+    const r = arg === undefined ? fn(current) : fn(current, arg);
+    if (r instanceof Promise) {
+      // An async hook: continue the remainder asynchronously from here.
+      return (async () => {
+        const first = interpretHook(await r, current);
+        if (first.halted) return { response: first.halted, ctx: current };
+        return runHooksAsync(hooks, i + 1, first.next, arg);
+      })();
     }
+    const out = interpretHook(r, current);
+    if (out.halted) return { response: out.halted, ctx: current };
+    current = out.next;
   }
   return { ctx: current };
 };
+
+/** Async continuation used once an async hook is encountered. */
+async function runHooksAsync(
+  hooks: readonly HookContainer[],
+  start: number,
+  ctx: IgnexContext,
+  arg?: unknown,
+): Promise<RunHooksResult> {
+  let current = ctx;
+  for (let i = start; i < hooks.length; i++) {
+    const entry = hooks[i];
+    if (entry == null) continue;
+    const fn = typeof entry === "function" ? entry : entry.fn;
+    if (typeof fn !== "function") continue;
+    const r = arg === undefined ? fn(current) : fn(current, arg);
+    const result = r instanceof Promise ? await r : r;
+    const out = interpretHook(result, current);
+    if (out.halted) return { response: out.halted, ctx: current };
+    current = out.next;
+  }
+  return { ctx: current };
+}
 
 /**
  * Build a runtime app from lifecycle hooks/plugins and a base handler.
@@ -339,9 +396,10 @@ export const runLifecycle = async (
   let halted = false;
 
   const errorStage = async (err: unknown): Promise<Response> => {
-    let handled: Awaited<ReturnType<typeof runHooks>>;
+    let handled: RunHooksResult;
     try {
-      handled = await runHooks(lc.error ?? [], current, err);
+      const __r = runHooks(lc.error ?? [], current, err);
+      handled = __r instanceof Promise ? await __r : __r;
     } catch {
       // An error-stage hook that throws must not mask the original error —
       // fall back to the default error response (matches compiled __handleError).
@@ -350,11 +408,29 @@ export const runLifecycle = async (
     return handled.response ?? errorToResponse(err, exposeErrors);
   };
 
+  // Observe-only stage (afterResponse / trace): run hooks for side effects and
+  // never replace the response. A throwing observability hook is surfaced (so
+  // broken hooks are debuggable) but can't corrupt an already-finalized
+  // response — matches the compiled server.
+  const observe = async (
+    hooks: readonly HookContainer[] | undefined,
+    label: string,
+  ): Promise<void> => {
+    if ((hooks?.length ?? 0) === 0) return;
+    try {
+      const __r = runHooks(hooks, current, response as Response);
+      if (__r instanceof Promise) await __r;
+    } catch (err) {
+      console.error(`[ignex] ${label} hook error:`, err);
+    }
+  };
+
   try {
     // Pre-handler stages. When the chain is empty there is nothing to run —
     // `current` stays as the incoming ctx and no hook results are synthesized.
     if (pre.length > 0) {
-      const preResult = await runHooks(pre, current);
+      const __r = runHooks(pre, current);
+      const preResult = __r instanceof Promise ? await __r : __r;
       current = preResult.ctx;
       halted = preResult.response !== undefined;
       response = preResult.response;
@@ -371,30 +447,16 @@ export const runLifecycle = async (
 
     // Post-handler stages — may replace the response.
     if (!halted && response !== undefined && post.length > 0) {
-      const postResult = await runHooks(post, current, response);
+      const __r = runHooks(post, current, response);
+      const postResult = __r instanceof Promise ? await __r : __r;
       response = postResult.response ?? response;
     }
 
-    // afterResponse (observe-only): a throwing observability hook must not
-    // corrupt an already-finalized response (e.g. turn a 200 into a 500), but
-    // the error is surfaced so broken hooks are debuggable (matches compiled).
-    if (!halted && response !== undefined && (lc.afterResponse?.length ?? 0) > 0) {
-      try {
-        await runHooks(lc.afterResponse, current, response);
-      } catch (err) {
-        console.error("[ignex] afterResponse hook error:", err);
-      }
-    }
-
-    // `trace` is the final observe-only stage (declared after `afterResponse`
-    // in LifeCycleStore); it receives the finalized response and can never
-    // replace or corrupt it. A throwing trace hook is a bug — surface it.
-    if (!halted && response !== undefined && (lc.trace?.length ?? 0) > 0) {
-      try {
-        await runHooks(lc.trace, current, response);
-      } catch (err) {
-        console.error("[ignex] trace hook error:", err);
-      }
+    // afterResponse then `trace` (observe-only; declared in that order in
+    // LifeCycleStore), each receiving the finalized response.
+    if (!halted && response !== undefined) {
+      await observe(lc.afterResponse, "afterResponse");
+      await observe(lc.trace, "trace");
     }
 
     // A pre-halt returns the response untouched; otherwise apply the

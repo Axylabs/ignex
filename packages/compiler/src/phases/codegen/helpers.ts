@@ -77,11 +77,12 @@ export const HELPER_SOURCES: Record<string, string> = {
   const ih = init && init.headers;
   // Fast path: no init headers — plain-object headers (no Headers alloc), and
   // no rest/spread when init is undefined (the common ctx.json(data) call).
-  // The body is encoded here (one TextEncoder pass) and the real byte length
-  // is authoritative — Bun only materializes content-length at serve time, so
-  // without this, middleware (compression) must buffer every response just to
-  // learn its size. Emitting it lets compression skip buffering small bodies.
-  const h = { "content-type": type };
+  // The static server.headers defaults (security headers, wildcard CORS) are
+  // merged in from the frozen __DEFAULT_HEADERS (a module constant: null when
+  // unset, so the branch folds away and unconfigured servers pay nothing);
+  // init/route headers are applied afterward and win on conflict.
+  const h = __DEFAULT_HEADERS ? { ...__DEFAULT_HEADERS } : {};
+  h["content-type"] = type;
   if (bytes !== null) h["content-length"] = String(bytes.byteLength);
   if (!ih) {
     if (init === undefined) return new Response(bytes, { headers: h });
@@ -135,7 +136,8 @@ export const HELPER_SOURCES: Record<string, string> = {
 };`,
   __handleError: `async function __handleError(err, ctx) {
   try {
-    const r = await runHooks(__lc.error, ctx, err);
+    const __r = runHooks(__lc.error, ctx, err);
+    const r = __r instanceof Promise ? await __r : __r;
     if (r.response) return __applySet(r.response, r.ctx?.set ?? ctx?.set);
   } catch {
     // An error-stage hook that throws must not mask the original error.
@@ -227,7 +229,8 @@ export const HELPER_SOURCES: Record<string, string> = {
   ctx.server = server;
 
   // Run the full pre-handler chain so plugins/hooks apply to preflight too.
-  const pre = await runHooks(__preStages, ctx);
+  const __r = runHooks(__preStages, ctx);
+  const pre = __r instanceof Promise ? await __r : __r;
   let response = pre.response ?? new Response(null, { status: 204 });
   response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
 
@@ -274,12 +277,15 @@ export const HELPER_SOURCES: Record<string, string> = {
     const ctx = createContext(req, EMPTY_PARAMS, __ctxOpts);
     ctx.server = server;
 
-    const pre = await runHooks(__preStages, ctx);
+    const __r1 = runHooks(__preStages, ctx);
+    const pre = __r1 instanceof Promise ? await __r1 : __r1;
     if (pre.response) return __applySet(pre.response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
 
-    const post = await runHooks(__postStages, pre.ctx, response);
+    const __r2 = runHooks(__postStages, pre.ctx, response);
+    const post = __r2 instanceof Promise ? await __r2 : __r2;
     response = post.response ?? response;
-    await runHooks(__lc.afterResponse ?? [], pre.ctx, response);
+    const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, response);
+    if (__r3 instanceof Promise) await __r3;
     response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
   }
 

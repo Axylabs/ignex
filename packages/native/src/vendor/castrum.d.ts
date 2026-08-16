@@ -17,6 +17,37 @@
 export declare class TemplateRenderer {
   constructor(source: string);
   render(context: any): Uint8Array;
+  /** Opaque handle for the C-ABI instance fast path (`castrum_template_render`). */
+  innerPtr(): bigint;
+}
+
+/**
+ * The native ingress pipeline instance (the full 8-stage core: CORS, rate
+ * limit, IP-trust, body guard, JSON schema). `createNativeIngress` constructs
+ * it via the addon and drives the C-ABI `castrum_ingress_*` symbols through
+ * `ingressInnerPtr()` (held alive for the handle's lifetime).
+ */
+export declare class Ingress {
+  constructor(options: unknown);
+  /** Opaque handle for the C-ABI ingress fast path (`castrum_ingress_handle_*`). */
+  ingressInnerPtr(): bigint;
+  handleRequestPacked(input: Uint8Array, body: Uint8Array | null, output: Uint8Array): number;
+  handleRequestFullSync(input: Uint8Array, body: Uint8Array | null): Uint8Array;
+  handleRequestFullSyncInto(input: Uint8Array, body: Uint8Array | null, output: Uint8Array): number;
+}
+
+/**
+ * Per-route native stack (the route-wire v3 contract). Constructed from a
+ * compiled route descriptor; `run` processes one packed request frame and
+ * returns the packed verdict result bytes written (`0` = error / too-small,
+ * `> output.length` = the exact required size — the growExact convention).
+ * `bindNapiRoute` uses this as the Node/fallback transport behind
+ * `createNativeRoute`.
+ */
+export declare class Route {
+  constructor(descriptor: Uint8Array);
+  run(frame: Uint8Array, output: Uint8Array): number;
+  destroy?(): void;
 }
 
 /**
@@ -205,11 +236,15 @@ export declare function hmacSha256VerifyBatchPacked(
 export declare class ConditionalRequest {
   constructor(etagValue: Uint8Array, lastModifiedSecs?: number | null);
   isNotModified(ifNoneMatch: Uint8Array | null, ifModifiedSince: Uint8Array | null): boolean;
+  /** Opaque handle for the C-ABI instance fast path (`castrum_conditional_is_not_modified`). */
+  innerPtr(): bigint;
 }
 
 export declare class AcceptNegotiator {
   constructor(supported: Array<string>);
   negotiate(header: Uint8Array): string | null;
+  /** Opaque handle for the C-ABI instance fast path (`castrum_accept_negotiator_negotiate`). */
+  innerPtr(): bigint;
 }
 
 export declare class FormParser {
@@ -226,6 +261,8 @@ export declare class SchemaValidator {
   validateBatchStreaming(batchBytes: Uint8Array): number;
   /** One-pass validate + extract (see `@ignex/native` `JsonDeriveResult`). */
   derive(input: Uint8Array, paths: string[]): CastrumJsonDeriveResult | null;
+  /** Opaque handle for the C-ABI instance fast path (`castrum_schema_validator_validate`). */
+  innerPtr(): bigint;
 }
 
 /** Mirror of castrum's `JsonDeriveResult` napi object. */

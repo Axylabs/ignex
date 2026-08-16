@@ -7,12 +7,16 @@
  * with a `loop` object, and `{# comments #}`. Complex Jinja features are
  * available only through the native addon.
  */
+import { getFfiInstances, growExact } from "./ffi";
 import { nativeFor } from "./runtime";
-import { fromBytes } from "./util";
+import { encoder, fromBytes } from "./util";
 
 interface NativeTemplateRenderer {
   render(context: unknown): Uint8Array;
 }
+
+/** Hard cap for template render output (needed-size convention). */
+const MAX_TEMPLATE_OUTPUT = 64 * 1024 * 1024;
 
 /**
  * Build a compiled native renderer via the `createTemplateRenderer` factory
@@ -27,7 +31,28 @@ const createNativeRenderer = (
   const n = nativeFor(op);
   if (!n || typeof n.TemplateRenderer !== "function") return null;
   try {
-    return new n.TemplateRenderer(source);
+    const inst = new n.TemplateRenderer(source);
+    // Opaque-handle C-ABI fast path — the per-call `render` crossing drops from
+    // ~1684ns (NAPI object marshal) to ~610ns (C-ABI pre-serialized JSON
+    // context) on the compiled template (bench 2026-08-16; null handle → NAPI).
+    const ffiInst = getFfiInstances();
+    const inner = ffiInst ? Number(inst.innerPtr()) : 0;
+    return {
+      render(context) {
+        if (inner) {
+          // C-ABI takes PRE-SERIALIZED JSON context (napi marshals the object
+          // itself). Needed-size convention → growExact (exact retry once).
+          const ctxBytes = encoder.encode(JSON.stringify(context));
+          return growExact(
+            (out) => ffiInst!.templateRender(inner, ctxBytes, out),
+            ctxBytes.length * 4 + 64,
+            MAX_TEMPLATE_OUTPUT,
+            "template render failed",
+          );
+        }
+        return inst.render(context);
+      },
+    };
   } catch {
     return null;
   }

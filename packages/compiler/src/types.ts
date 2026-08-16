@@ -129,12 +129,12 @@ export interface CompilerOptions {
 
   /**
    * Emit a per-route pre-baked native stack (`createNativeRoute`) for
-   * full-context routes that parse/validate query or cookies. The addon
-   * (castrum with the route module) parses them in ONE C-ABI call; when the
-   * addon lacks the route surface the compiled core fn falls back to the JS
-   * prelude (byte-parity preserved). Default `false` — off unless explicitly
-   * enabled (runtime-dependent; requires a castrum build that ships the route
-   * module).
+   * full-context routes that parse/validate query/cookies or validate an
+   * unread body. The addon (castrum with the route module) parses them in ONE
+   * C-ABI call; when the addon lacks the route surface the compiled core fn
+   * falls back to the JS prelude (byte-parity preserved). Default `true`
+   * (Phase 4) — a missing/unloaded addon degrades gracefully to the JS
+   * prelude at runtime.
    */
   readonly nativeRoutes?: boolean;
 
@@ -194,6 +194,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     enableHandlerDeduplication: true,
     precompileValidators: false,
     precompileSerializers: false,
+    nativeRoutes: true,
     hoistConstants: true,
     specializeContext: true,
     treeshakeRuntime: true,
@@ -205,6 +206,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     enableHandlerDeduplication: true,
     precompileValidators: true,
     precompileSerializers: true,
+    nativeRoutes: true,
     hoistConstants: true,
     specializeContext: true,
     treeshakeRuntime: true,
@@ -251,6 +253,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
 
   precompileValidators: true,
   precompileSerializers: true,
+  nativeRoutes: true,
 
   hoistConstants: true,
   specializeContext: true,
@@ -402,5 +405,11 @@ export interface CompilerContext {
   readonly diagnostics: DiagnosticCollector;
 }
 
-/** @deprecated Use {@link CompileResult}. Kept as an alias for back-compat. */
-export type CompiledRoute = CompileResult;
+/**
+ * The five validate-able schema parts, in canonical (validator-generation)
+ * order. Single source of truth for the part list — precompilation
+ * (`validators.ts`) and codegen import assembly (`codegen/imports.ts`) both
+ * iterate it. NOTE: codegen's validation PRELUDE uses a different emission
+ * order (`params` first) — see `codegen/routes/validate.ts` `PART_KINDS`.
+ */
+export const SCHEMA_PARTS = ["body", "query", "params", "headers", "cookie"] as const;

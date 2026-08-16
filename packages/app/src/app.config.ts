@@ -4,22 +4,12 @@
  * The compiler reads this file at build time and merges `plugins`, `lifecycle`
  * and `server` into the generated `Bun.serve` entry.
  */
-import {
-  compression,
-  cors,
-  createI18n,
-  type IgnexPlugin,
-  nativePreflight,
-  security,
-  session,
-} from "@ignex/core";
+import { compression, createI18n, type IgnexPlugin, nativePreflight, session } from "@ignex/core";
 
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 
 export const plugins: IgnexPlugin[] = [
-  cors(),
   compression(),
-  security(),
   // Lazy sessions: `createIfMissing: "lazy"` defers session creation until a
   // handler actually reads it (via `getSession`), so requests that never use
   // a session (health checks, static routes, most APIs) do ZERO session work —
@@ -27,22 +17,26 @@ export const plugins: IgnexPlugin[] = [
   // `rolling: false` avoids re-signing the cookie on every request that merely
   // carries a valid session; the cookie is only rewritten when data changes.
   session({ secret: SESSION_SECRET, createIfMissing: "lazy", rolling: false }),
-  // Native pre-flight pipeline (castrum Rust ingress): one FFI call per
-  // request enforces the default URL/header/query limits before the app
-  // handler runs. The `runtime.securityHeaders` list pre-bakes the app's
-  // security headers into the Rust pipeline at boot (`init()`), so
-  // terminal/error responses (413, 400/422, 429, CORS-forbidden) carry the
-  // same security posture as the OK path WITHOUT a JS lifecycle round-trip.
-  // CORS preflight (OPTIONS) stays with the JS `cors()` plugin because it
-  // echoes the per-request origin. `readBody` stays false so the framework
-  // owns the request body. A safe no-op when the Rust addon is absent (or
-  // with IGNEX_NATIVE=off).
+  // Native pre-flight pipeline (castrum Rust ingress): ONE FFI call per request
+  // owns CORS (wildcard preflight + forbidden, browser-accurate via
+  // access-control-request-method) and the URL/header/query limits, and bakes
+  // `securityHeaders` into terminal/error responses. The OK-path static
+  // security headers + `Access-Control-Allow-Origin: *` are served natively by
+  // Bun's `server.headers` default sink (see `server` below) — zero per-request
+  // JS for CORS/security. `compression()` stays JS (Bun's gzip beats the Rust
+  // gzip on this workload); `session()` stays JS (app store logic; its crypto
+  // is already native via FFI). `readBody` stays false so the framework owns
+  // the request body. A safe no-op when the Rust addon is absent.
   nativePreflight({
+    cors: {
+      allowOrigin: ["*"],
+      allowMethods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+      maxAge: 86400,
+    },
     runtime: {
       // Baked into castrum's terminal/error header templates (frameOptions,
-      // nosniff, referrerPolicy). HSTS is deliberately excluded: the JS
-      // security() plugin only ever sends it over HTTPS, and terminal
-      // responses are never HTTPS-terminated here.
+      // nosniff, referrerPolicy). HSTS is deliberately excluded: it is HTTPS-
+      // only and belongs at the TLS-terminating proxy.
       securityHeaders: [
         ["x-frame-options", "DENY"],
         ["x-content-type-options", "nosniff"],
@@ -65,6 +59,24 @@ export const lifecycle = {
   request: [i18n.middleware()],
 };
 
+// Static response headers served natively by Bun's default-header sink (applied
+// to every response with zero per-request JS). Replaces the per-request JS
+// `security()` plugin for the static set (HSTS stays out — HTTPS-only, belongs
+// at the TLS-terminating proxy) and provides the OK-path CORS wildcard (native
+// castrum CORS owns preflight; `Access-Control-Allow-Origin: *` is equivalent
+// to the origin echo for non-credentialed requests).
 export const server = {
   port: Number(process.env.PORT ?? 3000),
+  headers: {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Security-Policy":
+      "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-XSS-Protection": "0",
+  },
 };

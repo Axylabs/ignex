@@ -17,7 +17,13 @@ export default defineConfig({
       // must come before the package root (`@ignex/core/http` must not match
       // `@ignex/core` first) — mirrors the root vitest.config.ts.
       "@ignex/core/http": alias("../core/src/http/route.ts"),
+      "@ignex/core/jobs": alias("../core/src/jobs.ts"),
+      "@ignex/core/content": alias("../core/src/content/index.ts"),
+      "@ignex/core/openapi": alias("../core/src/openapi.ts"),
+      "@ignex/core/config": alias("../core/src/platform/config.ts"),
+      "@ignex/core/*": alias("../core/src/*"),
       "@ignex/core": alias("../core/src/index.ts"),
+      "@ignex/test-utils": alias("../test-utils/src/index.ts"),
       // Keep the Rust addon out of unit tests (fallbacks only) unless
       // IGNEX_NATIVE_PATH is explicitly set — matches the root config.
       castrum: alias("../native/src/vendor/castrum.d.ts"),

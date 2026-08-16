@@ -48,37 +48,6 @@ export const parseQuery = (input: string): Record<string, string | string[]> =>
   groupQueryPairs(queryPairs(input));
 
 /**
- * Minimum input count for the native BATCH pair parse to beat per-item scalar
- * JS: one packed FFI call amortized across many inputs. Below this the scalar
- * parser wins (native measures x0.96 on a single query string — selection.ts).
- *
- * @deprecated The native packed-batch pair parsers measured SLOWER than the
- *   per-item JS scalar parser at every batch size
- *   (`bench/results/batch-selection.json`, batch/js ≈ 0.25-0.66) and were
- *   removed 2026-08-14; `parseQueries` always uses the per-item scalar parser.
- *   Retained for API compatibility; a future C-ABI packed-parse batch may
- *   re-enable it.
- */
-export const BATCH_PARSE_THRESHOLD = 4;
-
-/**
- * Parse many query strings, one grouped record per input. Output is identical
- * to calling {@link parseQuery} per input.
- *
- * NOTE: always uses the per-item scalar parser. The native packed-batch path
- * (`batch.queryParse`) measured SLOWER than the JS scalar parser at every
- * batch size (`bench/results/batch-selection.json`, batch/js ≈ 0.25-0.66) and
- * was removed 2026-08-14. `BATCH_PARSE_THRESHOLD` is retained for API
- * compatibility; a future C-ABI packed-parse batch may re-enable it.
- *
- * @param inputs Raw query strings (the part after `?`).
- * @returns One grouped `Record<string, string | string[]>` per input.
- */
-export const parseQueries = (
-  inputs: ReadonlyArray<string>,
-): Array<Record<string, string | string[]>> => inputs.map(parseQuery);
-
-/**
  * Parse the query portion of a URL string.
  *
  * Returns an empty record when there is no `?`.

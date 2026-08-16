@@ -301,11 +301,19 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
  * auth / csrf / session plugin factories. An optional `close` callback is wired
  * to the plugin's `close()` so resources (stores, timers) are released on app
  * shutdown.
+ *
+ * Sync-capable: a hook that returns synchronously (e.g. lazy session on a
+ * request that never touches a session) yields a plain `{ ctx }` with ZERO
+ * Promise allocation — only genuinely async hooks return a Promise (which
+ * `runHooks`/the compiled sync core await via its resume path).
  */
 export const hookToPlugin = (name: string, hook: HookFn, close?: () => void): IgnexPlugin => ({
   name,
-  async onRequest(ctx) {
-    const result = await hook(ctx);
+  onRequest(ctx) {
+    const result = hook(ctx);
+    if (result instanceof Promise) {
+      return result.then((r) => (r.ok ? r.ctx : r.response));
+    }
     return result.ok ? result.ctx : result.response;
   },
   ...(close ? { close } : {}),

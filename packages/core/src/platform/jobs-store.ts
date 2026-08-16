@@ -18,6 +18,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadBunSqlite } from "./sqlite";
 
 /** The lifecycle status of a durable job. */
 export type JobStatus = "queued" | "running" | "completed" | "failed";
@@ -195,26 +196,15 @@ export const createFileJobStore = (dir: string): JobStore => {
  * back to the file store.
  */
 export const createSqliteJobStore = async (file = ":memory:"): Promise<JobStore | null> => {
-  let Database: new (path: string) => unknown;
-  try {
-    const specifier = "bun:sqlite";
-    const mod: any = await import(specifier);
-    Database = mod.Database;
-    if (typeof Database !== "function") return null;
-  } catch {
-    return null;
-  }
+  const Database = await loadBunSqlite();
+  if (!Database) return null;
 
   const db = new Database(file);
-  (db as { run: (sql: string) => unknown }).run(
-    "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL)",
-  );
+  db.run("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL)");
 
   const load = (): Map<string, StoredJob> => {
     const jobs = new Map<string, StoredJob>();
-    const rows = (db as { query: (sql: string) => { all: () => Array<{ data: string }> } })
-      .query("SELECT data FROM jobs")
-      .all();
+    const rows = db.query("SELECT data FROM jobs").all() as Array<{ data: string }>;
     for (const row of rows) {
       try {
         const job = JSON.parse(row.data) as StoredJob;
@@ -227,7 +217,7 @@ export const createSqliteJobStore = async (file = ":memory:"): Promise<JobStore 
   };
 
   const persist = (jobs: ReadonlyMap<string, StoredJob>): void => {
-    const run = (db as { run: (sql: string, params?: unknown[]) => unknown }).run.bind(db);
+    const run = db.run.bind(db);
     for (const job of jobs.values()) {
       run(
         "INSERT INTO jobs (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",

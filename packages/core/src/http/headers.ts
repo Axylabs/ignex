@@ -11,6 +11,8 @@
 
 import type { ElysiaCookie } from "../types";
 import { serializeCookie } from "./cookies";
+import { encoder } from "./encoder";
+import { withBody } from "./finalize";
 
 /**
  * The accumulated response mutations carried on the request context (`ctx.set`):
@@ -22,13 +24,6 @@ export interface SetHeaders {
   redirect?: string;
   cookie?: Record<string, ElysiaCookie>;
 }
-
-/** Content-type header constant for JSON responses. */
-export const HDR_JSON = { "content-type": "application/json; charset=utf-8" };
-/** Content-type header constant for plain-text responses. */
-export const HDR_TEXT = { "content-type": "text/plain; charset=utf-8" };
-/** Content-type header constant for HTML responses. */
-export const HDR_HTML = { "content-type": "text/html; charset=utf-8" };
 
 type ResponseHeadersInit = NonNullable<ResponseInit["headers"]>;
 
@@ -46,37 +41,7 @@ export const mergeHeaders = (
   init?: IgnexHeadersInit,
 ): ResponseHeadersInit => {
   const headers = new Headers(base);
-
-  if (init === undefined) {
-    return asResponseHeaders(headers);
-  }
-
-  const forEachFn = (init as { forEach?: unknown }).forEach;
-
-  if (!Array.isArray(init) && typeof forEachFn === "function") {
-    (forEachFn as (cb: (value: string, key: string) => void) => void).call(init, (value, key) => {
-      headers.set(key, value);
-    });
-
-    return asResponseHeaders(headers);
-  }
-
-  if (Array.isArray(init)) {
-    for (const [key, value] of init as Array<[string, string | undefined]>) {
-      if (value !== undefined) {
-        headers.set(key, value);
-      }
-    }
-
-    return asResponseHeaders(headers);
-  }
-
-  for (const [key, value] of Object.entries(init as Record<string, string | undefined>)) {
-    if (value !== undefined) {
-      headers.set(key, value);
-    }
-  }
-
+  applyInitHeaders(headers, init);
   return asResponseHeaders(headers);
 };
 
@@ -97,19 +62,11 @@ export const createResponseInit = (status: number, headers?: IgnexHeadersInit): 
 };
 
 /**
- * Build a `Response` from a string body, encoding it once and setting an
- * accurate `content-length`. Bun only materializes `content-length` at serve
- * time (the in-process `Response` has it as `null`), so without this,
- * middleware (compression) must buffer a response just to learn its size when
- * the client sends `accept-encoding`. Shared by the `ctx.json/text/html`
- * builders (the interpreted `createApp` path AND compiled routes that return
- * `ctx.json(...)` directly).
+ * Merge a supported header shape (Headers / array / object) into a target
+ * Headers instance. Single source of truth for header-shape merging — used by
+ * {@link mergeHeaders}.
  */
-/**
- * Merge a supported `ResponseInit["headers"]` shape (Headers / array / object)
- * into a target Headers instance.
- */
-const applyInitHeaders = (target: Headers, init: ResponseInit["headers"] | undefined): void => {
+const applyInitHeaders = (target: Headers, init: IgnexHeadersInit | undefined): void => {
   if (!init) return;
   const isIterable =
     init instanceof Headers ||
@@ -131,10 +88,6 @@ const applyInitHeaders = (target: Headers, init: ResponseInit["headers"] | undef
   }
 };
 
-// Shared encoder — the old per-call `new TextEncoder()` allocated a fresh
-// encoder for every response. Reuse is safe (TextEncoder is stateless).
-const encoder = new TextEncoder();
-
 /**
  * Build a `Response` from a string body, encoding it once and setting an
  * accurate `content-length`. Bun only materializes `content-length` at serve
@@ -148,25 +101,7 @@ export const responseWithBody = (
   body: string | undefined,
   contentType: string,
   init?: ResponseInit,
-): Response => {
-  const bytes = body === undefined ? null : encoder.encode(body);
-  // Plain-object headers (no `Headers` alloc) unless `init.headers` is present.
-  const h: Record<string, string> = { "content-type": contentType };
-  if (bytes !== null) h["content-length"] = String(bytes.byteLength);
-
-  let headers: HeadersInit = h;
-  if (init?.headers) {
-    const hh = new Headers(h);
-    applyInitHeaders(hh, init.headers);
-    headers = hh;
-  }
-
-  const responseInit: ResponseInit = { headers };
-  if (init?.status !== undefined) responseInit.status = init.status;
-  if (init?.statusText !== undefined) responseInit.statusText = init.statusText;
-
-  return new Response(bytes as BodyInit, responseInit);
-};
+): Response => withBody(body === undefined ? null : encoder.encode(body), contentType, init);
 
 /**
  * Hop-by-hop headers that must never be forwarded or cached — single source

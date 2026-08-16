@@ -28,7 +28,6 @@ export {
   extractConstantReturn,
 } from "./constant";
 export {
-  extractHandler,
   extractHandlerExport,
   extractHandlerExportName,
   extractHandlerNodeAST,

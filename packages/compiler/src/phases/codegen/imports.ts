@@ -5,6 +5,7 @@
 
 import { existsSync } from "node:fs";
 import type { AppConfigInfo, CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
+import { SCHEMA_PARTS } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
 import {
@@ -64,7 +65,7 @@ const emitHandlerImport = (
 /** Import the generated per-part validators a route needs. */
 const emitValidatorImports = (route: RouteIR, imports: Set<string>): void => {
   if (!route.decisions.validators) return;
-  const kinds = ["body", "query", "params", "headers", "cookie"] as const;
+  const kinds = SCHEMA_PARTS;
   for (const kind of kinds) {
     if (route.decisions.validators[kind]) {
       imports.add(

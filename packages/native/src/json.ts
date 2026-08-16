@@ -2,6 +2,7 @@
  * JSON helpers (native-accelerated where proven): validity checks and
  * RFC 6902 JSON Patch.
  */
+import { getFfiInstances } from "./ffi";
 import { nativeFor } from "./runtime";
 import { fromBytes, toBytes } from "./util";
 
@@ -72,8 +73,14 @@ export const createSchemaValidator = (schema: string | Uint8Array): SchemaValida
   const n = nativeFor("createSchemaValidator");
   if (!n) return null;
   const inst = new n.SchemaValidator(toBytes(schema));
+  // Opaque-handle C-ABI fast path — the per-call `validate` crossing drops from
+  // ~310ns (NAPI) to ~80ns (C-ABI) on the compiled instance (bench 2026-08-16;
+  // null handle → NAPI fallback).
+  const ffiInst = getFfiInstances();
+  const inner = ffiInst ? Number(inst.innerPtr()) : 0;
   return {
     validate(input) {
+      if (inner) return ffiInst!.schemaValidatorValidate(inner, toBytes(input));
       return inst.validate(toBytes(input));
     },
     validateBatchPackedCount(packed) {

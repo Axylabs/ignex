@@ -188,6 +188,7 @@ describe("createCookieJar direct", () => {
       headers: {},
     };
     const jar = createCookieJar(set as never, {});
+    // biome-ignore lint/suspicious/noProto:lint/complexity/useLiteralKeys: deliberate prototype-pollution regression test (must exercise the __proto__ key).
     jar["__proto__"].value = "polluted";
     const cookieStore = set.cookie as Record<string, unknown>;
     // Writing via the proxy targets the accumulator, not Object.prototype.

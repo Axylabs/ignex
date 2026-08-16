@@ -25,4 +25,5 @@ await buildAsync({
 
   precompileValidators: true,
   precompileSerializers: true,
+  nativeRoutes: true,
 });

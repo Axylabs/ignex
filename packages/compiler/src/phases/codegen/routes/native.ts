@@ -25,6 +25,7 @@ import {
   emitHeadersPrelude,
   emitParamsPrelude,
   emitSchemaConst,
+  emitValidatorThrow,
   markValidationPreludeHelpers,
   type ValidationFlags,
   validationFlags,
@@ -151,11 +152,7 @@ const emitNativeQueryValidation = (
   const name = validatorImportName(route, "query");
   const lines: string[] = [];
   if (flags.hasQueryValidator) {
-    lines.push(
-      `if (!${name}(__query)) {
-  throw validationError(${name}.errors ?? {}, "query");
-}`,
-    );
+    lines.push(emitValidatorThrow(name, "query", "__query"));
   } else if (hasPart("query")) {
     lines.push(`await __validatePart(__schema?.query, __query, "query");`);
   }
@@ -172,11 +169,7 @@ const emitNativeCookieValidation = (
   const name = validatorImportName(route, "cookie");
   const lines: string[] = [];
   if (flags.hasCookieValidator) {
-    lines.push(
-      `if (!${name}(__cookies)) {
-  throw validationError(${name}.errors ?? {}, "cookie");
-}`,
-    );
+    lines.push(emitValidatorThrow(name, "cookie", "__cookies"));
   } else if (hasPart("cookie")) {
     lines.push(`await __validatePart(__schema?.cookie, __cookies, "cookie");`);
   }

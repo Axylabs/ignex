@@ -14,12 +14,11 @@
 
 export { resolveAppConfig } from "./app-config";
 export type { RouteConflictIssue } from "./conflicts";
-export { detectDeadRoutes, detectRouteConflicts, staticRouteKey } from "./conflicts";
-export { collectHookNames, resolveHook, resolveHooks } from "./hooks";
+export { detectDeadRoutes, detectRouteConflicts } from "./conflicts";
+export { resolveHooks } from "./hooks";
 export {
   buildHandlerRef,
   buildRouteGraph,
-  createRouteDef,
   detectConstantResponse,
   findHandlerSymbol,
   findModuleByPath,

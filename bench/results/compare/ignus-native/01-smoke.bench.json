@@ -1,0 +1,86 @@
+{
+  "server": "ignus-native",
+  "scenario": "01-smoke",
+  "generatedAt": "2026-08-15T22:13:59.461Z",
+  "totalDurationMs": 10201.073175,
+  "achievedRps": 5.097502890915201,
+  "totalRequests": 52,
+  "success": 52,
+  "expectedErrors": 0,
+  "failed": 0,
+  "timeouts": 0,
+  "networkErrors": 0,
+  "unexpectedStatuses": 0,
+  "shapeFailures": 0,
+  "errorRatePct": 0,
+  "global": {
+    "count": 52,
+    "avg": 0.8313609807692306,
+    "min": 0.453129,
+    "p50": 0.71718,
+    "p75": 1.074297,
+    "p90": 1.279356,
+    "p95": 1.545459,
+    "p99": 1.778415,
+    "p999": 1.778415,
+    "max": 1.778415
+  },
+  "routes": [
+    {
+      "name": "GET /api/users",
+      "count": 20,
+      "errors": 0,
+      "statuses": {
+        "200": 20
+      },
+      "errorPct": 0,
+      "avg": 0.8981085999999999,
+      "min": 0.496161,
+      "p50": 0.824626,
+      "p75": 1.074297,
+      "p90": 1.468581,
+      "p95": 1.778415,
+      "p99": 1.778415,
+      "p999": 1.778415,
+      "max": 1.778415
+    },
+    {
+      "name": "POST /api/users",
+      "count": 16,
+      "errors": 0,
+      "statuses": {
+        "200": 16
+      },
+      "errorPct": 0,
+      "avg": 0.9388384999999999,
+      "min": 0.564298,
+      "p50": 0.729062,
+      "p75": 1.279356,
+      "p90": 1.545459,
+      "p95": 1.561735,
+      "p99": 1.561735,
+      "p999": 1.561735,
+      "max": 1.561735
+    },
+    {
+      "name": "GET /health",
+      "count": 16,
+      "errors": 0,
+      "statuses": {
+        "200": 16
+      },
+      "errorPct": 0,
+      "avg": 0.6404489375,
+      "min": 0.453129,
+      "p50": 0.617432,
+      "p75": 0.719098,
+      "p90": 0.973767,
+      "p95": 1.159822,
+      "p99": 1.159822,
+      "p999": 1.159822,
+      "max": 1.159822
+    }
+  ],
+  "errorGroups": [],
+  "failureSamples": []
+}

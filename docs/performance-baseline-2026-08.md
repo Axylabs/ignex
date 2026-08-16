@@ -356,7 +356,7 @@ are structural JS around it — so P1 landed two verifiable slices.
 ### 2. castrum: zero-copy pipeline-only responses (safe by default in the bench)
 - `handlers.ts`: added `BakedIngressRuntime.zeroCopyTimeoutMs` (abandonment
   guard) wired through `zeroCopyResponse` → `pooledBodyResponse`.
-- `bench/servers/ingress-server.ts`: zero-copy is now ON by default, bounded by
+- `bench/servers/raw-bun-server.ts`: zero-copy is now ON by default, bounded by
   `INGRESS_ZERO_COPY_MAX_IN_FLIGHT=128` + `INGRESS_ZERO_COPY_TIMEOUT_MS=1000`;
   `INGRESS_ZERO_COPY=0` restores copy mode; legacy `INGRESS_UNSAFE_ZERO_COPY`
   kept as an alias. Removes the per-response `.slice()` body copy.

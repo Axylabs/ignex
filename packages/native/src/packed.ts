@@ -78,12 +78,20 @@ export const unpackU64ArrayAsBigInt = (packed: Uint8Array): BigUint64Array => {
   return out;
 };
 
-/** Unpack a packed `[name, value]`-pairs buffer. */
-export const readPairsPacked = (buf: Uint8Array): Array<[string, string]> => {
-  const b = ffiBuf(buf);
-  const count = ffiU32(b, 0);
-  const out: Array<[string, string]> = [];
-  let pos = 4;
+/**
+ * Read one packed `[u32 count] repeated { [u32 len] [bytes] }` pair section
+ * starting at `start`, returning the pairs and the next position (so a caller
+ * can decode consecutive sections from one buffer). Shared by
+ * {@link readPairsPacked} (whole-buffer section) and `route-wire`'s result
+ * decoder (query + cookie sections in one buffer).
+ */
+export const readPairsSection = (
+  b: ReturnType<typeof ffiBuf>,
+  start: number,
+): { readonly pairs: Array<[string, string]>; readonly nextPos: number } => {
+  const count = ffiU32(b, start);
+  const pairs: Array<[string, string]> = [];
+  let pos = start + 4;
   for (let i = 0; i < count; i++) {
     const nameLen = ffiU32(b, pos);
     pos += 4;
@@ -93,10 +101,14 @@ export const readPairsPacked = (buf: Uint8Array): Array<[string, string]> => {
     pos += 4;
     const value = ffiString(b, pos, valueLen);
     pos += valueLen;
-    out.push([name, value]);
+    pairs.push([name, value]);
   }
-  return out;
+  return { pairs, nextPos: pos };
 };
+
+/** Unpack a packed `[name, value]`-pairs buffer. */
+export const readPairsPacked = (buf: Uint8Array): Array<[string, string]> =>
+  readPairsSection(ffiBuf(buf), 0).pairs;
 
 /**
  * Unpack a packed BATCH-of-pairs result → one pair list per input item.

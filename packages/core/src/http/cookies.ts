@@ -118,22 +118,6 @@ export const parseCookieString = (cookieString: string | null): Record<string, s
 };
 
 /**
- * Parse many `Cookie` headers, one record per input. Honors the same
- * {@link MAX_COOKIES} / {@link MAX_COOKIE_HEADER_BYTES} guards as
- * {@link parseCookieString} and produces identical output.
- *
- * NOTE: always uses the per-item scalar parser — the native packed-batch path
- * (`batch.cookieParse`) measured SLOWER than the JS scalar at every batch size
- * (`bench/results/batch-selection.json`, batch/js ≈ 0.16-0.23) and was removed
- * 2026-08-14.
- *
- * @param inputs Raw `Cookie` header values (`null`/oversized → `{}`).
- * @returns One `Record<string, string>` per input.
- */
-export const parseCookies = (inputs: ReadonlyArray<string | null>): Array<Record<string, string>> =>
-  inputs.map(parseCookieString);
-
-/**
  * A mutable view of one cookie inside a cookie jar.
  *
  * Reads fall back to the jar entry or the initial options; writes accumulate

@@ -25,9 +25,6 @@ export const findModuleIndex = (modules: readonly ModuleInfo[], relPath: string)
 
 // ── RouteIR factory ──────────────────────────────────────────────
 
-/** @deprecated Use `lowerRoute` (compiler IR). Kept for facade back-compat. */
-export const createRouteDef = lowerRoute;
-
 // Re-export the lowering helpers so the analysis facade keeps its surface
 // (internal-only consumers; no public API change).
 export {
