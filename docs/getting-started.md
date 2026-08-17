@@ -1,0 +1,120 @@
+# Getting Started
+
+> How to go from zero to a running Ignex API in a few minutes.
+
+Ignex is an AOT-first TypeScript framework for high-performance HTTP APIs on
+[Bun 1.4+](https://bun.sh). Routes are files; the compiler turns them into an
+optimized `Bun.serve` server with generated types, an OpenAPI spec, and a typed
+client.
+
+## 1. Prerequisites
+
+- [Bun](https://bun.sh) ≥ 1.4 (`curl -fsSL https://bun.sh/install | bash`)
+
+That's it. No global install required — the CLI is fetched on demand.
+
+## 2. Create a project
+
+```sh
+bunx @ignex/cli@latest create my-api --features auth,openapi,examples
+cd my-api
+bun install
+bun run dev
+```
+
+What you get:
+
+- `src/routes/` — file-system routes (`index.get.ts` → `GET /`, `products/[id].get.ts` → `GET /products/:id`)
+- `src/app.config.ts` — plugins (cors, security, compression, session), lifecycle, server port
+- `src/lib/auth.ts` + auth routes (register / login / me) when you pass `--features auth`
+- `ignex.config.mjs` — compiler profile (optimization level, artifact toggles)
+- `vitest.config.ts` + `test/` — a scaffolded integration test
+
+`bun run dev` compiles the app, starts the server, and restarts it on every
+change (with crash backoff). You'll see a `Native:` line reporting whether the
+Rust addon is active:
+
+```
+ℹ Native: native (castrum)     # accelerated
+ℹ Native: off (pure-TS fallback)  # still fully functional
+```
+
+## 3. Your first route
+
+Routes are files under `src/routes/`; the path and method come from the
+filename. Handlers export a **named** binding (`httpGet`) or a **default**
+binding — both compile to the same native route table:
+
+```ts
+// src/routes/hello.get.ts → GET /hello
+import { get } from "@ignex/core/http";
+
+export default get((ctx) => ctx.text("Hello World"));
+```
+
+With a path parameter and TypeBox schema (JSON-schema codegen + OpenAPI):
+
+```ts
+// src/routes/products/[id].get.ts → GET /products/:id
+import { get } from "@ignex/core/http";
+import { Type } from "@sinclair/typebox";
+
+export default get(
+  {
+    params: Type.Object({ id: Type.String() }),
+  },
+  (ctx) => ctx.json({ id: ctx.params.id }),
+);
+```
+
+Scaffold a route from the CLI instead of hand-writing it:
+
+```sh
+bun run route -- products/[id].get --schema
+bun run hook -- require-auth            # named per-route hook
+bun run hook -- log-requests --global   # global lifecycle hook
+```
+
+## 4. Build, run, and check
+
+```sh
+bun run build     # AOT-compile → .ignex/server.js + routes.d.ts, client.ts, openapi.json, manifest.json
+bun run start     # run the compiled server
+bun run typecheck # strict TS check
+bun run test      # vitest
+```
+
+Diagnose a project without building:
+
+```sh
+bunx @ignex/cli doctor --root .
+# Runtime: bun 1.4.0
+# Native: native (castrum)
+# Config: ignex.config.mjs
+# Routes: src/routes ✔
+# Server: .ignex/server.js not built — run `ignex build`
+```
+
+`doctor` exits non-zero when it finds blocking issues, so you can run it in CI
+or onboarding scripts. `bunx @ignex/cli info --root .` dumps the same facts
+(plus native status) as JSON.
+
+## 5. Generated artifacts
+
+Each build emits, next to the server:
+
+| Artifact        | Purpose                                          |
+| --------------- | ------------------------------------------------ |
+| `routes.d.ts`   | Typed route context (params/query/body/responses) |
+| `client.ts`     | Typed HTTP client backed by `createClient`        |
+| `openapi.json`  | OpenAPI spec derived from your real schemas        |
+| `manifest.json` | Build metadata for tooling                         |
+
+## 6. Where to go next
+
+- [Cookbook](cookbook.md) — recipes for sessions, jobs, i18n, SSE, WebSockets,
+  templates, rate limiting, caching, and more.
+- [CLI reference](../packages/cli/README.md) — every command and scaffold flag.
+- [Example app](../packages/app/README.md) — the reference app exercising the
+  full feature set.
+- [Architecture](architecture.md) — how the compiler and packages fit together.

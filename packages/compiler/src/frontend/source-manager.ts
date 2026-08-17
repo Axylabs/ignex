@@ -93,6 +93,7 @@ export class SourceManager {
         ? { handlerExportName: parsed.handlerExportName }
         : {}),
       ...(parsed.config !== undefined ? { config: parsed.config } : {}),
+      ...(parsed.guards !== undefined ? { guards: parsed.guards } : {}),
     };
 
     this.sources.set(relPath, file);

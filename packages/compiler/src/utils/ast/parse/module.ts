@@ -14,7 +14,7 @@ import {
 import type { ImportInfo, ModuleInfo } from "../../../types";
 import type { Program } from "../ast-types";
 import { extractRouteConfigAST } from "../config";
-import { extractHandlerExport, extractHandlerExportName } from "../handler";
+import { extractHandlerExport, extractHandlerExportName, extractRouteGuardsAST } from "../handler";
 import { extractExportsAST, extractImportsAST } from "../imports";
 import { collectTopLevelBindingNames, extractSymbolsAST } from "../symbols";
 import { walk } from "../walk";
@@ -166,6 +166,7 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
   const flags = scanExportFlags(ast);
   const handlerExportName = extractHandlerExportName(ast);
   const routeConfig = extractRouteConfigAST(source, ast, diagnostics);
+  const guards = extractRouteGuardsAST(ast);
 
   return cacheParse(source, {
     ast,
@@ -178,6 +179,7 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
     configExport: flags.configExport,
     handler: extractHandlerExport(source, ast),
 
+    ...(guards !== undefined ? { guards } : {}),
     ...(routeConfig !== undefined ? { config: routeConfig as Record<string, unknown> } : {}),
     ...(handlerExportName !== undefined ? { handlerExportName } : {}),
   });

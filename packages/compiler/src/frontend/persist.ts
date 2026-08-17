@@ -13,13 +13,13 @@
  * stale records are discarded instead of mis-rehydrated.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ParseResult } from "../utils/ast/parse";
 import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
-const MODULES_CACHE_VERSION = "1";
+const MODULES_CACHE_VERSION = "2";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {
@@ -55,7 +55,13 @@ export const serializeSourceFiles = (sources: readonly SourceFile[]): string => 
 
 /** Write the module cache next to the build outputs (best-effort). */
 export const persistModules = (sources: readonly SourceFile[], outDir: string): void => {
-  writeFileSync(modulesCachePath(outDir), serializeSourceFiles(sources));
+  // Atomic write (temp + rename) so a crash mid-write can never leave a
+  // truncated .json that `loadPersistedModules` half-parses — mirrors the
+  // build-cache write in cache.ts.
+  const path = modulesCachePath(outDir);
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, serializeSourceFiles(sources));
+  renameSync(tmp, path);
 };
 
 /**
@@ -75,7 +81,17 @@ export const loadPersistedModules = (outDir: string): Map<string, ParseResult> =
 
     const map = new Map<string, ParseResult>();
     for (const record of parsed.modules) {
-      if (record && typeof record.hash === "string" && record.parse) {
+      // Integrity check: the claimed content hash must match the embedded
+      // content, else a tampered-but-valid-JSON file could rehydrate a
+      // ParseResult mismatched to the real source → silent miscompile. Records
+      // are content-hash-keyed at lookup, so a mismatch here is dropped.
+      if (
+        record &&
+        typeof record.hash === "string" &&
+        typeof record.content === "string" &&
+        record.parse &&
+        record.hash === hashString(record.content)
+      ) {
         map.set(record.hash, record.parse);
       }
     }

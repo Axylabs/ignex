@@ -155,6 +155,30 @@ coverage
 
 export function readmeTemplate(opts: ProjectTemplateOptions): string {
   const features = [...opts.features].join(", ") || "none";
+  const auth = opts.features.has("auth");
+  const refresh = opts.features.has("refresh");
+  const tokens = refresh ? " + refresh" : "";
+  const authSection = auth
+    ? `
+## Auth
+
+\`src/lib/auth.ts\` wires an Ed25519 \`authModule()\` (short-lived access tokens;
+\`JWT_PRIVATE_KEY\` / \`JWT_PUBLIC_KEY\` are bootstrapped into \`.env\`), a hashed
+in-memory user store (seeded with \`admin\` / \`secret\`), and the \`require-auth\`
+hook used via \`config.hooks\`.
+
+- \`POST /auth/register\` — create a user → access${tokens} token
+- \`POST /auth/login\` — verify credentials → access${tokens} token
+- \`GET /auth/me\` — current user claims (requires \`Bearer\` access token)
+${
+  refresh
+    ? `- \`POST /auth/refresh\` — exchange a refresh token for a new access token
+- \`POST /auth/logout\` — revoke a refresh token
+`
+    : ""
+}
+`
+    : "";
 
   return `# ${opts.name}
 
@@ -187,7 +211,7 @@ export const httpGet = get(() => "Hello World");
 \`\`\`
 
 Both compile to the same fast \`Bun.serve\` route table.
-
+${authSection}
 ## Routes
 
 Routes live in \`src/routes\`.

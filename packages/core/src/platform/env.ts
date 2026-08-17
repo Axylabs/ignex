@@ -1,7 +1,7 @@
 /**
  * Environment & typed config — dotenv loading + typed accessors.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tryCatchOr } from "@ignex/shared";
 import { coerceBoolean } from "./coerce";
 
@@ -44,6 +44,42 @@ export const loadEnv = (paths: string[] = [".env", ".env.local"]): void => {
       }
     }
   }
+};
+
+/**
+ * Idempotently write `keys` into a dotenv file (default `.env`).
+ *
+ * Existing variables win: a key already present in the file OR in
+ * `process.env` is never overwritten. New keys are appended (one per line) and
+ * reflected into `process.env` so the running process picks them up
+ * immediately. Used by the auth module's key bootstrap (Ed25519 keypair into
+ * `.env`).
+ *
+ * @returns The number of keys appended (0 = nothing to write).
+ */
+export const writeEnvKeys = (keys: Record<string, string>, path = ".env"): number => {
+  const fileKeys = new Set<string>();
+  if (existsSync(path)) {
+    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+      const parsed = parseLine(line);
+      if (parsed) fileKeys.add(parsed[0]);
+    }
+  }
+
+  const pending: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(keys)) {
+    // Never override an existing .env entry or an actual environment variable.
+    if (fileKeys.has(key) || process.env[key] !== undefined) continue;
+    pending.push([key, value]);
+    process.env[key] = value;
+  }
+  if (pending.length === 0) return 0;
+
+  const block = pending.map(([key, value]) => `${key}=${value}`).join("\n");
+  const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const sep = existing === "" || existing.endsWith("\n") ? "" : "\n";
+  writeFileSync(path, `${existing}${sep}${block}\n`);
+  return pending.length;
 };
 
 const get = (key: string, fallback?: string): string | undefined => {

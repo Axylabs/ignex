@@ -10,8 +10,12 @@
 import { runBuild } from "./build.js";
 import { runCreate } from "./create.js";
 import { runDev } from "./dev.js";
+import { runDoctor } from "./doctor.js";
+import { runHook } from "./hook.js";
 import { runInfo } from "./info.js";
 import { runMcp } from "./mcp.js";
+import { runModel } from "./model.js";
+import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
 
 export interface Command {
@@ -30,7 +34,8 @@ export const commands: readonly Command[] = [
     description: "Scaffold a new app",
     options: `  --runtime <bun|node>          Runtime to target
   --pm <bun|npm|pnpm|yarn>      Package manager
-  --features <list>             Comma-separated features
+  --root <dir>                  Parent directory for the new app (default: cwd)
+  --features <list>             Comma-separated features (auth, refresh adds token refresh/logout; middleware adds global hooks)
   --install                     Install dependencies after scaffolding
   --no-install                  Skip install
   --git                         Initialize git
@@ -79,9 +84,48 @@ export const commands: readonly Command[] = [
     run: runRoute,
   },
   {
+    name: "hook",
+    aliases: ["h"],
+    description: "Scaffold a named or global hook",
+    options: `  --root <dir>                  Project root
+  --global                      Scaffold a global lifecycle hook (registered on app.config lifecycle)
+  --stage <stage>               Lifecycle stage for --global (default beforeHandle)
+  --force                       Overwrite existing hook file`,
+    run: runHook,
+  },
+  {
+    name: "model",
+    aliases: ["m"],
+    description: "Scaffold a ninox schema-first model",
+    options: `  --root <dir>                  Project root
+  --dir <dir>                   Override models directory
+  --fields <list>               Comma-separated fields (name:string, age:integer, role:enum(a,b), ...)
+  --force                       Overwrite existing model file`,
+    run: runModel,
+  },
+  {
+    name: "resource",
+    aliases: ["res"],
+    description: "Scaffold a ninox model + pregenerated CRUD routes",
+    options: `  --root <dir>                  Project root
+  --dir <dir>                   Override models directory
+  --fields <list>               Comma-separated fields
+  --auth                        Pre-wire require-auth on every route
+  --rbac                        Pre-wire RBAC permissions (withGuards)
+  --force                       Overwrite existing files`,
+    run: runResource,
+  },
+  {
     name: "info",
     description: "Show app/compiler info",
     run: runInfo,
+  },
+  {
+    name: "doctor",
+    aliases: ["check", "diagnose"],
+    description: "Check project health (runtime, native, config, build)",
+    options: `  --root <dir>                  Project root`,
+    run: runDoctor,
   },
   {
     name: "mcp",

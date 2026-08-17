@@ -65,11 +65,11 @@ describe("createRouter — buildRoutes (Bun-native shape)", () => {
   });
 
   it("auto-adds HEAD for GET routes and OPTIONS on every path", () => {
-    expect(routes["/health"]["HEAD"]).toBeTypeOf("function");
-    expect(routes["/health"]["OPTIONS"]).toBeTypeOf("function");
+    expect(routes["/health"].HEAD).toBeTypeOf("function");
+    expect(routes["/health"].OPTIONS).toBeTypeOf("function");
     // No GET on /api/users → no auto-HEAD; OPTIONS still present.
-    expect(routes["/api/users"]["HEAD"]).toBeUndefined();
-    expect(routes["/api/users"]["OPTIONS"]).toBeTypeOf("function");
+    expect(routes["/api/users"].HEAD).toBeUndefined();
+    expect(routes["/api/users"].OPTIONS).toBeTypeOf("function");
   });
 });
 

@@ -9,6 +9,7 @@ import { SCHEMA_PARTS } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
 import {
+  guardHookEmissions,
   handlerImportName,
   hookIdent,
   serializerImportName,
@@ -161,6 +162,15 @@ export const stageImports = (
   }
 
   collectProxyCoreNames(routes, coreNames);
+
+  // RBAC guard hooks reference `hasRole`/`can`/`canAll`/`requireAuthenticated`
+  // from `@ignex/core` — import exactly the names each guarded route needs.
+  for (const route of routes) {
+    for (const g of guardHookEmissions(route)) {
+      const openParen = g.expr.indexOf("(");
+      coreNames.push(openParen < 0 ? g.expr : g.expr.slice(0, openParen));
+    }
+  }
 
   state.uniqueCore = [...new Set(coreNames)].sort();
 

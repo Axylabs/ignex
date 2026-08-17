@@ -47,5 +47,9 @@ packages/*/dist
 *.pre-monorepo
 .backup-*
 bench/results/server
+# The perf-regression baseline IS committed (check-server-bench.ts compares
+# latest.json against it); only transient run output stays ignored.
+!bench/results/server/baseline.json
 .npmrc
 .npm-tmp-cache/
+bench/results/server

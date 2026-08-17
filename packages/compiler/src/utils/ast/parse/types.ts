@@ -2,7 +2,7 @@
  * @fileoverview Parse result model shared across the parse pipeline.
  */
 
-import type { ExportInfo, ImportInfo, SymbolInfo } from "../../../types";
+import type { ExportInfo, ImportInfo, RouteGuards, SymbolInfo } from "../../../types";
 import type { Program } from "../ast-types";
 import type { ExtractedHandler } from "../types";
 
@@ -19,4 +19,6 @@ export interface ParseResult {
   readonly configExport: boolean;
   readonly handler: ExtractedHandler | null;
   readonly config?: Record<string, unknown>;
+  /** RBAC guards from a `withGuards(handler, guards)` route wrapper. */
+  readonly guards?: RouteGuards;
 }

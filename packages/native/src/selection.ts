@@ -41,10 +41,15 @@ export type OpName =
   | "aeadEncrypt"
   | "csrfToken"
   | "csrfVerify"
+  | "ed25519Sign"
+  | "ed25519Verify"
+  | "generateEd25519Keypair"
   | "hmacSha256"
   | "hmacSha256Verify"
   | "jwtSign"
+  | "jwtSignEdDsa"
   | "jwtVerify"
+  | "jwtVerifyEdDsa"
   | "passwordHash"
   | "passwordVerify"
   | "randomToken"
@@ -110,6 +115,25 @@ const BUN_WINS: ReadonlySet<string> = new Set([
   "hmacSha256",
 ]);
 
+/**
+ * Ops PINNED to the Rust addon when it is present, pending a benchmark.
+ *
+ * These are brand-new ops castrum has not benchmarked yet (its `opImpl`
+ * returns `null` → "js"), but the addon exports them and the Rust work
+ * (Ed25519 sign/verify — microseconds) is far more expensive than the
+ * ~10-20ns C-ABI / ~300ns NAPI crossing, so the win is structural, not
+ * marginal. Mirrors castrum's own "pinned native" entries (jwtSign/
+ * jwtVerify). Once castrum publishes a measured selection for these ops,
+ * remove them from this set — the benchmark-driven `opImpl` takes over.
+ */
+const PINNED_NATIVE: ReadonlySet<string> = new Set([
+  "generateEd25519Keypair",
+  "jwtSignEdDsa",
+  "jwtVerifyEdDsa",
+  "ed25519Sign",
+  "ed25519Verify",
+]);
+
 const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
 /**
@@ -119,7 +143,13 @@ const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "u
  * changes for the life of the process.
  */
 export const implFor = (op: OpName): ExecutionBackend =>
-  isBun() && BUN_WINS.has(op) ? "js" : getNative()?.opImpl?.(op) === "native" ? "castrum" : "js";
+  isBun() && BUN_WINS.has(op)
+    ? "js"
+    : getNative() != null && PINNED_NATIVE.has(op)
+      ? "castrum"
+      : getNative()?.opImpl?.(op) === "native"
+        ? "castrum"
+        : "js";
 
 /** All selectable op names (for completeness audits / iteration). */
 export const OPS: readonly OpName[] = [
@@ -129,10 +159,15 @@ export const OPS: readonly OpName[] = [
   "aeadEncrypt",
   "csrfToken",
   "csrfVerify",
+  "ed25519Sign",
+  "ed25519Verify",
+  "generateEd25519Keypair",
   "hmacSha256",
   "hmacSha256Verify",
   "jwtSign",
+  "jwtSignEdDsa",
   "jwtVerify",
+  "jwtVerifyEdDsa",
   "passwordHash",
   "passwordVerify",
   "randomToken",

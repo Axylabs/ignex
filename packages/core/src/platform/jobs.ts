@@ -4,12 +4,23 @@
  *
  * Composable via the `withRetry` / `withTimeout` higher-order wrappers.
  */
+/**
+ * Default maximum time `stop()` waits for in-flight tasks to settle before
+ * giving up (a never-resolving task must not hang graceful shutdown forever).
+ */
+const STOP_DEADLINE_MS = 5_000;
+
 /** Options for {@link createJobQueue}. */
 export interface JobQueueOptions {
   /** Maximum number of tasks running concurrently (default 1). */
   concurrency?: number;
   /** Called when a task throws (default: swallow). */
   onError?: (error: unknown, task: { name: string }) => void;
+  /**
+   * Max ms `stop()` waits for in-flight tasks before giving up (default 5000).
+   * A stuck task must never hang graceful shutdown forever.
+   */
+  stopDeadlineMs?: number;
 }
 
 /** Scheduling options for {@link JobQueue.schedule}. */
@@ -211,8 +222,11 @@ export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
       queue.length = 0;
-      // Wait for in-flight tasks to settle.
-      while (active > 0) {
+      // Wait for in-flight tasks to settle — but never forever: a stuck task
+      // (never-resolving promise, leaked socket) must not hang graceful
+      // shutdown. Give up after a deadline and resolve.
+      const deadline = Date.now() + (options.stopDeadlineMs ?? STOP_DEADLINE_MS);
+      while (active > 0 && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     },

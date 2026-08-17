@@ -18,6 +18,7 @@ import {
 import { applySet } from "../http/headers";
 import type { IgnexRouter } from "../http/router";
 import { errorToResponse } from "../platform/errors";
+import { installProcessGuards } from "../platform/process-guards";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
 import {
@@ -50,6 +51,14 @@ export interface AppOptions {
   onStop?(): MaybePromise<void>;
   /** Expose error details in 500 responses. */
   exposeErrors?: boolean;
+  /**
+   * Fail CLOSED on plugin `init` errors. Default (best-effort) logs a rejected
+   * `init` and keeps serving. With `strictInit: true`, a failed init stops the
+   * listener so the app never serves in a half-initialized state (e.g. a DB
+   * connection that failed at boot) — the process should be restarted after
+   * the underlying issue is fixed.
+   */
+  strictInit?: boolean;
   /**
    * App-scoped response cache for `ctx.cache()`. Defaults to a fresh cache
    * scoped to this app; pass one here to share a specific cache.
@@ -274,6 +283,10 @@ export const createApp = (options: AppOptions): IgnexApp => {
     handler,
 
     serve(serveOptions = {}) {
+      // Production entry: never let a stray unhandled rejection (user hook,
+      // fire-and-forget promise) terminate the process; exit cleanly on an
+      // uncaught exception so the supervisor can restart. See process-guards.
+      installProcessGuards();
       const { port = 3000, hostname = "0.0.0.0", ...rest } = serveOptions;
       const bun = (globalThis as { Bun?: unknown }).Bun;
       if (!bun) {
@@ -294,6 +307,16 @@ export const createApp = (options: AppOptions): IgnexApp => {
       // rejected init must not become an unhandled rejection / crash the app.
       void init().catch((err) => {
         console.error("[ignex] plugin init failed:", err);
+        if (options.strictInit) {
+          // Fail closed: never serve in a half-initialized state (e.g. a DB
+          // connection failed at boot). Stop the listener so callers get
+          // connection refused until the app is restarted with the issue fixed.
+          console.error(
+            "[ignex] strict init failed — stopping server; fix the failing plugin and restart.",
+          );
+          server?.stop(true);
+          server = null;
+        }
       });
       server = serve(
         router

@@ -137,6 +137,33 @@ describe("createDurableJobQueue", () => {
     expect(jobs[0].status).toBe("completed");
   });
 
+  it("stop() resolves even when an in-flight claim never completes (deadline)", async () => {
+    const dir = tmp();
+    const store = createFileJobStore(dir);
+    await store.enqueue({
+      id: "stuck",
+      name: "stuck",
+      runAt: Date.now() - 1000,
+      attempts: 0,
+      maxAttempts: 1,
+      status: "queued",
+      createdAt: Date.now(),
+    });
+    const queue = createDurableJobQueue({
+      store,
+      handlers: { stuck: () => new Promise<void>(() => {}) }, // never resolves
+      pollIntervalMs: 10,
+      stopDeadlineMs: 60,
+    });
+    queue.start();
+    await waitFor(() => queue.running > 0);
+
+    const started = Date.now();
+    await queue.stop();
+    // Returns via the deadline, not by waiting forever.
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("retries with backoff and then permanently fails", async () => {
     const dir = tmp();
     const store = createFileJobStore(dir);

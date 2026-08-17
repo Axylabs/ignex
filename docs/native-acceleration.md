@@ -1,13 +1,14 @@
 # Native acceleration (`@ignex/native` × castrum)
 
-ignex is Rust-accelerated through the **castrum** addon
-(`/home/adeel/poc/bun-rust-runtime-bench`, pinned as an `optionalDependencies`
-`file:` entry in `packages/native/package.json`). The `@ignex/native` package is
-the single, typed bridge over the SAME cdylib's two transports: **bun:ffi C-ABI
-(primary under Bun)** and **Node-API (fallback)**. Every native primitive ships
-with a **byte-compatible pure-TS fallback**, so ignex behaves identically with or
-without Rust. Native is purely an acceleration layer — importing it **never
-throws**.
+ignex is Rust-accelerated through the **castrum** addon, published on npm as
+`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.0" }` in
+`packages/native/package.json`; the local dev checkout lives at
+`/home/adeel/poc/bun-rust-runtime-bench` and is wired with `IGNEX_NATIVE_PATH`).
+The `@ignex/native` package is the single, typed bridge over the SAME cdylib's
+two transports: **bun:ffi C-ABI (primary under Bun)** and **Node-API
+(fallback)**. Every native primitive ships with a **byte-compatible pure-TS
+fallback**, so ignex behaves identically with or without Rust. Native is purely
+an acceleration layer — importing it **never throws**.
 
 ---
 
@@ -37,8 +38,9 @@ throws**.
   `TemplateRenderer`, `ConditionalRequest`, …) and Node.
 - `packages/native/src/loader.ts` loads the castrum **`.node` NAPI surface**
   with `require()`/`process.dlopen` (Node-API modules cannot be ESM-`import`ed
-  in Bun). The binary is located from the castrum package directory (`file:`
-  target → `node_modules` symlink), **bypassing the tsconfig `paths` mapping**
+  in Bun). The binary is located from the installed `castrum` package directory
+  (registry `node_modules/castrum`, or the local workspace `file:` checkout via
+  `IGNEX_NATIVE_PATH`), **bypassing the tsconfig `paths` mapping**
   that would otherwise hijack a bare `import("castrum")` at runtime (Bun honors
   `paths` — a bare import resolved to the `vendor/castrum.d.ts` stub and loaded
   an empty module). `IGNEX_NATIVE_PATH` overrides resolution (a `.node` path is
@@ -404,7 +406,8 @@ holds with and without the addon. Only wire a native path when its output is
 | Route manager | `createPipeline` (TS integration layer) |
 | Entry normalization | `mod.rust ?? mod` (Bun namespace vs Node flat) |
 
-`@ignex/native` pins `castrum` via `optionalDependencies` (`file:` path).
+`@ignex/native` pins `castrum` via `optionalDependencies` (`^0.9.0` registry;
+workspace `file:` checkouts are dev-only via `IGNEX_NATIVE_PATH`).
 Compatibility releases should bump castrum's minor version and add a
 `test/compat/ignex-contract.test.ts` in the castrum repo asserting this exact
 surface, so the contract is guarded by castrum's own CI.

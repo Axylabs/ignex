@@ -102,7 +102,7 @@ const buildWithFallback = async (
 
   try {
     // Only reached after the `!bun?.build` guard in `runLinkerAsync`.
-    const result = await bun!.build(buildOptions);
+    const result = await bun?.build(buildOptions);
     if (!result.success) {
       const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
       rmSync(entryPath, { force: true });
@@ -161,12 +161,12 @@ const fixSourceMap = async (
   }
 
   if (existsSync(outPath)) {
-    const text = await bun!.file(outPath).text();
+    const text = await bun?.file(outPath).text();
     const fixed = text.replace(
       /\/\/# sourceMappingURL=.*$/m,
       `//# sourceMappingURL=${basename(mapOut)}`,
     );
-    await bun!.write(outPath, fixed);
+    await bun?.write(outPath, fixed);
   }
 };
 

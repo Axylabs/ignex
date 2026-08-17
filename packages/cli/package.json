@@ -12,7 +12,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./config": "./src/config.ts",
-    "./route": "./src/route.ts"
+    "./route": "./src/route.ts",
+    "./bin/*": "./bin/*"
   },
   "files": [
     "bin",
@@ -24,7 +25,8 @@
   },
   "dependencies": {
     "@ignex/compiler": "workspace:*",
-    "@ignex/mcp": "workspace:*"
+    "@ignex/mcp": "workspace:*",
+    "@ignex/native": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

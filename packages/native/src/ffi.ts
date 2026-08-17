@@ -22,7 +22,7 @@
  *   IGNEX_NATIVE=off disables ffi too (getFfi() returns null).
  */
 import { createRequire } from "node:module";
-import { getAddonPath, getNative } from "./loader";
+import { getAddonPath, getNative, type NativeAddon } from "./loader";
 
 /** Transport selection for the C-ABI fast path. */
 export type FfiMode = "auto" | "ffi" | "napi";
@@ -61,6 +61,15 @@ export interface FfiSurface {
   jwtSignBytes(claims: Uint8Array, secret: Uint8Array, ttl: number | null, now: number): string;
   /** Verify → parsed claims object (cstring claims JSON) or `null` on invalid. */
   jwtVerify(token: Uint8Array, secret: Uint8Array, now: number): unknown;
+  // Ed25519 / EdDSA JWT (RBAC auth)
+  /** Keypair generation → `{ privateKey, publicKey }` base64url DER strings. */
+  generateEd25519Keypair(): { privateKey: string; publicKey: string };
+  ed25519Sign(msg: Uint8Array, privateKey: Uint8Array): Uint8Array;
+  ed25519Verify(msg: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean;
+  /** EdDSA JWT sign → compact token (cstring). `ttl` 0/null = no iat/exp. */
+  jwtSignEddsa(claims: Uint8Array, privateKey: Uint8Array, ttl: number | null, now: number): string;
+  /** EdDSA JWT verify → parsed claims object (cstring JSON) or `null`. */
+  jwtVerifyEddsa(token: Uint8Array, publicKey: Uint8Array, now: number): unknown;
   brotliCompress(data: Uint8Array, quality: number): Uint8Array;
   brotliDecompress(data: Uint8Array, maxSize: number): Uint8Array;
   aeadEncrypt(
@@ -137,11 +146,97 @@ export function growExact(
 }
 
 /**
- * Hard cap for variable-size native outputs. Generous enough to never reject a
- * realistic request (a 100MB form body parses to < 1GB packed) while still
- * bounding a runaway `needed` signal.
+ * Default cap for variable-size native outputs. Bounds a single FFI call's
+ * worst-case allocation — a lying addon misreporting `needed` near the cap is
+ * a memory-exhaustion DoS, and the old 1 GiB ceiling was far too generous.
+ * 128 MiB aligns with the generated server's default `maxRequestBodySize` and
+ * stays well under the former ceiling. Overridable via `IGNEX_MAX_VAR_OUTPUT`
+ * (bytes) for apps that legitimately need larger variable-size native outputs.
  */
-const MAX_VAR_OUTPUT = 1024 * 1024 * 1024;
+const DEFAULT_MAX_VAR_OUTPUT = 128 * 1024 * 1024;
+const MAX_VAR_OUTPUT = (() => {
+  const raw = process.env.IGNEX_MAX_VAR_OUTPUT;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return DEFAULT_MAX_VAR_OUTPUT;
+})();
+
+/**
+ * Parse the cstring claims JSON the C-ABI returns. `null`/empty → `null`
+ * (invalid token); malformed JSON → `null` too, matching the pure-TS fallbacks
+ * (`crypto.ts`/`ed25519.ts` guard with try/catch). A castrum bug emitting
+ * malformed claims must not throw synchronously out of the FFI wrapper — it
+ * would surface as a 500 (or worse) instead of a clean `null` rejection.
+ */
+const safeJsonParse = (v: string | null): unknown => {
+  if (v === null || v === "") return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+
+/** Byte-equality helper for the bind-time parity self-test. */
+const eq = (a: Uint8Array | null, b: Uint8Array | null): boolean =>
+  a != null &&
+  b != null &&
+  a.length === b.length &&
+  Buffer.from(a).toString("hex") === Buffer.from(b).toString("hex");
+
+/** True when `a` is a lowercase-hex string (in bytes). */
+const isHex = (a: Uint8Array): boolean => /^[0-9a-f]+$/.test(Buffer.from(a).toString());
+
+/**
+ * Bind-time Ed25519 / EdDSA-JWT parity checks (extracted from {@link selfTest}
+ * to keep its cognitive complexity under the lint limit — same checks, same
+ * semantics). Keypair generation is RANDOM — no byte parity possible. Instead
+ * verify the DER format on both transports, then CROSS-verify: a signature
+ * made with the ffi keypair must verify through NAPI (and vice versa), proving
+ * both transports speak the same PKCS#8/SPKI DER + EdDSA wire formats.
+ */
+function selfTestEd25519(
+  surface: FfiSurface,
+  native: NativeAddon,
+  enc: TextEncoder,
+  data: Uint8Array,
+  check: (name: string, cond: boolean) => void,
+): void {
+  const fPair = surface.generateEd25519Keypair();
+  const fPriv = new Uint8Array(Buffer.from(fPair.privateKey, "base64url"));
+  const fPub = new Uint8Array(Buffer.from(fPair.publicKey, "base64url"));
+  const nPair = native.generateEd25519Keypair();
+  const nPriv = new Uint8Array(Buffer.from(nPair.privateKey, "base64url"));
+  const nPub = new Uint8Array(Buffer.from(nPair.publicKey, "base64url"));
+  check("generateEd25519Keypair-format", fPriv.length === 48 && fPub.length === 44);
+  check("generateEd25519Keypair-napi-format", nPriv.length === 48 && nPub.length === 44);
+  const fSig = surface.ed25519Sign(data, fPriv);
+  check("ed25519Sign", eq(fSig, native.ed25519Sign(data, fPriv)));
+  check("ed25519Verify-cross", native.ed25519Verify(data, fSig, fPub));
+  check(
+    "ed25519Verify",
+    surface.ed25519Verify(data, fSig, fPub) &&
+      !surface.ed25519Verify(enc.encode("tampered"), fSig, fPub),
+  );
+  const claims = enc.encode('{"sub":"user-1","roles":["admin"]}');
+  const etok = surface.jwtSignEddsa(claims, fPriv, 60, 1_700_000_000);
+  check("jwtSignEddsa", typeof etok === "string" && etok.split(".").length === 3);
+  const eTok = native.jwtSignEddsa(claims, fPriv, 60, 1_700_000_000);
+  check("jwtSignEddsa-napi-parity", eq(enc.encode(etok), eTok));
+  const ev = surface.jwtVerifyEddsa(enc.encode(etok), fPub, 1_700_000_030);
+  check("jwtVerifyEddsa", (ev as Record<string, unknown>)?.sub === "user-1");
+  check(
+    "jwtVerifyEddsa-expired",
+    surface.jwtVerifyEddsa(enc.encode(etok), fPub, 1_700_000_100) === null,
+  );
+  check(
+    "jwtVerifyEddsa-napi-parity",
+    JSON.stringify(ev) ===
+      JSON.stringify(native.jwtVerifyEddsa(enc.encode(etok), fPub, 1_700_000_030)),
+  );
+}
 
 /** Current transport mode in effect (`ffi` only when actually bound). */
 export const getFfiMode = (): FfiMode => resolveFfiMode();
@@ -224,6 +319,24 @@ function bind(): FfiSurface | null {
         returns: "cstring",
       },
       castrum_jwt_verify: {
+        args: ["ptr", "usize", "ptr", "usize", "i64"],
+        returns: "cstring",
+      },
+      // Ed25519 / EdDSA JWT (RBAC auth)
+      castrum_ed25519_generate_keypair: { args: ["ptr", "usize"], returns: "usize" },
+      castrum_ed25519_sign: {
+        args: ["ptr", "usize", "ptr", "usize", "ptr", "usize"],
+        returns: "usize",
+      },
+      castrum_ed25519_verify: {
+        args: ["ptr", "usize", "ptr", "usize", "ptr", "usize"],
+        returns: "u8",
+      },
+      castrum_jwt_eddsa_sign: {
+        args: ["ptr", "usize", "ptr", "usize", "i64", "i64"],
+        returns: "cstring",
+      },
+      castrum_jwt_eddsa_verify: {
         args: ["ptr", "usize", "ptr", "usize", "i64"],
         returns: "cstring",
       },
@@ -357,7 +470,77 @@ function bind(): FfiSurface | null {
       jwtVerify: (token, secret, now) => {
         // cstring claims JSON (null = invalid) → parsed object, matching NAPI.
         const v = cstr(s.castrum_jwt_verify)(token, token.length, secret, secret.length, now);
-        return v === null ? null : JSON.parse(v);
+        return safeJsonParse(v);
+      },
+      // Ed25519 / EdDSA JWT. Keypair gen returns packed `[u32 privLen][priv]
+      // [u32 pubLen][pub]` (needed-size convention) — decode to base64url DER.
+      generateEd25519Keypair: () => {
+        const out = growExact(
+          (buf) => Number(s.castrum_ed25519_generate_keypair?.(buf, buf.length) ?? 0),
+          100,
+          MAX_VAR_OUTPUT,
+          "ed25519 keypair generation failed",
+        );
+        const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        const privLen = dv.getUint32(0, true);
+        const priv = out.subarray(4, 4 + privLen);
+        const pubStart = 4 + privLen;
+        const pubLen = dv.getUint32(pubStart, true);
+        const pub = out.subarray(pubStart + 4, pubStart + 4 + pubLen);
+        const b64 = (b: Uint8Array): string =>
+          Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString("base64url");
+        return { privateKey: b64(priv), publicKey: b64(pub) };
+      },
+      ed25519Sign: (msg, privateKey) => {
+        // C ABI args: (key, klen, msg, mlen, out, out_cap) — key first.
+        const out = new Uint8Array(64);
+        const w = Number(
+          (s.castrum_ed25519_sign as Raw6)(
+            privateKey,
+            privateKey.length,
+            msg,
+            msg.length,
+            out,
+            out.length,
+          ),
+        );
+        if (w === 0) throw new Error("ed25519 sign: failed (invalid private key)");
+        return out.subarray(0, w);
+      },
+      ed25519Verify: (msg, signature, publicKey) =>
+        // C ABI args: (key, klen, msg, mlen, sig, slen) — key first.
+        Number(
+          (s.castrum_ed25519_verify as Raw6)(
+            publicKey,
+            publicKey.length,
+            msg,
+            msg.length,
+            signature,
+            signature.length,
+          ),
+        ) === 1,
+      jwtSignEddsa: (claims, privateKey, ttl, now) => {
+        const v = cstr(s.castrum_jwt_eddsa_sign)(
+          claims,
+          claims.length,
+          privateKey,
+          privateKey.length,
+          ttl ?? 0,
+          now,
+        );
+        if (v === null) throw new Error("eddsa jwt sign: failed");
+        return v;
+      },
+      jwtVerifyEddsa: (token, publicKey, now) => {
+        // cstring claims JSON (null = invalid) → parsed object, matching NAPI.
+        const v = cstr(s.castrum_jwt_eddsa_verify)(
+          token,
+          token.length,
+          publicKey,
+          publicKey.length,
+          now,
+        );
+        return safeJsonParse(v);
       },
       // Brotli: needed-size convention → growExact (exact retry once).
       brotliCompress: (data, quality) =>
@@ -462,14 +645,6 @@ function selfTest(surface: FfiSurface): boolean {
   const data = enc.encode("hello world");
   const secret = enc.encode("s".repeat(32));
 
-  const eq = (a: Uint8Array | null, b: Uint8Array | null): boolean =>
-    a != null &&
-    b != null &&
-    a.length === b.length &&
-    Buffer.from(a).toString("hex") === Buffer.from(b).toString("hex");
-
-  const isHex = (a: Uint8Array): boolean => /^[0-9a-f]+$/.test(Buffer.from(a).toString());
-
   const failures: string[] = [];
   const check = (name: string, cond: boolean): void => {
     if (!cond) failures.push(name);
@@ -562,6 +737,9 @@ function selfTest(surface: FfiSurface): boolean {
         JSON.stringify(native.jwtVerify(enc.encode(jtok), secret, 1_700_000_030)),
     );
   }
+  // Ed25519 / EdDSA JWT parity (extracted to keep selfTest's complexity in
+  // check — see selfTestEd25519).
+  selfTestEd25519(surface, native, enc, data, check);
   // brotli roundtrip + parity with NAPI.
   {
     const c = surface.brotliCompress(data, 6);
@@ -656,6 +834,15 @@ export const getFfiRoute = (): FfiRouteSurface | null => {
       castrum_route_destroy: { args: ["u64"], returns: "void" },
     });
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    // Treat a PARTIAL binding (some symbols present, others silently
+    // `undefined` → always-0 results) as "surface absent" so the JS prelude
+    // remains the fallback instead of a half-working native path.
+    const required = [
+      "castrum_route_compile",
+      "castrum_route_run",
+      "castrum_route_destroy",
+    ] as const;
+    if (required.some((name) => typeof s[name] !== "function")) return null;
     routeCached = {
       routeCompile: (descriptor) =>
         BigInt(s.castrum_route_compile?.(descriptor, descriptor.length) ?? 0n),
@@ -741,6 +928,14 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
       },
     });
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    // Partial binding → treat the surface as absent (see getFfiRoute).
+    const required = [
+      "castrum_schema_validator_validate",
+      "castrum_template_render",
+      "castrum_accept_negotiator_negotiate",
+      "castrum_conditional_is_not_modified",
+    ] as const;
+    if (required.some((name) => typeof s[name] !== "function")) return null;
     instancesCached = {
       schemaValidatorValidate: (inner, doc) =>
         Number(s.castrum_schema_validator_validate?.(inner, doc, doc.length) ?? 0) === 1,
@@ -929,6 +1124,13 @@ export const getFfiIngress = (): FfiIngressSurface | null => {
       castrum_ingress_layout: { args: abi(["ptr", "usize"]), returns: "usize" },
     });
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    // Partial binding → treat the surface as absent (see getFfiRoute).
+    const required = [
+      "castrum_ingress_handle_components",
+      "castrum_ingress_handle_packed",
+      "castrum_ingress_layout",
+    ] as const;
+    if (required.some((name) => typeof s[name] !== "function")) return null;
     // Under `buffer`/`buffer_length` the length slot is the SAME view (the
     // engine reads its byteLength); under `(ptr,len)` it's the explicit length.
     // Bind-time constant → the JIT folds the branch away.

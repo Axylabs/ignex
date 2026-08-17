@@ -147,6 +147,41 @@ export declare function jwtSignBytes(
   nowSeconds: number,
 ): Uint8Array;
 export declare function jwtVerify(token: Uint8Array, secret: Uint8Array, nowSeconds: number): any;
+
+/** An Ed25519 keypair serialized for `.env` storage (base64url DER strings). */
+export interface Ed25519Keypair {
+  /** PKCS#8 v1 DER private key, base64url. */
+  privateKey: string;
+  /** SPKI DER public key, base64url. */
+  publicKey: string;
+}
+/** Generate an Ed25519 keypair → `{ privateKey, publicKey }` (base64url DER). */
+export declare function generateEd25519Keypair(): Ed25519Keypair;
+/** Sign `msg` with an Ed25519 private key (PKCS#8 DER) → 64-byte signature. */
+export declare function ed25519Sign(msg: Uint8Array, privateKey: Uint8Array): Uint8Array;
+/** Verify a 64-byte Ed25519 signature with an SPKI DER (or raw) public key. */
+export declare function ed25519Verify(
+  msg: Uint8Array,
+  signature: Uint8Array,
+  publicKey: Uint8Array,
+): boolean;
+/**
+ * Sign an EdDSA (Ed25519) compact JWT from pre-serialized claim JSON bytes —
+ * the byte-path twin of `jwtSign` for the `alg: "EdDSA"` header (iat/exp
+ * injection semantics are identical).
+ */
+export declare function jwtSignEddsa(
+  claimsJson: Uint8Array,
+  privateKey: Uint8Array,
+  ttlSeconds: number | null,
+  nowSeconds: number,
+): Uint8Array;
+/** Verify an EdDSA (Ed25519) JWT; returns the claims object or `null`. */
+export declare function jwtVerifyEddsa(
+  token: Uint8Array,
+  publicKey: Uint8Array,
+  nowSeconds: number,
+): any;
 export declare function randomToken(byteLen: number): Uint8Array;
 export declare function passwordHash(
   password: Uint8Array,

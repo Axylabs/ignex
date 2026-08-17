@@ -28,6 +28,30 @@ export const MAX_POOLED_BYTES = 4 * 1024 * 1024;
 const pool: Uint8Array[] = [];
 let pooledBytes = 0;
 
+/**
+ * Debug-mode buffer poisoning (`IGNEX_SCRATCH_POISON=1`). Released buffers are
+ * filled with {@link POISON_BYTE} and each reuse asserts the pattern is intact
+ * before handing the buffer out. A consumer that keeps writing to a borrowed
+ * buffer AFTER its `withScratch`/`release` (the classic "borrowed buffer
+ * escapes the borrow" corruption bug) will have poisoned the buffer → the next
+ * acquirer throws instead of silently serving cross-request corrupted data.
+ * Zero steady-state cost when off (a single constant boolean).
+ */
+const POISON = process.env.IGNEX_SCRATCH_POISON === "1";
+const POISON_BYTE = 0xaa;
+
+const assertUnpoisoned = (buf: Uint8Array): void => {
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] !== POISON_BYTE) {
+      throw new Error(
+        "scratch pool: reused buffer was written after release (a borrowed buffer " +
+          "escaped its withScratch call). This is a debug check enabled by " +
+          "IGNEX_SCRATCH_POISON=1 — fix the escape, don't disable the check.",
+      );
+    }
+  }
+};
+
 /** Grow `min` up to the next power of two, capped at {@link MAX_SCRATCH_BYTES}. */
 const nextSize = (min: number): number => {
   const clamped = Math.min(Math.max(min, 1), MAX_SCRATCH_BYTES);
@@ -59,6 +83,7 @@ export const acquire = (minBytes: number): Uint8Array => {
   if (bestIdx >= 0) {
     const buf = pool.splice(bestIdx, 1)[0] as Uint8Array;
     pooledBytes -= buf.byteLength;
+    if (POISON) assertUnpoisoned(buf);
     return buf;
   }
   return new Uint8Array(nextSize(min));
@@ -67,6 +92,7 @@ export const acquire = (minBytes: number): Uint8Array => {
 /** Return a borrowed buffer to the pool (dropped when too big to retain). */
 export const release = (buf: Uint8Array): void => {
   if (buf.byteLength > MAX_POOLED_BYTES) return;
+  if (POISON) buf.fill(POISON_BYTE);
   pooledBytes += buf.byteLength;
   pool.push(buf);
 };

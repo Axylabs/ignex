@@ -228,11 +228,18 @@ export const HELPER_SOURCES: Record<string, string> = {
   const ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts);
   ctx.server = server;
 
-  // Run the full pre-handler chain so plugins/hooks apply to preflight too.
-  const __r = runHooks(__preStages, ctx);
-  const pre = __r instanceof Promise ? await __r : __r;
-  let response = pre.response ?? new Response(null, { status: 204 });
-  response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+  // Run the full pre-handler chain so plugins/hooks apply to preflight too. A
+  // throwing hook must not demote the 204 preflight to a 500 — fall back to
+  // the plain preflight (status preserved, plugin headers lost).
+  let response;
+  try {
+    const __r = runHooks(__preStages, ctx);
+    const pre = __r instanceof Promise ? await __r : __r;
+    response = pre.response ?? new Response(null, { status: 204 });
+    response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+  } catch {
+    response = new Response(null, { status: 204 });
+  }
 
   const headers = new Headers(response.headers);
   if (!headers.has("access-control-allow-methods")) {
@@ -272,21 +279,27 @@ export const HELPER_SOURCES: Record<string, string> = {
   );
 
   // Run the lifecycle so plugins/hooks (e.g. CORS, security headers) apply to
-  // 404/405 responses too — matching interpreted behavior.
+  // 404/405 responses too — matching interpreted behavior. A throwing hook
+  // must not demote the 404/405 into a 500 — fall back to the plain
+  // not-found response (status preserved, plugin headers lost).
   if (__hasPreStages || __hasPostStages || __hasAfterResponse) {
     const ctx = createContext(req, EMPTY_PARAMS, __ctxOpts);
     ctx.server = server;
 
-    const __r1 = runHooks(__preStages, ctx);
-    const pre = __r1 instanceof Promise ? await __r1 : __r1;
-    if (pre.response) return __applySet(pre.response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+    try {
+      const __r1 = runHooks(__preStages, ctx);
+      const pre = __r1 instanceof Promise ? await __r1 : __r1;
+      if (pre.response) return __applySet(pre.response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
 
-    const __r2 = runHooks(__postStages, pre.ctx, response);
-    const post = __r2 instanceof Promise ? await __r2 : __r2;
-    response = post.response ?? response;
-    const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, response);
-    if (__r3 instanceof Promise) await __r3;
-    response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+      const __r2 = runHooks(__postStages, pre.ctx, response);
+      const post = __r2 instanceof Promise ? await __r2 : __r2;
+      response = post.response ?? response;
+      const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, response);
+      if (__r3 instanceof Promise) await __r3;
+      response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+    } catch {
+      // keep the plain 404/405 response
+    }
   }
 
   return response;

@@ -85,6 +85,17 @@ describe("createJobQueue", () => {
     await sleep(20);
     expect(ran).toBe(false);
   });
+
+  it("stop() resolves even when an in-flight task never completes (deadline)", async () => {
+    const q = createJobQueue({ stopDeadlineMs: 60 });
+    q.enqueue("stuck", () => new Promise<void>(() => {})); // never resolves
+    while (q.running === 0) await sleep(5); // wait for it to start
+
+    const started = Date.now();
+    await q.stop();
+    // Returns via the deadline, not by waiting forever.
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe("withTimeout", () => {

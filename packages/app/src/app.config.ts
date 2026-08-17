@@ -5,10 +5,14 @@
  * and `server` into the generated `Bun.serve` entry.
  */
 import { compression, createI18n, type IgnexPlugin, nativePreflight, session } from "@ignex/core";
+import { middleware } from "./middleware/index.js";
+import { logRequests, markResponse } from "./middleware/log-requests.js";
 
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 
 export const plugins: IgnexPlugin[] = [
+  // Custom global plugins (see src/middleware/) — run on every request.
+  ...middleware,
   compression(),
   // Lazy sessions: `createIfMissing: "lazy"` defers session creation until a
   // handler actually reads it (via `getSession`), so requests that never use
@@ -57,6 +61,8 @@ const i18n = createI18n(
 
 export const lifecycle = {
   request: [i18n.middleware()],
+  // Global lifecycle stage hooks (see src/middleware/log-requests.ts).
+  beforeHandle: [logRequests(), markResponse()],
 };
 
 // Static response headers served natively by Bun's default-header sink (applied

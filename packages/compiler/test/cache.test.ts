@@ -124,4 +124,17 @@ describe("incremental cache", () => {
     const hit = await tryCachedBuild(opts, ctx);
     expect(hit).toBeUndefined();
   });
+
+  it("fingerprint includes function-valued option bodies (no false cache hit)", () => {
+    const { opts } = makeOpts();
+    const base = computeFingerprint(opts);
+    // A function-valued option previously serialized to `undefined` under
+    // JSON.stringify → two builds with different callbacks collided on the
+    // same fingerprint and the cache could serve stale output. Function
+    // bodies must now be part of the fingerprint.
+    const withFnA = computeFingerprint({ ...opts, filter: () => true });
+    const withFnB = computeFingerprint({ ...opts, filter: () => false });
+    expect(withFnA).not.toBe(base);
+    expect(withFnA).not.toBe(withFnB);
+  });
 });

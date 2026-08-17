@@ -30,6 +30,20 @@ export interface AppConfigInfo {
   readonly hasServer: boolean;
 }
 
+/**
+ * Per-route RBAC guards, from `withGuards(handler, guards)` (mirrors
+ * `@ignex/core`'s `RouteGuards`). Emitted into the route's pre-execution hook
+ * chain by codegen.
+ */
+export interface RouteGuards {
+  roles?: string[];
+  permissions?: string[];
+  /** Require ALL listed permissions instead of any. */
+  all?: boolean;
+  /** Require an authenticated user only (default when no roles/permissions). */
+  authenticated?: boolean;
+}
+
 export type { HttpMethod };
 // Shared method vocabulary (single source of truth in @ignex/shared).
 export { HTTP_METHODS };

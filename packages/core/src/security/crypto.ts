@@ -13,7 +13,9 @@ import {
   hmacSha256Verify,
   type JwtVerifyOptions,
   jwtSign,
+  jwtSignEdDsa,
   jwtVerify,
+  jwtVerifyEdDsa,
   type PasswordHashOptions,
   passwordHash,
   passwordVerify,
@@ -37,7 +39,9 @@ export {
   hmacSha256,
   hmacSha256Verify,
   jwtSign,
+  jwtSignEdDsa,
   jwtVerify,
+  jwtVerifyEdDsa,
   passwordHash,
   passwordVerify,
   randomToken,
@@ -119,6 +123,80 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
         verifyOpts.nowSeconds = verifyOptions.nowSeconds;
       }
       return validate(jwtVerify(token, secret, verifyOpts));
+    },
+  };
+};
+
+/** Options for {@link createEd25519Jwt}. */
+export interface Ed25519JwtOptions {
+  /** PKCS#8 v1 DER private key, base64url (or raw DER bytes). */
+  privateKey: string | Uint8Array;
+  /** SPKI DER public key, base64url (or raw DER bytes). */
+  publicKey: string | Uint8Array;
+  /** Fixed TTL in seconds (injects `iat`/`exp` when positive). */
+  ttlSeconds?: number;
+  /** `iss` claim injected on sign and enforced on verify. */
+  issuer?: string;
+  /** `aud` claim(s) injected on sign and enforced on verify. */
+  audience?: string | string[];
+}
+
+/** A reusable EdDSA (Ed25519) JWT signer/verifier from {@link createEd25519Jwt}. */
+export interface Ed25519JwtService {
+  /** Sign an EdDSA token with the configured issuer/audience/TTL applied. */
+  sign(claims: Record<string, unknown>, nowSeconds?: number): string;
+  /** Verify + validate `iss`/`aud`; returns the claims or `null`. */
+  verify(token: string, options?: { nowSeconds?: number }): unknown;
+}
+
+/**
+ * Create a reusable EdDSA (Ed25519) JWT signer/verifier.
+ *
+ * Signed through the Rust addon (`castrum`) via `@ignex/native` with a
+ * byte-compatible pure-TS fallback; the keypair is the base64url DER format
+ * produced by {@link generateEd25519Keypair} (and written to `.env` by the
+ * auth module).
+ *
+ * @throws TypeError when `options.privateKey`/`options.publicKey` are empty.
+ */
+export const createEd25519Jwt = (options: Ed25519JwtOptions): Ed25519JwtService => {
+  assertSecret(options.privateKey, "createEd25519Jwt");
+  assertSecret(options.publicKey, "createEd25519Jwt");
+  const { privateKey, publicKey, ttlSeconds, issuer, audience } = options;
+
+  const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
+    const out = { ...claims };
+    if (issuer) out.iss = issuer;
+    if (audience) out.aud = audience;
+    return out;
+  };
+
+  const validate = (claims: unknown): unknown => {
+    if (claims == null || typeof claims !== "object") return null;
+    const c = claims as Record<string, unknown>;
+    if (issuer && c.iss !== issuer) return null;
+    if (audience) {
+      const expected = Array.isArray(audience) ? audience : [audience];
+      const actual = Array.isArray(c.aud) ? (c.aud as unknown[]) : [c.aud];
+      if (!expected.some((a) => actual.includes(a))) return null;
+    }
+    return claims;
+  };
+
+  return {
+    sign(claims, nowSeconds = Math.floor(Date.now() / 1000)): string {
+      return jwtSignEdDsa(withMeta(claims), privateKey, {
+        ...(ttlSeconds !== undefined ? { ttlSeconds } : {}),
+        nowSeconds,
+      });
+    },
+
+    verify(token, verifyOptions = {}): unknown {
+      const verifyOpts: { nowSeconds?: number } = {};
+      if (verifyOptions.nowSeconds !== undefined) {
+        verifyOpts.nowSeconds = verifyOptions.nowSeconds;
+      }
+      return validate(jwtVerifyEdDsa(token, publicKey, verifyOpts));
     },
   };
 };

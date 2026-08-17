@@ -215,7 +215,7 @@ describe("interpreted vs compiled parity", () => {
   }
 
   it("explicitly-set cookie values are byte-identical (seen=1)", async () => {
-    const { compiled, interpreted } = await runCase(CASES[3]!);
+    const { compiled, interpreted } = await runCase(CASES[3]);
     const sc = (h: Headers): string[] => h.getSetCookie?.() ?? [h.get("set-cookie") ?? ""];
     const compiledSeen = sc(compiled.headers).find((c) => c.startsWith("seen="));
     const interpretedSeen = sc(interpreted.headers).find((c) => c.startsWith("seen="));

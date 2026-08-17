@@ -40,6 +40,11 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // zero per-request JS (replaces the per-request `security()`/`cors()` hooks).
   functions.push(`if (__serverCfg.headers) __serveOptions.headers = __serverCfg.headers;`);
 
+  // Process-level crash backstop: log unhandled rejections instead of letting
+  // Bun terminate the server; exit(1) on an uncaught exception so a supervisor
+  // restarts a fresh process. Installed before Bun.serve accepts traffic.
+  functions.push(`installProcessGuards();`);
+
   functions.push(`const __server = Bun.serve(__serveOptions);`);
 
   functions.push(
@@ -54,7 +59,7 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // Prune the `@ignex/core` import to only the symbols the emitted code
   // actually references: header-required symbols, per-route core deps
   // (markCore), and the transitive core deps of used generated helpers.
-  const neededCore = new Set<string>(["EMPTY_LIFECYCLE"]);
+  const neededCore = new Set<string>(["EMPTY_LIFECYCLE", "installProcessGuards"]);
   if (state.hasAppConfig) {
     neededCore.add("createPluginContext");
     neededCore.add("mergeLifeCycle");

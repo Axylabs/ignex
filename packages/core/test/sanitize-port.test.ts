@@ -25,7 +25,7 @@ describe("CRLF header injection (interpreted path)", () => {
         ctx.set.headers["x-echo"] = ctx.query.get("v") ?? "";
         return ctx.text("ok");
       }),
-      { url: "/reflect?v=" + encodeURIComponent(CRLF) },
+      { url: `/reflect?v=${encodeURIComponent(CRLF)}` },
     );
 
     expect(res.status).toBe(200);
@@ -39,7 +39,7 @@ describe("CRLF header injection (interpreted path)", () => {
         ctx.set.headers["x-echo"] = ctx.query.get("v") ?? "";
         return ctx.text("ok");
       }),
-      { url: "/reflect?v=" + encodeURIComponent(CRLF) },
+      { url: `/reflect?v=${encodeURIComponent(CRLF)}` },
     );
 
     // The control chars are dropped; the rest of the text stays a single
@@ -53,7 +53,7 @@ describe("CRLF header injection (interpreted path)", () => {
         ctx.set.headers["x-echo"] = ctx.query.get("v") ?? "";
         return ctx.text("ok");
       }),
-      { url: "/reflect?v=" + encodeURIComponent("a\u0000b\nc") },
+      { url: `/reflect?v=${encodeURIComponent("a\u0000b\nc")}` },
     );
 
     expect(res.status).toBe(200);
@@ -66,7 +66,7 @@ describe("CRLF header injection (interpreted path)", () => {
         ctx.set.headers["x-echo"] = ctx.query.get("v") ?? "";
         return ctx.text("ok");
       }),
-      { url: "/reflect?v=" + encodeURIComponent("hello world") },
+      { url: `/reflect?v=${encodeURIComponent("hello world")}` },
     );
 
     expect(res.headers.get("x-echo")).toBe("hello world");

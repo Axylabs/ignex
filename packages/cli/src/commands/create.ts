@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
+import {
+  middlewareIndexTemplate,
+  middlewareLogRequestsTemplate,
+  middlewareReadmeTemplate,
+  middlewareRequestIdTemplate,
+} from "../templates/middleware.js";
 import type { ProjectTemplateOptions } from "../templates/project.js";
 import {
   biomeTemplate,
@@ -13,6 +19,7 @@ import {
 } from "../templates/project.js";
 import {
   appConfigTemplate,
+  authLibTemplate,
   cacheRouteTemplate,
   envRouteTemplate,
   healthRouteTemplate,
@@ -22,12 +29,15 @@ import {
   jobsRouteTemplate,
   layoutTemplate,
   loginRouteTemplate,
+  logoutRouteTemplate,
   meRouteTemplate,
   openApiRouteTemplate,
   pageRouteTemplate,
   productAddRouteTemplate,
   productByIdRouteTemplate,
   proxyRouteTemplate,
+  refreshRouteTemplate,
+  registerRouteTemplate,
   requireAuthHookTemplate,
   sessionRouteTemplate,
   sseRouteTemplate,
@@ -125,19 +135,63 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
   if (features.has("ws")) {
     await writeFileEnsuringDir(join(target, "src/ws.example.ts"), wsExampleTemplate());
   }
+  if (features.has("middleware")) {
+    await writeFileEnsuringDir(
+      join(target, "src/middleware/README.md"),
+      middlewareReadmeTemplate(),
+    );
+    await writeFileEnsuringDir(join(target, "src/middleware/index.ts"), middlewareIndexTemplate());
+    await writeFileEnsuringDir(
+      join(target, "src/middleware/request-id.ts"),
+      middlewareRequestIdTemplate(),
+    );
+    await writeFileEnsuringDir(
+      join(target, "src/middleware/log-requests.ts"),
+      middlewareLogRequestsTemplate(),
+    );
+  }
   if (features.has("auth")) {
+    await writeFileEnsuringDir(
+      join(target, "src/lib/auth.ts"),
+      authLibTemplate({ refresh: features.has("refresh") }),
+    );
     await writeFileEnsuringDir(
       join(target, "src/hooks/require-auth.ts"),
       requireAuthHookTemplate(),
     );
-    await writeFileEnsuringDir(join(target, "src/routes/auth/login.post.ts"), loginRouteTemplate());
+    await writeFileEnsuringDir(
+      join(target, "src/routes/auth/register.post.ts"),
+      registerRouteTemplate({ refresh: features.has("refresh") }),
+    );
+    await writeFileEnsuringDir(
+      join(target, "src/routes/auth/login.post.ts"),
+      loginRouteTemplate({ refresh: features.has("refresh") }),
+    );
     await writeFileEnsuringDir(join(target, "src/routes/auth/me.get.ts"), meRouteTemplate());
+  }
+  if (features.has("refresh")) {
+    await writeFileEnsuringDir(
+      join(target, "src/routes/auth/refresh.post.ts"),
+      refreshRouteTemplate(),
+    );
+    await writeFileEnsuringDir(
+      join(target, "src/routes/auth/logout.post.ts"),
+      logoutRouteTemplate(),
+    );
   }
   if (features.has("sessions")) {
     await writeFileEnsuringDir(join(target, "src/routes/session.get.ts"), sessionRouteTemplate());
   }
-  if (features.has("sessions") || features.has("auth") || hasPluginFeatures(features)) {
-    await writeFileEnsuringDir(join(target, "src/app.config.ts"), appConfigTemplate());
+  if (
+    features.has("sessions") ||
+    features.has("auth") ||
+    features.has("middleware") ||
+    hasPluginFeatures(features)
+  ) {
+    await writeFileEnsuringDir(
+      join(target, "src/app.config.ts"),
+      appConfigTemplate({ middleware: features.has("middleware") }),
+    );
   }
   if (features.has("templates")) {
     await writeFileEnsuringDir(join(target, "src/views/layout.html"), layoutTemplate());
@@ -198,6 +252,7 @@ function printNextSteps(rel: string, install: boolean, pm: string, name: string)
 export async function runCreate(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
     name: { type: "string" },
+    root: { type: "string" },
     runtime: { type: "string" },
     pm: { type: "string" },
     features: { type: "string" },
@@ -244,10 +299,18 @@ export async function runCreate(args: string[]): Promise<void> {
 
   const features = parseFeatures(featuresInput ?? (values.yes ? "openapi,examples,tests" : "none"));
 
+  if (features.has("refresh") && !features.has("auth")) {
+    features.add("auth");
+    warn("'refresh' requires 'auth' — enabling 'auth' too.");
+  }
+
   install = install ?? false;
   git = git ?? false;
 
-  const target = resolve(process.cwd(), name);
+  // `--root <dir>` targets an explicit parent directory; otherwise the app is
+  // scaffolded into a folder named `name` inside the current directory.
+  const baseDir = resolve(values.root ? String(values.root) : process.cwd());
+  const target = resolve(baseDir, name);
 
   // Reject path traversal / absolute project names so `--name ../x` (or an
   // absolute path) cannot silently write outside the current directory.
@@ -278,8 +341,10 @@ export async function runCreate(args: string[]): Promise<void> {
   if (git) initGit(target);
   if (install) installDeps(pm, target);
 
+  // Prefer a cwd-relative path for the next-steps hint; fall back to the
+  // absolute path when the app lives outside the current directory.
   const rel = relative(process.cwd(), target) || ".";
-  printNextSteps(rel, install, pm, name);
+  printNextSteps(rel.startsWith("..") ? target : rel, install, pm, name);
 }
 
 function normalizePm(input: string | undefined, runtime: "bun" | "node"): string {
@@ -296,10 +361,13 @@ const FEATURE_ALIASES: Record<string, Feature> = {
   cors: "cors",
   ratelimit: "rateLimit",
   "rate-limit": "rateLimit",
+  rateLimit: "rateLimit",
   security: "security",
   compression: "compression",
   logger: "logger",
   logs: "logger",
+  middleware: "middleware",
+  "global-hooks": "middleware",
   openapi: "openapi",
   files: "files",
   upload: "files",
@@ -309,12 +377,21 @@ const FEATURE_ALIASES: Record<string, Feature> = {
   cache: "cache",
   proxy: "proxy",
   cluster: "cluster",
+  auth: "auth",
+  refresh: "refresh",
+  "refresh-tokens": "refresh",
+  sessions: "sessions",
+  session: "sessions",
+  templates: "templates",
+  env: "env",
+  jobs: "jobs",
+  i18n: "i18n",
   examples: "examples",
   tests: "tests",
   test: "tests",
 };
 
-function parseFeatures(input: string | undefined): Set<Feature> {
+export function parseFeatures(input: string | undefined): Set<Feature> {
   if (!input) return new Set();
 
   const normalized = input.trim().toLowerCase();

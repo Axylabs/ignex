@@ -12,7 +12,7 @@
  * build). `ModuleInfo` is a deprecated alias for back-compat.
  */
 
-import type { ExportInfo, ImportInfo, SymbolInfo } from "../types";
+import type { ExportInfo, ImportInfo, RouteGuards, SymbolInfo } from "../types";
 import type { Program } from "../utils/ast/ast-types";
 import type { ParseResult } from "../utils/ast/parse";
 import type { ExtractedHandler } from "../utils/ast/types";
@@ -47,4 +47,6 @@ export interface SourceFile {
   readonly handler: ExtractedHandler | null;
   /** Route-level `config` export, if present. */
   readonly config?: Record<string, unknown>;
+  /** RBAC guards from a `withGuards(handler, guards)` route wrapper. */
+  readonly guards?: RouteGuards;
 }

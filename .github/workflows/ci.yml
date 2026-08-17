@@ -9,6 +9,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Pin the Bun version (was `latest` — un-pinned drift across CI runs). Track the
+# version the workspace is verified on (root package.json `engines.bun >= 1.4`);
+# bump deliberately, never silently via `latest`.
+env:
+  BUN_VERSION: 1.4.0
+
 jobs:
   quality:
     name: Quality gates
@@ -21,7 +27,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Cache Bun dependencies
         uses: actions/cache@v4
@@ -61,6 +67,19 @@ jobs:
       - name: Smoke (fallback mode — no native addon in this job)
         run: bun run smoke:fallback
 
+      # AOT-compile + boot checks that the vitest suites don't cover (they need
+      # plain Bun, not a vitest worker): RBAC guard-chain emission and the CLI
+      # resource→AOT flow. Plus the release pre-flight: codegen/native-loader
+      # changes must bump the compiler cache version.
+      - name: AOT RBAC guard-chain verify
+        run: bun run verify:aot:rbac
+
+      - name: CLI resource → AOT verify
+        run: bun run verify:cli:resource
+
+      - name: Compiler cache-version check (vs last tag)
+        run: bun run check:cache-versions
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,7 +111,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -112,6 +131,19 @@ jobs:
         run: |
           bun run test:native:real
           bun scripts/native-bench.ts
+
+      # C-ABI scalar + per-route parity under PLAIN Bun (vitest workers can't
+      # dlopen bun:ffi) — the ONLY checks that exercise the C-ABI bindings
+      # directly. Hard gate: a binding/parity regression must fail loudly.
+      - name: C-ABI scalar parity (plain Bun, real addon)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun run verify:native:ffi
+
+      - name: Per-route native stack parity (plain Bun, real addon)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun run verify:native:route
 
       # C-ABI (bun:ffi) is the PRIMARY transport — force it so a bind/self-test
       # regression (or a Bun/ABI drift) fails loudly instead of silently falling
@@ -140,8 +172,11 @@ jobs:
   # End-to-end compiled-server regression gate (native on vs fallback).
   # Benchmarks the AOT-compiled app server and compares native req/s against
   # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).
-  # continue-on-error: perf on shared runners is noisy; keep this job soft until
-  # thresholds are validated on a stable runner, then drop to make it a hard gate.
+  # `bench/results/server/baseline.json` is COMMITTED (native-vs-baseline check is
+  # live when run params match). Still soft (continue-on-error) pending a known
+  # issue: native-mode is ~15-16% behind fallback on the 256KB-gzip /api/big route
+  # (tracked in docs/stability.md risk register) — drop continue-on-error once
+  # that is resolved and thresholds are validated on a stable runner.
   server-bench:
     name: Server bench gate (real addon)
     runs-on: ubuntu-latest
@@ -160,7 +195,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

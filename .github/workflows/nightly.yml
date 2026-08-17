@@ -1,0 +1,131 @@
+name: Nightly stability
+
+# Scheduled stability sweep — runs the slow/expensive gates that don't belong
+# on every PR: full native parity on plain Bun, perf regression against the
+# committed baseline, and a compare-bench soak. Failures here are real signals
+# (drift in Bun/castrum, perf regressions, machine-sensitive flakes) — they do
+# NOT block PRs but should be triaged.
+#
+# TODO(nightly): add a malformed-FFI fuzz job once the deterministic fuzz
+# harness (docs/stability.md, Phase 1A-2) lands.
+on:
+  schedule:
+    # 02:00 UTC daily.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: 1.4.0
+
+jobs:
+  native-parity:
+    name: Native parity + C-ABI (plain Bun)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ignex
+        uses: actions/checkout@v4
+
+      - name: Checkout castrum (Rust addon)
+        uses: actions/checkout@v4
+        with:
+          repository: Axylabs/flux-rs
+          path: castrum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ignex dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build castrum addon
+        working-directory: castrum
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: C-ABI scalar parity (plain Bun)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun run verify:native:ffi
+
+      - name: Per-route native stack parity (plain Bun)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun run verify:native:route
+
+      - name: Native suite (real addon)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun run test:native:real
+
+  perf-regression:
+    name: Perf regression vs committed baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ignex
+        uses: actions/checkout@v4
+
+      - name: Checkout castrum (Rust addon)
+        uses: actions/checkout@v4
+        with:
+          repository: Axylabs/flux-rs
+          path: castrum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ignex dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build castrum addon
+        working-directory: castrum
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: End-to-end server bench (CI params)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+          REPEATS: "2"
+          DURATION: "2"
+          WARMUP: "1"
+        run: bun scripts/bench-server.ts
+
+      - name: Regression gate (vs committed baseline + fallback band)
+        env:
+          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
+        run: bun scripts/check-server-bench.ts
+
+  soak:
+    name: Compare-bench soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Soak (long-running flow stability)
+        run: bun run bench:compare:soak
+
+      - name: Validate compare reports
+        run: bun run bench:compare:check

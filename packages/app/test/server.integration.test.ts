@@ -56,9 +56,15 @@ describe("generated server (integration)", () => {
       body: JSON.stringify({ username: "admin", password: "secret" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { token?: string };
-    expect(typeof body.token).toBe("string");
-    expect((body.token ?? "").split(".")).toHaveLength(3);
+    const body = (await res.json()) as {
+      accessToken?: string;
+      refreshToken?: string;
+      expiresIn?: number;
+    };
+    expect(typeof body.accessToken).toBe("string");
+    expect((body.accessToken ?? "").split(".")).toHaveLength(3);
+    expect(typeof body.refreshToken).toBe("string");
+    expect(body.expiresIn).toBe(900);
   });
 
   it("returns 401 for invalid credentials", async () => {
@@ -92,15 +98,15 @@ describe("generated server (integration)", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ username: "admin", password: "secret" }),
     });
-    const { token } = (await login.json()) as { token: string };
+    const { accessToken } = (await login.json()) as { accessToken: string };
 
     const res = await fetch(`${BASE}/auth/me`, {
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { user?: { sub?: string; role?: string } };
+    const body = (await res.json()) as { user?: { sub?: string; roles?: string[] } };
     expect(body.user?.sub).toBe("admin");
-    expect(body.user?.role).toBe("admin");
+    expect(body.user?.roles).toContain("admin");
   });
 
   it("sets a session cookie via the session plugin", async () => {

@@ -33,6 +33,13 @@ export const unauthorized = (challenge?: string): Response => {
 };
 
 /**
+ * Build a 403 JSON response — the authenticated user is present but lacks the
+ * required role/permission (RBAC guards).
+ */
+export const forbidden = (message = "Forbidden"): Response =>
+  Response.json({ error: message }, { status: 403 });
+
+/**
  * Halt unless a user can be extracted. On success the user is attached to
  * `ctx.state`; on failure the request is halted with a 401.
  */

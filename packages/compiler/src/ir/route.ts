@@ -21,6 +21,7 @@ import type {
   HttpMethod,
   ResponseType,
   RouteCacheConfig,
+  RouteGuards,
   RouteSerializers,
   RouteValidators,
 } from "../types";
@@ -51,6 +52,8 @@ export interface RouteIRAnalysis {
   readonly hasValidation: boolean;
   readonly hotnessScore: number;
   readonly hooks: readonly string[];
+  /** RBAC guards (from `withGuards`) emitted into the route hook chain. */
+  readonly guards?: RouteGuards;
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;

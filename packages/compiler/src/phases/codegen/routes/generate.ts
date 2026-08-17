@@ -9,7 +9,13 @@
 
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { getCacheConfig, tryNormalizeConstant } from "../decisions";
-import { coreHandlerName, ctxOptsVar, handlerImportName, routeReplyFn } from "../identifiers";
+import {
+  coreHandlerName,
+  ctxOptsVar,
+  guardHookEmissions,
+  handlerImportName,
+  routeReplyFn,
+} from "../identifiers";
 import type { CodegenState } from "../state";
 import { emitCacheWrapper } from "./cache";
 import { emitConstantRoute } from "./constant";
@@ -59,7 +65,17 @@ export const generateRouteCode = (
     return;
   }
 
-  const hasHooks = route.analysis.hooks.length > 0;
+  const hasHooks = route.analysis.hooks.length > 0 || guardHookEmissions(route).length > 0;
+
+  // Emit the RBAC guard hooks (`hasRole(...)` / `can(...)` / `canAll(...)` /
+  // `requireAuthenticated`) as module-level consts referenced from the route's
+  // pre-execution hook array. Mark the referenced core symbol as used so the
+  // `@ignex/core` import (pruned to referenced symbols) keeps it.
+  for (const g of guardHookEmissions(route)) {
+    state.header.push(`const ${g.ident} = ${g.expr};`);
+    const openParen = g.expr.indexOf("(");
+    helpers.markCore(openParen < 0 ? g.expr : g.expr.slice(0, openParen));
+  }
 
   // Usage-driven context specialization. A full context is required when the
   // route needs lifecycle/hooks, validation, cookies, forwarding, or file
@@ -151,7 +167,7 @@ export const generateRouteCode = (
     callExpr,
     needsFull,
     compact,
-    hasRouteHooks: route.analysis.hooks.length > 0,
+    hasRouteHooks: hasHooks,
     sync: routeIsSync,
     resumeName,
     serializersVar,

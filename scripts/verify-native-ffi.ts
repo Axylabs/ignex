@@ -37,11 +37,16 @@ import {
   csrfToken,
   csrfVerify,
   csrfVerifyFallback,
+  ed25519Sign,
+  ed25519Verify,
   etag,
   etagFallback,
   formPairs,
+  generateEd25519Keypair,
   getFfi,
   jwtSign,
+  jwtSignEdDsa,
+  jwtVerifyEdDsa,
   queryPairs,
   randomToken,
   readPairsPacked,
@@ -258,6 +263,51 @@ for (const f of FORM_CASES) {
   if (typeof ffiJwt !== "string" || ffiJwt.split(".").length !== 3) {
     failures++;
     console.log("FAIL ffi.jwtSignBytes format");
+  }
+
+  // Ed25519 / EdDSA JWT (RBAC auth): DER format + cross-transport verify.
+  // Keypair generation is RANDOM, so no byte parity — verify the DER shapes
+  // on the ffi surface, then sign with the ffi keypair and verify through the
+  // public wrappers (which prefer the ffi surface when live), plus an EdDSA
+  // JWT sign→verify round trip + tamper/expiry rejection.
+  const pair = generateEd25519Keypair();
+  const priv = new Uint8Array(Buffer.from(pair.privateKey, "base64url"));
+  const pub = new Uint8Array(Buffer.from(pair.publicKey, "base64url"));
+  checks++;
+  if (priv.length !== 48 || pub.length !== 44) {
+    failures++;
+    console.log(`FAIL ed25519 keypair DER lengths: priv=${priv.length} pub=${pub.length}`);
+  }
+  const sig = ed25519Sign(enc("integration plan"), pair.privateKey);
+  checks++;
+  if (sig.length !== 64 || !ed25519Verify(enc("integration plan"), sig, pair.publicKey)) {
+    failures++;
+    console.log("FAIL ed25519 sign/verify round trip");
+  }
+  checks++;
+  if (ed25519Verify(enc("tampered"), sig, pair.publicKey)) {
+    failures++;
+    console.log("FAIL ed25519 verify should reject tampered message");
+  }
+  const eTok = jwtSignEdDsa({ sub: "user-1", roles: ["admin"] }, pair.privateKey, {
+    ttlSeconds: 60,
+    nowSeconds: 1_700_000_000,
+  });
+  checks++;
+  if (typeof eTok !== "string" || eTok.split(".").length !== 3) {
+    failures++;
+    console.log("FAIL EdDSA jwt token format");
+  }
+  checks++;
+  const eClaims = jwtVerifyEdDsa(eTok, pair.publicKey, { nowSeconds: 1_700_000_030 });
+  if ((eClaims as Record<string, unknown>)?.sub !== "user-1") {
+    failures++;
+    console.log("FAIL EdDSA jwt verify");
+  }
+  checks++;
+  if (jwtVerifyEdDsa(eTok, pair.publicKey, { nowSeconds: 1_700_000_100 }) !== null) {
+    failures++;
+    console.log("FAIL EdDSA jwt should be expired");
   }
 
   // brotli roundtrip via public wrappers + ffi surface.
@@ -499,7 +549,7 @@ for (const f of FORM_CASES) {
       console.log("FAIL ingress: query-limit instance null");
     } else {
       const q = await pq.preprocess(
-        new Request("http://localhost:3000/api?q=" + "a".repeat(5000), { method: "GET" }),
+        new Request(`http://localhost:3000/api?q=${"a".repeat(5000)}`, { method: "GET" }),
         "127.0.0.1",
       );
       if (!q.terminal) {

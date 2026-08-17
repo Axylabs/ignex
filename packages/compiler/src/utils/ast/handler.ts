@@ -11,7 +11,9 @@
  * cannot be inlined.
  */
 
+import type { RouteGuards } from "../../types";
 import { bindingName, type FunctionNode, type Node, type Program } from "./ast-types";
+import { evaluateConstantNode } from "./constant";
 import { hasDefaultExportAST } from "./imports";
 import type { ExtractedHandler } from "./types";
 import { buildContextMapping, detectUsage } from "./usage";
@@ -22,24 +24,97 @@ export type { ExtractedHandler };
 const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
 
 /**
+ * Higher-order route-handler wrappers the compiler recognizes. `withGuards`
+ * keeps the route in the graph and carries RBAC guards that codegen emits
+ * into the route's pre-execution hook chain.
+ */
+const HANDLER_WRAPPERS = new Set(["withGuards"]);
+
+/** True when `node` is a recognized route-handler wrapper call. */
+const isHandlerWrapperCall = (node: Node): boolean =>
+  node.type === "CallExpression" &&
+  node.callee?.type === "Identifier" &&
+  (HTTP_WRAPPERS.has(node.callee.name) || HANDLER_WRAPPERS.has(node.callee.name));
+
+/**
+ * Extract the RBAC guards object from a `withGuards(handler, guards)` init
+ * (the second argument, statically evaluated). Returns `{}` for a bare
+ * `withGuards(handler)` (meaning "require authentication only"), and
+ * `undefined` when the init is not a `withGuards` wrapper.
+ */
+export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuards | undefined => {
+  if (node?.type !== "CallExpression") return undefined;
+  const callee = node.callee;
+  if (callee.type !== "Identifier" || callee.name !== "withGuards") {
+    return undefined;
+  }
+  const guardsArg = node.arguments?.[1];
+  if (guardsArg == null) return {};
+  const result = evaluateConstantNode(guardsArg);
+  if (!result.ok || result.value == null || typeof result.value !== "object") {
+    return {};
+  }
+  const v = result.value as Record<string, unknown>;
+  const guards: RouteGuards = {};
+  if (Array.isArray(v.roles) && v.roles.every((r) => typeof r === "string")) {
+    guards.roles = v.roles as string[];
+  }
+  if (Array.isArray(v.permissions) && v.permissions.every((p) => typeof p === "string")) {
+    guards.permissions = v.permissions as string[];
+  }
+  if (typeof v.all === "boolean") guards.all = v.all;
+  if (typeof v.authenticated === "boolean") guards.authenticated = v.authenticated;
+  return guards;
+};
+
+/**
+ * Extract the RBAC guards from a route module's exported handler init
+ * (default export or the first named handler binding).
+ */
+export const extractRouteGuardsAST = (ast: Program): RouteGuards | undefined => {
+  let guards: RouteGuards | undefined;
+  walk(ast, (n) => {
+    if (guards) return;
+    if (n.type === "ExportDefaultDeclaration") {
+      const g = extractGuardsFromInit(n.declaration);
+      if (g) guards = g;
+      return;
+    }
+    if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
+      for (const d of n.declaration.declarations || []) {
+        if (d.init && isHandlerInitNode(d.init)) {
+          const g = extractGuardsFromInit(d.init);
+          if (g) guards = g;
+          return;
+        }
+      }
+    }
+  });
+  return guards;
+};
+
+/**
  * Unwrap a handler-shaped node to its actual function node, or `null` when
  * the node is not a handler function (including referenced handlers like
  * `get(myHandler)`).
  */
 export function unwrapHandlerFunction(node: Node | null | undefined): FunctionNode | null {
   if (!node) return null;
-  if (
-    node.type === "CallExpression" &&
-    node.callee?.type === "Identifier" &&
-    HTTP_WRAPPERS.has(node.callee.name)
-  ) {
-    const arg = node.arguments?.[0];
-    if (!arg) return null;
-    if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") {
-      return arg;
+  if (node.type === "CallExpression" && node.callee?.type === "Identifier") {
+    const callee = node.callee.name;
+    if (HTTP_WRAPPERS.has(callee)) {
+      const arg = node.arguments?.[0];
+      if (!arg) return null;
+      if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") {
+        return arg;
+      }
+      // `get(myHandler)` — referenced handler, not inline-able.
+      return null;
     }
-    // `get(myHandler)` — referenced handler, not inline-able.
-    return null;
+    if (HANDLER_WRAPPERS.has(callee)) {
+      // `withGuards(innerHandler, guards)` — recurse into the inner handler.
+      return unwrapHandlerFunction(node.arguments?.[0]);
+    }
   }
   if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") {
     return node;
@@ -107,9 +182,7 @@ const buildExtractedHandler = (
  * counts as a handler export even though it cannot be inlined.
  */
 export const isHandlerInitNode = (node: Node): boolean =>
-  (node.type === "CallExpression" &&
-    node.callee?.type === "Identifier" &&
-    HTTP_WRAPPERS.has(node.callee.name)) ||
+  isHandlerWrapperCall(node) ||
   node.type === "ArrowFunctionExpression" ||
   node.type === "FunctionExpression";
 

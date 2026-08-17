@@ -74,6 +74,7 @@ interface CliArgs {
   otp: string | null;
   packageFilter: string[] | null;
   check: boolean;
+  cacheCheck: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,6 +174,7 @@ function parseCli(argv: string[]): CliArgs {
         .map((s) => s.trim())
         .filter(Boolean) ?? null,
     check: !has("no-check"),
+    cacheCheck: !has("no-cache-check"),
   };
 }
 
@@ -557,6 +559,15 @@ async function main(): Promise<void> {
       `✔ dry-run — ${targets.length} package(s) would be ${bumpAction}, ${order.length} published. No changes made.`,
     );
     return;
+  }
+
+  // Pre-flight: codegen/native-loader changes alter generated output but NOT
+  // the cache fingerprint — require a COMPILER_CACHE_VERSION/MODULES_CACHE_VERSION
+  // bump so stale consumer caches can't serve the previous build. Skip with
+  // `--no-cache-check`.
+  if (args.cacheCheck) {
+    console.log("\n🧠 Verifying compiler cache versions …");
+    run("bun", ["scripts/check-cache-versions.ts"], { check: true });
   }
 
   if (args.publish && args.check) {

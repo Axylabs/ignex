@@ -4,7 +4,7 @@
  */
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemorySessionStore, createSqliteSessionStore } from "../src/index.js";
 
 const openStores: Array<{ close?(): void }> = [];
@@ -38,6 +38,19 @@ describe("createMemorySessionStore", () => {
     const store = opened(createMemorySessionStore());
     await store.set("a", { x: 1 }, { expiresAt: Date.now() - 1 });
     expect(await store.get("a")).toBeNull();
+  });
+
+  it("close() clears the periodic sweep interval (no timer leak on shutdown)", () => {
+    const clear = vi.spyOn(globalThis, "clearInterval");
+    try {
+      const store = createMemorySessionStore();
+      store.close();
+      // `setInterval` is called once in the constructor; `close()` must clear it
+      // so app shutdown doesn't leave a per-store sweep timer running.
+      expect(clear).toHaveBeenCalled();
+    } finally {
+      clear.mockRestore();
+    }
   });
 });
 

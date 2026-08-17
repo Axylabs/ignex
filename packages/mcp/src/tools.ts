@@ -212,6 +212,17 @@ export const runDevTool = (args: DevToolArgs): string => {
     stdio: "ignore",
   });
   child.unref();
+  // `bun-types` models `node:child_process`'s ChildProcess WITHOUT the
+  // EventEmitter `.on` method, so type through a minimal structural bridge.
+  // At runtime the child process DOES emit `error` on a failed spawn (bunx
+  // missing / not on PATH); without a listener that event is UNHANDLED and
+  // crashes the MCP server. Log and let the tool's earlier `ok` response stand.
+  (child as unknown as { on(event: string, listener: (err: Error) => void): void }).on(
+    "error",
+    (err) => {
+      console.error(`[ignex-mcp] failed to spawn dev server (bunx unavailable?): ${err.message}`);
+    },
+  );
 
   return safeJson({
     ok: true,

@@ -1,25 +1,20 @@
-import { createJwt } from "@ignex/core";
 import { post } from "@ignex/core/http";
+import { ACCESS_TTL_SECONDS, auth, refreshTokens, userStore } from "../../lib/auth.js";
 
-const jwt = createJwt({
-  secret: process.env.JWT_SECRET ?? "dev-secret-change-me",
-  ttlSeconds: 3600,
-  issuer: "ignex-demo",
-});
-
-const USERS: Record<string, string> = {
-  admin: "secret",
-};
-
-/** POST /auth/login — exchange credentials for a signed JWT. */
+/** POST /auth/login — exchange credentials for access + refresh tokens. */
 export default post(async (ctx) => {
   const body = await ctx.body.json<{ username?: string; password?: string }>();
 
-  if (!body.username || USERS[body.username] !== body.password) {
+  const user = await userStore.verify(body.username ?? "", body.password ?? "");
+  if (!user) {
     return ctx.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  const token = jwt.sign({ sub: body.username, role: "admin" });
+  const accessToken = await auth.issueToken(
+    { id: user.username, roles: user.roles },
+    { roles: user.roles },
+  );
 
-  return ctx.json({ token });
+  const refreshToken = await refreshTokens.issue(user);
+  return ctx.json({ accessToken, refreshToken, expiresIn: ACCESS_TTL_SECONDS });
 });

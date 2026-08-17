@@ -26,6 +26,41 @@ export const constantInitVar = (route: RouteIR): string => `INIT_${route.codegen
 
 export const hookIdent = (name: string): string => `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
 
+/** Module-level const name for a route's Nth guard hook. */
+export const guardIdent = (route: RouteIR, index: number): string =>
+  `__guard_${route.codegen.handlerRef}_${index}`;
+
+/** A single emitted guard hook: its module-level const name + call expr. */
+export interface GuardHookEmission {
+  readonly ident: string;
+  readonly expr: string;
+}
+
+/**
+ * The guard hooks for a route (mirrors `@ignex/core`'s `guardChain`):
+ * `roles` → `hasRole(...)`, `permissions` → `can(...)`/`canAll(...)`, and a
+ * bare `withGuards(handler)` → `requireAuthenticated`. Each becomes a
+ * module-level const referenced from the route's pre-execution hook array.
+ */
+export const guardHookEmissions = (route: RouteIR): GuardHookEmission[] => {
+  const guards = route.analysis.guards;
+  if (!guards) return [];
+  const out: GuardHookEmission[] = [];
+  const push = (expr: string): void => {
+    out.push({ ident: guardIdent(route, out.length), expr });
+  };
+  if (guards.roles?.length) {
+    push(`hasRole(${guards.roles.map((r) => JSON.stringify(r)).join(", ")})`);
+  }
+  if (guards.permissions?.length) {
+    const fn = guards.all ? "canAll" : "can";
+    push(`${fn}(${guards.permissions.map((p) => JSON.stringify(p)).join(", ")})`);
+  } else if (!guards.roles?.length && guards.authenticated !== false) {
+    push("requireAuthenticated");
+  }
+  return out;
+};
+
 export const cacheVar = (route: RouteIR): string => `CACHE_${route.codegen.handlerRef}`;
 
 /** Frozen per-route context options const (hoisted — was a per-request literal). */

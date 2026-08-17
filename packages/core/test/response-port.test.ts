@@ -117,7 +117,7 @@ describe("streaming responses", () => {
       { url: "/" },
     );
 
-    const reader = res.body!.getReader();
+    const reader = res.body?.getReader();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;

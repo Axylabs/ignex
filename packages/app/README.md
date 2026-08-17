@@ -21,11 +21,15 @@ framework. Every route is real code exercising a compiler or runtime feature.
 | `GET /files/:name`   | `files/[name].get.ts`        | `sendFile` + ranges + traversal guard |
 | `GET /products/:id`  | `products/[id].get.ts`       | TypeBox schema validation             |
 | `POST /products/add` | `products/add.post.ts`       | body schema                           |
-| `POST /auth/login`   | `auth/login.post.ts`         | JWT issue                             |
-| `GET /auth/me`       | `auth/me.get.ts`             | `hooks: ["require-auth"]` config hook |
+| `POST /auth/register` | `auth/register.post.ts`      | user creation + token issue             |
+| `POST /auth/login`    | `auth/login.post.ts`         | access + refresh token issue            |
+| `POST /auth/refresh`  | `auth/refresh.post.ts`       | refresh token → new access token        |
+| `POST /auth/logout`   | `auth/logout.post.ts`        | revoke refresh token                    |
+| `GET /auth/me`        | `auth/me.get.ts`             | `hooks: ["require-auth"]` config hook    |
 
-Hooks live in `src/hooks/` (`require-auth.ts`), views in `src/views/`
-(minijinja templates), and app-level config in `src/app.config.ts`
+Hooks live in `src/hooks/` (`require-auth.ts`), global middleware in
+`src/middleware/` (a custom `IgnexPlugin` + lifecycle stage hooks), views in
+`src/views/` (minijinja templates), and app-level config in `src/app.config.ts`
 (plugins + lifecycle + server port).
 
 ## Building & running

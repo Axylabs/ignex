@@ -38,7 +38,7 @@ describe("parseCookieString", () => {
   });
 
   it("returns {} for an oversized header (DoS guard, 8 KB)", () => {
-    expect(parseCookieString("a=" + "x".repeat(9000))).toEqual({});
+    expect(parseCookieString(`a=${"x".repeat(9000)}`)).toEqual({});
   });
 
   it("caps parsing at 100 cookies (DoS guard)", () => {
@@ -188,7 +188,8 @@ describe("createCookieJar direct", () => {
       headers: {},
     };
     const jar = createCookieJar(set as never, {});
-    // biome-ignore lint/suspicious/noProto:lint/complexity/useLiteralKeys: deliberate prototype-pollution regression test (must exercise the __proto__ key).
+    // biome-ignore lint/complexity/useLiteralKeys: deliberate prototype-pollution regression test (must use the literal "__proto__" key).
+    // biome-ignore lint/suspicious/noProto: deliberate prototype-pollution regression test (must exercise the __proto__ key).
     jar["__proto__"].value = "polluted";
     const cookieStore = set.cookie as Record<string, unknown>;
     // Writing via the proxy targets the accumulator, not Object.prototype.
@@ -204,7 +205,7 @@ describe("signed cookies", () => {
     expect(signed).toMatch(/^payload\.[0-9a-f]{64}$/);
     expect(signer.verify(signed)).toBe("payload");
     expect(signer.verify("payload.deadbeef")).toBeNull();
-    expect(signer.verify("tampered." + signed.split(".")[1])).toBeNull();
+    expect(signer.verify(`tampered.${signed.split(".")[1]}`)).toBeNull();
   });
 
   it("rejects a signature from a different secret", () => {

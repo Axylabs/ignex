@@ -11,6 +11,12 @@
 
 import { type JobStore, newJobId, type StoredJob } from "./jobs-store";
 
+/**
+ * Maximum time `stop()` waits for in-flight claims to settle before giving up
+ * (a never-resolving task must not hang graceful shutdown forever).
+ */
+const STOP_DEADLINE_MS = 5_000;
+
 /** A serializable job to enqueue. */
 export interface DurableJobSpec {
   /** Handler name (must exist in the `handlers` registry). */
@@ -38,6 +44,11 @@ export interface DurableJobQueueOptions {
   concurrency?: number;
   /** Claim-loop poll interval in ms (default 250). */
   pollIntervalMs?: number;
+  /**
+   * Max ms `stop()` waits for in-flight claims before giving up (default 5000).
+   * A stuck task must never hang graceful shutdown forever.
+   */
+  stopDeadlineMs?: number;
   /** Lease duration in ms for claimed jobs (default 60_000). */
   leaseMs?: number;
   /** Called when a job completes successfully. */
@@ -192,7 +203,11 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
         clearInterval(timer);
         timer = undefined;
       }
-      while (running > 0) {
+      // Wait for in-flight claims to settle — but never forever: a stuck task
+      // (never-resolving promise, leaked socket) must not hang graceful
+      // shutdown. Give up after a deadline and resolve.
+      const deadline = Date.now() + (options.stopDeadlineMs ?? STOP_DEADLINE_MS);
+      while (running > 0 && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     },

@@ -17,7 +17,47 @@ import {
   release,
   withScratch,
 } from "@ignex/native";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Poison mode is env-gated at MODULE LOAD, so these tests load a fresh module
+// instance with IGNEX_SCRATCH_POISON=1 set (vi.resetModules + dynamic import).
+const loadPoisoned = async (): Promise<typeof import("../src/scratch")> => {
+  process.env.IGNEX_SCRATCH_POISON = "1";
+  vi.resetModules();
+  return await import("../src/scratch");
+};
+
+describe("scratch pool poisoning (IGNEX_SCRATCH_POISON debug mode)", () => {
+  it("fills released buffers with the poison byte", async () => {
+    const { withScratch } = await loadPoisoned();
+    let escaped: Uint8Array | null = null;
+    withScratch(64, (buf) => {
+      escaped = buf;
+    });
+    // Released → poisoned, so a retained reference now sees 0xaa.
+    expect(escaped?.[0]).toBe(0xaa);
+  });
+
+  it("throws on reuse when a released buffer was written after release", async () => {
+    const { acquire, withScratch } = await loadPoisoned();
+    let escaped: Uint8Array | null = null;
+    withScratch(64, (buf) => {
+      escaped = buf;
+    });
+    // Use-after-release write — exactly the corruption the guard detects.
+    //@ts-expect-error
+    escaped[0] = 99;
+    expect(() => acquire(64)).toThrow(/escaped/);
+  });
+
+  it("allows normal reuse when the released buffer stays untouched", async () => {
+    const { acquire, release, withScratch } = await loadPoisoned();
+    withScratch(64, () => {});
+    const buf = acquire(64);
+    expect(buf[0]).toBe(0xaa); // intact poison pattern → handed out cleanly
+    release(buf);
+  });
+});
 
 describe("scratch pool", () => {
   it("acquire returns a buffer of at least the requested size", () => {

@@ -10,6 +10,7 @@ import {
   createCookieSigner,
   createCsrf,
   createCsrfGuard,
+  createEd25519Jwt,
   createJwt,
   createMemorySessionStore,
   createPasswordHasher,
@@ -27,6 +28,7 @@ import {
   signCookie,
   verifyCookie,
 } from "@ignex/core";
+import { generateEd25519Keypair } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
 const ctx = (req = new Request("http://localhost:3000/")) => createContext(req, {});
@@ -55,6 +57,64 @@ describe("crypto", () => {
     const otherAudience = createJwt({ secret: "s3cret", issuer: "ignex", audience: "mobile" });
     expect(otherIssuer.verify(token)).toBeNull();
     expect(otherAudience.verify(token)).toBeNull();
+  });
+
+  it("createEd25519Jwt signs EdDSA tokens and enforces issuer/audience", () => {
+    const pair = generateEd25519Keypair();
+    const jwt = createEd25519Jwt({
+      privateKey: pair.privateKey,
+      publicKey: pair.publicKey,
+      ttlSeconds: 3600,
+      issuer: "ignex",
+      audience: "web",
+    });
+    const token = jwt.sign({ sub: "1", roles: ["admin"], permissions: ["users:read"] });
+    // Compact EdDSA token with the right header.
+    expect(token.split(".")).toHaveLength(3);
+    const header = JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString());
+    expect(header.alg).toBe("EdDSA");
+
+    const claims = jwt.verify(token) as Record<string, unknown>;
+    expect(claims.sub).toBe("1");
+    expect(claims.roles).toEqual(["admin"]);
+    expect(claims.permissions).toEqual(["users:read"]);
+    expect(claims.iss).toBe("ignex");
+    expect(claims.aud).toBe("web");
+    expect(claims.iat).toBeTypeOf("number");
+    expect(claims.exp).toBeTypeOf("number");
+
+    const otherIssuer = createEd25519Jwt({
+      privateKey: pair.privateKey,
+      publicKey: pair.publicKey,
+      issuer: "other",
+      audience: "web",
+    });
+    const otherAudience = createEd25519Jwt({
+      privateKey: pair.privateKey,
+      publicKey: pair.publicKey,
+      issuer: "ignex",
+      audience: "mobile",
+    });
+    expect(otherIssuer.verify(token)).toBeNull();
+    expect(otherAudience.verify(token)).toBeNull();
+  });
+
+  it("createEd25519Jwt rejects tampered and expired tokens", () => {
+    const pair = generateEd25519Keypair();
+    const jwt = createEd25519Jwt({ privateKey: pair.privateKey, publicKey: pair.publicKey });
+    const token = jwt.sign({ sub: "1" });
+    const tampered = `${token.slice(0, -2)}xx`;
+    expect(jwt.verify(tampered)).toBeNull();
+
+    const now = Math.floor(Date.now() / 1000);
+    const short = createEd25519Jwt({
+      privateKey: pair.privateKey,
+      publicKey: pair.publicKey,
+      ttlSeconds: 1,
+    });
+    const t2 = short.sign({ sub: "1" }, now);
+    expect(short.verify(t2, { nowSeconds: now + 2 })).toBeNull();
+    expect(short.verify(t2, { nowSeconds: now })).not.toBeNull();
   });
 
   it("signed cookies round-trip and reject tampering", () => {

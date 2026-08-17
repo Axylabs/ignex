@@ -6,6 +6,19 @@
 
 ---
 
+## Quick Start
+
+```sh
+bun create ignex my-api --features auth,openapi,examples   # or: bunx @ignex/cli@latest create my-api …
+cd my-api && bun install && bun run dev
+```
+
+Routes are files under `src/routes/` — the path and method come from the
+filename. See [docs/getting-started.md](docs/getting-started.md) for the full
+walkthrough and [docs/cookbook.md](docs/cookbook.md) for recipes.
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -37,6 +50,8 @@ The project is composed of several workspace packages:
 - `@ignex/compiler` — AOT compiler pipeline
 - `@ignex/core` — runtime primitives and HTTP helpers
 - `@ignex/cli` — developer CLI for scaffolding, building, and dev mode
+- `create-ignex` — the `bun create ignex` / `npm create ignex` entry point
+  (thin shim that forwards to `@ignex/cli create`)
 - `@ignex/shared` — shared types, FP core, and compile-time/runtime flags
 - `@ignex/native` — Rust-accelerated primitives with pure-TS fallbacks
 - `packages/app` — example application used for testing and benchmarking
@@ -272,6 +287,10 @@ bun run test            # full vitest suite (all packages)
 
 ## Documentation
 
+- [docs/getting-started.md](docs/getting-started.md) — **start here**: create a
+  project, write a route, run dev/build/doctor.
+- [docs/cookbook.md](docs/cookbook.md) — copy-paste recipes for sessions, jobs,
+  i18n, SSE, WebSockets, templates, rate limiting, caching, proxies, and more.
 - [docs/architecture.md](docs/architecture.md) — how the packages and the AOT
   compiler fit together, the one-way dependency rule, and the `ContextUsage`
   contract.

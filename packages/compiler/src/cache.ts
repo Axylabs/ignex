@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { DiagnosticCodes, errorMessage } from "./diagnostics";
@@ -91,7 +91,10 @@ const hashFile = (absPath: string): string => {
     const stat = statSync(absPath);
     return `${hashString(content)}:${stat.mtimeMs}`;
   } catch {
-    return "missing";
+    // Distinguish a DELETED file (cache miss as normal) from an unreadable one
+    // (permission error, transient FS fault) so the cache never treats the
+    // latter as if the file simply vanished.
+    return existsSync(absPath) ? "unreadable" : "missing";
   }
 };
 
@@ -119,7 +122,14 @@ const stableOptions = (opts: CompilerOptions): string => {
   for (const key of keys) {
     const value = (opts as unknown as Record<string, unknown>)[key];
     if (value === undefined) continue;
-    parts.push(`${key}=${JSON.stringify(value)}`);
+    // Functions serialize as `undefined` under plain JSON.stringify — two
+    // builds with different function-valued options (filter/onError/transform
+    // callbacks) would collide on the same fingerprint and the cache could
+    // serve the PREVIOUS build's output. Include the function source so a
+    // behavior change is a fingerprint change.
+    parts.push(
+      `${key}=${JSON.stringify(value, (_k, v) => (typeof v === "function" ? `[fn:${v.toString()}]` : v))}`,
+    );
   }
 
   return parts.join("&");
@@ -162,6 +172,13 @@ const corePackageDir = (): string | undefined => {
  * @returns A stable content fingerprint string.
  */
 export const computeFingerprint = (opts: CompilerOptions): string => {
+  // NOTE: the fingerprint DELIBERATELY excludes the environment (IGNEX_NATIVE,
+  // IGNEX_FFI_MODE, PORT, …). Generated code is env-independent: native
+  // degrades at RUNTIME, not at codegen, and PORT is read at runtime via
+  // `process.env.PORT`. Do NOT add env vars here without also proving the
+  // generated output depends on them — a future "generate native-specific
+  // code" feature must bump COMPILER_CACHE_VERSION instead (see
+  // scripts/check-cache-versions.ts).
   const chunks: string[] = [COMPILER_CACHE_VERSION, stableOptions(opts)];
 
   const hashDir = (dir: string) => {
@@ -351,7 +368,14 @@ export const storeCache = async (
       ...(meta ? { meta } : {}),
     };
 
-    await writeFile(cachePath(opts), JSON.stringify(record, null, 2));
+    // Atomic write (temp + rename): a crash or a second concurrent build
+    // (dev watcher + `ignex build`) can never leave a truncated .json that a
+    // reader half-parses — the rename is atomic, so readers see either the
+    // old file or the complete new one.
+    const path = cachePath(opts);
+    const tmp = `${path}.tmp-${process.pid}`;
+    await writeFile(tmp, JSON.stringify(record, null, 2));
+    await rename(tmp, path);
   } catch (error) {
     ctx.diagnostics.warn({
       code: DiagnosticCodes.BuildCacheInvalid,

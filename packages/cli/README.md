@@ -1,6 +1,6 @@
 # @ignex/cli
 
-Developer CLI for ignex: scaffold apps, scaffold routes, watch, and build.
+Developer CLI for ignex: scaffold apps, scaffold routes/hooks, watch, and build.
 
 Source-only package — `bin/ignex.js` (`#!/usr/bin/env bun`) imports
 `../src/index.ts` directly, matching the monorepo's source-only convention
@@ -9,14 +9,70 @@ Source-only package — `bin/ignex.js` (`#!/usr/bin/env bun`) imports
 ## Commands
 
 ```
-ignex create <app-name> [options]   Scaffold a new ignex app (20 feature toggles)
+ignex create <app-name> [options]   Scaffold a new ignex app (22 feature toggles)
 ignex dev [root] [options]          Compile + run the dev server (watch)
 ignex build [root] [options]        AOT-compile an app with diagnostics
+ignex doctor [root]                 Check project health (runtime, native, config, build)
 ignex route <path> [options]        Scaffold a single route (--named, --schema)
-ignex info [root]                   Dump cwd / runtime / config as JSON
+ignex hook <name> [options]         Scaffold a hook (--global for lifecycle)
+ignex model <Name> [options]        Scaffold a schema-first model (--fields)
+ignex resource <Name> [options]     Scaffold a model + pregenerated CRUD routes
+ignex info [root]                   Dump cwd / runtime / native / config as JSON
 ```
 
-Run `ignex --help` for the full option reference.
+Run `ignex --help` for the full option reference. `build`/`dev` print a
+`Native:` line (native addon vs pure-TS fallback), and `info` includes the
+same status in its JSON output.
+
+`ignex create` scaffolds into a folder named `<app-name>` inside the current
+directory by default; pass `--root <dir>` to target an explicit parent
+directory instead:
+
+```sh
+mkdir workspace && cd workspace
+ignex create api --root ../ --features auth,openapi
+```
+
+## Scaffold features
+
+`ignex create --features <list>` enables optional scaffolding (default
+`openapi,examples,tests`; `all`/`none` also accepted):
+
+- `auth` — full auth route set: `POST /auth/register`, `POST /auth/login`,
+  `GET /auth/me`, plus `src/lib/auth.ts` (Ed25519 `authModule()`,
+  `createPasswordHasher`, in-memory user store) and the `require-auth` hook.
+- `refresh` — adds `POST /auth/refresh` and `POST /auth/logout` on top of
+  `auth` (opaque, revocable refresh tokens backed by the session store).
+  Requires `auth` (enabled automatically if omitted).
+- `middleware` — global hooks scaffold: `src/middleware/` with a custom
+  `IgnexPlugin` (`request-id.ts`) + lifecycle `HookFn`s (`log-requests.ts`),
+  wired into the `plugins` array and a `lifecycle` export in `app.config.ts`.
+- `sessions`, `cors`, `rateLimit`, `security`, `compression`, `logger`,
+  `openapi`, `files`, `ws`, `sse`, `cache`, `proxy`, `cluster`, `templates`,
+  `env`, `jobs`, `i18n`, `examples`, `tests` — the remaining toggles.
+
+## Diagnostics (`ignex doctor`)
+
+`ignex doctor [root]` checks project health without building:
+
+- **Runtime** — Bun vs Node and version.
+- **Native** — whether the Rust addon (`castrum`) is loaded and the active
+  backend (`native (castrum)` vs `off (pure-TS fallback)`).
+- **Config** — which `ignex.config.*` file is picked up (if any).
+- **Routes** — whether the configured routes directory exists.
+- **Server** — whether the compiled server entry exists (else: run
+  `ignex build`).
+
+It exits non-zero when blocking issues are found, so it can gate CI or
+onboarding scripts.
+
+## Hooks
+
+- `ignex hook <name>` scaffolds a named per-route hook to `src/hooks/<name>.ts`
+  (reference it via `export const config = { hooks: ["<name>"] }`).
+- `ignex hook <name> --global [--stage <stage>]` scaffolds a global lifecycle
+  hook and registers it on `app.config.ts`'s `lifecycle` (default stage
+  `beforeHandle`) so it runs on every request.
 
 ## Dev mode (`ignex dev`)
 

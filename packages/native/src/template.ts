@@ -44,7 +44,7 @@ const createNativeRenderer = (
           // itself). Needed-size convention → growExact (exact retry once).
           const ctxBytes = encoder.encode(JSON.stringify(context));
           return growExact(
-            (out) => ffiInst!.templateRender(inner, ctxBytes, out),
+            (out) => ffiInst?.templateRender(inner, ctxBytes, out),
             ctxBytes.length * 4 + 64,
             MAX_TEMPLATE_OUTPUT,
             "template render failed",

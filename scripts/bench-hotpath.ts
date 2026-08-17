@@ -107,15 +107,15 @@ function benchGroup(name: string, variants: Variant[]): Record<string, number> {
     // Interleave variants within a trial so thermal/JIT drift hits both.
     for (const v of variants) {
       if (typeof Bun !== "undefined" && Bun.gc) Bun.gc();
-      samples[v.name]!.push(opsPerSec(v.fn));
+      samples[v.name]?.push(opsPerSec(v.fn));
     }
   }
 
-  for (const v of variants) results[v.name] = median(samples[v.name]!);
+  for (const v of variants) results[v.name] = median(samples[v.name]);
 
-  const baseline = results[variants[0]!.name]!;
+  const baseline = results[variants[0]?.name];
   const rows = variants.map((v) => {
-    const r = results[v.name]!;
+    const r = results[v.name];
     const ratio = baseline > 0 ? r / baseline : Number.NaN;
     return { name: v.name, ops: r, ratio };
   });
@@ -218,7 +218,7 @@ type ReplyFn = (...a: unknown[]) => Response;
 const optHelper = (name: string): ReplyFn =>
   (optHelpers?.[name] as ReplyFn | undefined) ??
   (() => {
-    throw new Error("no optimized helper: " + name);
+    throw new Error(`no optimized helper: ${name}`);
   });
 
 type Group = { name: string; variants: Variant[] };

@@ -42,6 +42,22 @@ export {
   verifyCookie,
   verifyCookieFallback,
 } from "./crypto";
+// ── Ed25519 / EdDSA JWT (RBAC auth) ─────────────────────────────
+export {
+  type Ed25519Keypair,
+  type EdDsaJwtSignOptions,
+  type EdDsaJwtVerifyOptions,
+  ed25519Sign,
+  ed25519SignFallback,
+  ed25519Verify,
+  ed25519VerifyFallback,
+  generateEd25519Keypair,
+  generateEd25519KeypairFallback,
+  jwtSignEdDsa,
+  jwtSignEdDsaFallback,
+  jwtVerifyEdDsa,
+  jwtVerifyEdDsaFallback,
+} from "./ed25519";
 // ── unified execution API ───────────────────────────────────────
 export {
   backend,

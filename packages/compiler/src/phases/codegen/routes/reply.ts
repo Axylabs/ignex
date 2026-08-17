@@ -3,7 +3,7 @@
  */
 
 import type { RouteIR } from "../../../types";
-import { hookIdent } from "../identifiers";
+import { guardHookEmissions, hookIdent } from "../identifiers";
 
 /** Serializers object literal (per-status) or `undefined`. */
 export const buildSerializersVar = (route: RouteIR): string =>
@@ -15,6 +15,9 @@ export const buildSerializersVar = (route: RouteIR): string =>
       ? `{ "200": ${route.decisions.serializers.json} }`
       : "undefined";
 
-/** Per-route hook identifiers array literal. */
-export const buildRouteHookVar = (route: RouteIR): string =>
-  route.analysis.hooks.length > 0 ? `[${route.analysis.hooks.map(hookIdent).join(", ")}]` : `[]`;
+/** Per-route hook identifiers array literal (named hooks + RBAC guards). */
+export const buildRouteHookVar = (route: RouteIR): string => {
+  const ids = route.analysis.hooks.map(hookIdent);
+  for (const g of guardHookEmissions(route)) ids.push(g.ident);
+  return ids.length > 0 ? `[${ids.join(", ")}]` : `[]`;
+};

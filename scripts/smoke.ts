@@ -451,8 +451,8 @@ try {
     }
   });
 
-  /* ---------- auth (JWT flow) ---------- */
-  await check("POST /auth/login valid → 200 JWT", async () => {
+  /* ---------- auth (JWT flow: access + refresh tokens) ---------- */
+  await check("POST /auth/login valid → 200 { accessToken, refreshToken }", async () => {
     const body = (await expectJson(
       await fetch(`${BASE}/auth/login`, {
         method: "POST",
@@ -460,9 +460,15 @@ try {
         body: JSON.stringify({ username: "admin", password: "secret" }),
       }),
       200,
-    )) as { token?: string };
-    if (typeof body.token !== "string" || body.token.split(".").length !== 3) {
-      throw new Error(`token ${JSON.stringify(body.token)}`);
+    )) as { accessToken?: string; refreshToken?: string; expiresIn?: number };
+    if (
+      typeof body.accessToken !== "string" ||
+      body.accessToken.split(".").length !== 3 ||
+      typeof body.refreshToken !== "string" ||
+      body.refreshToken.length < 16 ||
+      body.expiresIn !== 900
+    ) {
+      throw new Error(`login body ${JSON.stringify(body)}`);
     }
   });
 
@@ -507,14 +513,113 @@ try {
         body: JSON.stringify({ username: "admin", password: "secret" }),
       }),
       200,
-    )) as { token?: string };
+    )) as { accessToken?: string };
     const body = (await expectJson(
-      await fetch(`${BASE}/auth/me`, { headers: { authorization: `Bearer ${login.token}` } }),
+      await fetch(`${BASE}/auth/me`, {
+        headers: { authorization: `Bearer ${login.accessToken}` },
+      }),
       200,
-    )) as { user?: { sub?: string; role?: string } };
-    if (body.user?.sub !== "admin" || body.user?.role !== "admin") {
+    )) as { user?: { sub?: string; roles?: string[] } };
+    if (body.user?.sub !== "admin" || !body.user?.roles?.includes("admin")) {
       throw new Error(`user ${JSON.stringify(body.user)}`);
     }
+  });
+
+  await check("POST /auth/register → 201, then login as the new user", async () => {
+    const username = "alice";
+    const password = "wonderland";
+    const reg = (await expectJson(
+      await fetch(`${BASE}/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      }),
+      201,
+    )) as { accessToken?: string; refreshToken?: string };
+    if (typeof reg.accessToken !== "string" || typeof reg.refreshToken !== "string") {
+      throw new Error(`register body ${JSON.stringify(reg)}`);
+    }
+    expectStatus(
+      await fetch(`${BASE}/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      }),
+      200,
+    );
+  });
+
+  await check("POST /auth/refresh with valid token → 200 working access token", async () => {
+    const login = (await expectJson(
+      await fetch(`${BASE}/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: "secret" }),
+      }),
+      200,
+    )) as { refreshToken?: string };
+    const fresh = (await expectJson(
+      await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken: login.refreshToken }),
+      }),
+      200,
+    )) as { accessToken?: string; expiresIn?: number };
+    if (
+      typeof fresh.accessToken !== "string" ||
+      fresh.accessToken.split(".").length !== 3 ||
+      fresh.expiresIn !== 900
+    ) {
+      throw new Error(`refresh body ${JSON.stringify(fresh)}`);
+    }
+    const me = (await expectJson(
+      await fetch(`${BASE}/auth/me`, {
+        headers: { authorization: `Bearer ${fresh.accessToken}` },
+      }),
+      200,
+    )) as { user?: { sub?: string } };
+    if (me.user?.sub !== "admin") {
+      throw new Error(`refreshed token user ${JSON.stringify(me.user)}`);
+    }
+  });
+
+  await check("POST /auth/refresh with garbage token → 401", async () => {
+    expectStatus(
+      await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken: "garbage" }),
+      }),
+      401,
+    );
+  });
+
+  await check("POST /auth/logout revokes the refresh token (refresh → 401)", async () => {
+    const login = (await expectJson(
+      await fetch(`${BASE}/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: "secret" }),
+      }),
+      200,
+    )) as { refreshToken?: string };
+    expectStatus(
+      await fetch(`${BASE}/auth/logout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken: login.refreshToken }),
+      }),
+      200,
+    );
+    expectStatus(
+      await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken: login.refreshToken }),
+      }),
+      401,
+    );
   });
 
   /* ---------- router / plugins ---------- */
@@ -565,6 +670,21 @@ try {
     // HSTS is deliberately HTTPS-only — never sent on plain HTTP.
     expectHeader(res, "strict-transport-security", null);
   });
+
+  await check(
+    "global middleware: x-request-id (plugin) + x-ignex-middleware (lifecycle)",
+    async () => {
+      const res = await fetch(`${BASE}/health`);
+      expectStatus(res, 200);
+      // Custom `IgnexPlugin` (onRequest/onResponse) — see src/middleware/request-id.ts.
+      const requestId = res.headers.get("x-request-id");
+      if (!requestId || requestId.length < 8) {
+        throw new Error(`x-request-id ${JSON.stringify(requestId)}`);
+      }
+      // Global lifecycle `afterHandle` hook — see src/middleware/log-requests.ts.
+      expectHeader(res, "x-ignex-middleware", "true");
+    },
+  );
 
   /* ---------- robustness ---------- */
   await check("20 concurrent GET /health all 200", async () => {

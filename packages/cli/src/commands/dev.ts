@@ -5,7 +5,8 @@ import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { buildProject, findServerEntry } from "../utils/compiler.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { isValidPort, shouldIgnore } from "../utils/dev.js";
-import { error, formatError, step, success, warn } from "../utils/logger.js";
+import { error, formatError, info, step, success, warn } from "../utils/logger.js";
+import { nativeLabel, nativeStatus } from "../utils/native.js";
 import { detectRuntime } from "../utils/runtime.js";
 
 /** Debounce window for rebuilds triggered by file events (ms). */
@@ -85,6 +86,9 @@ class DevServer {
     // Attach watchers before the initial build so changes made during the first
     // (potentially slow) build are not missed.
     this.setupWatchers();
+
+    const status = await nativeStatus();
+    info(`Native: ${nativeLabel(status)}`);
 
     await this.buildOnce();
 
@@ -179,6 +183,36 @@ class DevServer {
         `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
           `Restarting in ${delay}ms (attempt ${this.crashRestartAttempts}/${MAX_CRASH_RESTARTS}).`,
       );
+
+      this.crashRestartTimer = setTimeout(() => {
+        if (this.stopping) return;
+        this.child = this.startChild(entry);
+      }, delay);
+    });
+
+    // A failed spawn (missing runtime binary, EACCES, missing entry) fires an
+    // 'error' event on the ChildProcess, NOT 'exit'. Without a listener that
+    // is an UNHANDLED event that crashes the dev process before the
+    // crash-restart logic (keyed off 'exit') ever sees it. Route it through
+    // the same backoff path. (For spawn failures Node does not also emit
+    // 'exit', so the two handlers can't double-schedule.)
+    spawned.on("error", (err) => {
+      clearTimeout(healthTimer);
+      if (this.child === spawned) this.child = undefined;
+      if (this.stopping || this.stoppingChild || !this.shouldSpawn) return;
+
+      this.crashRestartAttempts += 1;
+      if (this.crashRestartAttempts > MAX_CRASH_RESTARTS) {
+        warn(
+          `Server failed to spawn (${err.message}). Giving up after ` +
+            `${MAX_CRASH_RESTARTS} rapid attempts — it may be crashing on boot. ` +
+            `Waiting for a file change to retry.`,
+        );
+        return;
+      }
+
+      const delay = Math.min(CRASH_RESTART_BASE_MS * 2 ** (this.crashRestartAttempts - 1), 5_000);
+      warn(`Server failed to spawn (${err.message}). Restarting in ${delay}ms.`);
 
       this.crashRestartTimer = setTimeout(() => {
         if (this.stopping) return;

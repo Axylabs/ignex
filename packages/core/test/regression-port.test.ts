@@ -29,15 +29,15 @@ describe("ReDoS gate — regex validators stay linear", () => {
   it("validateEmail rejects a 200 KB local-part attack within 250 ms", () => {
     // A long all-match local part followed by a dangling '@' forces the regex
     // to walk the whole input and then fail — must stay linear and reject.
-    gate(validateEmail, "a".repeat(200_000) + "@");
+    gate(validateEmail, `${"a".repeat(200_000)}@`);
   });
 
   it("validateIpv4 rejects a 200 KB digit attack within 250 ms", () => {
-    gate(validateIpv4, "9".repeat(200_000) + ".1.1.1");
+    gate(validateIpv4, `${"9".repeat(200_000)}.1.1.1`);
   });
 
   it("validateUuid rejects a 200 KB hex-prefix attack within 250 ms", () => {
-    gate(validateUuid, "9".repeat(200_000) + "-4abc-");
+    gate(validateUuid, `${"9".repeat(200_000)}-4abc-`);
   });
 });
 

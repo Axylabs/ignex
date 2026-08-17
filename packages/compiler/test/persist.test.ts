@@ -3,7 +3,7 @@
  * content-hash invalidation, and corrupt/version-mismatch handling.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -102,8 +102,30 @@ describe("persistent parse cache", () => {
     const b = serializeSourceFiles(sm.all());
     expect(a).toBe(b);
     const parsed = JSON.parse(a);
-    expect(parsed.version).toBe("1");
+    expect(parsed.version).toBe("2");
     expect(parsed.modules).toHaveLength(2);
     expect(parsed.modules[0].hash).toBe(hashString(sm.all()[0].content));
+  });
+
+  it("drops records whose content hash does not match (tamper guard)", () => {
+    const outDir = tmp();
+    const sm = mkSourceManager();
+    persistModules(sm.all(), outDir);
+
+    // Tamper with one record's embedded content WITHOUT updating its hash — a
+    // tampered-but-valid-JSON file. The integrity check must drop it instead
+    // of rehydrating a ParseResult mismatched to the real source.
+    const path = modulesCachePath(outDir);
+    const file = JSON.parse(readFileSync(path, "utf-8")) as {
+      version: string;
+      modules: Array<{ hash: string; content: string; parse: unknown }>;
+    };
+    file.modules[0].content = "export default () => 'tampered';\n";
+    writeFileSync(path, JSON.stringify(file));
+
+    const loaded = loadPersistedModules(outDir);
+    // The tampered record is rejected; the honest record is still served.
+    expect(loaded.size).toBe(1);
+    expect(loaded.has(hashString(file.modules[0].content))).toBe(false);
   });
 });

@@ -80,7 +80,7 @@ export const createSchemaValidator = (schema: string | Uint8Array): SchemaValida
   const inner = ffiInst ? Number(inst.innerPtr()) : 0;
   return {
     validate(input) {
-      if (inner) return ffiInst!.schemaValidatorValidate(inner, toBytes(input));
+      if (inner) return ffiInst?.schemaValidatorValidate(inner, toBytes(input));
       return inst.validate(toBytes(input));
     },
     validateBatchPackedCount(packed) {

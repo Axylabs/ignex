@@ -20,3 +20,7 @@ pre-push:
       run: bun run jsdoc:check:strict
     test:
       run: bun run test
+    cache-versions:
+      # Codegen/native-loader changes must bump the compiler cache version so
+      # stale consumer caches can't serve the previous build.
+      run: bun run check:cache-versions

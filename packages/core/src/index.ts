@@ -138,7 +138,7 @@ export {
   withBody,
 } from "./http/finalize";
 export type { SetHeaders } from "./http/headers";
-export { applySet } from "./http/headers";
+export { applySet, mutateHeaders } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
 export {
   createRouter,
@@ -215,6 +215,7 @@ export type {
 export { createDurableJobQueue } from "./platform/jobs-durable";
 export type { JobStatus, JobStore, StoredJob } from "./platform/jobs-store";
 export { createFileJobStore, createSqliteJobStore, newJobId } from "./platform/jobs-store";
+export { installProcessGuards } from "./platform/process-guards";
 // ── plugins ─────────────────────────────────────────────────────
 export {
   auth,
@@ -224,12 +225,28 @@ export {
   jwtAuthPlugin,
   optionalAuthPlugin,
 } from "./plugins/auth";
+export type { AuthMode, AuthModule, AuthModuleOptions } from "./plugins/auth-module";
+export { authModule, createAuthModule } from "./plugins/auth-module";
 export { compression } from "./plugins/compression";
 export { cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { logger } from "./plugins/logger";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
 export { type RateLimitOptions, rateLimit } from "./plugins/ratelimit";
+export type { RbacOptions, RouteGuards } from "./plugins/rbac";
+export {
+  authorize,
+  can,
+  canAll,
+  createRbac,
+  getPermissions,
+  getRoles,
+  guardChain,
+  hasRole,
+  permissionMatches,
+  requireAuthenticated,
+  withGuards,
+} from "./plugins/rbac";
 export { security } from "./plugins/security";
 export { session } from "./plugins/session";
 // ── security ────────────────────────────────────────────────────
@@ -237,6 +254,7 @@ export type { AuthUser, JwtAuthOptions } from "./security/auth";
 export {
   basicAuth,
   bearerAuth,
+  forbidden,
   getUser,
   jwtAuth,
   optionalAuth,
@@ -248,6 +266,8 @@ export {
 export type {
   CookieSigner,
   Csrf,
+  Ed25519JwtOptions,
+  Ed25519JwtService,
   JwtService,
   JwtServiceOptions,
   PasswordHasher,
@@ -258,6 +278,7 @@ export {
   createAead,
   createCookieSigner,
   createCsrf,
+  createEd25519Jwt,
   createJwt,
   createPasswordHasher,
   csrfToken,

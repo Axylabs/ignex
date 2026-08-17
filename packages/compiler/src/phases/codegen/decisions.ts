@@ -27,6 +27,8 @@ export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): s
   if (!route.analysis.isConstantResponse || !route.analysis.constantResponse) return null;
   if (hasGlobalHooks) return null;
   if (route.analysis.hooks.length > 0) return null;
+  // RBAC guards MUST run — never hoist a guarded route to a frozen body.
+  if (route.analysis.guards) return null;
   if (route.analysis.hasValidation) return null;
 
   if (route.decisions.validators && Object.keys(route.decisions.validators).length > 0) {

@@ -28,7 +28,7 @@ export interface StatusSerializerMap {
  * lets compression skip buffering small bodies.
  */
 export const withBody = (bytes: Uint8Array | null, type: string, init?: ResponseInit): Response => {
-  const ih = init && init.headers;
+  const ih = init?.headers;
   // Fast path: no init headers — plain-object headers (no `Headers` alloc),
   // and no rest/spread when init is undefined (the common `ctx.json(data)`).
   const h: Record<string, string> = { "content-type": type };
@@ -43,7 +43,9 @@ export const withBody = (bytes: Uint8Array | null, type: string, init?: Response
     ih instanceof Headers ||
     (typeof (ih as { forEach?: unknown }).forEach === "function" && !Array.isArray(ih))
   ) {
-    (ih as Headers).forEach((value, key) => hh.set(key, value));
+    (ih as Headers).forEach((value, key) => {
+      hh.set(key, value);
+    });
   } else if (Array.isArray(ih)) {
     for (const [k, v] of ih) hh.set(k, v);
   } else {
