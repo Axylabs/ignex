@@ -1,6 +1,6 @@
 {
   "name": "create-ignex",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Scaffold a new Ignex app — `npm create ignex` / `bun create ignex`",
   "type": "module",
   "license": "MIT",
