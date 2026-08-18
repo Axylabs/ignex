@@ -19,7 +19,7 @@ import type { ParseResult } from "../utils/ast/parse";
 import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
-const MODULES_CACHE_VERSION = "2";
+const MODULES_CACHE_VERSION = "3";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {

@@ -26,7 +26,7 @@ import { projectPath } from "./utils/path";
  * Bump when the generated output format changes so stale caches are
  * invalidated even if inputs are identical.
  */
-const COMPILER_CACHE_VERSION = "0.7.2";
+const COMPILER_CACHE_VERSION = "0.7.3";
 
 const CACHE_FILE = ".ignex-cache.json";
 
