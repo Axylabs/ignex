@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
+import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
 import {
   middlewareIndexTemplate,
   middlewareLogRequestsTemplate,
@@ -90,6 +91,9 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
   await writeFileEnsuringDir(join(target, "biome.json"), biomeTemplate());
   await writeFileEnsuringDir(join(target, ".gitignore"), gitignoreTemplate());
   await writeFileEnsuringDir(join(target, "README.md"), readmeTemplate(opts));
+  // Validated env config + .env.example (base — src/app.config.ts imports it).
+  await writeFileEnsuringDir(join(target, "src/config/env.ts"), envConfigTemplate());
+  await writeFileEnsuringDir(join(target, ".env.example"), envExampleTemplate());
   await writeFileEnsuringDir(
     join(target, "src/routes/index.get.ts"),
     indexRouteTemplate(opts.name),

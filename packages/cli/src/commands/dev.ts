@@ -5,6 +5,7 @@ import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { buildProject, findServerEntry } from "../utils/compiler.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { isValidPort, shouldIgnore } from "../utils/dev.js";
+import { checkProjectEnv, reportEnvCheck } from "../utils/env-check.js";
 import { error, formatError, info, step, success, warn } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
 import { detectRuntime } from "../utils/runtime.js";
@@ -387,6 +388,9 @@ export async function runDev(args: string[]): Promise<void> {
   if (!isValidPort(port)) {
     warn(`Invalid port "${port}" — defaulting to 3000`);
   }
+
+  // Pre-flight env validation (non-blocking warnings/errors).
+  reportEnvCheck(await checkProjectEnv(root));
 
   const config = await loadConfig(root);
   const outDir = String(values.outDir ?? config.outDir ?? ".ignex");

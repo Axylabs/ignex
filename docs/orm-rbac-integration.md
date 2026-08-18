@@ -266,13 +266,15 @@ export const userSchema = s.object(
     email: s.string({ format: "email" }),
     name: s.string().optional(),
     role: s.enum(["admin", "editor", "viewer"] as const),
-    createdAt: s.date(),
+    createdAt: s.date().optional(),
+    updatedAt: s.date().optional(),
   },
   { name: "users" },
 );
 export type User = InferDoc<typeof userSchema>;
 
 export const users = defineCollection("users", userSchema, {
+  timestamps: true,
   indexes: [{ key: { email: 1 }, options: { unique: true } }],
 });
 ```
@@ -282,22 +284,22 @@ export const users = defineCollection("users", userSchema, {
 | File | Method | Ninox call | Notes |
 | --- | --- | --- | --- |
 | `index.get.ts` | GET `/api/users` | `db.paginateFlexible("users", {}, { page, limit, sort })` | `page`/`limit` from `ctx.query` |
-| `[id].get.ts` | GET `/api/users/:id` | `db.getOne("users", { _id })` | 400 malformed id / 404 missing doc (`toObjectId`) |
+| `[id].get.ts` | GET `/api/users/:id` | `db.getOne("users", { _id })` | 422 malformed id (TypeBox params schema) / 404 missing doc (`NotFoundError`) |
 | `index.post.ts` | POST `/api/users` | `db.insertOne("users", input)` | 201, `UserInput`-typed body |
 | `[id].patch.ts` | PATCH `/api/users/:id` | `db.updateOne("users", { _id }, body)` | `UserUpdate`-typed body |
 | `[id].del.ts` | DELETE `/api/users/:id` | `db.deleteOne("users", { _id })` | |
 
 Each generated route:
 - Imports only the HTTP method it uses and the shared `db` accessor (one verb per file, top-level imports only — no `await import`).
-- Uses shared helpers from `src/lib/http.ts` — `toObjectId` for `:id` parsing and `errorResponse` for ninox error → HTTP status mapping.
-- Types request bodies via `<Resource>Input`/`<Resource>Update` (derived from the model's `InferDoc`) — no `as any`.
-- Returns 400 for malformed ids, 404 when the doc is missing, 201 on create.
+- Validates `:id` via a TypeBox `params` schema (422 on malformed ObjectId) and types bodies with ninox's canonical `InsertInput`/`UpdateInput` — no hand-rolled helpers.
+- Throws `NotFoundError` (404) when the doc is missing; ninox DB errors propagate through the framework's error stage.
+- Types request bodies via `<Resource>Input`/`<Resource>Update` (aliases of ninox `InsertInput`/`UpdateInput`) — no `as any`.
+- Returns 422 for malformed ids, 404 when the doc is missing, 201 on create.
 - With `--rbac`/`--auth`: wraps with `withGuards(..., { permissions: ["<resource>:read|write"] })` / `config.hooks = ["require-auth"]`; the `:read`/`:write` convention is auto-derived from the resource name unless `--scopes` overrides.
 
 ### 5.4 DB bootstrap (generated once per project)
 
 - `src/db.ts` — `createMongoToolkit({ primary: { name, collections: defineCollections(users, …) } }, { cacheWatch: true })` singleton.
-- `src/lib/http.ts` — shared route helpers (`toObjectId`, `errorResponse`), generated once per project and safe to extend.
 - `src/plugins/db.ts` — an `IgnexPlugin` (`init`: `makeConnections()` + `createSchema` for each collection; `close`: `closeConnections()`), registered in `app.config.ts` plugins. (Core could ship a generic `dbPlugin(ninoxToolkit)` helper — see Open Questions.)
 
 ### 5.5 CLI internals

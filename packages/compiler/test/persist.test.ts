@@ -24,7 +24,7 @@ const mkSourceManager = (): SourceManager => {
   sm.fromSource(
     "/abs/routes/user.post.ts",
     "routes/user.post.ts",
-    "import { Type } from '@sinclair/typebox';\nexport const schema = Type.Object({ name: Type.String() });\nexport default (ctx) => ctx.body;\n",
+    "import { Type } from 'typebox';\nexport const schema = Type.Object({ name: Type.String() });\nexport default (ctx) => ctx.body;\n",
   );
   return sm;
 };

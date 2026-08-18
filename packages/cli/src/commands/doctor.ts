@@ -7,8 +7,10 @@
  */
 
 import { join } from "node:path";
+import type { EnvIssue } from "@ignex/core/env";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
+import { checkProjectEnv } from "../utils/env-check.js";
 import { exists } from "../utils/fs.js";
 import { error, success } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
@@ -46,6 +48,13 @@ export interface DoctorReport {
     readonly path: string;
     /** True when the compiled server file exists. */
     readonly exists: boolean;
+  };
+  /** Env-config validation status. */
+  readonly env: {
+    /** Env module path (project-relative), or null when absent. */
+    readonly file: string | null;
+    /** Validation issues (errors + warnings) from the project's env module. */
+    readonly issues: readonly EnvIssue[];
   };
   /** Blocking problems found; empty when the project is healthy. */
   readonly issues: readonly string[];
@@ -93,6 +102,11 @@ export async function collectDoctorReport(args: string[]): Promise<DoctorReport>
   const serverExists = await exists(join(root, serverPath));
   if (!serverExists) issues.push(`no compiled server at ${serverPath} — run \`ignex build\``);
 
+  const env = await checkProjectEnv(root);
+  for (const issue of env.issues) {
+    if (issue.severity === "error") issues.push(`env: ${issue.key}: ${issue.message}`);
+  }
+
   const native = await nativeStatus();
 
   return {
@@ -105,6 +119,7 @@ export async function collectDoctorReport(args: string[]): Promise<DoctorReport>
     configFile,
     routes: { dir: routesDir, exists: routesExists },
     server: { path: serverPath, exists: serverExists },
+    env,
     issues,
   };
 }
@@ -127,6 +142,18 @@ export function renderDoctor(report: DoctorReport): string[] {
   lines.push(
     `Server: ${report.server.path} ${report.server.exists ? "✔" : "not built — run `ignex build`"}`,
   );
+  const envErrors = report.env.issues.filter((i) => i.severity === "error");
+  const envWarnings = report.env.issues.filter((i) => i.severity === "warning");
+  if (report.env.file) {
+    lines.push(
+      `Env: ${report.env.file} ${envErrors.length > 0 ? `✖ ${envErrors.length} error(s)` : envWarnings.length > 0 ? `⚠ ${envWarnings.length} warning(s)` : "✔"}`,
+    );
+    for (const warning of envWarnings) {
+      lines.push(`  ⚠ ${warning.key}: ${warning.message}`);
+    }
+  } else {
+    lines.push("Env: none (no src/config/env.ts)");
+  }
   if (report.issues.length > 0) {
     lines.push(`${report.issues.length} problem(s) found`);
   } else {

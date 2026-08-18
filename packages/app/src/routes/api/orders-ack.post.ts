@@ -1,5 +1,5 @@
 import { post } from "@ignex/core/http";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 /**
  * Schema-first validate-and-ack route.

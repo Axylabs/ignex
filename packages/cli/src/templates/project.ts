@@ -25,7 +25,7 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
   };
 
   if (opts.features.has("examples")) {
-    dependencies["@sinclair/typebox"] = "latest";
+    dependencies["typebox"] = "latest";
   }
 
   const devDependencies: Record<string, string> = {

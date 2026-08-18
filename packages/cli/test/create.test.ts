@@ -42,6 +42,34 @@ describe("ignex create --root", () => {
     }
   });
 
+  it("scaffolds the validated env config and .env.example for every project", async () => {
+    const base = tmpParent();
+    try {
+      await runCreate([
+        "demo",
+        "--root",
+        base,
+        "--features",
+        "none",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+
+      const target = join(base, "demo");
+      const envSource = readFileSync(join(target, "src/config/env.ts"), "utf8");
+      expect(envSource).toContain('import { Type, defineEnv } from "@ignex/core/env";');
+      expect(envSource).toContain("export const env = defineEnv(envSchema);");
+
+      const example = readFileSync(join(target, ".env.example"), "utf8");
+      expect(example).toContain("PORT=3000");
+      expect(example).toContain("SESSION_SECRET=");
+      expect(example).toContain("# OPTIONAL — NODE_ENV (default: development)");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("rejects path-traversal project names even with --root", async () => {
     const base = tmpParent();
     const originalExitCode = process.exitCode;

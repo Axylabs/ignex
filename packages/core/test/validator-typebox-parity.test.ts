@@ -3,7 +3,7 @@ import { validateOrThrow } from "@ignex/core";
 // TypeBox schema must validate through ignex's runtime schema engine exactly
 // as the equivalent plain JSON-Schema document does (schema-library parity).
 // Elysia's multi-validator parity (zod/valibot/arktype) maps here.
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
 describe("TypeBox schema parity", () => {

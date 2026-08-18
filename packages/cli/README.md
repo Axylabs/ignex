@@ -16,6 +16,7 @@ ignex doctor [root]                 Check project health (runtime, native, confi
 ignex hook <name> [options]         Scaffold a hook (--global for lifecycle)
 ignex model <Name> [options]        Scaffold a schema-first model (--fields)
 ignex resource <Name> [options]     Scaffold a model + pregenerated CRUD routes
+ignex ops <target> [options]        Generate deployment files (dockerfile/compose/caddy)
 ignex info [root]                   Dump cwd / runtime / native / config as JSON
 ```
 
@@ -96,6 +97,82 @@ changes:
 self-contained Bun executable (runtime embedded, minified, bytecode-compiled,
 `NODE_ENV=production`) that runs without installing Bun. Output defaults to
 `outDir/<serviceName>`; the path is printed on success.
+
+## Deployment files (`ignex ops`)
+
+`ignex ops <target>` generates deployment files for an ignex backend, targeting
+the runtime contract (`PORT`, default 3000; `GET /health`; TLS terminated at the
+proxy via `IGNEX_HTTPS=0`):
+
+```
+ignex ops dockerfile          Dockerfile (multi-stage standalone binary) + .dockerignore
+ignex ops compose             docker-compose.yml (Percona MongoDB) + .env.docker
+ignex ops caddy               Caddyfile (optimized reverse proxy)
+ignex ops docker              all of the above (interactive)
+```
+
+The compose target prompts for the MongoDB username/password and writes them to
+`.env.docker` (loaded via `env_file`), so secrets never land in the committed
+compose file. Pass flags to run non-interactively:
+
+```sh
+ignex ops docker --db-user admin --db-password "$DB_PASS" --replica --domain api.example.com
+ignex ops docker --yes --db-password "$DB_PASS"   # skip prompts entirely
+```
+
+Highlights:
+
+- **Dockerfile** — `oven/bun` builder runs `bun run build --compile --binary-outfile
+  <binary>`; a slim `debian:stable-slim` image runs the standalone binary as a
+  non-root user with a `wget` healthcheck on `GET /health`. `--private-registry`
+  opts into copying `.npmrc`/`.env` for private installs.
+- **compose** — `app` (builds the Dockerfile) + `percona/percona-server-mongodb`
+  with `--replica` adding a single-node replica set (`rs0`) and a one-shot
+  `mongodb-init` service that calls `rs.initiate()`. The app connects via
+  `MONGODB_URI` (override with `--mongo-uri-var`).
+- **Caddyfile** — reverse proxy with auto TLS, HSTS at the terminator (the app
+  deliberately omits it), and no `encode gzip` (the app already compresses).
+
+Run `ignex ops --help` for the full flag reference.
+
+## Shell completions
+
+`ignex completions <shell>` prints a script that enables tab-completion for
+commands, flags, and flag values; paths fall through to the shell's own file
+completion. The scripts call a hidden `ignex _complete` backend at tab time, so
+they always reflect the current command list.
+
+```sh
+ignex completions bash        # bash
+ignex completions zsh         # zsh
+ignex completions fish        # fish
+ignex completions powershell  # PowerShell
+ignex completions cmd         # cmd.exe (via clink)
+```
+
+Enable per shell (each generated script's header repeats these):
+
+```sh
+# bash — append to ~/.bashrc
+echo 'source <(ignex completions bash)' >> ~/.bashrc
+
+# zsh — add the file to $fpath + compinit, or just source it
+source <(ignex completions zsh)
+
+# fish — append to ~/.config/fish/config.fish
+ignex completions fish | source
+
+# PowerShell — append to $PROFILE, then reload
+ignex completions powershell | Out-File -Append $PROFILE; . $PROFILE
+
+# cmd.exe — requires clink (https://github.com/chrisant996/clink)
+ignex completions cmd > %USERPROFILE%\clink\ignex.lua
+```
+
+The scripts assume `ignex` is on your `PATH` when you press Tab (they call
+`ignex _complete`). If you only use the CLI via `bunx`, add
+`alias ignex='bunx @ignex/cli'` (or install it) so completion can invoke the
+backend.
 
 ## Development
 

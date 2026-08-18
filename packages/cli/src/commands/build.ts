@@ -2,6 +2,7 @@ import { isAbsolute, join } from "node:path";
 import type { CompilerOptions } from "@ignex/compiler";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { buildProject } from "../utils/compiler.js";
+import { checkProjectEnv, reportEnvCheck } from "../utils/env-check.js";
 import { error, formatError, info, success } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
 
@@ -40,6 +41,8 @@ export async function runBuild(args: string[]): Promise<void> {
   info(`Building ${root}`);
 
   try {
+    // Pre-flight env validation (non-blocking warnings/errors).
+    reportEnvCheck(await checkProjectEnv(root));
     const { opts } = await buildProject(root, values as Record<string, unknown>);
     const status = await nativeStatus();
     info(`Native: ${nativeLabel(status)}`);

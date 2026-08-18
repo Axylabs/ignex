@@ -26,9 +26,15 @@ What you get:
 
 - `src/routes/` — file-system routes (`index.get.ts` → `GET /`, `products/[id].get.ts` → `GET /products/:id`)
 - `src/app.config.ts` — plugins (cors, security, compression, session), lifecycle, server port
+- `src/config/env.ts` — validated environment config (a TypeBox schema + `defineEnv`) and `.env.example` derived from it
 - `src/lib/auth.ts` + auth routes (register / login / me) when you pass `--features auth`
 - `ignex.config.mjs` — compiler profile (optimization level, artifact toggles)
 - `vitest.config.ts` + `test/` — a scaffolded integration test
+
+Environment variables are declared in `src/config/env.ts` with a TypeBox
+schema (required / optional / default / secret) instead of reading
+`process.env` directly. Copy `.env.example` to `.env` and adjust. See
+[Config & env](cookbook.md#config--env) for the full API.
 
 `bun run dev` compiles the app, starts the server, and restarts it on every
 change (with crash backoff). You'll see a `Native:` line reporting whether the
@@ -75,7 +81,7 @@ With a path parameter and TypeBox schema (JSON-schema codegen + OpenAPI):
 ```ts
 // src/routes/products/[id].get.ts → GET /products/:id
 import { get } from "@ignex/core/http";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 export default get(
   {
@@ -123,6 +129,11 @@ bunx @ignex/cli doctor --root .
 `doctor` exits non-zero when it finds blocking issues, so you can run it in CI
 or onboarding scripts. `bunx @ignex/cli info --root .` dumps the same facts
 (plus native status) as JSON.
+
+**Shell completions.** `bunx @ignex/cli completions <shell>` prints a
+tab-completion script for bash, zsh, fish, PowerShell, or cmd (via clink), e.g.
+`source <(bunx @ignex/cli completions bash)`. Install instructions for each
+shell are in `packages/cli/README.md`.
 
 ## 5. Generated artifacts
 

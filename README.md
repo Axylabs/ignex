@@ -263,7 +263,7 @@ options, and diagnostic-code reference.
 - **`ignex create`** now scaffolds the production optimization profile
   (`optimizationLevel: 3`, precompiled validators/serializers, all artifact
   generation, context specialization) so new projects start from the tuned defaults.
-- **`ignex route --schema`** offers to install `@sinclair/typebox` when missing.
+- **`ignex route --schema`** offers to install `typebox` when missing.
 - **`scripts/new-package.ts`** scaffolds a new workspace package in seconds.
 
 ## Compiler Hardening

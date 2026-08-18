@@ -1,5 +1,5 @@
 import { get } from "@ignex/core/http";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 /** Response serialized per status: 200 → `{name,level}`, 201 → `{created}`. */
 export default get(

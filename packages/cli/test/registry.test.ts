@@ -8,6 +8,7 @@ describe("registry", () => {
     expect(names).toContain("dev");
     expect(names).toContain("build");
     expect(names).toContain("route");
+    expect(names).toContain("ops");
     expect(names).toContain("info");
   });
 
@@ -16,6 +17,7 @@ describe("registry", () => {
     expect(findCommand("watch")?.name).toBe("dev");
     expect(findCommand("init")?.name).toBe("create");
     expect(findCommand("r")?.name).toBe("route");
+    expect(findCommand("devops")?.name).toBe("ops");
     expect(findCommand("does-not-exist")).toBeUndefined();
   });
 
@@ -25,5 +27,15 @@ describe("registry", () => {
     expect(help).toContain("--no-spawn");
     expect(help).toContain("--verbose");
     expect(help).toContain("build");
+  });
+
+  it("renders ops help with targets and db flags", () => {
+    const help = renderHelp();
+    expect(help).toContain("ops");
+    expect(help).toContain("dockerfile | compose | caddy | docker");
+    expect(help).toContain("--db-user");
+    expect(help).toContain("--db-password");
+    expect(help).toContain("--replica");
+    expect(help).toContain("--domain");
   });
 });

@@ -64,7 +64,7 @@ export function routeFileTemplate(
       ? `async (ctx) => {\n${handlerLines.join("\n")}\n}`
       : `(ctx) => ctx.json({ ok: true })`;
 
-    return `import { Type } from "@sinclair/typebox";
+    return `import { Type } from "typebox";
 import { ${fn} } from "@ignex/core/http";
 
 export const schema = {

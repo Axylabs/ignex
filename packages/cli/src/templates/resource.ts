@@ -2,17 +2,17 @@
  * Resource CRUD route templates (`ignex resource <Name>`).
  *
  * Generates a REST resource under `src/routes/api/<plural>/` wired to the
- * ninox `db` manager (see `src/db.ts`) plus shared helpers in `src/lib/http.ts`,
- * with optional auth/RBAC guards:
+ * ninox `db` manager (see `src/db.ts`), with optional auth/RBAC guards:
  *   - `--auth`  → `config.hooks = ["require-auth"]` (AOT named hook)
  *   - `--rbac`  → `withGuards(handler, { permissions: ["<plural>:read|write"] })`
  *                (compiler emits the guard chain)
  *
  * Generated routes are kept deliberately minimal and AOT-friendly:
  *   - one method import per file, top-level imports only (no `await import`)
- *   - shared `toObjectId`/`errorResponse` helpers instead of per-route boilerplate
- *   - typed request bodies (`<Type>Input`/`<Type>Update`) — no `as any`
- *   - correct status semantics (400 invalid id / 404 not found / 201 created)
+ *   - schema-validated `:id` params (TypeBox regex, 422 on malformed) + canonical
+ *     ninox `InsertInput`/`UpdateInput` body types — no hand-rolled helpers
+ *   - thrown `NotFoundError` (404) / framework error mapping — no `ctx.json` shims
+ *   - correct status semantics (422 invalid id / 404 not found / 201 created)
  */
 
 import { type ModelField, pascalCase, pluralize } from "./model";
@@ -75,12 +75,18 @@ const guardsPrelude = (
 
 /** The relative import path from `src/routes/api/<plural>/` to `src/db.ts`. */
 const DB_IMPORT = "../../../db.js";
-/** The relative import path from a route to the shared `src/lib/http.ts` helpers. */
-const LIB_IMPORT = "../../../lib/http.js";
 /** The relative import path from a route to its model. */
 const modelImport = (plural: string): string => `../../../models/${plural}.js`;
 
-/** The inline handler expression for a resource kind (no export prefix). */
+/**
+ * The inline handler expression for a resource kind (no export prefix).
+ *
+ * `:id` routes attach a TypeBox `params` schema as the second argument, so the
+ * router validates the 24-hex ObjectId (422 on malformed input) and types
+ * `ctx.params.id` as `string` — the `new ObjectId(...)` after it cannot throw.
+ */
+const ID_PARAMS = 'Type.Object({ id: Type.String({ pattern: "^[0-9a-fA-F]{24}$" }) })';
+
 const resourceHandler = (kind: ResourceKind, plural: string, Type: string): string => {
   switch (kind) {
     case "list":
@@ -92,39 +98,37 @@ const resourceHandler = (kind: ResourceKind, plural: string, Type: string): stri
 })`;
     case "getOne":
       return `get(async (ctx) => {
-  const _id = toObjectId(ctx.params.id);
-  if (!_id) return ctx.json({ error: "Invalid id" }, { status: 400 });
+  const _id = new ObjectId(ctx.params.id);
   const doc = await db.getOne("${plural}", { _id });
-  if (!doc) return ctx.json({ error: "Not Found" }, { status: 404 });
+  if (!doc) throw new NotFoundError();
   return ctx.json(doc);
+}, {
+  params: ${ID_PARAMS},
 })`;
     case "create":
       return `post(async (ctx) => {
   const input = await ctx.body.json<${Type}Input>();
-  try {
-    const { insertedId } = await db.insertOne("${plural}", input);
-    return ctx.json({ id: insertedId }, { status: 201 });
-  } catch (error) {
-    const { status, body } = errorResponse(error);
-    return ctx.json(body, { status });
-  }
+  const { insertedId } = await db.insertOne("${plural}", input);
+  return ctx.json({ id: insertedId }, { status: 201 });
 })`;
     case "update":
       return `patch(async (ctx) => {
-  const _id = toObjectId(ctx.params.id);
-  if (!_id) return ctx.json({ error: "Invalid id" }, { status: 400 });
+  const _id = new ObjectId(ctx.params.id);
   const body = await ctx.body.json<${Type}Update>();
   const result = await db.updateOne("${plural}", { _id }, body);
-  if (result.modifiedCount === 0) return ctx.json({ error: "Not Found" }, { status: 404 });
+  if (result.modifiedCount === 0) throw new NotFoundError();
   return ctx.json({ updated: true });
+}, {
+  params: ${ID_PARAMS},
 })`;
     case "delete":
       return `del(async (ctx) => {
-  const _id = toObjectId(ctx.params.id);
-  if (!_id) return ctx.json({ error: "Invalid id" }, { status: 400 });
+  const _id = new ObjectId(ctx.params.id);
   const result = await db.deleteOne("${plural}", { _id });
-  if (result.deletedCount === 0) return ctx.json({ error: "Not Found" }, { status: 404 });
+  if (result.deletedCount === 0) throw new NotFoundError();
   return ctx.json({ deleted: true });
+}, {
+  params: ${ID_PARAMS},
 })`;
   }
 };
@@ -142,10 +146,15 @@ export const resourceRouteTemplate = (
   // Import only what this route actually uses.
   const helperImports: string[] = [];
   if (kind === "getOne" || kind === "update" || kind === "delete") {
-    helperImports.push(`import { toObjectId } from "${LIB_IMPORT}";`);
+    helperImports.push('import { NotFoundError } from "@ignex/core";');
+    helperImports.push('import { Type } from "typebox";');
+    helperImports.push('import { ObjectId } from "mongodb";');
   }
   if (kind === "create") {
-    helperImports.push(`import { errorResponse } from "${LIB_IMPORT}";`);
+    helperImports.push('import type { InsertInput } from "@ignex/ninox";');
+  }
+  if (kind === "update") {
+    helperImports.push('import type { UpdateInput } from "@ignex/ninox";');
   }
   if (kind === "create" || kind === "update") {
     helperImports.push(`import type { ${Type} } from "${modelImport(plural)}";`);
@@ -153,12 +162,10 @@ export const resourceRouteTemplate = (
 
   const typeAlias: string[] = [];
   if (kind === "create") {
-    typeAlias.push(`type ${Type}Input = Omit<${Type}, "_id" | "createdAt" | "updatedAt">;`);
+    typeAlias.push(`type ${Type}Input = InsertInput<${Type}>;`);
   }
   if (kind === "update") {
-    typeAlias.push(
-      `type ${Type}Update = Partial<Omit<${Type}, "_id" | "createdAt" | "updatedAt">>;`,
-    );
+    typeAlias.push(`type ${Type}Update = UpdateInput<${Type}>;`);
   }
 
   // Group the file into blank-line-separated sections: imports, config
@@ -192,30 +199,6 @@ export const resourceRouteTemplates = (
   }));
 };
 
-/** The shared route helpers (`src/lib/http.ts`) — generated once per project. */
-export const httpLibTemplate = (): string => `import { ObjectId } from "mongodb";
-
-// Parse a route :id param into an ObjectId, or null when malformed.
-export const toObjectId = (id: string): ObjectId | null => {
-  try {
-    return new ObjectId(id);
-  } catch {
-    return null;
-  }
-};
-
-// Map a thrown error (ninox errors carry .status) to a JSON body + status.
-export const errorResponse = (
-  error: unknown,
-): { status: number; body: { error: string } } => {
-  const status = (error as { status?: unknown } | null)?.status;
-  if (typeof status === "number" && status >= 400 && status <= 599) {
-    return { status, body: { error: (error as Error | null)?.message ?? "Request failed" } };
-  }
-  return { status: 500, body: { error: "Internal Server Error" } };
-};
-`;
-
 /** A README describing the generated resource (optional). */
 export const resourceReadmeTemplate = (name: string): string => {
   const plural = pluralize(name);
@@ -230,8 +213,8 @@ Generated by \`ignex resource ${name}\`. CRUD routes under \`/api/${plural}\`:
 - \`PATCH  /api/${plural}/:id\`    — update (updateOne)
 - \`DELETE /api/${plural}/:id\`    — delete (deleteOne)
 
-Shared helpers live in \`src/lib/http.ts\` (id parsing, error mapping). Edit
-\`src/models/${plural}.ts\` to change the schema, then run:
+\`:id\` params are schema-validated (malformed ids → 422) and missing docs throw a
+404. Edit \`src/models/${plural}.ts\` to change the schema, then run:
 \`\`\`sh
 bunx ignex db:sync
 \`\`\`

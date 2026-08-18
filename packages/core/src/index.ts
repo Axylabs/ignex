@@ -200,6 +200,22 @@ export { generateOpenAPI } from "./openapi";
 export type { Config, ConfigField, ConfigFieldType, ConfigSchema } from "./platform/config";
 export { defineConfig } from "./platform/config";
 export { env, envBool, envFloat, envInt, envJson, envSecret, loadEnv } from "./platform/env";
+export type {
+  DefineEnvOptions,
+  EnvIssue,
+  EnvIssueCode,
+  EnvIssueSeverity,
+  EnvResult,
+  EnvSource,
+  ValidateEnvOptions,
+} from "./platform/env-config";
+export {
+  defineEnv,
+  EnvError,
+  EnvIssueCodes,
+  envExampleFromSchema,
+  validateEnv,
+} from "./platform/env-config";
 export {
   BadRequestError,
   ConflictError,

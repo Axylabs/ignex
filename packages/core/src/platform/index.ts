@@ -6,6 +6,7 @@
  */
 export * from "./config";
 export * from "./env";
+export * from "./env-config";
 export * from "./errors";
 export * from "./jobs";
 export * from "./jobs-durable";

@@ -8,6 +8,8 @@
  */
 
 import { runBuild } from "./build.js";
+import { runComplete } from "./complete.js";
+import { runCompletions } from "./completions.js";
 import { runCreate } from "./create.js";
 import { runDev } from "./dev.js";
 import { runDoctor } from "./doctor.js";
@@ -15,6 +17,7 @@ import { runHook } from "./hook.js";
 import { runInfo } from "./info.js";
 import { runMcp } from "./mcp.js";
 import { runModel } from "./model.js";
+import { runOps } from "./ops.js";
 import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
 
@@ -24,6 +27,8 @@ export interface Command {
   description: string;
   /** Flag docs / usage shown under this command in `ignex help`. */
   options?: string;
+  /** Skip this command in `ignex help` (internal backends like `_complete`). */
+  hidden?: boolean;
   run(args: string[]): Promise<void>;
 }
 
@@ -116,6 +121,32 @@ export const commands: readonly Command[] = [
     run: runResource,
   },
   {
+    name: "ops",
+    aliases: ["devops", "deploy"],
+    description: "Generate deployment files (Dockerfile, docker-compose, Caddyfile)",
+    options: `  <target>                      dockerfile | compose | caddy | docker (docker = all)
+  --target <dockerfile|compose|caddy|docker>
+                                Same as the positional target
+  --root <dir>                  Project root
+  --port <port>                 App listen port (default 3000)
+  --binary <name>               Standalone binary name (default server)
+  --health-path <path>          Health check path (default /health)
+  --private-registry            Copy .npmrc/.env into the builder for private installs
+  --app-image <image>           App image name for compose (default ignex-app:latest)
+  --db-user <user>              MongoDB root username (default app)
+  --db-password <pass>          MongoDB root password (prompted when omitted)
+  --db-name <db>                MongoDB database name (default app)
+  --db-image <image>            MongoDB image (default percona/percona-server-mongodb:7.0)
+  --replica                     Enable a single-node MongoDB replica set
+  --no-replica                  Disable the replica set
+  --mongo-uri-var <var>         Env var for the app→db URI (default MONGODB_URI)
+  --domain <domain>             Caddy site domain (default example.com)
+  --upstream <host:port>        Caddy backend upstream (default 127.0.0.1:3000)
+  --yes                         Skip all prompts (use defaults)
+  --force                       Overwrite existing files`,
+    run: runOps,
+  },
+  {
     name: "info",
     description: "Show app/compiler info",
     run: runInfo,
@@ -134,6 +165,26 @@ export const commands: readonly Command[] = [
   Run via an MCP client (e.g. npx @modelcontextprotocol/inspector ignex mcp)`,
     run: runMcp,
   },
+  {
+    name: "completions",
+    aliases: ["completion"],
+    description: "Print a shell completion script (bash, zsh, fish, powershell, cmd)",
+    options: `  <shell>   bash | zsh | fish | powershell | cmd
+
+  Pipe or source the output to enable tab-completion:
+    bash:        source <(ignex completions bash)
+    zsh:         source <(ignex completions zsh)
+    fish:        ignex completions fish | source
+    powershell:  ignex completions powershell | Out-File -Append $PROFILE
+    cmd:         ignex completions cmd > %USERPROFILE%\\clink\\ignex.lua  (requires clink)`,
+    run: runCompletions,
+  },
+  {
+    name: "_complete",
+    hidden: true,
+    description: "Shell-completion backend (called by generated completion scripts)",
+    run: runComplete,
+  },
 ];
 
 /** Look a command up by name or alias. */
@@ -145,12 +196,13 @@ const ALIAS_LABEL = (aliases: readonly string[] | undefined): string =>
 
 /** Render the full `ignex help` text from the registry. */
 export const renderHelp = (): string => {
-  const usage = commands.map((c) => `  ignex ${c.name} [options]`).join("\n");
-  const list = commands
+  const visible = commands.filter((c) => !c.hidden);
+  const usage = visible.map((c) => `  ignex ${c.name} [options]`).join("\n");
+  const list = visible
     .map((c) => `  ${c.name}${ALIAS_LABEL(c.aliases)}   ${c.description}`)
     .join("\n");
   const hasOptions = (c: Command): c is Command & { options: string } => c.options !== undefined;
-  const options = commands
+  const options = visible
     .filter(hasOptions)
     .map((c) => `${c.name.charAt(0).toUpperCase() + c.name.slice(1)} options:\n${c.options}`)
     .join("\n\n");

@@ -12,10 +12,9 @@ import {
   openapi,
   session,
 } from "@ignex/core";
+import { env } from "./config/env.js";
 import { middleware } from "./middleware/index.js";
 import { logRequests, markResponse } from "./middleware/log-requests.js";
-
-const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 
 export const plugins: IgnexPlugin[] = [
   // Custom global plugins (see src/middleware/) — run on every request.
@@ -27,7 +26,11 @@ export const plugins: IgnexPlugin[] = [
   // no id generation, no cookie signing, no `Set-Cookie` on the response.
   // `rolling: false` avoids re-signing the cookie on every request that merely
   // carries a valid session; the cookie is only rewritten when data changes.
-  session({ secret: SESSION_SECRET, createIfMissing: "lazy", rolling: false }),
+  session({
+    secret: env.SESSION_SECRET ?? "dev-secret-change-me",
+    createIfMissing: "lazy",
+    rolling: false,
+  }),
   // Native pre-flight pipeline (castrum Rust ingress): ONE FFI call per request
   // owns CORS (wildcard preflight + forbidden, browser-accurate via
   // access-control-request-method) and the URL/header/query limits, and bakes
@@ -82,7 +85,7 @@ export const lifecycle = {
 // castrum CORS owns preflight; `Access-Control-Allow-Origin: *` is equivalent
 // to the origin echo for non-credentialed requests).
 export const server = {
-  port: Number(process.env.PORT ?? 3000),
+  port: env.PORT,
   // HTTPS by default (TLS). In dev, ignex auto-generates a local certificate
   // (mkcert → openssl) cached under `dist/certs`; set `tls: { certFile,
   // keyFile }` to use your own certs, or `https: false` for plain HTTP/1.

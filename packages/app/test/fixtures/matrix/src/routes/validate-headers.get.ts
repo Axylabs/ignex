@@ -1,5 +1,5 @@
 import { get } from "@ignex/core/http";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 /** GET /validate-headers — headers schema (lowercased `x-token` required). */
 export default get(async (ctx) => ctx.json({ token: ctx.req.headers.get("x-token") }), {

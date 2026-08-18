@@ -13,6 +13,7 @@
       "@ignex/shared": ["../shared/src/index.ts"],
       "@ignex/core": ["../core/src/index.ts"],
       "@ignex/core/http": ["../core/src/http/route.ts"],
+      "@ignex/core/env": ["../core/src/platform/env-config.ts"],
       "@ignex/core/*": ["../core/src/*"],
       "@ignex/compiler": ["../compiler/src/index.ts"],
       "@ignex/native": ["../native/src/index.ts"],

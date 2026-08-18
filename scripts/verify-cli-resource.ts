@@ -4,7 +4,7 @@
  * guards are emitted. Usage: bun scripts/verify-cli-resource.ts
  * Exits 0 on success, 1 on any mismatch.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildAsync } from "@ignex/compiler";
 import { runResource } from "../packages/cli/src/commands/resource.js";
@@ -42,6 +42,19 @@ for (const f of ["index.get.ts", "[id].get.ts", "index.post.ts", "[id].patch.ts"
   check(`route generated: ${f}`, existsSync(join(base, "src/routes/api/users", f)));
 }
 check("db bootstrap generated", existsSync(join(base, "src/db.ts")));
+
+// 1b. Generated routes use framework-standard shapes (TypeBox params schema,
+// canonical ninox input types, thrown errors) — no src/lib/http.ts helpers.
+const getOneSrc = readFileSync(join(base, "src/routes/api/users/[id].get.ts"), "utf8");
+check(
+  "route validates :id via TypeBox params schema",
+  getOneSrc.includes("Type.Object({ id: Type.String"),
+);
+check("route throws NotFoundError", getOneSrc.includes("throw new NotFoundError()"));
+check("route has no toObjectId helper", !getOneSrc.includes("toObjectId"));
+const postSrc = readFileSync(join(base, "src/routes/api/users/index.post.ts"), "utf8");
+check("create uses ninox InsertInput", postSrc.includes("type UserInput = InsertInput<User>;"));
+check("create has no errorResponse", !postSrc.includes("errorResponse"));
 
 // 2. AOT-compile the generated routes (compiler recognizes withGuards).
 const result = await buildAsync({

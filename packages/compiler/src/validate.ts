@@ -8,9 +8,9 @@
  *   them, so a typo or a newer-version option never hard-fails a build.
  */
 
-import { type Static, Type } from "@sinclair/typebox";
 import Ajv from "ajv";
 import { defu } from "defu";
+import { type Static, Type } from "typebox";
 import { DiagnosticCodes, type DiagnosticCollector } from "./diagnostics";
 import type { Result } from "./fp";
 import { err, ok } from "./fp";

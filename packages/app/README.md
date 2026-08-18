@@ -11,7 +11,7 @@ framework. Every route is real code exercising a compiler or runtime feature.
 | `GET /health`        | `health.get.ts`              | dynamic JSON                          |
 | `GET /hello`         | `hello.get.ts`               | named-export handler (`httpGet`)      |
 | `GET /openapi`       | `openapi()` plugin (app.config) | Scalar docs UI (reads `/openapi.json`) |
-| `GET /env`           | `env.get.ts`                 | env accessors                         |
+| `GET /env`           | `env.get.ts`                 | validated env (`src/config/env.ts`)                  |
 | `GET /i18n`          | `i18n.get.ts`                | locale negotiation                    |
 | `GET /jobs`          | `jobs.get.ts`                | job queue                             |
 | `GET /page`          | `page.get.ts`                | template rendering (Jinja views)      |

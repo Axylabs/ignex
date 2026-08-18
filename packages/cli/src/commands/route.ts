@@ -68,7 +68,7 @@ export async function runRoute(args: string[]): Promise<void> {
   success(`Created ${relative(process.cwd(), filePath)}`);
 
   if (values.schema) {
-    info("Schema template uses @sinclair/typebox.");
+    info("Schema template uses typebox.");
     // Offer to add the dependency when it is not already declared, mirroring
     // `ignex create --features examples` (which adds it for you).
     const pkgPath = join(root, "package.json");
@@ -78,9 +78,7 @@ export async function runRoute(args: string[]): Promise<void> {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
       };
-      hasTypebox = Boolean(
-        pkg.dependencies?.["@sinclair/typebox"] ?? pkg.devDependencies?.["@sinclair/typebox"],
-      );
+      hasTypebox = Boolean(pkg.dependencies?.["typebox"] ?? pkg.devDependencies?.["typebox"]);
     } catch {
       // No package.json — leave the hint only.
     }
@@ -88,22 +86,22 @@ export async function runRoute(args: string[]): Promise<void> {
     if (!hasTypebox && process.stdin.isTTY) {
       const rl = openPrompt();
       try {
-        const install = await askConfirm(rl, "Add @sinclair/typebox?", true);
+        const install = await askConfirm(rl, "Add typebox?", true);
         if (install) {
           const pm = detectPm(root);
-          const result = spawnSync(pm, ["add", "@sinclair/typebox"], {
+          const result = spawnSync(pm, ["add", "typebox"], {
             cwd: root,
             stdio: "inherit",
           });
           if (result.status === 0) {
-            success("Installed @sinclair/typebox.");
+            success("Installed typebox.");
           }
         }
       } finally {
         rl.close();
       }
     } else if (!hasTypebox) {
-      info("  Install it if missing: bun add @sinclair/typebox");
+      info("  Install it if missing: bun add typebox");
     }
   }
 

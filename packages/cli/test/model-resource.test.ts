@@ -10,11 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { runResource } from "../src/commands/resource.js";
 import { modelTemplate, parseModelFields, pascalCase, pluralize } from "../src/templates/model.js";
-import {
-  httpLibTemplate,
-  resourceRouteTemplate,
-  resourceRouteTemplates,
-} from "../src/templates/resource.js";
+import { resourceRouteTemplate, resourceRouteTemplates } from "../src/templates/resource.js";
 
 test("pluralize handles regular, -y, and -s endings", () => {
   expect(pluralize("User")).toBe("users");
@@ -58,7 +54,9 @@ test("modelTemplate emits a schema-first ninox model", () => {
   expect(code).toContain("export type User = InferDoc<typeof userSchema>;");
   expect(code).toContain('export const users = defineCollection("users", userSchema,');
   expect(code).toContain("_id: s.objectId(),");
-  expect(code).toContain("createdAt: s.date(),");
+  expect(code).toContain("createdAt: s.date().optional(),");
+  expect(code).toContain("updatedAt: s.date().optional(),");
+  expect(code).toContain("timestamps: true,");
 });
 
 test("resourceRouteTemplates generates the 5 CRUD routes under api/<plural>/", () => {
@@ -83,7 +81,7 @@ test("resource routes import the db manager and call ninox ops", () => {
 
   const getOne = resourceRouteTemplate("User", "getOne", {});
   expect(getOne).toContain('db.getOne("users"');
-  expect(getOne).toContain("status: 404");
+  expect(getOne).toContain("throw new NotFoundError()");
 });
 
 test("each route imports only the HTTP method it uses", () => {
@@ -107,30 +105,39 @@ test("each route imports only the HTTP method it uses", () => {
 test("routes stay static-import + type-safe (no await import, no as any)", () => {
   const getOne = resourceRouteTemplate("User", "getOne", {});
   expect(getOne).not.toContain("await import(");
-  expect(getOne).not.toContain('from "mongodb"');
-  expect(getOne).toContain("toObjectId(ctx.params.id)");
+  expect(getOne).toContain('import { ObjectId } from "mongodb";');
+  expect(getOne).toContain('from "typebox"');
+  expect(getOne).toContain("new ObjectId(ctx.params.id)");
+  expect(getOne).toContain('Type.String({ pattern: "^[0-9a-fA-F]{24}$" })');
 
   const create = resourceRouteTemplate("User", "create", {});
   expect(create).not.toContain("as any");
-  expect(create).toContain('type UserInput = Omit<User, "_id" | "createdAt" | "updatedAt">;');
+  expect(create).toContain("type UserInput = InsertInput<User>;");
   expect(create).toContain('import type { User } from "../../../models/users.js";');
 
   const update = resourceRouteTemplate("User", "update", {});
   // Regression: the old template used `Partial<User>` in the handler WITHOUT
   // importing the model type — the generated file referenced an undefined `User`.
   expect(update).toContain('import type { User } from "../../../models/users.js";');
-  expect(update).toContain(
-    'type UserUpdate = Partial<Omit<User, "_id" | "createdAt" | "updatedAt">>;',
-  );
+  expect(update).toContain("type UserUpdate = UpdateInput<User>;");
   expect(update).toContain("ctx.body.json<UserUpdate>()");
   expect(update).not.toContain("as any");
 });
 
-test("httpLibTemplate ships the shared toObjectId/errorResponse helpers", () => {
-  const lib = httpLibTemplate();
-  expect(lib).toContain('import { ObjectId } from "mongodb";');
-  expect(lib).toContain("export const toObjectId");
-  expect(lib).toContain("export const errorResponse");
+test("generated routes use framework errors + schemas, not hand-rolled helpers", () => {
+  const getOne = resourceRouteTemplate("User", "getOne", {});
+  expect(getOne).not.toContain("toObjectId");
+  expect(getOne).not.toContain("errorResponse");
+  expect(getOne).toContain("throw new NotFoundError()");
+  expect(getOne).toContain("Type.Object({ id: Type.String");
+
+  const create = resourceRouteTemplate("User", "create", {});
+  expect(create).not.toContain("errorResponse");
+  expect(create).toContain("InsertInput<User>");
+
+  const update = resourceRouteTemplate("User", "update", {});
+  expect(update).not.toContain("errorResponse");
+  expect(update).toContain("UpdateInput<User>");
 });
 
 test("--rbac pre-wires withGuards with <collection>:read|write permissions", () => {
@@ -175,7 +182,7 @@ describe("runResource target layout", () => {
     expect(existsSync(join(route, "[id].del.ts"))).toBe(true);
     expect(existsSync(join(dir, "src", "models", "gigs.ts"))).toBe(true);
     expect(existsSync(join(dir, "src", "db.ts"))).toBe(true);
-    expect(existsSync(join(dir, "src", "lib", "http.ts"))).toBe(true);
+    expect(existsSync(join(dir, "src", "lib", "http.ts"))).toBe(false);
 
     // The pre-fix behaviour wrote everything under ./gig/src — must not happen.
     expect(existsSync(join(dir, "gig", "src"))).toBe(false);

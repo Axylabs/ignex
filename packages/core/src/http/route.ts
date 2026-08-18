@@ -9,7 +9,7 @@
  * Example:
  * ```ts
  * import { get } from "@ignex/core/http";
- * import { Type } from "@sinclair/typebox";
+ * import { Type } from "typebox";
  *
  * export default get(async (ctx) => ctx.json({ q: ctx.query.q }), {
  *   query: Type.Object({ q: Type.String() }),
@@ -20,6 +20,7 @@
  * allowed return value via {@link RouteHandler}.
  */
 
+import type { Static, TSchema } from "typebox";
 import type { AnySchema, MaybePromise, StandardSchemaV1 } from "../types";
 import type { LazyBody } from "./body";
 import type { IgnexContext } from "./context";
@@ -80,9 +81,11 @@ export type NoBodyRouteSchemas = Omit<RouteSchemas, "body">;
 type InferSchema<T> =
   T extends StandardSchemaV1<any, infer Output>
     ? Output
-    : T extends { static: infer S }
-      ? S
-      : unknown;
+    : T extends TSchema
+      ? Static<T>
+      : T extends { static: infer S }
+        ? S
+        : unknown;
 
 type InferBody<S> = S extends { body: infer X } ? InferSchema<X> : unknown;
 
@@ -95,11 +98,13 @@ type LooksLikeSchema<T> =
     ? true
     : T extends { "~standard": unknown }
       ? true
-      : T extends { static: unknown }
+      : T extends TSchema
         ? true
-        : T extends { type: string }
+        : T extends { static: unknown }
           ? true
-          : false;
+          : T extends { type: string }
+            ? true
+            : false;
 
 type InferResponse<S> = S extends { response: infer R }
   ? LooksLikeSchema<R> extends true

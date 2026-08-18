@@ -173,14 +173,15 @@ export const ${schema}Schema = s.object(
   {
     _id: s.objectId(),
 ${fieldLines}
-    createdAt: s.date(),
-    updatedAt: s.date(),
+    createdAt: s.date().optional(),
+    updatedAt: s.date().optional(),
   },
   { name: "${plural}" },
 );
 export type ${Type} = InferDoc<typeof ${schema}Schema>;
 
 export const ${plural} = defineCollection("${plural}", ${schema}Schema, {
+  timestamps: true,
   // indexes: [{ key: { createdAt: -1 } }],
 });
 `;
@@ -190,7 +191,7 @@ export const ${plural} = defineCollection("${plural}", ${schema}Schema, {
 export const dbTemplate = (name: string): string => {
   const plural = pluralize(name);
   return `import { createMongoToolkit, defineCollections } from "@ignex/ninox";
-import { ${plural} } from "./models/${plural}.ts";
+import { ${plural} } from "./models/${plural}.js";
 
 // Toolkit = service (connections, CRUD manager, cache, migrations). Extend the
 // collections map as you scaffold more models (ignex resource <Name>).

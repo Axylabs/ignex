@@ -21,6 +21,7 @@
       "@ignex/shared": ["./packages/shared/src/index.ts"],
       "@ignex/core": ["./packages/core/src/index.ts"],
       "@ignex/core/http": ["./packages/core/src/http/route.ts"],
+      "@ignex/core/env": ["./packages/core/src/platform/env-config.ts"],
       "@ignex/core/*": ["./packages/core/src/*"],
       "@ignex/compiler": ["./packages/compiler/src/index.ts"],
       "@ignex/native": ["./packages/native/src/index.ts"],

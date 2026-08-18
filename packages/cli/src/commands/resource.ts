@@ -7,7 +7,6 @@
  *   src/models/<plural>.ts              (schema-first model)
  *   src/routes/api/<plural>/*.ts         (list/read/create/update/delete)
  *   src/db.ts                           (toolkit bootstrap, if missing)
- *   src/lib/http.ts                      (shared id/error helpers, if missing)
  *
  * `--auth` pre-wires `config.hooks = ["require-auth"]` (AOT named hook);
  * `--rbac` pre-wires `withGuards(..., { permissions: [...] })` (compiler emits
@@ -15,11 +14,7 @@
  */
 import { join, relative, resolve } from "node:path";
 import { dbTemplate, modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
-import {
-  httpLibTemplate,
-  resourceReadmeTemplate,
-  resourceRouteTemplates,
-} from "../templates/resource.js";
+import { resourceReadmeTemplate, resourceRouteTemplates } from "../templates/resource.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
@@ -98,15 +93,7 @@ export async function runResource(args: string[]): Promise<void> {
     );
   }
 
-  // 4. The shared route helpers (once per project; safe to keep/extend).
-  const httpLibPath = join(root, "src", "lib", "http.ts");
-  if (!(await exists(httpLibPath)) || values.force) {
-    await writeFileEnsuringDir(httpLibPath, httpLibTemplate());
-    success(`Created ${relative(process.cwd(), httpLibPath)}`);
-  } else {
-    info(`Skipped ${relative(process.cwd(), httpLibPath)} (already exists).`);
-  }
-
+  // 4. Guards hint (auth/RBAC pre-wiring).
   if (opts.auth || opts.rbac) {
     const hints: string[] = [];
     if (opts.auth) hints.push("add authModule() to your plugins (EdDSA JWT)");

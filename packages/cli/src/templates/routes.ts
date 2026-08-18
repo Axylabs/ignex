@@ -420,18 +420,10 @@ export default get((ctx) => {
 
 export function envRouteTemplate(): string {
   return `import { get } from "@ignex/core/http";
-import { defineConfig, env, loadEnv } from "@ignex/core";
-
-loadEnv();
-
-const config = defineConfig({
-  PORT: { type: "number", default: 3000 },
-  NODE_ENV: { type: "string", default: "development" },
-  DEBUG: { type: "boolean", default: false }
-});
+import { env } from "../config/env.js";
 
 export default get((ctx) =>
-  ctx.json({ nodeEnv: config.NODE_ENV, port: config.PORT, debug: config.DEBUG, direct: env("SOME_VAR", "fallback") })
+  ctx.json({ nodeEnv: env.NODE_ENV, port: env.PORT, debug: env.DEBUG })
 );
 `;
 }
@@ -497,19 +489,20 @@ export const lifecycle = {
     : "";
 
   return `${middlewareImports}import { compression, cors, openapi, security, session } from "@ignex/core";
+import { env } from "./config/env.js";
 
 export const plugins = [
 ${pluginsSpread}  cors(),
   compression(),
   security(),
-  session({ secret: process.env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true }),
+  session({ secret: env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true }),
   // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
   // In AOT builds the plugin serves the compiler-generated openapi.json.
   openapi()
 ];
 ${lifecycle}
 export const server = {
-  port: Number(process.env.PORT ?? 3000),
+  port: env.PORT,
   // HTTPS by default (requires TLS). In dev, ignex auto-generates a local
   // certificate (mkcert -> openssl) and caches it under .ignex/certs; set
   // tls: { certFile, keyFile } to use your own certs, or https: false

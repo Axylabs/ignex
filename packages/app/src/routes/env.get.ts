@@ -1,23 +1,13 @@
-import { defineConfig, env, loadEnv } from "@ignex/core";
 import { get } from "@ignex/core/http";
+import { env } from "../config/env.js";
 
-loadEnv();
-
-const config = defineConfig({
-  PORT: { type: "number", default: 3000, env: "PORT" },
-  NODE_ENV: { type: "string", default: "development", env: "NODE_ENV" },
-  FEATURES: { type: "json", default: [] as string[], env: "FEATURES" },
-  DEBUG: { type: "boolean", default: false, env: "DEBUG" },
-});
-
-/** GET /env — typed config + typed env accessors. */
+/** GET /env — validated, typed environment (see src/config/env.ts). */
 export default get((ctx) => {
   return ctx.json({
-    nodeEnv: config.NODE_ENV,
-    port: config.PORT,
-    features: config.FEATURES,
-    debug: config.DEBUG,
-    direct: env("SOME_DIRECT_VAR", "fallback"),
+    nodeEnv: env.NODE_ENV,
+    port: env.PORT,
+    features: env.FEATURES,
+    debug: env.DEBUG,
     requestId: ctx.requestId,
   });
 });
