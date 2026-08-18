@@ -92,6 +92,13 @@ export const security = (options: SecurityOptions = {}): IgnexPlugin => {
       // the per-request re-wrap cost (~2.5-4µs) disappears.
       return mutateHeaders(response, (headers) => {
         for (const [k, v] of baked) {
+          // Respect a Content-Security-Policy the app/route already set on the
+          // response (e.g. the `openapi()` docs page, which must allow its CDN
+          // bundles). A response-level CSP is more specific than the global
+          // default; overwriting it would break such pages.
+          if (k === "Content-Security-Policy" && headers.has("Content-Security-Policy")) {
+            continue;
+          }
           headers.set(k, v);
         }
 

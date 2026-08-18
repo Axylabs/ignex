@@ -67,7 +67,21 @@ export interface OpenAPIOptions {
    * `.ignex/openapi.json` then `dist/openapi.json` (scaffold vs example).
    */
   artifactPath?: string | string[];
+  /**
+   * `Content-Security-Policy` for the docs UI page. The default allows the
+   * docs CDN bundles (Scalar / Swagger-UI) while keeping everything else
+   * same-origin. The `security()` plugin respects an explicitly-set CSP.
+   */
+  contentSecurityPolicy?: string;
 }
+
+/**
+ * Default Content-Security-Policy for the docs UI page: permits the docs CDN
+ * bundles (Scalar via jsdelivr, Swagger-UI via unpkg) and inline styles/scripts
+ * they need, while keeping everything else same-origin.
+ */
+const DEFAULT_DOCS_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
 
 /** Default artifact locations probed in AOT mode. */
 const DEFAULT_ARTIFACT_PATHS = [".ignex/openapi.json", "dist/openapi.json"];
@@ -136,9 +150,13 @@ const jsonResponse = (doc: unknown): Response =>
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 
-const htmlResponse = (html: string): Response =>
+const htmlResponse = (html: string, contentSecurityPolicy: string): Response =>
   new Response(html, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": contentSecurityPolicy,
+    },
   });
 
 /**
@@ -164,6 +182,7 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     scalar = {},
     swagger = {},
     artifactPath,
+    contentSecurityPolicy = DEFAULT_DOCS_CSP,
   } = options;
 
   let router: IgnexRouter | undefined;
@@ -262,6 +281,7 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
       provider === "swagger-ui"
         ? swaggerUiHtml(info.title, specPath, swagger)
         : scalarHtml(info.title, specPath, scalar),
+      contentSecurityPolicy,
     );
 
   /** Interpreted mode — register the spec + docs routes on the router. */

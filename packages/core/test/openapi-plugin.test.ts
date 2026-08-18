@@ -52,6 +52,18 @@ describe("openapi() — interpreted mode (createApp + router)", () => {
     expect(await res.text()).toContain("api-reference");
   });
 
+  it("serves a docs Content-Security-Policy that allows the CDN bundles", async () => {
+    const app = createApp({
+      router: createRouter().get("/health", () => "ok"),
+      plugins: [openapi()],
+    });
+    const res = await inject(app, { url: "/openapi" });
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("script-src");
+    expect(csp).toContain("https://cdn.jsdelivr.net");
+    expect(csp).toContain("https://unpkg.com");
+  });
+
   it("respects per-route detail.hide and exclude.paths", async () => {
     const app = createApp({
       router: createRouter()

@@ -203,6 +203,24 @@ describe("security", () => {
     expect(res.headers.get("x-frame-options")).toBeNull();
   });
 
+  it("does not overwrite an explicitly-set Content-Security-Policy", async () => {
+    const app = createApp({
+      plugins: [security()],
+      handler: () =>
+        new Response("ok", {
+          headers: { "content-security-policy": "script-src 'self' https://cdn.example.com" },
+        }),
+    });
+    const res = await app.handler(req("/"));
+    // The docs page (e.g. `openapi()`) sets its own CSP to allow its CDN
+    // bundles — the security plugin must respect it, not clobber it.
+    expect(res.headers.get("content-security-policy")).toBe(
+      "script-src 'self' https://cdn.example.com",
+    );
+    // Other baked headers are still applied.
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   it("removes X-Powered-By", async () => {
     const app = createApp({
       plugins: [security()],
