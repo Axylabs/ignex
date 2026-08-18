@@ -15,7 +15,9 @@ let BASE = "";
 let srv: BootedServer;
 
 beforeAll(async () => {
-  srv = await bootServer(APP_DIR);
+  // The example app serves HTTP/2 by default (auto-generated dev certs), so
+  // the harness polls and hits it over https with TLS verification disabled.
+  srv = await bootServer(APP_DIR, { protocol: "https" });
   BASE = srv.base;
 });
 
@@ -155,6 +157,13 @@ describe("generated server (integration)", () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("serves the OpenAPI docs UI at /openapi", async () => {
+    const res = await fetch(`${BASE}/openapi`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("api-reference");
   });
 
   it("serves a constant (zero-runtime) route", async () => {

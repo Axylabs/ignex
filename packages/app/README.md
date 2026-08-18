@@ -10,13 +10,13 @@ framework. Every route is real code exercising a compiler or runtime feature.
 | `GET /`              | `index.get.ts`               | constant response hoisting            |
 | `GET /health`        | `health.get.ts`              | dynamic JSON                          |
 | `GET /hello`         | `hello.get.ts`               | named-export handler (`httpGet`)      |
-| `GET /reference`     | `reference.get.ts`           | —                                     |
+| `GET /openapi`       | `openapi()` plugin (app.config) | Scalar docs UI (reads `/openapi.json`) |
 | `GET /env`           | `env.get.ts`                 | env accessors                         |
 | `GET /i18n`          | `i18n.get.ts`                | locale negotiation                    |
 | `GET /jobs`          | `jobs.get.ts`                | job queue                             |
 | `GET /page`          | `page.get.ts`                | template rendering (Jinja views)      |
 | `GET /session`       | `session.get.ts`             | sessions                              |
-| `GET /openapi.json`  | `openapi.json.get.ts`        | serves the generated spec             |
+| `GET /openapi.json`  | `openapi()` plugin (app.config) | serves the generated spec (AOT artifact) |
 | `GET/POST /upload`   | `upload.post.ts`             | multipart body parsing                |
 | `GET /files/:name`   | `files/[name].get.ts`        | `sendFile` + ranges + traversal guard |
 | `GET /products/:id`  | `products/[id].get.ts`       | TypeBox schema validation             |
@@ -36,12 +36,16 @@ Hooks live in `src/hooks/` (`require-auth.ts`), global middleware in
 
 ```sh
 bun run build        # AOT-compile -> packages/app/dist/__server.js (+ routes.d.ts, openapi.json, client.ts, manifest.json)
+bun run compile      # ALSO emit a standalone executable -> packages/app/dist/ignex-server (minify + bytecode)
 bun run smoke        # boot the generated server + assert routes (root scripts/smoke.ts)
 bun run dev          # build + watch-run the generated server
 ```
 
 `builder.ts` drives `@ignex/compiler` with `optimizationLevel: 3`, minify,
-context specialization, constant hoisting, and schema precompilation.
+context specialization, constant hoisting, and schema precompilation. The app
+config sets `server.https: true` (the default), so the dev server serves HTTPS
+with an auto-generated local certificate (mkcert → openssl) cached under
+`dist/certs`.
 
 ## Tests
 

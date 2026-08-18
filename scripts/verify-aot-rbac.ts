@@ -88,6 +88,8 @@ check(
 // fixture never collides with a running dev server.
 const PORT = 40231;
 process.env.PORT = String(PORT);
+// The verify script asserts over plain HTTP; force HTTP/1 (no TLS handshake).
+process.env.IGNEX_HTTPS = "0";
 const serverPath = join(outDir, "__server.js");
 const baseUrl = `http://localhost:${PORT}`;
 let stop: (() => void) | undefined;

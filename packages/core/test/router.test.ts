@@ -73,6 +73,32 @@ describe("createRouter — buildRoutes (Bun-native shape)", () => {
   });
 });
 
+describe("createRouter — listRoutes (introspection)", () => {
+  it("returns a snapshot of registered routes incl. detail", () => {
+    const router = createRouter()
+      .get("/health", () => "health")
+      .post("/api/users", () => "create", {
+        body: { type: "object" },
+        detail: { tags: ["users"] },
+      });
+    const routes = router.listRoutes();
+    expect(routes).toHaveLength(2);
+    expect(routes[0]).toMatchObject({ method: "GET", path: "/health" });
+    expect(routes[1]).toMatchObject({ method: "POST", path: "/api/users" });
+    // `detail` is split out of the schema object into its own registration slot.
+    expect(routes[1].detail).toEqual({ tags: ["users"] });
+    expect(routes[1].schema).not.toHaveProperty("detail");
+  });
+
+  it("returns a snapshot (later registrations are not reflected)", () => {
+    const router = createRouter().get("/a", () => "a");
+    const snapshot = router.listRoutes();
+    router.get("/b", () => "b");
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0].path).toBe("/a");
+  });
+});
+
 describe("createApp + router (dispatch through handler)", () => {
   it("routes exact paths and applies ctx.set exactly once", async () => {
     const app = createApp({

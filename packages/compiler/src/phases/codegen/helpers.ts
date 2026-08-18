@@ -289,7 +289,18 @@ export const HELPER_SOURCES: Record<string, string> = {
     try {
       const __r1 = runHooks(__preStages, ctx);
       const pre = __r1 instanceof Promise ? await __r1 : __r1;
-      if (pre.response) return __applySet(pre.response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+      if (pre.response) {
+        // A pre-stage hook (e.g. the openapi() plugin serving its spec/UI
+        // endpoints, which aren't in the compiled route table) short-circuited:
+        // still run the response pipeline (CORS/security/compression) over the
+        // intercepted response so it behaves like a real matched route.
+        const __r2 = runHooks(__postStages, pre.ctx, pre.response);
+        const __post = __r2 instanceof Promise ? await __r2 : __r2;
+        const __intercepted = __post.response ?? pre.response;
+        const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted);
+        if (__r3 instanceof Promise) await __r3;
+        return __applySet(__intercepted, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+      }
 
       const __r2 = runHooks(__postStages, pre.ctx, response);
       const post = __r2 instanceof Promise ? await __r2 : __r2;

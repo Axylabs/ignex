@@ -24,7 +24,7 @@ import { createContext } from "./context";
 import { parseCookieString } from "./cookies";
 import { finalizeResponse, jsonReply } from "./finalize";
 import { applySet } from "./headers";
-import type { RouteSchemas } from "./route";
+import type { RouteDetail, RouteSchemas } from "./route";
 import { extractParams, extractServer, pathToRegex } from "./router-utils";
 
 const EMPTY_PARAMS = Object.freeze({});
@@ -42,6 +42,8 @@ export interface RouteRegistration {
   readonly path: string;
   readonly handler: (ctx: IgnexContext) => MaybePromise<unknown>;
   readonly schema?: RouteSchemas;
+  /** OpenAPI decoration (summary/tags/hide/…); not used for validation. */
+  readonly detail?: RouteDetail;
 }
 
 /** Lifecycle + context wiring injected by `createApp` at bind time. */
@@ -90,6 +92,12 @@ export interface IgnexRouter {
     handler?: RouteRegistration["handler"],
     schema?: RouteSchemas,
   ): IgnexRouter;
+  /**
+   * Snapshot of every registered route (method/path/handler/schema/detail).
+   * Used by introspection tooling — e.g. the `openapi()` plugin enumerates
+   * routes to build the runtime OpenAPI document.
+   */
+  listRoutes(): readonly RouteRegistration[];
   /**
    * Inject lifecycle stages + context options. Called by `createApp` once the
    * app lifecycle is composed; returns `this` for chaining.
@@ -446,8 +454,19 @@ export const createRouter = (): IgnexRouter => {
     handler: RouteRegistration["handler"],
     schema?: RouteSchemas,
   ): IgnexRouter => {
-    // exactOptionalPropertyTypes: only include `schema` when actually defined.
-    registrations.push(schema ? { method, path, handler, schema } : { method, path, handler });
+    // exactOptionalPropertyTypes: only include `schema`/`detail` when defined.
+    // `detail` is split out of the schema object into its own registration
+    // slot (it decorates the operation, it is not a validated schema part).
+    const { detail, ...schemaParts } = schema ?? {};
+    const hasSchema = Object.keys(schemaParts).length > 0;
+    const reg: RouteRegistration = {
+      method,
+      path,
+      handler,
+      ...(hasSchema ? { schema: schemaParts as RouteSchemas } : {}),
+      ...(detail !== undefined ? { detail } : {}),
+    };
+    registrations.push(reg);
     // Keep the 405 allow-lists current at registration time so `dispatch` /
     // `fetch` / `optionsHandler` resolve allows without a prior `buildRoutes()`.
     rebuildAllowed();
@@ -479,6 +498,7 @@ export const createRouter = (): IgnexRouter => {
       rebuildAllowed();
       return router;
     },
+    listRoutes: () => registrations.slice(),
     bind: (options) => {
       const preParse = [...(options.preParseStages ?? [])];
       stages = {

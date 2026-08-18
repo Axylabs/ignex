@@ -17,6 +17,7 @@ import {
 } from "../http/context";
 import { applySet } from "../http/headers";
 import type { IgnexRouter } from "../http/router";
+import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
 import { errorToResponse } from "../platform/errors";
 import { installProcessGuards } from "../platform/process-guards";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
@@ -69,6 +70,25 @@ export interface AppOptions {
 }
 
 /**
+ * Options for {@link IgnexApp.serve}.
+ *
+ * `port`, `hostname`, `https`, `tls` and `certDir` are typed and handled by
+ * ignex (including the HTTPS-by-default TLS resolution); every other key is
+ * passed through to `Bun.serve` untyped (`websocket`, `maxRequestBodySize`,
+ * `reusePort`, `headers`, `idleTimeout`, …).
+ */
+export type ServeOptions = Record<string, unknown> & {
+  port?: number;
+  hostname?: string;
+  /** Serve HTTPS over TLS. Default `true`; set `false` for plain HTTP/1. */
+  https?: boolean;
+  /** TLS cert/key file paths. Omit in dev to auto-generate local certs. */
+  tls?: ServerTlsConfig;
+  /** Directory for generated dev certs (default `.ignex/certs`). */
+  certDir?: string;
+};
+
+/**
  * The runtime app built by {@link createApp}.
  */
 export interface IgnexApp {
@@ -84,7 +104,7 @@ export interface IgnexApp {
    */
   init(): Promise<void>;
   /** Start a `Bun.serve` instance backed by this handler. */
-  serve(options?: Record<string, unknown> & { port?: number; hostname?: string }): unknown;
+  serve(options?: ServeOptions): unknown;
   /** Run plugin `close` + `stop` hooks and close the server (draining active requests). */
   stop(options?: { closeActive?: boolean }): Promise<void>;
   readonly lifecycle: LifeCycleStore;
@@ -243,6 +263,11 @@ export const createApp = (options: AppOptions): IgnexApp => {
       throw new Error("createApp requires a `handler` unless a `router` is provided.");
     });
   if (router) {
+    // Plugin route registration (e.g. `openapi()`'s spec/docs endpoints) must
+    // happen before the lifecycle is bound into the router so the routes are
+    // present in `buildRoutes`/`dispatch`. Only interpreted apps (which own a
+    // router) get this; compiled apps contribute lifecycle hooks only.
+    for (const p of options.plugins ?? []) p.routes?.(router);
     router.bind({
       preParseStages: [
         ...(lifecycle.start ?? []),
@@ -282,12 +307,23 @@ export const createApp = (options: AppOptions): IgnexApp => {
 
     handler,
 
-    serve(serveOptions = {}) {
+    serve(serveOptions: ServeOptions = {}) {
       // Production entry: never let a stray unhandled rejection (user hook,
       // fire-and-forget promise) terminate the process; exit cleanly on an
       // uncaught exception so the supervisor can restart. See process-guards.
       installProcessGuards();
-      const { port = 3000, hostname = "0.0.0.0", ...rest } = serveOptions;
+      const { port = 3000, hostname = "0.0.0.0", https, tls, certDir, ...rest } = serveOptions;
+      // HTTPS by default: `Bun.serve` needs a `tls` block for TLS, so resolve
+      // one up front (user certs, dev auto-generated certs, or a warned
+      // HTTP/1 fallback in production).
+      const protocolCfg: ServerProtocolConfig = {};
+      if (https !== undefined) protocolCfg.https = https;
+      if (tls !== undefined) protocolCfg.tls = tls;
+      if (certDir !== undefined) protocolCfg.certDir = certDir;
+      const resolvedTls = resolveServeTls(protocolCfg, {
+        production: process.env.NODE_ENV === "production",
+      });
+      const tlsOpts = resolvedTls.tls ? { tls: resolvedTls.tls } : {};
       const bun = (globalThis as { Bun?: unknown }).Bun;
       if (!bun) {
         throw new Error("createApp().serve() requires Bun; use handler() elsewhere");
@@ -328,12 +364,14 @@ export const createApp = (options: AppOptions): IgnexApp => {
               fetch: (req, srv) => router.fetch(req, srv as IgnexServer | undefined),
               port,
               hostname,
+              ...tlsOpts,
               ...rest,
             }
           : {
               fetch: (req, srv) => handler(req, srv as IgnexServer | undefined),
               port,
               hostname,
+              ...tlsOpts,
               ...rest,
             },
       );

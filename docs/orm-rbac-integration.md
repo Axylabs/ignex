@@ -281,21 +281,23 @@ export const users = defineCollection("users", userSchema, {
 
 | File | Method | Ninox call | Notes |
 | --- | --- | --- | --- |
-| `index.get.ts` | GET `/api/users` | `db.query("users").where(filter).page(page, limit)` → `paginateFlexible` | query filters from `ctx.query` |
-| `[id].get.ts` | GET `/api/users/:id` | `db.getOneOrFail("users", { _id })` | 404 via `DomainError NOT_FOUND` |
-| `index.post.ts` | POST `/api/users` | `db.insertOne("users", body)` | 201, validation via route schema |
-| `[id].patch.ts` | PATCH `/api/users/:id` | `db.updateOne("users", { _id }, body)` | |
+| `index.get.ts` | GET `/api/users` | `db.paginateFlexible("users", {}, { page, limit, sort })` | `page`/`limit` from `ctx.query` |
+| `[id].get.ts` | GET `/api/users/:id` | `db.getOne("users", { _id })` | 400 malformed id / 404 missing doc (`toObjectId`) |
+| `index.post.ts` | POST `/api/users` | `db.insertOne("users", input)` | 201, `UserInput`-typed body |
+| `[id].patch.ts` | PATCH `/api/users/:id` | `db.updateOne("users", { _id }, body)` | `UserUpdate`-typed body |
 | `[id].del.ts` | DELETE `/api/users/:id` | `db.deleteOne("users", { _id })` | |
 
 Each generated route:
-- Imports the model (for `InferDoc` typing) and a shared `db` accessor.
-- Uses `@ignex/core/http` method helpers + TypeBox/ninox-derived route schemas (params/query/body/response).
-- Maps ninox errors to HTTP: `try { … } catch (e) { return ctx.json(errorToResponse(e), { status: httpStatusForError(e) }) }` (or a small `handleDbError` helper).
+- Imports only the HTTP method it uses and the shared `db` accessor (one verb per file, top-level imports only — no `await import`).
+- Uses shared helpers from `src/lib/http.ts` — `toObjectId` for `:id` parsing and `errorResponse` for ninox error → HTTP status mapping.
+- Types request bodies via `<Resource>Input`/`<Resource>Update` (derived from the model's `InferDoc`) — no `as any`.
+- Returns 400 for malformed ids, 404 when the doc is missing, 201 on create.
 - With `--rbac`/`--auth`: wraps with `withGuards(..., { permissions: ["<resource>:read|write"] })` / `config.hooks = ["require-auth"]`; the `:read`/`:write` convention is auto-derived from the resource name unless `--scopes` overrides.
 
 ### 5.4 DB bootstrap (generated once per project)
 
 - `src/db.ts` — `createMongoToolkit({ primary: { name, collections: defineCollections(users, …) } }, { cacheWatch: true })` singleton.
+- `src/lib/http.ts` — shared route helpers (`toObjectId`, `errorResponse`), generated once per project and safe to extend.
 - `src/plugins/db.ts` — an `IgnexPlugin` (`init`: `makeConnections()` + `createSchema` for each collection; `close`: `closeConnections()`), registered in `app.config.ts` plugins. (Core could ship a generic `dbPlugin(ninoxToolkit)` helper — see Open Questions.)
 
 ### 5.5 CLI internals

@@ -7,6 +7,7 @@
  *   src/models/<plural>.ts              (schema-first model)
  *   src/routes/api/<plural>/*.ts         (list/read/create/update/delete)
  *   src/db.ts                           (toolkit bootstrap, if missing)
+ *   src/lib/http.ts                      (shared id/error helpers, if missing)
  *
  * `--auth` pre-wires `config.hooks = ["require-auth"]` (AOT named hook);
  * `--rbac` pre-wires `withGuards(..., { permissions: [...] })` (compiler emits
@@ -14,7 +15,11 @@
  */
 import { join, relative, resolve } from "node:path";
 import { dbTemplate, modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
-import { resourceReadmeTemplate, resourceRouteTemplates } from "../templates/resource.js";
+import {
+  httpLibTemplate,
+  resourceReadmeTemplate,
+  resourceRouteTemplates,
+} from "../templates/resource.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
@@ -30,7 +35,8 @@ export async function runResource(args: string[]): Promise<void> {
     force: { type: "boolean" },
   });
 
-  const root = resolveRoot(values, positionals);
+  // The first positional is the resource *name*, not a root path.
+  const root = resolveRoot(values, positionals, { ignorePositionals: true });
   const name = positionals[0];
 
   if (!name) {
@@ -90,6 +96,15 @@ export async function runResource(args: string[]): Promise<void> {
     info(
       `Skipped ${relative(process.cwd(), dbPath)} (already exists). Add ${plural} to its collections map.`,
     );
+  }
+
+  // 4. The shared route helpers (once per project; safe to keep/extend).
+  const httpLibPath = join(root, "src", "lib", "http.ts");
+  if (!(await exists(httpLibPath)) || values.force) {
+    await writeFileEnsuringDir(httpLibPath, httpLibTemplate());
+    success(`Created ${relative(process.cwd(), httpLibPath)}`);
+  } else {
+    info(`Skipped ${relative(process.cwd(), httpLibPath)} (already exists).`);
   }
 
   if (opts.auth || opts.rbac) {

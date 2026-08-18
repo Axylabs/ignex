@@ -32,7 +32,7 @@ never silently swallowed.
 | **Optimization** | Mark inline-eligible handlers, deduplicate identical constant responses (per method), compute truthful metrics. |
 | **Precompile** | Ajv standalone validators (`.cjs`) and `fast-json-stringify` serializers (`.mjs`) per route/schema part. |
 | **Codegen** | Emit the server entry through an indentation-aware `Emitter` with dependency-aware pruning of generated runtime helpers (dead-code elimination). |
-| **Linker** | Write the entry raw, or `Bun.build` it when `minify`/`sourceMap` is requested. |
+| **Linker** | Write the entry raw, `Bun.build` it when `minify`/`sourceMap` is requested, or emit a **standalone executable** when `compile` is set (minify + bytecode + linked sourcemap + `NODE_ENV=production`). |
 | **Artifacts** | `routes.d.ts`, `client.d.ts`, `client.ts`, `openapi.json`, `manifest.json`. |
 
 ## Public API
@@ -80,6 +80,9 @@ interface CompileResult {
 | `appConfig` | `./src/app.config.ts` | Optional runtime config (`plugins`, `lifecycle`, `server`). |
 | `hooksDir` | — | Directory containing hook modules referenced by route `config`. |
 | `minify` / `sourceMap` | `false` | Passed to `Bun.build` in the linker. |
+| `compile` | `false` | Emit a standalone Bun executable (embeds the runtime; implies `minify`, bytecode, linked sourcemap, `NODE_ENV=production`). |
+| `binaryOutfile` | `join(outDir, serviceName)` | Output path for the compiled executable (relative to `outDir`, or absolute). |
+| `bytecode` | `true` | Enable bytecode compilation of the executable (faster startup; only with `compile`). |
 | `optimizationLevel` | `3` | Reserved preset knob (0–3). |
 | `inlineThreshold` / `maxInlineBytes` | `50` / `2048` | Gates for handler inlining. |
 | `enableHandlerDeduplication` | `true` | Deduplicate identical constant responses (per method). |

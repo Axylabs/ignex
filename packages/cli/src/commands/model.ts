@@ -20,7 +20,8 @@ export async function runModel(args: string[]): Promise<void> {
     force: { type: "boolean" },
   });
 
-  const root = resolveRoot(values, positionals);
+  // The first positional is the model *name*, not a root path.
+  const root = resolveRoot(values, positionals, { ignorePositionals: true });
   const name = positionals[0];
 
   if (!name) {

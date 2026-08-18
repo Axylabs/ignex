@@ -91,7 +91,7 @@ async function run(label: string, fn: () => Promise<Response>, n: number): Promi
 
 const child = spawn("bun", ["dist/__server.js"], {
   cwd: new URL("../packages/app/", import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), IGNEX_HTTPS: "0" },
   stdio: ["ignore", "pipe", "inherit"],
 });
 

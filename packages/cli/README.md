@@ -12,8 +12,7 @@ Source-only package — `bin/ignex.js` (`#!/usr/bin/env bun`) imports
 ignex create <app-name> [options]   Scaffold a new ignex app (22 feature toggles)
 ignex dev [root] [options]          Compile + run the dev server (watch)
 ignex build [root] [options]        AOT-compile an app with diagnostics
-ignex doctor [root]                 Check project health (runtime, native, config, build)
-ignex route <path> [options]        Scaffold a single route (--named, --schema)
+ignex doctor [root]                 Check project health (runtime, native, config, build)ignex route <path> [options]        Scaffold a single route (--named, --schema)
 ignex hook <name> [options]         Scaffold a hook (--global for lifecycle)
 ignex model <Name> [options]        Scaffold a schema-first model (--fields)
 ignex resource <Name> [options]     Scaffold a model + pregenerated CRUD routes
@@ -90,6 +89,13 @@ changes:
 - **`--verbose`** surfaces compiler phase timings and debug logs.
 - `ignex build --watch` forwards `--minify` / `--sourcemap` / `--verbose` to the
   compiler and runs the same watch flow.
+
+### Building a standalone binary
+
+`ignex build --compile [--binary-outfile NAME] [--no-bytecode]` also emits a
+self-contained Bun executable (runtime embedded, minified, bytecode-compiled,
+`NODE_ENV=production`) that runs without installing Bun. Output defaults to
+`outDir/<serviceName>`; the path is printed on success.
 
 ## Development
 

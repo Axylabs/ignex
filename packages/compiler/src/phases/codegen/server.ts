@@ -25,6 +25,17 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   fetch: __fallback,
 };`);
 
+  // HTTPS by default: `Bun.serve` needs a `tls` block for TLS, so
+  // `resolveServeTls` guarantees one (user certs, or auto-generated dev certs)
+  // unless `server.https: false`. In production with no certs it warns and
+  // falls back to HTTP/1. Dev certs are cached under `<outDir>/certs`
+  // (relative to the emitted file, so the output stays machine-independent).
+  functions.push(`const __serveTls = resolveServeTls(__serverCfg, {
+  production: process.env.NODE_ENV === "production",
+  certDir: (import.meta.dir || process.cwd()) + "/certs",
+});
+if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;`);
+
   functions.push(`if (__serverCfg.websocket) __serveOptions.websocket = __serverCfg.websocket;`);
   if (state.wsHandlers.length > 0) {
     // WS routes provide the server websocket handler; an app-config
@@ -48,7 +59,7 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   functions.push(`const __server = Bun.serve(__serveOptions);`);
 
   functions.push(
-    `console.log(${JSON.stringify(cfg.serviceName)} + " listening on http://" + (__server.hostname || "localhost") + ":" + __server.port);`,
+    `console.log(${JSON.stringify(cfg.serviceName)} + " listening on " + __serveTls.protocol + "://" + (__server.hostname || "localhost") + ":" + __server.port);`,
   );
 
   functions.push(`export default __server;`);
@@ -59,7 +70,11 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // Prune the `@ignex/core` import to only the symbols the emitted code
   // actually references: header-required symbols, per-route core deps
   // (markCore), and the transitive core deps of used generated helpers.
-  const neededCore = new Set<string>(["EMPTY_LIFECYCLE", "installProcessGuards"]);
+  const neededCore = new Set<string>([
+    "EMPTY_LIFECYCLE",
+    "installProcessGuards",
+    "resolveServeTls",
+  ]);
   if (state.hasAppConfig) {
     neededCore.add("createPluginContext");
     neededCore.add("mergeLifeCycle");

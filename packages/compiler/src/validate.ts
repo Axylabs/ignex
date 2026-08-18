@@ -42,6 +42,10 @@ const CompilerOptionsSchema = Type.Object(
     sourceMap: Type.Boolean(),
     minify: Type.Boolean(),
 
+    compile: Type.Optional(Type.Boolean()),
+    binaryOutfile: Type.Optional(Type.String({ minLength: 1 })),
+    bytecode: Type.Optional(Type.Boolean()),
+
     hooksDir: Type.Optional(Type.String({ minLength: 1 })),
 
     verbose: Type.Optional(Type.Boolean()),

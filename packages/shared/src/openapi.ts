@@ -326,9 +326,15 @@ const hoistDefs = (value: unknown, schemas: SchemaRegistry): unknown => {
 
 // ── the pipeline ────────────────────────────────────────────────
 
-/** `ALL`/`WS` routes aren't documentable operations — drop them up front. */
+/**
+ * Routes that can't become documentable operations — `ALL`/`WS` methods and
+ * routes explicitly marked `detail.hide: true` (e.g. the `openapi()` plugin's
+ * own spec/docs routes) — are dropped up front.
+ */
 const skipUnroutable = (routes: readonly RouteDefinition[]): readonly RouteDefinition[] =>
-  routes.filter((route) => route.method !== "ALL" && route.method !== "WS");
+  routes.filter(
+    (route) => route.method !== "ALL" && route.method !== "WS" && route.detail?.hide !== true,
+  );
 
 const groupByPath = (
   routes: readonly RouteDefinition[],

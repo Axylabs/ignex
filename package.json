@@ -37,7 +37,7 @@
     "smoke:fallback": "IGNEX_NATIVE=off bun scripts/smoke.ts",
     "dev": "bun run build && bun --cwd packages/app --watch dist/__server.js",
     "start": "bun --cwd packages/app dist/__server.js",
-    "compile": "bun build dist/__server.js --compile --minify --target=bun --outfile=ignex-server",
+    "compile": "bun --cwd packages/app builder.ts --compile --binary-outfile ignex-server",
     "openapi:client": "bun scripts/generate-openapi-client.ts",
     "bench": "bun scripts/benchmark.ts",
     "bench:native": "bun scripts/native-bench.ts",

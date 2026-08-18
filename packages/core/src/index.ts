@@ -148,6 +148,18 @@ export {
 } from "./http/router";
 export { formatSSE, sse } from "./http/sse";
 export {
+  DEV_CERT_FILENAMES,
+  type DevCert,
+  type DevCertKind,
+  defaultCertDir,
+  ensureDevCerts,
+  type ResolvedTls,
+  type ResolveTlsOptions,
+  resolveServeTls,
+  type ServerProtocolConfig,
+  type ServerTlsConfig,
+} from "./http/tls";
+export {
   createWSConnections,
   createWSHandler,
   IgnexWS,
@@ -165,7 +177,7 @@ export {
   mergeHookArrays,
   mergeLifeCycle,
 } from "./lifecycle/hooks";
-export type { AppOptions, IgnexApp } from "./lifecycle/lifecycle";
+export type { AppOptions, IgnexApp, ServeOptions } from "./lifecycle/lifecycle";
 export {
   buildPostStages,
   buildPreStages,
@@ -232,6 +244,7 @@ export { cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { logger } from "./plugins/logger";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
+export { type OpenAPIOptions, type OpenAPIProvider, openapi } from "./plugins/openapi";
 export { type RateLimitOptions, rateLimit } from "./plugins/ratelimit";
 export type { RbacOptions, RouteGuards } from "./plugins/rbac";
 export {

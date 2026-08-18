@@ -31,7 +31,6 @@ import {
   loginRouteTemplate,
   logoutRouteTemplate,
   meRouteTemplate,
-  openApiRouteTemplate,
   pageRouteTemplate,
   productAddRouteTemplate,
   productByIdRouteTemplate,
@@ -101,12 +100,6 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
     `# Hooks\n\nPlace shared hooks here.\n`,
   );
 
-  if (features.has("openapi")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/openapi.json.get.ts"),
-      openApiRouteTemplate(opts.name),
-    );
-  }
   if (features.has("examples")) {
     await writeFileEnsuringDir(
       join(target, "src/routes/products/[id].get.ts"),
@@ -186,6 +179,7 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
     features.has("sessions") ||
     features.has("auth") ||
     features.has("middleware") ||
+    features.has("openapi") ||
     hasPluginFeatures(features)
   ) {
     await writeFileEnsuringDir(

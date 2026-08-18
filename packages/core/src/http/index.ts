@@ -19,4 +19,5 @@ export * from "./route";
 export * from "./router";
 export * from "./router-utils";
 export * from "./sse";
+export * from "./tls";
 export * from "./ws";

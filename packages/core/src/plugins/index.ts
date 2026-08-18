@@ -10,6 +10,7 @@ export * from "./compression";
 export * from "./cors";
 export * from "./csrf";
 export * from "./logger";
+export * from "./openapi";
 export * from "./ratelimit";
 export * from "./security";
 export * from "./session";

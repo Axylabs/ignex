@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun builder.ts",
+    "compile": "bun builder.ts --compile",
     "smoke": "bun dist/__server.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"

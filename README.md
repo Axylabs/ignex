@@ -221,14 +221,21 @@ single Bun server entry plus typed/OpenAPI artifacts:
 5. **Codegen** — emits the server as a deterministic string with
    dependency-aware pruning of unused runtime helpers (tracked by the
    `Emitter`), conservative handler inlining, and route-specialized contexts.
-6. **Linker** — writes the entry raw, or `Bun.build`s it when `minify`/`sourceMap`
-   is requested.
+6. **Linker** — writes the entry raw, `Bun.build`s it when `minify`/`sourceMap`
+   is requested, or emits a **standalone executable** when `compile` is set
+   (minify + bytecode + linked sourcemap + `NODE_ENV=production`).
 7. **Artifacts** — `routes.d.ts`, `client.d.ts`, `openapi.json`, `manifest.json`.
 
 Every phase reports recoverable problems as **structured diagnostics** (stable code,
 file location, code frame) instead of silently swallowing them. See
 [`packages/compiler/README.md`](./packages/compiler/README.md) for the full API,
 options, and diagnostic-code reference.
+
+> **HTTPS by default** — the generated server enables TLS at startup
+> (`server.https` defaults to `true`), auto-generating local dev certificates
+> (mkcert → openssl) and falling back to HTTP/1 with a warning when they can't
+> be created. `ignex build --compile` produces a self-contained production
+> binary that embeds the Bun runtime.
 
 ## Generated Artifacts
 
@@ -237,6 +244,7 @@ options, and diagnostic-code reference.
 | Artifact | Description |
 | --- | --- |
 | `server.js` | The generated Bun server entry. |
+| `<serviceName>` (with `--compile`) | Standalone executable (Bun runtime embedded, bytecode + minify). |
 | `routes.d.ts` | Typed route map consumed by the generated client. |
 | `client.d.ts` + `client.ts` | Typed `IgnexClient` types + a real `createApiClient` implementation. |
 | `openapi.json` | OpenAPI 3.1 document derived from route metadata and real schemas. |

@@ -3,7 +3,7 @@
  * (defaults, traversal guard) rather than the full scaffold surface.
  */
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,11 @@ describe("ignex create --root", () => {
       const target = join(base, "demo");
       expect(existsSync(join(target, "package.json"))).toBe(true);
       expect(existsSync(join(target, "src/routes/index.get.ts"))).toBe(true);
-      expect(existsSync(join(target, "src/routes/openapi.json.get.ts"))).toBe(true);
+      // The `openapi` feature now installs the `openapi()` plugin (app.config)
+      // instead of a broken `openapi.json.get.ts` route that served an empty spec.
+      expect(existsSync(join(target, "src/routes/openapi.json.get.ts"))).toBe(false);
+      expect(existsSync(join(target, "src/app.config.ts"))).toBe(true);
+      expect(readFileSync(join(target, "src/app.config.ts"), "utf8")).toContain("openapi()");
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

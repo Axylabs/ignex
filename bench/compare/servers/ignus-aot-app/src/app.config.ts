@@ -26,4 +26,7 @@ export const server = {
   port: 9123,
   idleTimeout: 30,
   maxRequestBodySize: MAX_BODY_BYTES + 1024,
+  // The bench measures plain-HTTP routing throughput; keep HTTP/1 so TLS
+  // handshakes don't skew the comparison against raw bun/elysia.
+  https: false,
 };

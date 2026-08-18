@@ -39,6 +39,24 @@ Rust addon is active:
 ℹ Native: off (pure-TS fallback)  # still fully functional
 ```
 
+**HTTPS by default.** The server config (`src/app.config.ts`) sets
+`server.https: true`, so ignex enables TLS at startup. In development it
+auto-generates a local certificate (mkcert → openssl fallback) and caches it
+under `.ignex/certs`, logging where it came from:
+
+```
+[ignex] HTTPS enabled with a locally-trusted dev certificate (mkcert) from …/.ignex/certs.
+ignex listening on https://localhost:3000
+```
+
+- No mkcert/openssl? It warns and **falls back to HTTP/1** — nothing breaks.
+- Supply your own certs with `server.tls: { certFile, keyFile }`, or force plain
+  HTTP/1 with `server.https: false` (or `IGNEX_HTTPS=0` for CI/tooling).
+- Note: `Bun.serve` currently serves HTTP/1.1 over TLS; for true HTTP/2 /
+  HTTP/3 termination, put **Caddy** (or nginx/Cloudflare) in front — Caddy
+  auto-provisions real certs and speaks h2/h3 to clients while proxying HTTP/1.1
+  to Bun.
+
 ## 3. Your first route
 
 Routes are files under `src/routes/`; the path and method come from the
@@ -80,9 +98,16 @@ bun run hook -- log-requests --global   # global lifecycle hook
 ```sh
 bun run build     # AOT-compile → .ignex/server.js + routes.d.ts, client.ts, openapi.json, manifest.json
 bun run start     # run the compiled server
+bun run compile   # ALSO emit a standalone Bun executable (.ignex/<serviceName>) — minify + bytecode
 bun run typecheck # strict TS check
 bun run test      # vitest
 ```
+
+`ignex build --compile [--binary-outfile NAME]` is the same as `bun run
+compile`: the linker emits a self-contained binary (embeds the Bun runtime,
+bytecode-compiled, `NODE_ENV=production`) that runs without installing Bun.
+Production binary with no `server.tls` configured warns and falls back to
+HTTP/1 — terminate TLS at your proxy or set `server.tls` for HTTPS over TLS.
 
 Diagnose a project without building:
 

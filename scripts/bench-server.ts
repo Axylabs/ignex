@@ -197,6 +197,9 @@ async function runOnce(mode: Mode): Promise<{
     ...process.env,
     PORT: String(PORT),
     ...(mode === "fallback" ? { IGNEX_NATIVE: "off" } : {}),
+    // The bench measures plain-HTTP throughput; keep the ignex server on
+    // HTTP/1 so TLS handshakes don't skew the comparison with raw Bun.
+    IGNEX_HTTPS: "0",
   };
 
   const isRawBun = mode === "raw-bun";

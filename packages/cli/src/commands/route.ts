@@ -20,7 +20,8 @@ export async function runRoute(args: string[]): Promise<void> {
     force: { type: "boolean" },
   });
 
-  const root = resolveRoot(values, positionals);
+  // The first positional is the route path, not a root path.
+  const root = resolveRoot(values, positionals, { ignorePositionals: true });
 
   let input = positionals[0];
 

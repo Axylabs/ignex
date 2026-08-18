@@ -4,6 +4,7 @@
  */
 
 import type { IgnexContext } from "../http/context";
+import type { IgnexRouter } from "../http/router";
 import type { HookContainer, LifeCycleStore } from "../types";
 import type { HookFn } from "./hooks";
 
@@ -24,6 +25,14 @@ export interface IgnexPlugin {
   // Lifecycle
   init?(): MaybePromise<void>;
   close?(): MaybePromise<void>;
+
+  /**
+   * Register plugin routes onto the interpreted router. Called by `createApp`
+   * once, before `router.bind(...)`, only when the app uses a router. Never
+   * invoked for compiled (AOT) apps — plugins there contribute lifecycle
+   * hooks only (see {@link IgnexPlugin.onRequest} for the compiled fallback).
+   */
+  routes?(router: IgnexRouter): void;
 
   // Request lifecycle
   onRequest?(ctx: IgnexContext): MaybePromise<IgnexContext | Response>;
@@ -106,6 +115,9 @@ export const createPluginContext = (): PluginContext => {
  */
 export const composePlugins = (...plugins: IgnexPlugin[]): IgnexPlugin => ({
   name: plugins.map((p) => p.name).join("+"),
+  routes(router) {
+    for (const p of plugins) p.routes?.(router);
+  },
   async init() {
     for (const p of plugins) await p.init?.();
   },

@@ -17,26 +17,6 @@ export const httpGet = get((ctx) => ctx.text("ok"));
 `;
 }
 
-export function openApiRouteTemplate(name: string): string {
-  const safe = name.replace(/"/g, '\\"');
-
-  return `import { get } from "@ignex/core/http";
-import { generateOpenAPI } from "@ignex/core";
-
-export default get((ctx) =>
-  ctx.json(
-    generateOpenAPI(
-      {
-        title: "${safe}",
-        version: "0.1.0"
-      },
-      []
-    )
-  )
-);
-`;
-}
-
 export function productByIdRouteTemplate(): string {
   return `import { get } from "@ignex/core/http";
 
@@ -92,7 +72,7 @@ export function cacheRouteTemplate(): string {
   return `import { get } from "@ignex/core/http";
 import { withBrowserCache } from "@ignex/core";
 
-export default get(() =>
+export default get((ctx) =>
   withBrowserCache(ctx.json({ cached: true }), { maxAge: 10 })
 );
 `;
@@ -516,17 +496,25 @@ export const lifecycle = {
 `
     : "";
 
-  return `${middlewareImports}import { compression, cors, security, session } from "@ignex/core";
+  return `${middlewareImports}import { compression, cors, openapi, security, session } from "@ignex/core";
 
 export const plugins = [
 ${pluginsSpread}  cors(),
   compression(),
   security(),
-  session({ secret: process.env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true })
+  session({ secret: process.env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true }),
+  // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
+  // In AOT builds the plugin serves the compiler-generated openapi.json.
+  openapi()
 ];
 ${lifecycle}
 export const server = {
-  port: Number(process.env.PORT ?? 3000)
+  port: Number(process.env.PORT ?? 3000),
+  // HTTPS by default (requires TLS). In dev, ignex auto-generates a local
+  // certificate (mkcert -> openssl) and caches it under .ignex/certs; set
+  // tls: { certFile, keyFile } to use your own certs, or https: false
+  // for plain HTTP/1.
+  https: true
 };
 `;
 }

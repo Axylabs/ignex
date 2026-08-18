@@ -43,6 +43,12 @@ describe("resolveRoot", () => {
   it("resolves relative roots to absolute", () => {
     expect(resolveRoot({}, ["subdir"]).startsWith("/")).toBe(true);
   });
+
+  it("ignorePositionals skips the name positional (model/resource/route)", () => {
+    expect(resolveRoot({}, ["gig"], { ignorePositionals: true })).toBe(process.cwd());
+    expect(resolveRoot({ root: "/a" }, ["gig"], { ignorePositionals: true })).toBe("/a");
+    expect(resolveRoot({}, [], { ignorePositionals: true })).toBe(process.cwd());
+  });
 });
 
 describe("CONFIG_FILES", () => {

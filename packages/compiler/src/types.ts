@@ -112,6 +112,27 @@ export interface CompilerOptions {
   readonly sourceMap: boolean;
   readonly minify: boolean;
 
+  /**
+   * Emit a standalone Bun executable (`Bun.build` `compile`) instead of a JS
+   * bundle. The binary embeds the Bun runtime, so it can be deployed without
+   * installing Bun. Implies `minify` and production defaults (`NODE_ENV`,
+   * bytecode, linked sourcemap). Default `false`.
+   */
+  readonly compile?: boolean;
+
+  /**
+   * Output path/name for the compiled executable. Defaults to
+   * `join(outDir, serviceName)` (e.g. `.ignex/ignex`). A `.exe` suffix is
+   * added automatically on Windows.
+   */
+  readonly binaryOutfile?: string;
+
+  /**
+   * Enable bytecode compilation of the standalone executable (faster startup,
+   * slightly slower build). Only meaningful with `compile`. Default `true`.
+   */
+  readonly bytecode?: boolean;
+
   readonly hooksDir?: string;
 
   readonly verbose?: boolean;

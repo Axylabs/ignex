@@ -46,4 +46,7 @@ export const lifecycle = {
 
 export const server = {
   port: Number(process.env.PORT ?? 3200),
+  // The matrix suites assert on plain HTTP; keep HTTP/1 so tests don't pay a
+  // TLS handshake or depend on a generated dev certificate.
+  https: false,
 };

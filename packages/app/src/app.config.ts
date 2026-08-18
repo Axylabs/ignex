@@ -4,7 +4,14 @@
  * The compiler reads this file at build time and merges `plugins`, `lifecycle`
  * and `server` into the generated `Bun.serve` entry.
  */
-import { compression, createI18n, type IgnexPlugin, nativePreflight, session } from "@ignex/core";
+import {
+  compression,
+  createI18n,
+  type IgnexPlugin,
+  nativePreflight,
+  openapi,
+  session,
+} from "@ignex/core";
 import { middleware } from "./middleware/index.js";
 import { logRequests, markResponse } from "./middleware/log-requests.js";
 
@@ -48,6 +55,9 @@ export const plugins: IgnexPlugin[] = [
       ],
     },
   }),
+  // OpenAPI docs — `GET /openapi.json` (spec) + `GET /openapi` (Scalar UI).
+  // AOT mode: serves the compiler-generated `dist/openapi.json` artifact.
+  openapi({ artifactPath: "dist/openapi.json" }),
 ];
 
 const i18n = createI18n(
@@ -73,6 +83,10 @@ export const lifecycle = {
 // to the origin echo for non-credentialed requests).
 export const server = {
   port: Number(process.env.PORT ?? 3000),
+  // HTTPS by default (TLS). In dev, ignex auto-generates a local certificate
+  // (mkcert → openssl) cached under `dist/certs`; set `tls: { certFile,
+  // keyFile }` to use your own certs, or `https: false` for plain HTTP/1.
+  https: true,
   headers: {
     "Access-Control-Allow-Origin": "*",
     "Content-Security-Policy":

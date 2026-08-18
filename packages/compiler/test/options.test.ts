@@ -18,6 +18,22 @@ describe("validateOptions", () => {
     expect(d.warnings).toHaveLength(0);
   });
 
+  it("accepts the standalone-executable options (compile / binaryOutfile / bytecode)", () => {
+    const d = new DiagnosticCollector();
+    const result = validateOptions(
+      { ...valid, compile: true, binaryOutfile: "app-server", bytecode: false },
+      d,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(d.errors).toHaveLength(0);
+    expect(d.warnings).toHaveLength(0);
+    const value = (result as unknown as { value?: Record<string, unknown> }).value;
+    expect(value?.compile).toBe(true);
+    expect(value?.binaryOutfile).toBe("app-server");
+    expect(value?.bytecode).toBe(false);
+  });
+
   it("warns on deprecated options and strips them", () => {
     const d = new DiagnosticCollector();
     const result = validateOptions({ ...valid, router: "bun-native" } as never, d);

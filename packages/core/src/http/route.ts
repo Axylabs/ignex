@@ -27,6 +27,24 @@ import type { IgnexContext } from "./context";
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
 
+/**
+ * OpenAPI operation decoration, mirroring Elysia's `DocumentDecoration`
+ * (a subset of the OpenAPI OperationObject). Consumed only by the OpenAPI
+ * generator — never validated at runtime.
+ */
+export type RouteDetail = {
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  /** Pass `true` to hide the route from the OpenAPI document. */
+  hide?: boolean;
+  operationId?: string;
+  deprecated?: boolean;
+  security?: unknown;
+  /** Any other OpenAPI OperationObject field (e.g. response overrides). */
+  [key: string]: unknown;
+};
+
 /** The per-route input/output schemas accepted by the route DSL helpers. */
 export type RouteSchemas = {
   body?: SchemaLike;
@@ -36,6 +54,12 @@ export type RouteSchemas = {
   /** Cookie-header schemas are supported by the compiler and the interpreted router. */
   cookie?: SchemaLike;
   response?: SchemaLike | Record<number, SchemaLike>;
+  /**
+   * OpenAPI operation decoration (summary/tags/hide/…). Not validated.
+   * Targets interpreted `createRouter()` registrations; AOT route files
+   * attach `detail` via `export const config = { detail }` instead.
+   */
+  detail?: RouteDetail;
 };
 
 /**

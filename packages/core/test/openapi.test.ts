@@ -24,6 +24,17 @@ describe("generateOpenAPI", () => {
     expect(spec.paths).not.toHaveProperty("/socket");
   });
 
+  it("skips routes marked detail.hide (e.g. the openapi plugin's own endpoints)", () => {
+    const spec = generateOpenAPI(info, [
+      { method: "GET", path: "/openapi.json", detail: { hide: true } },
+      { method: "GET", path: "/openapi", detail: { hide: true } },
+      { method: "GET", path: "/ok" },
+    ]);
+    expect(spec.paths).toHaveProperty("/ok");
+    expect(spec.paths).not.toHaveProperty("/openapi.json");
+    expect(spec.paths).not.toHaveProperty("/openapi");
+  });
+
   it("emits path params with required flag and format", () => {
     const spec = generateOpenAPI(info, [
       {

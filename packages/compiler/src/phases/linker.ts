@@ -6,8 +6,8 @@
  * - Generated import paths are relative to opts.outDir.
  */
 
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions } from "../types";
 
@@ -183,6 +183,74 @@ const cleanupEntry = (entryPath: string, outPath: string): void => {
   }
 };
 
+/**
+ * Resolve the output path for a standalone executable. `binaryOutfile` is
+ * rooted under `outDir` when relative; defaults to `join(outDir, serviceName)`.
+ */
+const binaryOutPath = (opts: CompilerOptions): string => {
+  if (opts.binaryOutfile) {
+    return isAbsolute(opts.binaryOutfile)
+      ? opts.binaryOutfile
+      : join(opts.outDir, opts.binaryOutfile);
+  }
+  return join(opts.outDir, opts.serviceName ?? "ignex");
+};
+
+/**
+ * Build the standalone executable (`Bun.build` with `compile`) from the temp
+ * entry. Pins production defaults: minify, bytecode, linked sourcemap, and
+ * `NODE_ENV=production` (inlined, enabling dead-code elimination). Returns
+ * `null` on failure after reporting a `LinkFailed` diagnostic.
+ */
+const buildCompiled = async (
+  entryPath: string,
+  outfile: string,
+  opts: CompilerOptions,
+  ctx: CompilerContext,
+): Promise<BunBuildResult | null> => {
+  const buildOptions: Record<string, unknown> = {
+    entrypoints: [entryPath],
+    compile: {
+      outfile,
+      autoloadDotenv: false,
+      autoloadBunfig: false,
+    },
+    target: "bun",
+    format: "esm",
+    minify: true,
+    sourcemap: "linked",
+    bytecode: opts.bytecode ?? true,
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+    },
+  };
+
+  const build = bun?.build;
+  if (!build) return null;
+
+  try {
+    const result = await build(buildOptions);
+    if (!result.success) {
+      const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
+      rmSync(entryPath, { force: true });
+      ctx.diagnostics.error({
+        code: DiagnosticCodes.LinkFailed,
+        message: `Bun.build (compile) failed: ${message}`,
+      });
+      return null;
+    }
+    return result;
+  } catch (err: unknown) {
+    rmSync(entryPath, { force: true });
+    const details = formatBuildLogs(errorLogs(err));
+    ctx.diagnostics.error({
+      code: DiagnosticCodes.LinkFailed,
+      message: `Bun.build (compile) threw an exception: ${errorMessage(err)}${details}`,
+    });
+    return null;
+  }
+};
+
 export const runLinkerAsync = async (
   code: string,
   opts: CompilerOptions,
@@ -196,6 +264,26 @@ export const runLinkerAsync = async (
 
   if (!bun?.build) {
     return writeRaw(outPath, code, ctx, "Bun.build unavailable. Wrote unminified output.");
+  }
+
+  // Standalone executable: embed the Bun runtime + bytecode so the binary can
+  // be deployed without installing Bun. `compile` has no `outdir` — output is
+  // pinned to `binaryOutfile ?? join(outDir, serviceName)`.
+  if (opts.compile) {
+    const compileOut = binaryOutPath(opts);
+    const entryPath = join(opts.outDir, `.${opts.outFile}.entry.js`);
+    await bun.write(entryPath, code);
+    const result = await buildCompiled(entryPath, compileOut, opts, ctx);
+    if (!result) return outPath; // LinkFailed diagnostic already reported
+    cleanupEntry(entryPath, compileOut);
+
+    const finalSize = existsSync(compileOut) ? statSync(compileOut).size : 0;
+    const elapsed = (performance.now() - start).toFixed(2);
+    ctx.logger.info(
+      `Compiled → ${compileOut} (${(finalSize / (1024 * 1024)).toFixed(1)} MB, bytecode=${opts.bytecode ?? true})`,
+    );
+    ctx.logger.info(`linker completed in ${elapsed}ms`);
+    return outPath;
   }
 
   if (!opts.minify && !opts.sourceMap) {

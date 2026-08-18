@@ -16,15 +16,29 @@
  *
  * Env overrides:
  *   PORT — server port (default 3000; must match the generated server)
- *   BASE — base URL to hit (default `http://127.0.0.1:${PORT}`)
+ *   BASE — base URL to hit (default `https://127.0.0.1:${PORT}` — the app
+ *          serves HTTPS over an auto-generated dev cert by default)
+ *
+ * Global fetch is patched to disable TLS verification so the self-signed dev
+ * certificate is accepted; pointing BASE at an `http://` URL still works (the
+ * TLS option is ignored for plain HTTP).
  */
 import { spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+// Accept the auto-generated self-signed dev certificate for all fetches below.
+if (!(globalThis.fetch as unknown as { __ignexSmokeTls?: boolean }).__ignexSmokeTls) {
+  const originalFetch = globalThis.fetch;
+  const patched = ((input: RequestInfo | URL, init?: RequestInit) =>
+    originalFetch(input, { ...init, tls: { rejectUnauthorized: false } })) as typeof fetch;
+  (patched as unknown as { __ignexSmokeTls?: boolean }).__ignexSmokeTls = true;
+  globalThis.fetch = patched;
+}
+
 const PORT = Number(process.env.PORT ?? 3000);
-const BASE = process.env.BASE ?? `http://127.0.0.1:${PORT}`;
+const BASE = process.env.BASE ?? `https://127.0.0.1:${PORT}`;
 const APP_DIR = new URL("../packages/app/", import.meta.url).pathname;
 const UPLOAD_DIR = join(APP_DIR, "uploads");
 
@@ -166,8 +180,8 @@ try {
     await expectText(await fetch(`${BASE}/hello`), 200, "Hello World");
   });
 
-  await check("GET /reference → 200 text/html + api-reference", async () => {
-    const res = await fetch(`${BASE}/reference`);
+  await check("GET /openapi → 200 text/html + api-reference", async () => {
+    const res = await fetch(`${BASE}/openapi`);
     expectStatus(res, 200);
     expectHeaderContains(res, "content-type", "text/html");
     await expectText(res, 200, "api-reference");

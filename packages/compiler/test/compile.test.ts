@@ -33,6 +33,19 @@ describe("compile (end-to-end)", () => {
     expect(existsSync(join(layout.outDir, "manifest.json"))).toBe(true);
   });
 
+  it("emits the HTTPS TLS bootstrap (resolveServeTls)", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // The TLS resolver is imported from @ignex/core and invoked with the
+    // app-config `server` object; its `tls` result feeds Bun.serve.
+    expect(result.code).toMatch(/import \{[^}]*\bresolveServeTls\b[^}]*\} from "@ignex\/core"/);
+    expect(result.code).toContain("const __serveTls = resolveServeTls(__serverCfg");
+    expect(result.code).toContain("if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;");
+    expect(result.code).toContain('+ __serveTls.protocol + "://"');
+  });
+
   it("is deterministic across builds", async () => {
     const a = materializeFixture("basic");
     const b = materializeFixture("basic");

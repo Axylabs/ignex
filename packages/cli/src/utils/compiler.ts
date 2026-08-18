@@ -19,6 +19,9 @@ const CLI_TO_COMPILER: Partial<Record<string, keyof CompilerOptions>> = {
   cache: "routeCache",
   routeCache: "routeCache",
   verbose: "verbose",
+  compile: "compile",
+  "binary-outfile": "binaryOutfile",
+  bytecode: "bytecode",
 };
 
 function mapCliFlags(flags: Record<string, unknown>): Partial<CompilerOptions> {
@@ -35,7 +38,9 @@ function mapCliFlags(flags: Record<string, unknown>): Partial<CompilerOptions> {
 
 /**
  * Compiler option keys that are filesystem paths. `outFile` is intentionally
- * excluded — it is a basename joined under `outDir`.
+ * excluded — it is a basename joined under `outDir`. `binaryOutfile` is also
+ * left unrooted: it is relative to `outDir` (the linker resolves it), unless
+ * the caller passes an absolute path.
  */
 const ROOTED_PATH_KEYS = ["routesDir", "hooksDir", "outDir", "appConfig"] as const;
 

@@ -58,15 +58,28 @@ export default get(
 ```
 
 Schemas are precompiled to standalone validators/serializers at build time and
-flow into the generated `openapi.json`. Serve it from a route:
+flow into the generated `openapi.json`. Serve it — plus a docs UI — with the
+`openapi()` plugin:
 
 ```ts
-// src/routes/openapi.json.get.ts → GET /openapi.json
-import { get } from "@ignex/core/http";
-import { generateOpenAPI } from "@ignex/core";
+// src/app.config.ts
+import { openapi } from "@ignex/core";
 
-export default get((ctx) => ctx.json(generateOpenAPI({ title: "my-api", version: "0.1.0" }, [])));
+export const plugins = [
+  // ...
+  openapi({ documentation: { title: "my-api", version: "0.1.0" } }),
+];
 ```
+
+- `GET /openapi.json` — the OpenAPI 3.1 document. In AOT builds it serves the
+  compiler-generated `openapi.json` artifact; in interpreted `createApp` apps
+  it enumerates the router's routes at request time.
+- `GET /openapi` — Scalar docs UI (`provider: "swagger-ui"` for Swagger-UI,
+  `provider: null` for spec-only).
+
+Paths are configurable via `path` / `specPath`; routes can be excluded with
+`exclude`, and per-route metadata (`summary`/`tags`/`hide`/…) via `detail`
+(interpreted: in the route schema object; AOT: `export const config = { detail }`).
 
 ## Plugins & config (`src/app.config.ts`)
 
@@ -88,6 +101,47 @@ same `plugins` array. Global hooks go in a `lifecycle` export:
 
 ```ts
 export const lifecycle = { beforeHandle: [logRequests(), markResponse()] };
+```
+
+### HTTPS by default
+
+`server.https` defaults to `true`, so ignex enables TLS at startup:
+
+- **Development** auto-generates a local certificate (mkcert → openssl
+  fallback), caches it under `.ignex/certs`, and logs where it came from.
+  No tools available? It warns and **falls back to HTTP/1**.
+- **Production** with no `server.tls` warns loudly and falls back to HTTP/1 —
+  TLS is usually terminated at your proxy (nginx/Caddy/Cloudflare). Certs are
+  never auto-generated in production.
+
+```ts
+export const server = {
+  port: Number(process.env.PORT ?? 3000),
+  https: true,                            // default; serve HTTPS (TLS)
+  tls: { certFile: "./cert.pem", keyFile: "./key.pem" }, // your own certs
+};since we don't have http2 support in bun now discard the code related to it 
+```
+
+- Force plain HTTP/1: `server.https: false`, or `IGNEX_HTTPS=0` for CI/tooling.
+- `Bun.serve` currently serves HTTP/1.1 over TLS. For true HTTP/2 / HTTP/3,
+  put **Caddy** in front — it auto-provisions real certs (Let's Encrypt) and
+  terminates h2/h3 for clients while proxying to Bun:
+
+  ```caddyfile
+  example.com {
+      reverse_proxy 127.0.0.1:3000
+  }
+  ```
+
+### Standalone production binary
+
+`ignex build --compile` (or `bun run compile`) emits a self-contained
+executable — Bun runtime embedded, bytecode-compiled, minified, with linked
+sourcemaps and `NODE_ENV=production` inlined:
+
+```sh
+ignex build --compile --binary-outfile my-server   # → outDir/my-server (or .exe on Windows)
+./my-server                                        # no Bun install required
 ```
 
 ## Hooks & auth
