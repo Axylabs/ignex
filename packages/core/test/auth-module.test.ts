@@ -74,6 +74,12 @@ describe("createAuthModule — .env key bootstrap", () => {
     saveEnv();
     delete process.env.JWT_PRIVATE_KEY;
     delete process.env.JWT_PUBLIC_KEY;
+
+    // Run in a throwaway cwd so a workspace `.env` can't supply the keys.
+    cwd = process.cwd();
+    const dir = mkdtempSync(join(tmpdir(), "ignex-auth-"));
+    process.chdir(dir);
+
     const module = createAuthModule({ mode: "both", bootstrapEnv: false });
     expect(() => module.plugin().init?.()).toThrow(/JWT_PRIVATE_KEY/);
   });
