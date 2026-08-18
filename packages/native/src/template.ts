@@ -39,12 +39,12 @@ const createNativeRenderer = (
     const inner = ffiInst ? Number(inst.innerPtr()) : 0;
     return {
       render(context) {
-        if (inner) {
+        if (inner && ffiInst) {
           // C-ABI takes PRE-SERIALIZED JSON context (napi marshals the object
           // itself). Needed-size convention → growExact (exact retry once).
           const ctxBytes = encoder.encode(JSON.stringify(context));
           return growExact(
-            (out) => ffiInst?.templateRender(inner, ctxBytes, out),
+            (out) => ffiInst.templateRender(inner, ctxBytes, out),
             ctxBytes.length * 4 + 64,
             MAX_TEMPLATE_OUTPUT,
             "template render failed",

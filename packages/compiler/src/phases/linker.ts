@@ -100,9 +100,13 @@ const buildWithFallback = async (
     sourcemap: opts.sourceMap ? "external" : "none",
   };
 
+  // `runLinkerAsync` guards `bun?.build` before calling us — capture the
+  // narrowed function so the build path never re-checks an optional Bun.
+  const build = bun?.build;
+  if (!build) return null;
+
   try {
-    // Only reached after the `!bun?.build` guard in `runLinkerAsync`.
-    const result = await bun?.build(buildOptions);
+    const result = await build(buildOptions);
     if (!result.success) {
       const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
       rmSync(entryPath, { force: true });
@@ -161,7 +165,9 @@ const fixSourceMap = async (
   }
 
   if (existsSync(outPath)) {
-    const text = await bun?.file(outPath).text();
+    const file = bun?.file(outPath);
+    if (!file) return;
+    const text = await file.text();
     const fixed = text.replace(
       /\/\/# sourceMappingURL=.*$/m,
       `//# sourceMappingURL=${basename(mapOut)}`,

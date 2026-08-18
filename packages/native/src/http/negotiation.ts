@@ -67,7 +67,7 @@ export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
       return {
         negotiate(header) {
           if (header == null) return null;
-          if (inner) return ffiInst?.acceptNegotiatorNegotiate(inner, toBytes(header));
+          if (inner && ffiInst) return ffiInst.acceptNegotiatorNegotiate(inner, toBytes(header));
           return inst.negotiate(toBytes(header));
         },
       };
