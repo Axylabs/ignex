@@ -151,34 +151,44 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
  * 1. The `file:` target from our package.json — the canonical dev setup
  *    (points at the live repo with the freshly-built addon + TS entry).
  * 2. Our own node_modules symlink (created by bun install for the `file:` dep).
- * 3. `bun link` / hoisted `node_modules/castrum`: walk up from the module dir
+ * 3. Workspace castrum (bundled-entry fallback): when this module is inlined
+ *    into a bundled entry (e.g. `packages/app/dist/__server.js`),
+ *    `import.meta.url` points at the app (or the dist dir), so the steps
+ *    above may not resolve. Walk up from the module dir AND cwd to the
+ *    filesystem root; at each ancestor with a `packages/` directory, look for
+ *    a workspace package that declares `optionalDependencies.castrum` and
+ *    resolve that package's OWN `node_modules/castrum` (the version the
+ *    lockfile resolved for `@ignex/native`) — or a `file:` target pointing at
+ *    the LIVE castrum repo (with the freshly-built addon). This runs BEFORE
+ *    the generic `node_modules` walk so a stale hoisted copy at the workspace
+ *    root cannot shadow the correct version.
+ * 4. `bun link` / hoisted `node_modules/castrum`: walk up from the module dir
  *    AND cwd (Node/Bun's own upward resolution) and use the first ancestor's
  *    `node_modules/castrum` — covers the project linked through `bun link`
  *    (root symlink → `~/.bun/install/global/...`) and hoisted monorepo
  *    installs, with no env override required.
- * 4. bun's global link store (`~/.bun/install/global/node_modules/castrum`)
+ * 5. bun's global link store (`~/.bun/install/global/node_modules/castrum`)
  *    directly, for projects outside a linked tree.
- * 5. Bundled-entry fallback: when this module is inlined into a bundled entry
- *    (e.g. `packages/app/dist/__server.js`), `import.meta.url` points at the
- *    app (or the dist dir), so the steps above may not resolve. Walk up from
- *    the module dir AND cwd to the filesystem root; at each ancestor with a
- *    `packages/` directory, look for a workspace package that declares
- *    `optionalDependencies.castrum` as a `file:` target and resolve that
- *    target to the LIVE castrum repo (with the freshly-built addon),
- *    bypassing bun's stale install cache.
  */
 const findCastrumDir = (): string | null =>
   castrumFromOwnPackage() ??
   castrumFromSymlink() ??
+  // Workspace castrum BEFORE the generic ancestor `node_modules` walk. In a
+  // bundled entry (`pkgDir` points at the app, not `@ignex/native`) the generic
+  // walk can shadow the correct version with a STALE hoisted copy at the
+  // workspace root; the workspace package's own `node_modules` holds the
+  // version the lockfile resolved for `@ignex/native` (and `file:` targets
+  // resolve the live repo). This is the loader's documented "bypass bun's
+  // stale install cache" fallback for bundled entries.
+  [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
+    (found, ancestor) => found ?? castrumFromWorkspace(ancestor),
+    null,
+  ) ??
   [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
     (found, ancestor) => found ?? castrumFromNodeModules(ancestor),
     null,
   ) ??
-  castrumFromBunLink() ??
-  [...ancestorDirs(pkgDir), ...ancestorDirs(process.cwd())].reduce<string | null>(
-    (found, ancestor) => found ?? castrumFromWorkspace(ancestor),
-    null,
-  );
+  castrumFromBunLink();
 
 /** True when the host CPU supports the x86-64-v3 SIMD feature set. */
 const supportsX8664V3 = (): boolean => {
