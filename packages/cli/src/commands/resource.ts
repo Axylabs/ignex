@@ -17,8 +17,86 @@ import { dbTemplate, modelTemplate, parseModelFields, pluralize } from "../templ
 import { resourceReadmeTemplate, resourceRouteTemplates } from "../templates/resource.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
-import { exists, writeFileEnsuringDir } from "../utils/fs.js";
+import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+
+/**
+ * Register `dbPlugin()` in `src/app.config.ts` so the ninox toolkit connects at
+ * boot. Without it, `db` (a live proxy over `service.db.primaryClient`) stays
+ * unconnected and every CRUD route fails with "undefined is not an object
+ * (evaluating 'db.insertOne')".
+ *
+ * Only rewrites configs matching the generated shape (`export const plugins = [`
+ * and the `import ... from "..."` block); hand-edited configs are left alone
+ * with a hint. Idempotent — never duplicates the plugin/import.
+ */
+async function wireDbPlugin(root: string): Promise<void> {
+  const configPath = join(root, "src", "app.config.ts");
+  if (!(await exists(configPath))) {
+    info("No src/app.config.ts found — add dbPlugin() to your plugins array once you have one.");
+    return;
+  }
+
+  const config = await readTextFile(configPath);
+  if (config.includes("dbPlugin")) return; // already wired
+  if (!config.includes("export const plugins = [")) {
+    info("src/app.config.ts doesn't expose a plugins array — add dbPlugin() to it manually.");
+    return;
+  }
+
+  // 1. Add the plugin entry right after `export const plugins = [`.
+  const withEntry = config.replace(
+    "export const plugins = [\n",
+    "export const plugins = [\n  dbPlugin(),\n",
+  );
+  if (withEntry === config) {
+    info("Could not wire dbPlugin() into src/app.config.ts — add it manually.");
+    return;
+  }
+  // 2. Add the import after the LAST `import ...` line. Only write when both
+  // edits land, so we never emit a config that references an undefined dbPlugin.
+  const lines = withEntry.split("\n");
+  let lastImport = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]?.trimStart().startsWith("import ")) lastImport = i;
+  }
+  if (lastImport === -1) {
+    info("Could not add the dbPlugin import — add it to src/app.config.ts manually.");
+    return;
+  }
+  lines.splice(lastImport + 1, 0, 'import { dbPlugin } from "./db.js";');
+  const withImport = lines.join("\n");
+  await writeFileEnsuringDir(configPath, withImport);
+  success("Registered dbPlugin() in src/app.config.ts (connects MongoDB at boot).");
+}
+
+/** Dependencies the generated models/routes import but `ignex create` may omit. */
+const RESOURCE_DEPS = ["@ignex/ninox", "typebox"] as const;
+
+/**
+ * Add `@ignex/ninox` (toolkit) and `typebox` (route param schemas) to
+ * `package.json` dependencies when missing — otherwise a freshly scaffolded
+ * resource imports modules that aren't installed and the app can't build.
+ * No-op when there's no package.json (or deps already present).
+ */
+async function ensureResourceDeps(root: string): Promise<void> {
+  const pkgPath = join(root, "package.json");
+  if (!(await exists(pkgPath))) return;
+
+  let pkg: { dependencies?: Record<string, string> };
+  try {
+    pkg = JSON.parse(await readTextFile(pkgPath)) as { dependencies?: Record<string, string> };
+  } catch {
+    return; // unparseable package.json — leave it alone
+  }
+  if (!pkg.dependencies) pkg.dependencies = {};
+  const deps = pkg.dependencies;
+  const added = RESOURCE_DEPS.filter((dep) => !deps[dep]);
+  if (added.length === 0) return;
+  for (const dep of added) deps[dep] = "latest";
+  await writeFileEnsuringDir(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  success(`Added ${added.join(", ")} to package.json dependencies.`);
+}
 
 export async function runResource(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
@@ -92,6 +170,13 @@ export async function runResource(args: string[]): Promise<void> {
       `Skipped ${relative(process.cwd(), dbPath)} (already exists). Add ${plural} to its collections map.`,
     );
   }
+
+  // 3b. Wire dbPlugin() into src/app.config.ts so the toolkit connects at boot.
+  await wireDbPlugin(root);
+
+  // 3c. Ensure the ninox toolkit + typebox are installed (imported by the
+  // generated model/routes/db.ts).
+  await ensureResourceDeps(root);
 
   // 4. Guards hint (auth/RBAC pre-wiring).
   if (opts.auth || opts.rbac) {

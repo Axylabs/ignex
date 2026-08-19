@@ -4,12 +4,18 @@
  * Covers the field DSL parser, naming helpers, the model template, and the
  * pregenerated CRUD route set (with auth/RBAC guard pre-wiring).
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { runResource } from "../src/commands/resource.js";
-import { modelTemplate, parseModelFields, pascalCase, pluralize } from "../src/templates/model.js";
+import {
+  dbTemplate,
+  modelTemplate,
+  parseModelFields,
+  pascalCase,
+  pluralize,
+} from "../src/templates/model.js";
 import { resourceRouteTemplate, resourceRouteTemplates } from "../src/templates/resource.js";
 
 test("pluralize handles regular, -y, and -s endings", () => {
@@ -44,6 +50,19 @@ test("parseModelFields defaults to a single name field when empty", () => {
   expect(fields).toHaveLength(1);
   const [field] = fields;
   expect(field?.line).toBe("name: s.string(),");
+});
+
+test("dbTemplate emits a live db handle + dbPlugin (connects at boot)", () => {
+  const code = dbTemplate("Gig");
+  expect(code).toContain("export const { service, migrations } = createMongoToolkit(");
+  expect(code).toContain("export const db: typeof service.db.primaryClient = new Proxy(");
+  expect(code).toContain("value.bind(manager)");
+  expect(code).toContain("export const dbPlugin = (): IgnexPlugin => ({");
+  expect(code).toContain('name: "db"');
+  expect(code).toContain("await service.makeConnections();");
+  expect(code).toContain('await db.createSchema("gigs");');
+  expect(code).toContain("await service.closeConnections();");
+  expect(code).not.toContain("export const db = service.db.primaryClient;");
 });
 
 test("modelTemplate emits a schema-first ninox model", () => {
@@ -186,5 +205,52 @@ describe("runResource target layout", () => {
 
     // The pre-fix behaviour wrote everything under ./gig/src — must not happen.
     expect(existsSync(join(dir, "gig", "src"))).toBe(false);
+  });
+
+  test("registers dbPlugin() into an existing generated app.config.ts (idempotent)", async () => {
+    const appConfig = join(dir, "src", "app.config.ts");
+    writeFileSync(
+      appConfig,
+      `import { compression, cors, openapi, security, session } from "@ignex/core";
+import { env } from "./config/env.js";
+
+export const plugins = [
+  cors(),
+  compression(),
+  security(),
+  session({ secret: env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true }),
+  openapi()
+];
+
+export const server = {
+  port: env.PORT,
+  https: true
+};
+`,
+    );
+    // A scaffolded package.json missing the ORM deps.
+    writeFileSync(
+      join(dir, "package.json"),
+      '{\n  "name": "app",\n  "private": true,\n  "type": "module",\n  "dependencies": { "@ignex/core": "latest" }\n}\n',
+    );
+
+    await runResource(["post"]);
+    const wired = readFileSync(appConfig, "utf8");
+    expect(wired).toContain('import { dbPlugin } from "./db.js";');
+    expect(wired).toContain("  dbPlugin(),");
+    expect(wired.match(/dbPlugin\(\)/g)).toHaveLength(1);
+
+    // The ninox toolkit + typebox get added to dependencies.
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg.dependencies["@ignex/ninox"]).toBe("latest");
+    expect(pkg.dependencies.typebox).toBe("latest");
+
+    // Running a second resource must not duplicate the plugin/import or deps.
+    await runResource(["comment"]);
+    const again = readFileSync(appConfig, "utf8");
+    expect(again.match(/dbPlugin\(\)/g)).toHaveLength(1);
+    expect(again.match(/from ".\/db.js"/g)).toHaveLength(1);
+    const pkg2 = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg2.dependencies["@ignex/ninox"]).toBe("latest");
   });
 });

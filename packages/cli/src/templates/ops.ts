@@ -16,6 +16,12 @@
 export interface DockerfileOptions {
   /** Standalone binary name produced by the build (default "server"). */
   binary?: string;
+  /**
+   * Compiler output directory containing the compiled binary. Defaults to
+   * `.ignex` — the `ignex build` CLI contract. Pass `dist` if the project's
+   * build emits into `dist/` (e.g. the monorepo example app's `builder.ts`).
+   */
+  outDir?: string;
   /** App listen port (default 3000). */
   port?: number;
   /** Health check path (default "/health"). */
@@ -47,7 +53,7 @@ export interface ComposeOptions {
   port?: number;
   /** Health check path (default "/health"). */
   healthPath?: string;
-  /** Env var for the app→db connection string (default "MONGODB_URI"). */
+  /** Env var for the app→db connection string (default "MONGO_URL"). */
   mongoUriVar?: string;
 }
 
@@ -66,6 +72,7 @@ export interface DockerignoreOptions {
 /** Multi-stage Dockerfile: builder (Bun) → slim production image (no Bun). */
 export function dockerfileTemplate(options: DockerfileOptions = {}): string {
   const binary = options.binary ?? "server";
+  const outDir = options.outDir ?? ".ignex";
   const port = options.port ?? 3000;
   const healthPath = options.healthPath ?? "/health";
   const privateRegistry = Boolean(options.privateRegistry);
@@ -80,7 +87,9 @@ COPY .env ./`
 # COPY .env ./`;
 
   return `# ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM oven/bun:latest AS builder
+# canary-slim: ignex build --compile (AOT route compile + bytecode) requires a
+# recent Bun canary; the stable tag can lag behind the AOT contract.
+FROM oven/bun:canary-slim AS builder
 
 WORKDIR /app
 
@@ -108,7 +117,7 @@ RUN apt-get update \\
   && groupadd --system app \\
   && useradd --system --gid app --create-home --home-dir /app app
 
-COPY --from=builder --chown=app:app /app/dist/${binary} ./${binary}
+COPY --from=builder --chown=app:app /app/${outDir}/${binary} ./${binary}
 
 EXPOSE ${port}
 
@@ -128,20 +137,41 @@ CMD ["./${binary}"]
 /** docker-compose.yml — ignex backend + Percona MongoDB (optional replica set). */
 export function composeTemplate(options: ComposeOptions = {}): string {
   const appImage = options.appImage ?? "ignex-app:latest";
-  const dbImage = options.dbImage ?? "percona/percona-server-mongodb:7.0";
+  const dbImage = options.dbImage ?? "percona/percona-server-mongodb:latest";
   const replica = Boolean(options.replica);
   const replicaSet = options.replicaSet ?? "rs0";
   const port = options.port ?? 3000;
   const healthPath = options.healthPath ?? "/health";
-  const mongoUriVar = options.mongoUriVar ?? "MONGODB_URI";
+  const mongoUriVar = options.mongoUriVar ?? "MONGO_URL";
 
-  const mongoCommand = replica
-    ? `["mongod", "--bind_ip_all", "--replSet", "${replicaSet}"]`
-    : `["mongod", "--bind_ip_all"]`;
+  // mongod refuses `--auth` (auto-injected by the entrypoint when
+  // MONGO_INITDB_ROOT_USERNAME is set) combined with `--replSet` unless a
+  // keyFile is supplied — so the replica-set member wraps the entrypoint to
+  // create a persistent keyFile in the mongo-data volume, then hands off to
+  // /entrypoint.sh which still does first-run root-user provisioning.
+  //
+  // NB: entrypoint is a list whose last element is the full script; podman-
+  // compose shlex.splits any *string* `command`/`entrypoint`, which would
+  // mangle a multi-word `sh -c` script.
+  const mongoConfig = replica
+    ? `    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        KEYFILE=/data/db/keyfile
+        if [ ! -s "$$KEYFILE" ]; then
+          openssl rand -base64 756 > "$$KEYFILE"
+        fi
+        chmod 400 "$$KEYFILE"
+        exec /entrypoint.sh mongod --bind_ip_all --replSet ${replicaSet} --keyFile "$$KEYFILE"`
+    : `    command: ["mongod", "--bind_ip_all"]`;
 
   const replNote = replica
     ? `#   - MongoDB runs a single-node replica set (${replicaSet}); the
-#     one-shot \`mongodb-init\` service calls rs.initiate() once.`
+#     one-shot \`mongodb-init\` service calls rs.initiate() once. A keyFile is
+#     generated in the mongo-data volume so --auth (auto-injected from the root
+#     user env) works together with --replSet.`
     : `#   - MongoDB runs standalone (no replica set); disable with --no-replica.`;
 
   const initService = replica
@@ -155,13 +185,15 @@ export function composeTemplate(options: ComposeOptions = {}): string {
         condition: service_healthy
     env_file:
       - .env.docker
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      mongosh --quiet --host mongodb:27017
-      --username "$$MONGO_INITDB_ROOT_USERNAME"
-      --password "$$MONGO_INITDB_ROOT_PASSWORD"
-      --authenticationDatabase admin
-      --eval 'try { rs.status().ok } catch { rs.initiate({_id: "${replicaSet}", members: [{_id: 0, host: "mongodb:27017"}]}) }'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mongosh --quiet --host mongodb:27017 \
+          --username "$$MONGO_INITDB_ROOT_USERNAME" \
+          --password "$$MONGO_INITDB_ROOT_PASSWORD" \
+          --authenticationDatabase admin \
+          --eval 'try { rs.status().ok } catch { rs.initiate({_id: "${replicaSet}", members: [{_id: 0, host: "mongodb:27017"}]}) }'
     networks:
       - internal
 `
@@ -209,9 +241,13 @@ services:
   mongodb:
     image: ${dbImage}
     restart: unless-stopped
-    command: ${mongoCommand}
+${mongoConfig}
     env_file:
       - .env.docker
+    # Expose on the host so local dev (and GUI tools) can connect to
+    # localhost:27017 with the MONGO_URL from .env.example.
+    ports:
+      - "27017:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -272,10 +308,12 @@ export function dockerEnvTemplate(options: ComposeOptions = {}): string {
   const dbName = options.dbName ?? "app";
   const replica = Boolean(options.replica);
   const replicaSet = options.replicaSet ?? "rs0";
-  const mongoUriVar = options.mongoUriVar ?? "MONGODB_URI";
+  const mongoUriVar = options.mongoUriVar ?? "MONGO_URL";
 
+  // The app (ninox) reads MONGO_URL; the root user is created in `admin`, so
+  // authSource=admin is required. `mongodb` resolves inside the compose network.
   const uri = `mongodb://${dbUser}:${dbPassword}@mongodb:27017/${dbName}${
-    replica ? `?replicaSet=${replicaSet}` : ""
+    replica ? `?replicaSet=${replicaSet}&authSource=admin` : "?authSource=admin"
   }`;
 
   return `# Generated by \`ignex ops compose\` — secrets for docker compose.

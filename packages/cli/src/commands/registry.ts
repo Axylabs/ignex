@@ -130,6 +130,7 @@ export const commands: readonly Command[] = [
   --root <dir>                  Project root
   --port <port>                 App listen port (default 3000)
   --binary <name>               Standalone binary name (default server)
+  --out-dir <dir>               Compiler output dir holding the binary (default .ignex)
   --health-path <path>          Health check path (default /health)
   --private-registry            Copy .npmrc/.env into the builder for private installs
   --app-image <image>           App image name for compose (default ignex-app:latest)
@@ -139,7 +140,7 @@ export const commands: readonly Command[] = [
   --db-image <image>            MongoDB image (default percona/percona-server-mongodb:7.0)
   --replica                     Enable a single-node MongoDB replica set
   --no-replica                  Disable the replica set
-  --mongo-uri-var <var>         Env var for the app→db URI (default MONGODB_URI)
+  --mongo-uri-var <var>         Env var for the app→db URI (default MONGO_URL)
   --domain <domain>             Caddy site domain (default example.com)
   --upstream <host:port>        Caddy backend upstream (default 127.0.0.1:3000)
   --yes                         Skip all prompts (use defaults)

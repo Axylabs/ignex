@@ -26,7 +26,7 @@ function tmpTarget(): string {
 describe("dockerfileTemplate", () => {
   it("emits the multi-stage builder/production split", () => {
     const code = dockerfileTemplate();
-    expect(code).toContain("FROM oven/bun:latest AS builder");
+    expect(code).toContain("FROM oven/bun:canary-slim AS builder");
     expect(code).toContain("FROM debian:stable-slim AS production");
     expect(code).toContain("bun run build --compile --binary-outfile server");
     expect(code).toContain('CMD ["./server"]');
@@ -60,6 +60,16 @@ describe("dockerfileTemplate", () => {
     expect(code).toContain("http://127.0.0.1:4444/live");
   });
 
+  it("copies the binary from the CLI outDir (default .ignex)", () => {
+    const code = dockerfileTemplate();
+    expect(code).toContain("/app/.ignex/server ./server");
+  });
+
+  it("honors a custom outDir (e.g. monorepo example app dist)", () => {
+    const code = dockerfileTemplate({ binary: "api", outDir: "dist" });
+    expect(code).toContain("/app/dist/api ./api");
+  });
+
   it("gates .npmrc/.env copies behind the private-registry option", () => {
     const plain = dockerfileTemplate();
     expect(plain).toContain("# COPY .npmrc ./");
@@ -74,7 +84,7 @@ describe("dockerfileTemplate", () => {
 describe("composeTemplate", () => {
   it("includes Percona MongoDB with root user env and healthcheck", () => {
     const yaml = composeTemplate({ dbPassword: "s3cret" });
-    expect(yaml).toContain("percona/percona-server-mongodb:7.0");
+    expect(yaml).toContain("percona/percona-server-mongodb:latest");
     expect(yaml).toContain("MONGO_INITDB_ROOT_USERNAME");
     expect(yaml).toContain("MONGO_INITDB_ROOT_PASSWORD");
     expect(yaml).toContain("mongo-data:/data/db");
@@ -83,10 +93,10 @@ describe("composeTemplate", () => {
     expect(yaml).toContain(".env.docker");
   });
 
-  it("wires the app service to MONGODB_URI and /health", () => {
+  it("wires the app service to MONGO_URL and /health", () => {
     const yaml = composeTemplate({ dbPassword: "s3cret" });
     // The full URI lives in .env.docker (loaded via env_file); compose references it.
-    expect(yaml).toContain("MONGODB_URI` from .env.docker");
+    expect(yaml).toContain("MONGO_URL` from .env.docker");
     expect(yaml).toContain('IGNEX_HTTPS: "0"');
     expect(yaml).toContain("http://127.0.0.1:3000/health");
   });
@@ -94,6 +104,9 @@ describe("composeTemplate", () => {
   it("adds replica set machinery when --replica", () => {
     const yaml = composeTemplate({ dbPassword: "s3cret", replica: true });
     expect(yaml).toContain("--replSet");
+    expect(yaml).toContain("--keyFile");
+    expect(yaml).toContain("openssl rand -base64 756");
+    expect(yaml).toContain('"27017:27017"');
     expect(yaml).toContain("mongodb-init");
     expect(yaml).toContain("rs.initiate");
     expect(yaml).toContain("replica set (rs0)");
@@ -144,16 +157,18 @@ describe("caddyfileTemplate", () => {
 });
 
 describe("dockerEnvTemplate", () => {
-  it("writes credentials and a replica-aware URI", () => {
+  it("writes credentials and a replica-aware MONGO_URL", () => {
     const env = dockerEnvTemplate({ dbUser: "admin", dbPassword: "pw", replica: true });
     expect(env).toContain("MONGO_INITDB_ROOT_USERNAME=admin");
     expect(env).toContain("MONGO_INITDB_ROOT_PASSWORD=pw");
-    expect(env).toContain("MONGODB_URI=mongodb://admin:pw@mongodb:27017/app?replicaSet=rs0");
+    expect(env).toContain(
+      "MONGO_URL=mongodb://admin:pw@mongodb:27017/app?replicaSet=rs0&authSource=admin",
+    );
   });
 
   it("drops the replica param when disabled", () => {
     const env = dockerEnvTemplate({ dbUser: "admin", dbPassword: "pw", replica: false });
-    expect(env).toContain("MONGODB_URI=mongodb://admin:pw@mongodb:27017/app");
+    expect(env).toContain("MONGO_URL=mongodb://admin:pw@mongodb:27017/app?authSource=admin");
     expect(env).not.toContain("replicaSet");
   });
 });
@@ -185,7 +200,7 @@ describe("ignex ops (command wiring)", () => {
       expect(existsSync(join(dir, "Dockerfile"))).toBe(true);
       expect(existsSync(join(dir, ".dockerignore"))).toBe(true);
       expect(readFileSync(join(dir, "Dockerfile"), "utf8")).toContain(
-        "FROM oven/bun:latest AS builder",
+        "FROM oven/bun:canary-slim AS builder",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

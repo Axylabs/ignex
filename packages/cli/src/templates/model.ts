@@ -191,19 +191,57 @@ export const ${plural} = defineCollection("${plural}", ${schema}Schema, {
 export const dbTemplate = (name: string): string => {
   const plural = pluralize(name);
   return `import { createMongoToolkit, defineCollections } from "@ignex/ninox";
+import type { IgnexPlugin } from "@ignex/core";
 import { ${plural} } from "./models/${plural}.js";
 
 // Toolkit = service (connections, CRUD manager, cache, migrations). Extend the
 // collections map as you scaffold more models (ignex resource <Name>).
+//
+// The connection URL is read from MONGO_URL (ninox's default — see
+// .env.example), or set dbUrl on the primary definition to override.
 export const { service, migrations } = createMongoToolkit(
   { primary: { name: "app", collections: defineCollections(${plural}) } },
   { cacheWatch: true },
 );
 
 // The typed CRUD manager used by the generated resource routes.
-export const db = service.db.primaryClient;
+//
+// service.db.primaryClient is only populated after service.makeConnections()
+// (run at boot by dbPlugin below). A plain module-scope snapshot would stay
+// undefined for every request, so db is a proxy that resolves the live
+// manager on each access — routes can safely call db.insertOne(...).
+export const db: typeof service.db.primaryClient = new Proxy(
+  {} as typeof service.db.primaryClient,
+  {
+    get(_target, prop) {
+      const manager = service.db.primaryClient;
+      if (!manager) {
+        throw new Error(
+          "[ignex] MongoDB is not connected — is dbPlugin() registered in src/app.config.ts?",
+        );
+      }
+      const value = Reflect.get(manager, prop, manager);
+      return typeof value === "function" ? value.bind(manager) : value;
+    },
+  },
+);
 
-// Boot convenience: connect + provision validators/indexes + run migrations.
+/**
+ * Ignex plugin: connect + provision validators/indexes at boot, close at
+ * shutdown. Register it in src/app.config.ts (plugins: [..., dbPlugin()]).
+ */
+export const dbPlugin = (): IgnexPlugin => ({
+  name: "db",
+  async init() {
+    await service.makeConnections();
+    await db.createSchema("${plural}");
+  },
+  async close() {
+    await service.closeConnections();
+  },
+});
+
+// Boot convenience: connect + provision validators/indexes (scripts/tests).
 export const initDb = async (): Promise<void> => {
   await service.makeConnections();
   await db.createSchema("${plural}");

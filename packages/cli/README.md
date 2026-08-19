@@ -128,8 +128,10 @@ Highlights:
   opts into copying `.npmrc`/`.env` for private installs.
 - **compose** — `app` (builds the Dockerfile) + `percona/percona-server-mongodb`
   with `--replica` adding a single-node replica set (`rs0`) and a one-shot
-  `mongodb-init` service that calls `rs.initiate()`. The app connects via
-  `MONGODB_URI` (override with `--mongo-uri-var`).
+  `mongodb-init` service that calls `rs.initiate()`. The replica-set member
+  generates a persistent keyFile so `--auth` works with `--replSet`, and MongoDB
+  is exposed on host `27017:27017` for local dev. The app connects via
+  `MONGO_URL` (override with `--mongo-uri-var`) with `authSource=admin`.
 - **Caddyfile** — reverse proxy with auto TLS, HSTS at the terminator (the app
   deliberately omits it), and no `encode gzip` (the app already compresses).
 

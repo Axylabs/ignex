@@ -35,6 +35,7 @@ export type OpsTarget = (typeof OPS_TARGETS)[number];
 interface OpsOptions {
   root: string;
   binary: string;
+  outDir: string;
   port: number;
   healthPath: string;
   privateRegistry: boolean;
@@ -116,6 +117,7 @@ async function generateDockerfile(root: string, opts: OpsOptions): Promise<void>
       "Dockerfile",
       dockerfileTemplate({
         binary: opts.binary,
+        outDir: opts.outDir,
         port: opts.port,
         healthPath: opts.healthPath,
         privateRegistry: opts.privateRegistry,
@@ -291,6 +293,7 @@ export async function runOps(args: string[]): Promise<void> {
     root: { type: "string" },
     target: { type: "string" },
     binary: { type: "string" },
+    "out-dir": { type: "string" },
     port: { type: "string" },
     "health-path": { type: "string" },
     "private-registry": { type: "boolean" },
@@ -330,6 +333,7 @@ export async function runOps(args: string[]): Promise<void> {
   const opts: OpsOptions = {
     root,
     binary: (values.binary as string | undefined) ?? "server",
+    outDir: (values["out-dir"] as string | undefined) ?? ".ignex",
     port,
     healthPath: (values["health-path"] as string | undefined) ?? "/health",
     privateRegistry: Boolean(values["private-registry"]),
@@ -339,7 +343,7 @@ export async function runOps(args: string[]): Promise<void> {
     dbName: db.dbName,
     dbImage: (values["db-image"] as string | undefined) ?? "percona/percona-server-mongodb:7.0",
     replica: db.replica,
-    mongoUriVar: (values["mongo-uri-var"] as string | undefined) ?? "MONGODB_URI",
+    mongoUriVar: (values["mongo-uri-var"] as string | undefined) ?? "MONGO_URL",
     domain,
     upstream: (values.upstream as string | undefined) ?? "127.0.0.1:3000",
     force: Boolean(values.force),
