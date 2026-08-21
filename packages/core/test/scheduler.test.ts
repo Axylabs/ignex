@@ -31,7 +31,8 @@ describe("createScheduler", () => {
   it("runs a cron task and records a durable job", async () => {
     const { store, scheduler } = makeScheduler();
     const task = vi.fn(async () => {});
-    // Every 100ms (croner supports sub-minute).
+    // Every second (6-field → in-process fallback; Bun.cron itself is
+    // minute-granularity).
     scheduler.cron("* * * * * *", "test-tick", task);
     scheduler.start();
 
@@ -92,5 +93,27 @@ describe("createScheduler", () => {
   it("rejects an invalid cron expression at registration", () => {
     const { scheduler } = makeScheduler();
     expect(() => scheduler.cron("not-a-cron", "bad", async () => {})).toThrow();
+  });
+
+  it("routes 5-field expressions through Bun.cron (real tick, gated)", async () => {
+    // The Bun.cron transport fires at minute granularity, so this test waits
+    // for the next minute boundary (up to 60s). It only runs when explicitly
+    // requested (nightly job) — CI PR runs keep the fast 6-field path only.
+    if (process.env.IGNEX_SCHEDULER_REAL_TICK !== "1") {
+      return;
+    }
+    const { store, scheduler } = makeScheduler();
+    const task = vi.fn(async () => {});
+    // Every minute: the next fire lands on the upcoming minute boundary (≤60s).
+    scheduler.cron("* * * * *", "real-bun-cron", task);
+    scheduler.start();
+    const deadline = Date.now() + 70_000;
+    while (Date.now() < deadline && task.mock.calls.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    scheduler.stop();
+    expect(task).toHaveBeenCalled();
+    const jobs = await store.list();
+    expect(jobs.some((j) => j.name === "real-bun-cron")).toBe(true);
   });
 });

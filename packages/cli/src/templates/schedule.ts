@@ -9,6 +9,10 @@
  *   - exports `start()` / `stop()` for `ignex schedule:run`.
  *
  *   schedule.cron("<expr>", "<name>", handler)  — add jobs here.
+ *
+ * Expressions use Bun.cron's standard 5-field syntax ("0 9 * * *",
+ * "*&#47;5 * * * *", @daily). Second-precision 6-field expressions
+ * ("*&#47;5 * * * * *") are also accepted via an in-process fallback (dev/tests).
  */
 export const scheduleTemplate =
   (): string => `import { createDurableJobQueue, createFileJobStore, createScheduler } from "@ignex/core";
@@ -32,7 +36,7 @@ const scheduler = createScheduler({ store });
 
 // ── add scheduled jobs here ──────────────────────────────────────────────
 // scheduler.cron("0 9 * * *", "morning-digest", async () => { ... });
-// scheduler.cron("*/5 * * * * *", "health-ping", async () => { ... });
+// scheduler.cron("*/5 * * * *", "health-ping", async () => { ... });
 
 export async function start(): Promise<void> {
   queue.start();      // claim + run due scheduled jobs
