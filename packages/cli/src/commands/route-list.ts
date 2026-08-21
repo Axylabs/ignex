@@ -21,6 +21,7 @@ import { join, relative } from "node:path";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { error } from "../utils/logger.js";
+import { padAnsi, stringWidth } from "../utils/terminal.js";
 
 /** One row of the route table. */
 interface RouteRow {
@@ -125,22 +126,24 @@ function findManifest(root: string, config: { outDir?: string }): string | null 
   return null;
 }
 
-/** Render a padded ASCII table. */
+/** Render a padded ASCII table (display-width aware via Bun.stringWidth). */
 export function renderTable(rows: RouteRow[], root: string): string {
   if (rows.length === 0) return "(no routes)";
   const width = (key: (r: RouteRow) => string) =>
-    Math.max(...rows.map((r) => key(r).length), ...["METHOD", "PATH", "FILE"].map((h) => h.length));
+    Math.max(
+      ...rows.map((r) => stringWidth(key(r))),
+      ...["METHOD", "PATH", "FILE"].map((h) => stringWidth(h)),
+    );
   const mw = width((r) => r.method);
   const pw = width((r) => r.path);
   const fw = width((r) => r.file);
-  const pad = (s: string, w: number): string => s + " ".repeat(Math.max(0, w - s.length));
-  const head = `${pad("METHOD", mw)}  ${pad("PATH", pw)}  ${pad("FILE", fw)}  KIND      RESPONSE   HOT`;
-  const lines = [head, "-".repeat(head.length)];
+  const head = `${padAnsi("METHOD", mw)}  ${padAnsi("PATH", pw)}  ${padAnsi("FILE", fw)}  KIND      RESPONSE   HOT`;
+  const lines = [head, "-".repeat(stringWidth(head))];
   for (const r of rows) {
     const kind = r.kind === "dynamic" ? "dynamic" : "static";
     const resp = r.constant ? "constant" : (r.responseType ?? "—");
     lines.push(
-      `${pad(r.method, mw)}  ${pad(r.path, pw)}  ${pad(relative(root, r.file), fw)}  ${pad(kind, 10)} ${pad(resp, 9)} ${String(r.hotness ?? "—")}`,
+      `${padAnsi(r.method, mw)}  ${padAnsi(r.path, pw)}  ${padAnsi(relative(root, r.file), fw)}  ${padAnsi(kind, 10)} ${padAnsi(resp, 9)} ${String(r.hotness ?? "—")}`,
     );
   }
   return lines.join("\n");

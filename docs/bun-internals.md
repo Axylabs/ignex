@@ -52,6 +52,33 @@ Measured on `Bun v1.4.0-canary` (Linux), 2026-08-20, 5 interleaved trials.
    `route`/`dev` taskkill) — only the status-only `commandExists` check uses
    `Bun.spawnSync`.
 
+## Bun 1.4 additions (2026-08)
+
+New rows decided on **Bun v1.4.0** (stable, Linux) — features that replace a
+third-party dep or a hand-rolled implementation, gated by the same
+"≥ 1.0× AND byte-compatible" rule (or by feature parity + zero-dep where
+micro-benchmarking is meaningless, e.g. process scheduling):
+
+| Bun builtin | Replaces | Verdict | Wiring |
+|---|---|---|---|
+| `Bun.cron` (5-field, named schedules) | `croner` (third-party dep) | **swap — dependency removed** | `core/src/platform/scheduler.ts` `createScheduler` ticks through `Bun.cron`; expressions validated by `Bun.cron.parse` at registration. Built-in never-overlap; minute granularity. Legacy 6-field (second-precision) expressions keep working through an in-process matcher (`platform/cron6.ts`). |
+| `Bun.cron.parse` | croner expression validation | **swap** | Validation gate in `resolveTransportKind` (5-field + `@named`). |
+| `Bun.markdown.html()` | hand-rolled mini `md()` renderer in the debugbar | **swap (server-side)** | `debug/markdown.ts` renders the KT page to sanitized HTML (`sanitizeMdHtml` allowlist — Bun.markdown output is NOT sanitized); dashboard falls back to the mini renderer when the builtin is unavailable. |
+| `Bun.stringWidth` / `Bun.sliceAnsi` / `Bun.wrapAnsi` | hand-rolled ANSI-aware column math in the CLI | **swap (CLI)** | `cli` table/column formatting (`doctor`, `route:list`) — see `utils/terminal.ts`. `NO_COLOR` still respected. |
+| `bun run --parallel` | sequential `bun run a && bun run b` | **swap (repo tooling)** | Root `verify:quick` / `test:parallel` scripts fan the independent gates out concurrently (Foreman-style output). |
+| `Bun.serve({ routes })` static files | `files.ts` manual range serving | **keep (feature, opt-in)** | Not adopted by default: the AOT-generated server targets `Bun.serve` handlers, and file serving needs the framework's range/conditional semantics. Re-evaluate per feature row. |
+
+Rules applied:
+
+1. **`croner` is fully removed** (root + `@ignex/core`); the scheduler surface
+   is unchanged, and 6-field sub-minute expressions are preserved for dev/tests.
+2. **`Bun.markdown` only for server-side KT rendering** — its output must pass
+   through the sanitizer before reaching the dashboard (raw HTML passthrough).
+3. **CLI ANSI helpers delegate to Bun builtins when present** with the same
+   `NO_COLOR` behavior; no output-shape changes.
+4. **`bun run --parallel` is repo-tooling only** — `verify` stays the serial,
+   ordered gate; `verify:quick` is the fast dev loop.
+
 ## Re-run
 
 ```sh
