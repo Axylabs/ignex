@@ -29,6 +29,7 @@
     "verify:aot:rbac": "bun scripts/verify-aot-rbac.ts",
     "verify:cli:resource": "bun scripts/verify-cli-resource.ts",
     "check:cache-versions": "bun scripts/check-cache-versions.ts",
+    "scan:secrets": "bun scripts/scan-secrets.ts",
     "test:cli": "bun run --cwd packages/cli test",
     "test:mcp": "bun run --cwd packages/mcp test",
     "test:shared": "vitest run packages/shared/test",

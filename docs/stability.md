@@ -134,12 +134,18 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   overridable via `IGNEX_MAX_VAR_OUTPUT` (a lying addon can no longer force a
   1 GiB allocation per call).
 
-### 🟡 `.npmrc` contains a hardcoded npm auth token
+### 🟡 `.npmrc` contained a hardcoded npm auth token
 
 - **Where:** `.npmrc` (gitignored/untracked — verified `git ls-files` empty,
-  but the token is live in the tree).
-- **Status:** 🟡 open — **rotate the token and move it to `NODE_AUTH_TOKEN` /
-  user `~/.npmrc`.** Manual step (needs credentials); do not commit it.
+  but the token was live in the tree).
+- **Status:** ✅ 2026-08-22 — token replaced with `${NPM_TOKEN}` interpolation
+  (npm reads the env var at publish time), so even a force-add of `.npmrc`
+  would not leak the credential. **Rotation is still recommended** (the token
+  value has been used locally and may exist in logs/shell history): rotate at
+  https://www.npmjs.com/settings/<user>/tokens and set `NPM_TOKEN` in the
+  publish environment (CI or shell). CI has no npm publish job by design
+  (`docs/release-process.md`); a secret-scan gate now runs on every PR
+  (`.github/workflows/ci.yml` → `secret-scan` job, `scripts/scan-secrets.ts`).
 
 ### 🟡 Session-store sweep interval (verified wired)
 

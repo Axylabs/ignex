@@ -16,6 +16,20 @@ env:
   BUN_VERSION: 1.4.0
 
 jobs:
+  # Fast, dependency-free gate: fail on any tracked file containing a likely
+  # credential (npm/GitHub/AWS tokens, PEM private keys). Runs before install —
+  # the scanner uses only `git ls-files` + `git show` (see scripts/scan-secrets.ts).
+  secret-scan:
+    name: Secret scan (no credentials in tracked files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan tracked files for credentials
+        run: bun scripts/scan-secrets.ts
+
   quality:
     name: Quality gates
     runs-on: ubuntu-latest
