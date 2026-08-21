@@ -151,7 +151,9 @@ describe("NativeQueryParams (URLSearchParams-compatible facade over pairs)", () 
     expect(params.has("nope")).toBe(false);
     expect(params.getAll("tag")).toEqual(["a", "b"]);
     const seen: Array<[string, string]> = [];
-    params.forEach((value, name) => seen.push([name, value]));
+    params.forEach((value, name) => {
+      seen.push([name, value]);
+    });
     expect(seen).toEqual(pairs);
   });
 

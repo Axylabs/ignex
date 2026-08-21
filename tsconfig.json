@@ -29,7 +29,8 @@
       "castrum": ["./packages/native/src/vendor/castrum.d.ts"],
       "@ignex/nova/server": ["./packages/core/src/vendor/nova.d.ts"],
       "@ignex/nova/events": ["./packages/core/src/vendor/nova.d.ts"]
-    }
+    },
+    "noUncheckedIndexedAccess": true
   },
   "include": [
     "packages/*/src",

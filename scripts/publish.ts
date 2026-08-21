@@ -118,7 +118,8 @@ function parseCli(argv: string[]): CliArgs {
   const flags = new Map<string, string | true>();
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i]!;
+    const arg = argv[i];
+    if (arg === undefined) continue;
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
@@ -254,15 +255,18 @@ function bumpVersion(version: string, bump: BumpKind): string {
     // A prerelease finalizes on any bump: 0.2.0-beta.1 → 0.2.0.
     return parts.join(".");
   }
+  const majorPart = parts[0] ?? 0;
+  const minorPart = parts[1] ?? 0;
+  const patchPart = parts[2] ?? 0;
   if (bump === "major") {
-    parts[0]! += 1;
+    parts[0] = majorPart + 1;
     parts[1] = 0;
     parts[2] = 0;
   } else if (bump === "minor") {
-    parts[1]! += 1;
+    parts[1] = minorPart + 1;
     parts[2] = 0;
   } else {
-    parts[2]! += 1;
+    parts[2] = patchPart + 1;
   }
   return parts.join(".");
 }

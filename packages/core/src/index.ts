@@ -302,6 +302,12 @@ export {
   newJobId,
 } from "./platform/jobs-store";
 export { installProcessGuards } from "./platform/process-guards";
+export {
+  createScheduler,
+  type ScheduledJob,
+  type Scheduler,
+  type SchedulerOptions,
+} from "./platform/scheduler";
 // ── plugins ─────────────────────────────────────────────────────
 export {
   auth,

@@ -139,7 +139,8 @@ export class Cookie<T = string | undefined> {
     if (this.jar[this.name] === undefined) {
       this.jar[this.name] = { ...this.initial };
     }
-    const entry = this.jar[this.name]!;
+    const entry = this.jar[this.name];
+    if (entry === undefined) throw new Error(`cookie jar entry missing for "${this.name}"`);
     entry.value = v;
   }
 
@@ -203,7 +204,8 @@ export class Cookie<T = string | undefined> {
     if (this.jar[this.name] === undefined) {
       this.jar[this.name] = { ...this.initial };
     }
-    const entry = this.jar[this.name]!;
+    const entry = this.jar[this.name];
+    if (entry === undefined) throw new Error(`cookie jar entry missing for "${this.name}"`);
     Object.assign(entry, config);
     return this;
   }

@@ -101,3 +101,10 @@ it("declares the factory scaffold command", () => {
   expect(help).toContain("--fields");
   expect(help).toContain("--force");
 });
+
+it("declares schedule:run with a --once flag", () => {
+  expect(findCommand("schedule:run")?.name).toBe("schedule:run");
+  expect(findCommand("schedule")?.name).toBe("schedule:run");
+  const help = renderCommandHelp(findCommand("schedule:run") as never);
+  expect(help).toContain("--once");
+});

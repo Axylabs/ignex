@@ -62,7 +62,8 @@ export class TraceStore {
     const limit = options.limit ?? 100;
     const rows: TraceSummary[] = [];
     for (let i = this.traces.length - 1; i >= 0 && rows.length < limit; i--) {
-      const t = this.traces[i]!;
+      const t = this.traces[i];
+      if (t === undefined) continue;
       if (options.errorOnly && !t.error) continue;
       rows.push({
         id: t.id,
@@ -90,7 +91,8 @@ export class TraceStore {
     const limit = options.limit ?? 100;
     const out: RequestTrace[] = [];
     for (let i = this.traces.length - 1; i >= 0 && out.length < limit; i--) {
-      const t = this.traces[i]!;
+      const t = this.traces[i];
+      if (t === undefined) continue;
       if (t.error) out.push(t);
     }
     return out;

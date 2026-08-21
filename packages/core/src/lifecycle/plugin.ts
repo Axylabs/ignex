@@ -299,7 +299,8 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
                 // `await`-in-loop semantics with exactly one call per plugin.
                 let chain = result.then((r) => (r instanceof Response ? r : current));
                 for (let j = i + 1; j < onResponsePlugins.length; j++) {
-                  const plugin = onResponsePlugins[j]!;
+                  const plugin = onResponsePlugins[j];
+                  if (plugin === undefined) continue;
                   chain = chain.then(async (prev) => {
                     const r = await plugin.onResponse?.(ctx, prev);
                     return r instanceof Response ? r : prev;

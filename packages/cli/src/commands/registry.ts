@@ -27,6 +27,7 @@ import { runOps } from "./ops.js";
 import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
 import { runRouteList } from "./route-list.js";
+import { runSchedule } from "./schedule-run.js";
 import { runSdk } from "./sdk.js";
 import { runSeed } from "./seed.js";
 import { runTinker } from "./tinker.js";
@@ -163,6 +164,15 @@ export const commands: readonly Command[] = [
   --name <name>                 Migration name (with create) / target (with down)
   --db <mongo|sql>              mongo (ninox, default) or sql (drizzle-kit)`,
     run: runMigrate,
+  },
+  {
+    name: "schedule:run",
+    aliases: ["schedule", "scheduler"],
+    group: "Develop",
+    description: "Run scheduled jobs as a worker (src/schedule.ts)",
+    options: `  --root <dir>                  Project root
+  --once                        Process due jobs once, then exit`,
+    run: runSchedule,
   },
   {
     name: "seed",
