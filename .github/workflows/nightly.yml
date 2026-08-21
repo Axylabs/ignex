@@ -152,3 +152,10 @@ jobs:
 
       - name: Validate compare reports
         run: bun run bench:compare:check
+
+      # Elysia-relative perf gate: ignus-aot per-route median p50 must be ≤
+      # elysia × tolerance (see scripts/check-compare-gate.ts). Fails the
+      # nightly on a real regression; KNOWN_SLOWER scenarios carry their own
+      # (looser) tolerance so the gate is honest, not skipped.
+      - name: Compare gate (ignus-aot vs elysia)
+        run: bun run bench:compare:gate

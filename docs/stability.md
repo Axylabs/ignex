@@ -168,6 +168,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
 | `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |
+| `bun run bench:compare:gate` | Elysia-relative perf gate: ignus-aot per-route median p50 ≤ elysia × tolerance (default 1.10; KNOWN_SLOWER scenarios looser). Nightly job. |
 
 ### CI gate matrix (see `.github/workflows/ci.yml`)
 
