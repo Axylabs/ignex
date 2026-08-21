@@ -18,5 +18,11 @@ export {
 export { createFileStore, type FileStoreOptions } from "./file";
 export { createStoreManager, type StoreManagerOptions } from "./manager";
 export { createMemoryStore, type MemoryStoreOptions } from "./memory";
+export {
+  createRedisStore,
+  type RedisLike,
+  type RedisStoreOptions,
+  redisMissingError,
+} from "./redis";
 export { createSqliteStore, type SqliteStoreOptions } from "./sqlite";
 export type { MaybePromise, Store, StoreSetOptions } from "./types";
