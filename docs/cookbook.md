@@ -294,6 +294,37 @@ emitToUser("u-42", "order.update", { orderId: "o-1" });
   route + an example consumer (offers to install `@ignex/nova`).
 - Install: `bun add @ignex/nova`.
 
+## Mail & notifications
+
+`createMailer` wraps a standard driver (built-in `log` driver for dev/tests;
+`nodemailer` SMTP driver opt-in) — never a new SMTP stack. `createNotifier`
+pushes typed events to a user's sockets via `@ignex/nova` with an email
+fallback for offline users.
+
+```ts
+import { createMailer, createNotifier } from "@ignex/core";
+
+// dev: log driver (no SMTP needed); prod: swap to { driver: "smtp", smtp: {...} }
+const mailer = createMailer();
+
+const notify = createNotifier({
+  mailer,
+  // name → email subject (sends a fallback email when the user is offline)
+  emailSubjects: { "order.update": "Your order changed" },
+});
+
+// realtime push to u-42's sockets (via @ignex/nova) + fallback email
+await notify.user({ id: "u-42", email: "user@example.com" }, "order.update", {
+  orderId: "o-1",
+});
+
+// send a raw email (log driver writes to console)
+await mailer.send({ to: "x@y.z", subject: "Hi", text: "body" });
+```
+
+The mailer never throws on the request path — pair `send` with a durable job
+(`queue.enqueue({ name: "send-email", payload })`) for reliable delivery.
+
 ## Caching
 
 ```ts

@@ -301,6 +301,19 @@ export {
   createStoreJobStore,
   newJobId,
 } from "./platform/jobs-store";
+export {
+  createMailer,
+  type Mailer,
+  type MailerOptions,
+  type MailMessage,
+  type MailSendResult,
+} from "./platform/mailer";
+export {
+  createNotifier,
+  type Notifier,
+  type NotifierOptions,
+  type NotifyUser,
+} from "./platform/notifier";
 export { installProcessGuards } from "./platform/process-guards";
 export {
   createScheduler,
