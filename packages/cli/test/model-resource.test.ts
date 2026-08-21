@@ -71,21 +71,20 @@ test("parseModelFields fails loud on malformed specs (no silent drop)", () => {
   expect(() => parseModelFields("role:enum( )")).toThrow(/Invalid enum/);
 });
 
-test("dbTemplate emits a live db handle + dbPlugin (connects at boot)", () => {
+test("dbTemplate emits a live db handle + dbPlugin (connects lazily at boot)", () => {
   const code = dbTemplate("Gig");
   expect(code).toContain("export const { service, migrations } = createMongoToolkit(");
   // Versioned migrations are pinned to src/migrations (`ignex migrate up`).
   expect(code).toContain('migrationDir: "src/migrations"');
-  // Eager top-level connect so module top-level `db.*` access (e.g. HotCache
-  // watch refs reading `db.client`) works before any request.
-  expect(code).toContain("await service.makeConnections();");
-  expect(code.indexOf("await service.makeConnections();")).toBeLessThan(
-    code.indexOf("export const db:"),
-  );
+  // Connections open LAZILY via dbPlugin().init() at server boot, NOT at module
+  // load: the AOT compiler imports route modules to extract schemas, and an
+  // eager top-level connect would leave Mongo sockets open after the build.
+  expect(code).not.toContain("await service.makeConnections();\n\nexport const db");
   expect(code).toContain("export const db: typeof service.db.primaryClient = new Proxy(");
   expect(code).toContain("value.bind(manager)");
   expect(code).toContain("export const dbPlugin = (): IgnexPlugin => ({");
   expect(code).toContain('name: "db"');
+  // dbPlugin.init() owns the connection lifecycle (idempotent).
   expect(code).toContain("await service.makeConnections();");
   expect(code).toContain('await db.createSchema("gigs");');
   expect(code).toContain("await service.closeConnections();");

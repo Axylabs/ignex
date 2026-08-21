@@ -200,6 +200,7 @@ export {
 } from "./http/router";
 export { formatSSE, type SSEMessage, type SSEOptions, sse } from "./http/sse";
 export {
+  DEFAULT_SERVER_IDLE_TIMEOUT,
   DEV_CERT_FILENAMES,
   type DevCert,
   type DevCertKind,

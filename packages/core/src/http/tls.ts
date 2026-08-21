@@ -86,6 +86,21 @@ export const DEV_CERT_FILENAMES = { cert: "cert.pem", key: "key.pem" } as const;
 /** Default directory for generated dev certificates (cwd-relative). */
 export const defaultCertDir = (): string => join(process.cwd(), ".ignex", "certs");
 
+/**
+ * Default server `idleTimeout` (seconds) applied when the app config does not
+ * set one — Bun's documented HTTP default, made explicit so behavior is
+ * deterministic and documented rather than relying on the runtime's implicit
+ * value. Kept at parity with Bun's default (10s) so existing apps see no
+ * behavior change; override per app via `server.idleTimeout` (0 disables the
+ * timeout entirely).
+ *
+ * Note: this is the server-level idle timeout. It governs HTTP keep-alive
+ * connections; WebSocket connections have their own `idleTimeout` on the
+ * `websocket` handler (measured: server-level `idleTimeout` does NOT close
+ * sockets), so this default is safe for WS-heavy apps.
+ */
+export const DEFAULT_SERVER_IDLE_TIMEOUT = 10;
+
 /** Run a command synchronously; returns `true` when it exits 0. */
 const run = (cmd: string[], log: (m: string) => void): boolean => {
   try {

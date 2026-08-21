@@ -62,7 +62,7 @@ export class TraceStore {
     const limit = options.limit ?? 100;
     const rows: TraceSummary[] = [];
     for (let i = this.traces.length - 1; i >= 0 && rows.length < limit; i--) {
-      const t = this.traces[i];
+      const t = this.traces[i]!;
       if (options.errorOnly && !t.error) continue;
       rows.push({
         id: t.id,
@@ -90,7 +90,7 @@ export class TraceStore {
     const limit = options.limit ?? 100;
     const out: RequestTrace[] = [];
     for (let i = this.traces.length - 1; i >= 0 && out.length < limit; i--) {
-      const t = this.traces[i];
+      const t = this.traces[i]!;
       if (t.error) out.push(t);
     }
     return out;
@@ -115,7 +115,7 @@ export class TraceStore {
     if (this.traces.length === 0) return { avgMs: 0, p95Ms: 0 };
     const durations = this.traces.map((t) => t.durationMs).sort((a, b) => a - b);
     const avgMs = durations.reduce((a, b) => a + b, 0) / durations.length;
-    const p95 = durations[Math.min(durations.length - 1, Math.floor(durations.length * 0.95))];
+    const p95 = durations[Math.min(durations.length - 1, Math.floor(durations.length * 0.95))] ?? 0;
     return { avgMs, p95Ms: p95 };
   }
 }

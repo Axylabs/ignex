@@ -20,7 +20,12 @@ import {
   type IgnexServer,
 } from "../http/context";
 import type { IgnexRouter } from "../http/router";
-import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
+import {
+  DEFAULT_SERVER_IDLE_TIMEOUT,
+  resolveServeTls,
+  type ServerProtocolConfig,
+  type ServerTlsConfig,
+} from "../http/tls";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
@@ -95,7 +100,10 @@ export interface AppOptions {
  * `port`, `hostname`, `https`, `tls` and `certDir` are typed and handled by
  * ignex (including the HTTPS-by-default TLS resolution); every other key is
  * passed through to `Bun.serve` untyped (`websocket`, `maxRequestBodySize`,
- * `reusePort`, `headers`, `idleTimeout`, …).
+ * `reusePort`, `headers`, `idleTimeout`, …). When `idleTimeout` is not set,
+ * `DEFAULT_SERVER_IDLE_TIMEOUT` (10s — Bun's documented HTTP default) is
+ * applied so keep-alive behavior is deterministic; it governs HTTP
+ * connections only (WebSockets carry their own `idleTimeout`).
  */
 export type ServeOptions = Record<string, unknown> & {
   port?: number;
@@ -253,7 +261,20 @@ export const createApp = (options: AppOptions): IgnexApp => {
       // fire-and-forget promise) terminate the process; exit cleanly on an
       // uncaught exception so the supervisor can restart. See process-guards.
       installProcessGuards();
-      const { port = 3000, hostname = "0.0.0.0", https, tls, certDir, ...rest } = serveOptions;
+      const {
+        port = 3000,
+        hostname = "0.0.0.0",
+        https,
+        tls,
+        certDir,
+        idleTimeout,
+        ...rest
+      } = serveOptions;
+      // Explicit server-level idle timeout: applies Bun's documented default
+      // when the app doesn't configure one (deterministic behavior). It
+      // governs HTTP keep-alive connections only — WebSocket sockets carry
+      // their own `idleTimeout` on the `websocket` handler and are unaffected.
+      const resolvedIdleTimeout = idleTimeout ?? DEFAULT_SERVER_IDLE_TIMEOUT;
       // HTTPS by default: `Bun.serve` needs a `tls` block for TLS, so resolve
       // one up front (user certs, dev auto-generated certs, or a warned
       // HTTP/1 fallback in production).
@@ -291,6 +312,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
               router.fetch(req, srv as IgnexServer | undefined),
             port,
             hostname,
+            idleTimeout: resolvedIdleTimeout,
             ...tlsOpts,
             ...rest,
           }
@@ -298,6 +320,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
             fetch: (req: Request, srv: unknown) => handler(req, srv as IgnexServer | undefined),
             port,
             hostname,
+            idleTimeout: resolvedIdleTimeout,
             ...tlsOpts,
             ...rest,
           };

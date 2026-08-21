@@ -219,8 +219,12 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 ## 6. Further work (tracked, not yet scheduled)
 
 1. ~~Generated-server SIGTERM/SIGINT → `__server.stop(true)` drain.~~ ✅ 2026-08-19
-2. Default server `idleTimeout` (currently only applied when the app config sets
-   it).
+2. ~~Default server `idleTimeout` (currently only applied when the app config sets
+   it).~~ ✅ 2026-08-22 — `DEFAULT_SERVER_IDLE_TIMEOUT` (10s, Bun's documented HTTP
+   default) is applied by both the AOT codegen (`__serverCfg.idleTimeout ??
+   DEFAULT_SERVER_IDLE_TIMEOUT`) and the interpreted `createApp().serve()` path
+   unless the app sets `server.idleTimeout`; WebSockets are unaffected (their own
+   handler `idleTimeout`). Covered by compiler + core tests.
 3. ~~Nightly malformed-FFI fuzz job~~ — JS-side malformed-input fuzz landed
    (`scripts/fuzz-malformed-input.ts`, wired into `nightly.yml` 2026-08-19); the
    Rust-side catch_unwind/fuzz remains cross-repo with castrum.

@@ -351,7 +351,7 @@ const deepEqual = (a: unknown, b: unknown): boolean => {
 
 /** Minimal semver range check (`>=X <Y` form) — the current manual approach. */
 const semverSatisfies = (version: string, range: string): boolean => {
-  const [vMajor, vMinor, vPatch] = version.split(".").map((n) => Number(n));
+  const [vMajor = 0, vMinor = 0, vPatch = 0] = version.split(".").map((n) => Number(n));
   const lower = />=(\d+)\.(\d+)\.(\d+)/.exec(range);
   const upper = /<(\d+)\.(\d+)\.(\d+)/.exec(range);
   if (lower) {

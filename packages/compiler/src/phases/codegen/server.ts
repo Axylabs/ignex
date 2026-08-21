@@ -65,7 +65,7 @@ __serveOptions.websocket ??= {
     }
   }
   functions.push(
-    `if (__serverCfg.idleTimeout) __serveOptions.idleTimeout = __serverCfg.idleTimeout;`,
+    `__serveOptions.idleTimeout = __serverCfg.idleTimeout ?? DEFAULT_SERVER_IDLE_TIMEOUT;`,
   );
 
   // Static default response headers (security headers, wildcard CORS): served
@@ -117,6 +117,7 @@ process.on("SIGINT", () => process.exit(0));`);
   // actually references: header-required symbols, per-route core deps
   // (markCore), and the transitive core deps of used generated helpers.
   const neededCore = new Set<string>([
+    "DEFAULT_SERVER_IDLE_TIMEOUT",
     "EMPTY_LIFECYCLE",
     "installProcessGuards",
     "resolveServeTls",

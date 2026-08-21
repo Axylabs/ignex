@@ -46,6 +46,22 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain('+ __serveTls.protocol + "://"');
   });
 
+  it("emits a default server idleTimeout (deterministic keep-alive)", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // The generated server must apply Bun's documented idle timeout by
+    // default (rather than only when the app config sets it), so HTTP
+    // keep-alive behavior is deterministic. `server.idleTimeout` overrides.
+    expect(result.code).toMatch(
+      /__serveOptions\.idleTimeout = __serverCfg\.idleTimeout \?\? DEFAULT_SERVER_IDLE_TIMEOUT;/,
+    );
+    expect(result.code).toMatch(
+      /import \{[^}]*\bDEFAULT_SERVER_IDLE_TIMEOUT\b[^}]*\} from "@ignex\/core"/,
+    );
+  });
+
   it("emits graceful shutdown on SIGTERM/SIGINT", async () => {
     const layout = materializeFixture("basic");
     const result = await buildAsync(baseOptions(layout));

@@ -95,7 +95,7 @@ export const runHooks = (
   if (!hooks || hooks.length === 0) return { ctx: current };
   const fns = flattenHooks(hooks);
   for (let i = 0; i < fns.length; i++) {
-    const r = arg === undefined ? fns[i](current) : fns[i](current, arg);
+    const r = arg === undefined ? fns[i]!(current) : fns[i]!(current, arg);
     if (r instanceof Promise) {
       // An async hook: interpret it, then continue the remainder asynchronously.
       return (async () => {
@@ -128,7 +128,7 @@ async function runHooksAsync(
 ): Promise<RunHooksResult> {
   let current = ctx;
   for (let i = start; i < fns.length; i++) {
-    const r = arg === undefined ? fns[i](current) : fns[i](current, arg);
+    const r = arg === undefined ? fns[i]!(current) : fns[i]!(current, arg);
     // Only await actual Promises — a sync hook in the async continuation must
     // not introduce an extra microtask (preserves the original timing/ordering
     // of the interpreted path).

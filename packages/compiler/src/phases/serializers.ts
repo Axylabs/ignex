@@ -157,12 +157,14 @@ export default serialize;
 
       ctx.logger.info(`Precompiled serializer for ${route.source.method} ${route.source.path}`);
 
+      const jsonSerializer = byStatus["200"] ?? Object.values(byStatus)[0];
+
       return {
         ...route,
         decisions: {
           ...route.decisions,
           serializers: {
-            json: byStatus["200"] ?? Object.values(byStatus)[0],
+            ...(jsonSerializer !== undefined ? { json: jsonSerializer } : {}),
             byStatus,
           },
         },

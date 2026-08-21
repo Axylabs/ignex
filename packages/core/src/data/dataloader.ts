@@ -147,7 +147,7 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
     }
 
     for (let i = 0; i < batch.keys.length; i++) {
-      settleKey(batch.keys[i] as Key, values[i], batch.callbacks[i]);
+      settleKey(batch.keys[i] as Key, values[i] as Value, batch.callbacks[i]);
     }
   };
 

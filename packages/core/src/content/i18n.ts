@@ -109,9 +109,9 @@ interface Preference {
 /** Parse an `Accept-Language` header into weighted preferences. */
 const parsePreferences = (acceptLanguage: string): Preference[] =>
   acceptLanguage.split(",").map((part) => {
-    const [tag, ...params] = part.trim().split(";");
+    const tag = part.trim().split(";")[0] ?? "";
     let q = 1;
-    for (const param of params) {
+    for (const param of part.trim().split(";").slice(1)) {
       const eq = param.indexOf("=");
       if (eq >= 0 && param.slice(0, eq).trim() === "q") {
         const parsed = Number(param.slice(eq + 1).trim());
@@ -154,7 +154,7 @@ const matchCompiled = (pref: Preference, compiled: CompiledLocales): string | un
   if (pref.tag === "") return compiled.supported[0];
   const exact = compiled.byTag.get(pref.tag);
   if (exact !== undefined) return exact;
-  const base = pref.tag.split("-")[0];
+  const base = pref.tag.split("-")[0] ?? "";
   return compiled.byTag.get(base);
 };
 

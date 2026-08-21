@@ -14,7 +14,7 @@
  *   - a per-job STORE failure (complete/fail/enqueue throws) is surfaced via
  *     `onError` instead of becoming an unhandled rejection.
  */
-import { createApp, type IgnexPlugin } from "@ignex/core";
+import { createApp, DEFAULT_SERVER_IDLE_TIMEOUT, type IgnexPlugin } from "@ignex/core";
 import type { JobStore, StoredJob } from "@ignex/core/jobs";
 import { createDurableJobQueue } from "@ignex/core/jobs";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -304,5 +304,30 @@ describe("durable queue per-job store failure", () => {
     await queue.stop();
     process.off("unhandledRejection", onUnhandled);
     expect(unhandled).toEqual([]);
+  });
+});
+
+describe("server idleTimeout default", () => {
+  it("applies DEFAULT_SERVER_IDLE_TIMEOUT when the app sets no idleTimeout", async () => {
+    const { serve } = stubBun();
+    const app = createApp({
+      handler: () => new Response("ok"),
+    });
+    app.serve({ https: false, port: 0 });
+    await flush();
+    expect(serve).toHaveBeenCalledTimes(1);
+    const opts = serve.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.idleTimeout).toBe(DEFAULT_SERVER_IDLE_TIMEOUT);
+  });
+
+  it("respects an explicit server idleTimeout override", async () => {
+    const { serve } = stubBun();
+    const app = createApp({
+      handler: () => new Response("ok"),
+    });
+    app.serve({ https: false, port: 0, idleTimeout: 120 });
+    await flush();
+    const opts = serve.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.idleTimeout).toBe(120);
   });
 });

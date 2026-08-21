@@ -255,13 +255,13 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
 
     // GET {path}/api/requests/:id/replay
     const replayMatch = apiPath.match(/^requests\/([^/]+)\/replay$/);
-    if (replayMatch && ctx.method === "POST") {
+    if (replayMatch?.[1] !== undefined && ctx.method === "POST") {
       return replayRequest(state.store, decodeURIComponent(replayMatch[1]), ctx, options.dispatch);
     }
 
     // GET {path}/api/requests/:id
     const idMatch = apiPath.match(/^requests\/([^/]+)$/);
-    if (idMatch) {
+    if (idMatch?.[1] !== undefined) {
       const trace = state.store.get(decodeURIComponent(idMatch[1]));
       return trace ? json(redactRequestTrace(trace)) : json({ error: "not_found" }, 404);
     }
@@ -306,12 +306,16 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     router.get(`${path}/api/kt`, async (ctx) => serveApi("kt", ctx));
     router.get(`${path}/api/sdks`, async (ctx) => serveApi("sdks", ctx));
     router.get(`${path}/api/requests/:id`, (ctx) => {
-      const trace = state.store.get(ctx.params.id);
+      const id = ctx.params.id;
+      if (id === undefined) return json({ error: "not_found" }, 404);
+      const trace = state.store.get(id);
       return trace ? json(redactRequestTrace(trace)) : json({ error: "not_found" }, 404);
     });
-    router.post(`${path}/api/requests/:id/replay`, (ctx) =>
-      replayRequest(state.store, ctx.params.id, ctx, options.dispatch),
-    );
+    router.post(`${path}/api/requests/:id/replay`, (ctx) => {
+      const id = ctx.params.id;
+      if (id === undefined) return json({ error: "not_found" }, 404);
+      return replayRequest(state.store, id, ctx, options.dispatch);
+    });
   };
 
   // ── request lifecycle ───────────────────────────────────────────────────

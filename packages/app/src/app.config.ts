@@ -14,12 +14,18 @@ import {
   session,
 } from "@ignex/core";
 import { env } from "./config/env.js";
+import { dbPlugin } from "./db.js";
 import { middleware } from "./middleware/index.js";
 import { logRequests, markResponse } from "./middleware/log-requests.js";
 
 export const plugins: IgnexPlugin[] = [
   // Custom global plugins (see src/middleware/) — run on every request.
   ...middleware,
+  // MongoDB toolkit lifecycle: connects at boot (validators/indexes), closes
+  // at shutdown. Connections are opened lazily here — NOT at db.ts module load
+  // — so the AOT compiler (which imports route modules to extract schemas)
+  // never leaves open Mongo sockets behind after a build.
+  dbPlugin(),
   compression(),
   // Developer debug dashboard (traces, waterfall, errors + replay, system
   // profile, SDK list, KT docs) at `/__debugbar`. Registered only when the

@@ -231,19 +231,19 @@ export const { service, migrations } = createMongoToolkit(
   },
 );
 
-// Connect eagerly at module load so db.* is usable from module top-level code
-// (e.g. a HotCache watch ref that reads db.client). Every module that imports
-// this file waits for the connection before its own top-level code runs —
-// without this, top-level db.* access would hit an empty manager.
-// makeConnections is idempotent, so dbPlugin().init() below can reuse it.
-await service.makeConnections();
+// NOTE: connections are intentionally NOT opened at module load. The ignex
+// compiler imports route modules at build time to extract schemas; an eager
+// \`await service.makeConnections()\` here would open Mongo sockets that keep the
+// build process alive after compilation finishes. The connection is opened
+// lazily by dbPlugin().init() at server boot (idempotent) — routes only touch
+// \`db\` inside request handlers, which always run after init().
 
 // The typed CRUD manager used by the generated resource routes.
 //
-// service.db.primaryClient is only populated after service.makeConnections()
-// (done above at module load). A plain module-scope snapshot would stay
-// undefined for every request, so db is a proxy that resolves the live
-// manager on each access — routes can safely call db.insertOne(...).
+// service.db.primaryClient is populated by makeConnections() (called lazily by
+// dbPlugin().init() at server boot). A plain module-scope snapshot would stay
+// undefined until then, so db is a proxy that resolves the live manager on
+// each access — routes can safely call db.insertOne(...) after boot.
 export const db: typeof service.db.primaryClient = new Proxy(
   {} as typeof service.db.primaryClient,
   {

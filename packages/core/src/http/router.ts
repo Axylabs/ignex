@@ -346,7 +346,7 @@ export const createRouter = (): IgnexRouter => {
     const { re, keys } = pathToRegex(reg.path);
     const m = re.exec(pathname);
     if (!m) return undefined;
-    return Object.fromEntries(keys.map((k, i) => [k, safeDecode(m[i + 1])]));
+    return Object.fromEntries(keys.map((k, i) => [k, safeDecode(m[i + 1] ?? "")]));
   };
 
   /** Pass 1 — exact static-path match for `method` (Bun-native specificity). */

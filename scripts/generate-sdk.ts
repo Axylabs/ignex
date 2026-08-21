@@ -54,7 +54,7 @@ const VALUE_FLAGS = new Set([
 function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+    const arg = argv[i]!;
     if (!arg.startsWith("--")) continue;
     const eq = arg.indexOf("=");
     const name = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
@@ -107,8 +107,8 @@ const distribute = (
     const ghToken = flag(flags, "token");
     const repo = createSdkGithubRelease({
       tag,
-      tarball,
       cwd: ROOT,
+      ...(tarball !== undefined ? { tarball } : {}),
       ...(ghRepo !== undefined ? { repo: ghRepo } : {}),
       ...(ghToken !== undefined ? { token: ghToken } : {}),
     });

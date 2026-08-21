@@ -287,7 +287,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
             fn: (ctx: IgnexContext, response: Response) => {
               let current: Response = response;
               for (let i = 0; i < onResponsePlugins.length; i++) {
-                const result = onResponsePlugins[i].onResponse?.(ctx, current);
+                const result = onResponsePlugins[i]?.onResponse?.(ctx, current);
                 if (!isThenable(result)) {
                   if (result instanceof Response) current = result;
                   continue;
@@ -299,7 +299,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
                 // `await`-in-loop semantics with exactly one call per plugin.
                 let chain = result.then((r) => (r instanceof Response ? r : current));
                 for (let j = i + 1; j < onResponsePlugins.length; j++) {
-                  const plugin = onResponsePlugins[j];
+                  const plugin = onResponsePlugins[j]!;
                   chain = chain.then(async (prev) => {
                     const r = await plugin.onResponse?.(ctx, prev);
                     return r instanceof Response ? r : prev;

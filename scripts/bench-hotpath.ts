@@ -89,7 +89,7 @@ function opsPerSec(fn: () => void, durationMs = DURATION_MS): number {
 /** Median of an array. */
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)];
+  return s[Math.floor(s.length / 2)]!;
 }
 
 interface Variant {
@@ -111,11 +111,11 @@ function benchGroup(name: string, variants: Variant[]): Record<string, number> {
     }
   }
 
-  for (const v of variants) results[v.name] = median(samples[v.name]);
+  for (const v of variants) results[v.name] = median(samples[v.name]!);
 
-  const baseline = results[variants[0]?.name];
+  const baseline = results[variants[0]!.name]!;
   const rows = variants.map((v) => {
-    const r = results[v.name];
+    const r = results[v.name]!;
     const ratio = baseline > 0 ? r / baseline : Number.NaN;
     return { name: v.name, ops: r, ratio };
   });

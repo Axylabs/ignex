@@ -118,7 +118,7 @@ function parseCli(argv: string[]): CliArgs {
   const flags = new Map<string, string | true>();
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+    const arg = argv[i]!;
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
@@ -255,14 +255,14 @@ function bumpVersion(version: string, bump: BumpKind): string {
     return parts.join(".");
   }
   if (bump === "major") {
-    parts[0] += 1;
+    parts[0]! += 1;
     parts[1] = 0;
     parts[2] = 0;
   } else if (bump === "minor") {
-    parts[1] += 1;
+    parts[1]! += 1;
     parts[2] = 0;
   } else {
-    parts[2] += 1;
+    parts[2]! += 1;
   }
   return parts.join(".");
 }

@@ -55,17 +55,17 @@ afterAll(() => {
 describe("generated client against compiled server (E2E)", () => {
   it("GET /health via the generated client", async () => {
     const client = createApiClient(server.base);
-    await expect(client["/health"].get()).resolves.toEqual({ status: "ok" });
+    await expect(client["/health"]!.get!()).resolves.toEqual({ status: "ok" });
   });
 
   it("URL-encodes params into /users/:id", async () => {
     const client = createApiClient(server.base);
-    await expect(client["/users/:id"].get({ id: "a b/42" })).resolves.toEqual({ id: "a b/42" });
+    await expect(client["/users/:id"]!.get!({ id: "a b/42" })).resolves.toEqual({ id: "a b/42" });
   });
 
   it("POSTs a JSON body to /body", async () => {
     const client = createApiClient(server.base);
-    const res = (await client["/body"].post({ hello: "world" })) as {
+    const res = (await client["/body"]!.post!({ hello: "world" })) as {
       value: Record<string, unknown>;
     };
     expect(res.value).toEqual({ hello: "world" });
@@ -73,17 +73,17 @@ describe("generated client against compiled server (E2E)", () => {
 
   it('supports ROUTES-key access ("get /health")', async () => {
     const client = createApiClient(server.base);
-    await expect(client["get /health"].get()).resolves.toEqual({ status: "ok" });
+    await expect(client["get /health"]!.get!()).resolves.toEqual({ status: "ok" });
   });
 
   it("throws a status-carrying Error on 404", async () => {
     const client = createApiClient(server.base);
-    await expect(client["/definitely-missing"].get()).rejects.toMatchObject({ status: 404 });
+    await expect(client["/definitely-missing"]!.get!()).rejects.toMatchObject({ status: 404 });
   });
 
   it("merges client-wide and per-call headers (deep merge)", async () => {
     const client = createApiClient(server.base, { headers: { "x-test": "from-base" } });
-    const res = (await client["/headers"].get({ headers: { "x-multi": "from-call" } })) as {
+    const res = (await client["/headers"]!.get!({ headers: { "x-multi": "from-call" } })) as {
       headers: Record<string, string>;
     };
     expect(res.headers["x-test"]).toBe("from-base");

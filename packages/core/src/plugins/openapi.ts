@@ -138,7 +138,7 @@ const swaggerUiHtml = (
 
 /** Path parameter names from a Bun-syntax path (`/users/:id` → `["id"]`). */
 const paramNamesOf = (path: string): readonly string[] =>
-  [...path.matchAll(/:([A-Za-z0-9_]+)/g)].map((match) => match[1]);
+  [...path.matchAll(/:([A-Za-z0-9_]+)/g)].map((match) => match[1] ?? "").filter(Boolean);
 
 /**
  * True when the last path segment carries a file extension (`/assets/app.js`,
