@@ -393,7 +393,10 @@ function renderSystem() {
 /* ── KT ─────────────────────────────────────────────────────── */
 function renderKt() {
   api("/kt").then(function (res) {
-    $("view").innerHTML = '<div class="panel markdown">' + md(res.markdown) + "</div>";
+    // Prefer the server-rendered sanitized HTML (Bun.markdown); fall back to
+    // the tiny client-side renderer when the API returns raw markdown only.
+    var html = res.html || md(res.markdown);
+    $("view").innerHTML = '<div class="panel markdown">' + html + "</div>";
   }).catch(function (e) { $("view").innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + "</div></div>"; });
 }
 

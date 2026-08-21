@@ -27,6 +27,7 @@
 import { createDebugApi } from "../debug/api";
 import { DEBUGBAR_DASHBOARD_HTML, DEBUGBAR_DASHBOARD_JS } from "../debug/dashboard";
 import { buildAppKnowledge, formatKnowledgeMarkdown } from "../debug/kt";
+import { renderMarkdownHtml } from "../debug/markdown";
 import { replayRequest, serverBaseUrl } from "../debug/replay";
 import { html, json, notFound } from "../debug/respond";
 import { TraceStore } from "../debug/store";
@@ -209,7 +210,11 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     return notFound();
   };
 
-  const ktData = async (): Promise<{ markdown: string; knowledge: AppKnowledge }> => {
+  const ktData = async (): Promise<{
+    markdown: string;
+    html: string | null;
+    knowledge: AppKnowledge;
+  }> => {
     const knowledgeOptions: KnowledgeOptions & { router?: IgnexRouter } = {
       serviceName: state.serviceName,
       version: state.version,
@@ -231,7 +236,10 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     };
     if (state.router) knowledgeOptions.router = state.router;
     const knowledge = await buildAppKnowledge(knowledgeOptions);
-    return { markdown: formatKnowledgeMarkdown(knowledge), knowledge };
+    const markdown = formatKnowledgeMarkdown(knowledge);
+    // Server-rendered sanitized HTML (Bun.markdown) preferred by the dashboard;
+    // `markdown` is kept for clients without the builtin (and tests).
+    return { markdown, html: renderMarkdownHtml(markdown), knowledge };
   };
 
   /** GET {path}/api/jobs — durable job store panel (optional data.jobs). */
