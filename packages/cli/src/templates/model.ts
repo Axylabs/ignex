@@ -13,6 +13,12 @@ export interface ModelField {
   readonly line: string;
   /** The TS type name for OpenAPI/type purposes (informational). */
   readonly type: string;
+  /** The RAW field spec from the DSL (e.g. `string(format email)`, `enum(a,b)`,
+   *  `array(integer)`, `integer`). Consumers like the factory generator use
+   *  this to reproduce values without re-parsing the rendered line. */
+  readonly spec: string;
+  /** True when the field was declared optional (`name:string?`). */
+  readonly optional: boolean;
 }
 
 /**
@@ -51,7 +57,8 @@ const splitFields = (input: string): string[] => {
  * field would otherwise produce a schema missing data the user asked for.
  */
 export const parseModelFields = (input: string | undefined): ModelField[] => {
-  if (!input?.trim()) return [{ line: "name: s.string(),", type: "string" }];
+  if (!input?.trim())
+    return [{ line: "name: s.string(),", type: "string", spec: "string", optional: false }];
 
   const out: ModelField[] = [];
   for (const raw of splitFields(input)) {
@@ -90,6 +97,8 @@ const renderField = (name: string, spec: string, optional: boolean): ModelField 
   const literal = (expr: string, type: string): ModelField => ({
     line: `${name}: ${expr}${suffix},`,
     type,
+    spec,
+    optional,
   });
 
   if (!spec || spec === "string") return literal("s.string()", "string");

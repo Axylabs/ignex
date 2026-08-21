@@ -16,6 +16,7 @@ import { runCreate } from "./create.js";
 import { runDev } from "./dev.js";
 import { runDoctor } from "./doctor.js";
 import { runEvent } from "./event.js";
+import { runFactory } from "./factory.js";
 import { runHook } from "./hook.js";
 import { runHotRoute } from "./hotroute.js";
 import { runInfo } from "./info.js";
@@ -213,6 +214,18 @@ export const commands: readonly Command[] = [
     group: "Develop",
     description: "Show app/compiler info",
     run: runInfo,
+  },
+  {
+    name: "factory",
+    aliases: ["make:factory", "f"],
+    group: "Scaffold",
+    description: "Scaffold a test-data factory for a model",
+    options: `  <Name>                        Model name (PascalCase, e.g. User)
+  --root <dir>                  Project root
+  --dir <dir>                   Override factories directory
+  --fields <list>               Comma-separated fields (same DSL as ignex model)
+  --force                       Overwrite existing factory`,
+    run: runFactory,
   },
   {
     name: "route:list",

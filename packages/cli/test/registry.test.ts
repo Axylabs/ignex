@@ -93,3 +93,11 @@ it("declares route:list with json + method filters", () => {
   expect(help).toContain("--json");
   expect(help).toContain("--methods");
 });
+
+it("declares the factory scaffold command", () => {
+  expect(findCommand("factory")?.name).toBe("factory");
+  expect(findCommand("make:factory")?.name).toBe("factory");
+  const help = renderCommandHelp(findCommand("factory") as never);
+  expect(help).toContain("--fields");
+  expect(help).toContain("--force");
+});
