@@ -13,6 +13,7 @@ export * from "./cors";
 export * from "./csrf";
 export * from "./debugbar";
 export * from "./logger";
+export * from "./metrics";
 export * from "./native";
 export * from "./nova";
 export * from "./openapi";

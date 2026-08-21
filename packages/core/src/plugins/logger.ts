@@ -49,8 +49,10 @@ const createLogPayload = (ctx: IgnexContext, response: Response) => {
     requestId: ctx.getState<string>("requestId") ?? ctx.requestId,
     method: ctx.method,
     path: ctx.path,
+    route: ctx.route ? String(ctx.route) : undefined,
     status: response.status,
     durationMs: Math.round(duration * 1000) / 1000,
+    ip: ctx.ip,
     timestamp: new Date().toISOString(),
   };
 };

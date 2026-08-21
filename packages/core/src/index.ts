@@ -319,6 +319,14 @@ export {
   type MailSendResult,
 } from "./platform/mailer";
 export {
+  type Counter,
+  createMetrics,
+  type Histogram,
+  type Metrics,
+  type MetricsOptions,
+  type MetricsSnapshot,
+} from "./platform/metrics";
+export {
   createNotifier,
   type Notifier,
   type NotifierOptions,
@@ -347,6 +355,12 @@ export { type CorsOptions, cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { type DebugbarOptions, debugbar } from "./plugins/debugbar";
 export { type LoggerOptions, logger } from "./plugins/logger";
+export {
+  createOtlpExporter,
+  type MetricsPluginOptions,
+  metricsPlugin,
+  type OtlpExporterOptions,
+} from "./plugins/metrics";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
 export {
   type NovaAuthResult,
