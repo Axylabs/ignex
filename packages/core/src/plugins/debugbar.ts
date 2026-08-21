@@ -77,6 +77,18 @@ export interface DebugbarOptions {
   /** Plugin inventory for the KT page (extend with your own plugins). */
   plugins?: string[];
   /**
+   * Optional data sources for the extra debugbar panels:
+   *  - `jobs` — a durable JobStore; shows queued/running/completed/failed
+   *    job counts + recent jobs.
+   *  - `routes` — a function returning the current route list (method, path,
+   *    file) for the Routes panel; defaults to the router/manifest map the
+   *    KT page already builds.
+   */
+  data?: {
+    jobs?: { list(): Promise<Array<{ name: string; status: string; runAt: number }>> };
+    routes?: () => Promise<Array<{ method: string; path: string; file: string }>>;
+  };
+  /**
    * Explicit replay dispatcher, e.g. `(req) => app.handler(req)`. When set,
    * replay re-issues the stored request through it (most faithful: same
    * process, full pipeline). When unset, replay uses the live Bun server's
@@ -222,76 +234,101 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     return { markdown: formatKnowledgeMarkdown(knowledge), knowledge };
   };
 
-  const serveApi = async (apiPath: string, ctx: IgnexContext): Promise<Response> => {
-    // GET {path}/api/meta
-    if (apiPath === "meta") {
+  /** GET {path}/api/jobs — durable job store panel (optional data.jobs). */
+  const serveJobs = async (): Promise<Response> => {
+    if (!options.data?.jobs) return json({ enabled: false });
+    try {
+      const jobs = await options.data.jobs.list();
       return json({
-        serviceName: state.serviceName,
-        version: state.version,
-        environment: process.env.NODE_ENV ?? "development",
-        debugMode: state.enabled,
-        path: state.path,
+        enabled: true,
+        total: jobs.length,
+        byStatus: jobs.reduce<Record<string, number>>((acc, j) => {
+          acc[j.status] = (acc[j.status] ?? 0) + 1;
+          return acc;
+        }, {}),
+        recent: jobs.slice(-20).reverse(),
       });
+    } catch (err) {
+      return json({ enabled: true, error: err instanceof Error ? err.message : String(err) });
     }
+  };
 
-    // GET {path}/api/requests?limit=&error=
-    if (apiPath === "requests") {
-      const url = ctx.url;
-      const limit = Number(url.searchParams.get("limit") ?? 100);
-      const errorOnly = url.searchParams.get("error") === "1";
-      return json(
-        state.store.summaries({
-          errorOnly,
-          limit: Number.isFinite(limit) ? limit : 100,
-        }),
-      );
+  /** GET {path}/api/routes — route inventory panel. */
+  const serveRoutes = async (): Promise<Response> => {
+    const provider = options.data?.routes;
+    if (!provider) {
+      const { knowledge } = await ktData();
+      return json({ enabled: true, routes: knowledge.routes });
     }
+    try {
+      return json({ enabled: true, routes: await provider() });
+    } catch (err) {
+      return json({ enabled: true, error: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
-    // GET {path}/api/requests/clear
+  const serveMeta = (): Response =>
+    json({
+      serviceName: state.serviceName,
+      version: state.version,
+      environment: process.env.NODE_ENV ?? "development",
+      debugMode: state.enabled,
+      path: state.path,
+    });
+
+  const serveRequests = (ctx: IgnexContext): Response => {
+    const url = ctx.url;
+    const limit = Number(url.searchParams.get("limit") ?? 100);
+    const errorOnly = url.searchParams.get("error") === "1";
+    return json(
+      state.store.summaries({
+        errorOnly,
+        limit: Number.isFinite(limit) ? limit : 100,
+      }),
+    );
+  };
+
+  const serveSystem = (): Response => {
+    const p = state.store.percentiles();
+    const stats: SystemStats = state.profiler.stats({
+      requests: state.store.size,
+      errors: state.store.errorCount,
+      avgMs: p.avgMs,
+      p95Ms: p.p95Ms,
+    });
+    return json(stats);
+  };
+
+  const serveKt = async (): Promise<Response> => json(await ktData());
+
+  const serveSdks = async (): Promise<Response> => {
+    const { knowledge } = await ktData();
+    return json({ sdk: knowledge.sdk });
+  };
+
+  const serveApi = async (apiPath: string, ctx: IgnexContext): Promise<Response> => {
+    if (apiPath === "meta") return serveMeta();
+    if (apiPath === "requests") return serveRequests(ctx);
     if (apiPath === "requests/clear") {
       state.store.clear();
       return json({ ok: true, cleared: true });
     }
-
-    // GET {path}/api/requests/:id/replay
     const replayMatch = apiPath.match(/^requests\/([^/]+)\/replay$/);
     if (replayMatch?.[1] !== undefined && ctx.method === "POST") {
       return replayRequest(state.store, decodeURIComponent(replayMatch[1]), ctx, options.dispatch);
     }
-
-    // GET {path}/api/requests/:id
     const idMatch = apiPath.match(/^requests\/([^/]+)$/);
     if (idMatch?.[1] !== undefined) {
       const trace = state.store.get(decodeURIComponent(idMatch[1]));
       return trace ? json(redactRequestTrace(trace)) : json({ error: "not_found" }, 404);
     }
-
-    // GET {path}/api/system
-    if (apiPath === "system") {
-      const p = state.store.percentiles();
-      const stats: SystemStats = state.profiler.stats({
-        requests: state.store.size,
-        errors: state.store.errorCount,
-        avgMs: p.avgMs,
-        p95Ms: p.p95Ms,
-      });
-      return json(stats);
-    }
-
-    // GET {path}/api/kt
-    if (apiPath === "kt") {
-      return json(await ktData());
-    }
-
-    // GET {path}/api/sdks
-    if (apiPath === "sdks") {
-      const { knowledge } = await ktData();
-      return json({ sdk: knowledge.sdk });
-    }
-
+    if (apiPath === "system") return serveSystem();
+    if (apiPath === "kt") return serveKt();
+    if (apiPath === "sdks") return serveSdks();
+    if (apiPath === "jobs") return serveJobs();
+    if (apiPath === "routes") return serveRoutes();
     return notFound();
   };
-
   // ── interpreted mode: register the dashboard routes on the router ───────
 
   const registerRoutes = (router: IgnexRouter): void => {
@@ -305,6 +342,8 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     router.get(`${path}/api/system`, (ctx) => serveApi("system", ctx));
     router.get(`${path}/api/kt`, async (ctx) => serveApi("kt", ctx));
     router.get(`${path}/api/sdks`, async (ctx) => serveApi("sdks", ctx));
+    router.get(`${path}/api/jobs`, async (ctx) => serveApi("jobs", ctx));
+    router.get(`${path}/api/routes`, async (ctx) => serveApi("routes", ctx));
     router.get(`${path}/api/requests/:id`, (ctx) => {
       const id = ctx.params.id;
       if (id === undefined) return json({ error: "not_found" }, 404);

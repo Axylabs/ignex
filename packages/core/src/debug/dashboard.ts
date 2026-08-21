@@ -97,6 +97,8 @@ export const DEBUGBAR_DASHBOARD_HTML = `<!doctype html>
       <nav>
         <button data-view="requests" class="active">Requests</button>
         <button data-view="errors">Errors</button>
+        <button data-view="jobs">Jobs</button>
+        <button data-view="routes">Routes</button>
         <button data-view="system">System</button>
         <button data-view="kt">KT · How it works</button>
       </nav>
@@ -399,8 +401,57 @@ function render() {
   if (state.view === "requests") renderList(false);
   else if (state.view === "errors") renderList(true);
   else if (state.view === "detail") renderDetail(state.detailId);
+  else if (state.view === "jobs") renderJobs();
+  else if (state.view === "routes") renderRoutes();
   else if (state.view === "system") renderSystem();
   else if (state.view === "kt") renderKt();
+}
+
+/* ── jobs panel ───────────────────────────────────────────────── */
+function renderJobs() {
+  api("/jobs").then(function (res) {
+    if (!res.enabled) {
+      $("view").innerHTML = '<div class="panel"><div class="empty">No job store wired — pass debugbar({ data: { jobs } }).</div></div>';
+      return;
+    }
+    if (res.error) {
+      $("view").innerHTML = '<div class="panel"><div class="empty">' + esc(res.error) + "</div></div>";
+      return;
+    }
+    var html = '<div class="panel"><h2>Jobs (' + res.total + ')</h2><div class="flex">';
+    var order = ["queued", "running", "completed", "failed"];
+    for (var i = 0; i < order.length; i++) {
+      var st = order[i];
+      html += '<div class="stat"><b>' + (res.byStatus[st] || 0) + '</b><br><span class="muted">' + st + "</span></div>";
+    }
+    html += "</div></div>";
+    html += '<div class="panel"><table><thead><tr><th>Name</th><th>Status</th><th>Run at</th></tr></thead><tbody>';
+    var rows = res.recent || [];
+    for (var i = 0; i < rows.length; i++) {
+      var j = rows[i];
+      html += "<tr><td>" + esc(j.name) + "</td><td>" + esc(j.status) + "</td><td>" + esc(new Date(j.runAt).toISOString()) + "</td></tr>";
+    }
+    html += "</tbody></table></div>";
+    $("view").innerHTML = html;
+  }).catch(function (e) { $("view").innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + "</div></div>"; });
+}
+
+/* ── routes panel ─────────────────────────────────────────────── */
+function renderRoutes() {
+  api("/routes").then(function (res) {
+    if (!res.enabled) {
+      $("view").innerHTML = '<div class="panel"><div class="empty">No route provider — the KT page still lists routes.</div></div>';
+      return;
+    }
+    var rows = res.routes || [];
+    var html = '<div class="panel"><h2>Routes (' + rows.length + ')</h2><table><thead><tr><th>Method</th><th>Path</th><th>File</th></tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      html += "<tr><td>" + esc(r.method) + "</td><td>" + esc(r.path) + "</td><td>" + esc(r.file || "") + "</td></tr>";
+    }
+    html += "</tbody></table></div>";
+    $("view").innerHTML = html;
+  }).catch(function (e) { $("view").innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + "</div></div>"; });
 }
 
 /* boot */

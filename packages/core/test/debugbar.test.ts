@@ -498,3 +498,68 @@ describe("debugbar plugin (interpreted router)", () => {
     expect(paths).toContain("/orders");
   });
 });
+
+// ── jobs + routes panels ────────────────────────────────────────
+
+describe("debugbar data panels", () => {
+  it("serves /api/jobs from an injected job store", async () => {
+    const plugin = debugbar({
+      enabled: true,
+      path: "/__debugbar",
+      data: {
+        jobs: {
+          list: async () => [
+            { name: "send-email", status: "completed", runAt: Date.now() },
+            { name: "send-email", status: "queued", runAt: Date.now() + 1000 },
+          ],
+        },
+      },
+    });
+    const app = createApp({
+      plugins: [plugin],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+    const res = await run(app, "/__debugbar/api/jobs");
+    const body = (await res.json()) as {
+      enabled: boolean;
+      total: number;
+      byStatus: Record<string, number>;
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.total).toBe(2);
+    expect(body.byStatus).toMatchObject({ completed: 1, queued: 1 });
+  });
+
+  it("serves /api/routes from an injected provider", async () => {
+    const plugin = debugbar({
+      enabled: true,
+      path: "/__debugbar",
+      data: {
+        routes: async () => [{ method: "GET", path: "/health", file: "health.get.ts" }],
+      },
+    });
+    const app = createApp({
+      plugins: [plugin],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+    const res = await run(app, "/__debugbar/api/routes");
+    const body = (await res.json()) as { enabled: boolean; routes: Array<{ path: string }> };
+    expect(body.enabled).toBe(true);
+    expect(body.routes).toHaveLength(1);
+    expect(body.routes[0]?.path).toBe("/health");
+  });
+
+  it("reports jobs as disabled when no store is wired", async () => {
+    const plugin = debugbar({ enabled: true, path: "/__debugbar" });
+    const app = createApp({
+      plugins: [plugin],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+    const res = await run(app, "/__debugbar/api/jobs");
+    const body = (await res.json()) as { enabled: boolean };
+    expect(body.enabled).toBe(false);
+  });
+});
