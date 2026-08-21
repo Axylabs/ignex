@@ -168,7 +168,7 @@ export const createOtlpExporter = (
     try {
       await fetch(options.endpoint, {
         method: "POST",
-        headers: { "content-type": "application/json", ...(options.headers ?? {}) },
+        headers: { "content-type": "application/json", ...options.headers },
         body: JSON.stringify(payload),
       });
     } catch (error) {
