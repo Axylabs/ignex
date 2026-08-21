@@ -25,8 +25,10 @@ import { runModel } from "./model.js";
 import { runOps } from "./ops.js";
 import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
+import { runRouteList } from "./route-list.js";
 import { runSdk } from "./sdk.js";
 import { runSeed } from "./seed.js";
+import { runTinker } from "./tinker.js";
 
 /** Help sections — keep the command list navigable. */
 export type CommandGroup = "Scaffold" | "Develop" | "Deploy" | "Integrate";
@@ -211,6 +213,25 @@ export const commands: readonly Command[] = [
     group: "Develop",
     description: "Show app/compiler info",
     run: runInfo,
+  },
+  {
+    name: "route:list",
+    aliases: ["routes", "rl"],
+    group: "Develop",
+    description: "List app routes (pretty table or --json) from manifest/routes dir",
+    options: `  --root <dir>                  Project root
+  --json                        Machine-readable JSON output
+  --methods <GET,POST>          Filter by method (comma-separated)`,
+    run: runRouteList,
+  },
+  {
+    name: "tinker",
+    aliases: ["repl", "console"],
+    group: "Develop",
+    description: "Interactive REPL in the app context (db, env, service, events)",
+    options: `  --root <dir>                  Project root
+  --no-db                       Skip the Mongo connect at boot`,
+    run: runTinker,
   },
   {
     name: "ops",

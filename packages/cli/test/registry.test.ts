@@ -76,3 +76,20 @@ describe("registry", () => {
     expect(cliVersion()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
+
+it("declares the tinker REPL command", () => {
+  expect(findCommand("tinker")?.name).toBe("tinker");
+  expect(findCommand("repl")?.name).toBe("tinker");
+  expect(findCommand("console")?.name).toBe("tinker");
+  const help = renderHelp();
+  expect(help).toContain("tinker");
+  expect(help).toContain("--no-db");
+});
+
+it("declares route:list with json + method filters", () => {
+  expect(findCommand("route:list")?.name).toBe("route:list");
+  expect(findCommand("rl")?.name).toBe("route:list");
+  const help = renderCommandHelp(findCommand("route:list") as never);
+  expect(help).toContain("--json");
+  expect(help).toContain("--methods");
+});
