@@ -356,7 +356,8 @@ for (const f of FORM_CASES) {
 // actually happened (not silently swallowed by a lucky oversized first guess).
 {
   checks++;
-  const pathological = QUERY_CASES[QUERY_CASES.length - 1]!;
+  const pathological = QUERY_CASES[QUERY_CASES.length - 1];
+  if (pathological === undefined) throw new Error("QUERY_CASES fixture vector missing");
   const bytes = enc(pathological);
   const packed = queryParsePacked(bytes);
   const initial = bytes.length * 4 + 16;

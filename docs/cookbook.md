@@ -220,6 +220,50 @@ export const wsHandler = createWSHandler({
 });
 ```
 
+## Typed realtime events (@ignex/nova)
+
+For typed pub/sub over WebSockets — rooms, groups, per-user delivery, NATS
+cluster sync, and a Rust FFI serializer — use the `novaPlugin` bridge:
+
+```ts
+// src/app.config.ts
+import { jwtAuth, novaPlugin } from "@ignex/core";
+
+export const plugins: IgnexPlugin[] = [
+  novaPlugin({
+    port: 3001,                 // the WS server port
+    path: "/ws",
+    inbound: ["chat"],          // events clients may SEND
+    // Bridge nova's WS auth to the app's JWT hook: the resolved claims become
+    // the client record (id / userId / groups / meta) the events layer uses.
+    authenticate: jwtAuth({ secret: env.JWT_SECRET }),
+    // Optional: cluster sync across instances (needs NATS running).
+    // nats: { servers: ["nats://localhost:4222"] },
+  }),
+];
+```
+
+```ts
+// anywhere in the app — typed emit / handle
+import { emitToUser, on } from "@ignex/nova/events";
+
+on("chat.message", (payload, ctx) => {
+  emitToUser(payload.to, "chat.delivered", { id: payload.id });
+});
+
+// from a route or job:
+emitToUser("u-42", "order.update", { orderId: "o-1" });
+```
+
+- **Clients** (browser + Bun): `createClient("ws://host:3001/ws")` from
+  `@ignex/nova/client` — `client.on("quote", cb)` / `client.send("chat", …)`
+  are typed against the event registry.
+- **Own events**: `generateBindings(schema)` from `@ignex/nova/generate` builds
+  the wire stack for ANY TypeBox schema in your app.
+- **Scaffold**: `ignex event bus <name>` emits the events file + a publish
+  route + an example consumer (offers to install `@ignex/nova`).
+- Install: `bun add @ignex/nova`.
+
 ## Caching
 
 ```ts

@@ -87,53 +87,29 @@ export default post(async (ctx) => {
 `;
 }
 
-/** `src/lib/events.ts` — typed in-process event bus. */
+/** `src/lib/events.ts` — typed realtime events over @ignex/nova. */
 export function eventBusLibTemplate(): string {
   return `/**
- * Tiny typed in-process event bus for ignex apps.
+ * Typed realtime events for ignex apps — built on @ignex/nova, the TypeBox
+ * FlatBuffer transport (Rust FFI serializer, Bun WebSockets, NATS cluster
+ * sync). Handlers and emits are typed against your events; the same wire
+ * format serves browsers via the generated client.
  *
- * Use it to decouple producers from consumers without a broker:
- *   import { emit, on } from "./events.js";
+ *   import { emitToUser, on } from "./events.js";
  *
- *   on("order.created", async (order) => { ... });   // consumer
- *   await emit("order.created", order);               // producer
+ *   on("order.created", (payload, ctx) => { ... });   // server-side handler
+ *   await emitToUser("u-42", "order.created", order);  // push to a user's sockets
  *
- * For cross-service streaming, pair it with NATS (see \`ignex ops compose\`).
+ * Wire the server in src/app.config.ts:
+ *   import { novaPlugin } from "@ignex/core";
+ *   plugins: [ novaPlugin({ port: 3001, inbound: ["order.created"] }) ]
+ *
+ * Requires \`bun add @ignex/nova\`. The events layer is typed against the
+ * BUILT-IN registry; for your own TypeBox schemas use
+ * \`generateBindings(schema)\` from \`@ignex/nova/generate\`.
  */
-type Handler<T> = (payload: T) => void | Promise<void>;
-
-const handlers = new Map<string, Set<Handler<never>>>();
-
-/** Subscribe to an event; returns an unsubscribe function. */
-export function on<T>(event: string, handler: Handler<T>): () => void {
-  let set = handlers.get(event);
-  if (!set) {
-    set = new Set();
-    handlers.set(event, set);
-  }
-  set.add(handler as Handler<never>);
-  return () => off(event, handler);
-}
-
-/** Remove a subscription. */
-export function off<T>(event: string, handler: Handler<T>): void {
-  handlers.get(event)?.delete(handler as Handler<never>);
-}
-
-/** Publish an event to all subscribers (errors are propagated, not swallowed). */
-export async function emit<T>(event: string, payload: T): Promise<void> {
-  const set = handlers.get(event);
-  if (!set) return;
-  for (const handler of [...set]) {
-    await (handler as Handler<T>)(payload);
-  }
-}
-
-/** Number of active subscriptions (debugging / tests). */
-export function listenerCount(event: string): number {
-  return handlers.get(event)?.size ?? 0;
-}
-`;
+export { emit, emitToClient, emitToGroup, emitToTopic, emitToUser, on, once, off } from "@ignex/nova/events";
+`; // prettier-ignore
 }
 
 /** `src/routes/events/emit.<name>.post.ts` — publish route for the bus. */
@@ -143,7 +119,9 @@ import { emit } from "../../lib/events.js";
 
 export default post(async (ctx) => {
   const payload = await ctx.body.json();
-  await emit("${name}.created", payload);
+  // Broadcast the event to every connected client (see novaPlugin options for
+  // targeting: emitToUser / emitToGroup / emitToTopic).
+  emit("${name}.created", payload);
   return ctx.json({ emitted: true }, { status: 202 });
 });
 `;
@@ -157,8 +135,9 @@ export function eventBusConsumerTemplate(name: string): string {
 /**
  * Example consumer for the "${name}.created" channel.
  *
- * Business logic lives here — wire \`${fn}()\` from your app bootstrap
- * (e.g. src/app.config.ts) and keep the returned unsubscribe around for tests.
+ * Server-side handlers run in the events file (src/lib/events.ts) or here —
+ * \`on()\` from @ignex/nova registers with the bound hub. Wire
+ * \`${fn}()\` from your app bootstrap (e.g. src/app.config.ts).
  */
 export function ${fn}(): () => void {
   const off = on("${name}.created", async (payload) => {
@@ -203,6 +182,6 @@ export function eventSummary(kind: EventKind, name: string): string {
     case "webhook":
       return `Webhook receiver ready at POST /hooks/${name} — send event data there.`;
     case "bus":
-      return `Typed event bus ready (src/lib/events.ts) — POST /events/emit.${name} publishes "${name}.created".`;
+      return `Typed realtime events ready (src/lib/events.ts via @ignex/nova) — add novaPlugin({ port: 3001, inbound: ["${name}.created"] }) to src/app.config.ts; POST /events/emit.${name} publishes "${name}.created" to connected clients.`;
   }
 }

@@ -69,7 +69,8 @@
     "bench:products": "oha http://localhost:3000/products/123",
     "release": "bun scripts/publish.ts",
     "release:dry": "bun scripts/publish.ts --dry-run",
-    "release:bump": "bun scripts/publish.ts --no-publish"
+    "release:bump": "bun scripts/publish.ts --no-publish",
+    "verify:nova": "bun scripts/verify-nova-plugin.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
@@ -90,5 +91,8 @@
   },
   "engines": {
     "bun": ">=1.4"
+  },
+  "dependencies": {
+    "@ignex/nova": "0.1.1"
   }
 }

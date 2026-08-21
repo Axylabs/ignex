@@ -319,6 +319,15 @@ export { csrf } from "./plugins/csrf";
 export { type DebugbarOptions, debugbar } from "./plugins/debugbar";
 export { type LoggerOptions, logger } from "./plugins/logger";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
+export {
+  type NovaAuthResult,
+  type NovaClientMeta,
+  type NovaPluginOptions,
+  type NovaServerHandle,
+  novaAuthFromHook,
+  novaMissingError,
+  novaPlugin,
+} from "./plugins/nova";
 export { type OpenAPIOptions, type OpenAPIProvider, openapi } from "./plugins/openapi";
 export type { RateLimitOptions, RateLimitStore } from "./plugins/ratelimit";
 export { rateLimit } from "./plugins/ratelimit";

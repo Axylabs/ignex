@@ -26,7 +26,9 @@
       "@ignex/compiler": ["./packages/compiler/src/index.ts"],
       "@ignex/native": ["./packages/native/src/index.ts"],
       "@ignex/test-utils": ["./packages/test-utils/src/index.ts"],
-      "castrum": ["./packages/native/src/vendor/castrum.d.ts"]
+      "castrum": ["./packages/native/src/vendor/castrum.d.ts"],
+      "@ignex/nova/server": ["./packages/core/src/vendor/nova.d.ts"],
+      "@ignex/nova/events": ["./packages/core/src/vendor/nova.d.ts"]
     }
   },
   "include": [

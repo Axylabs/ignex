@@ -32,6 +32,14 @@ shared  ←  native  ←  core  ←  compiler  ←  cli / app
 - `cli` imports compiler.
 - **Never** let `core` import from `compiler`, or `shared` from anything.
 
+**External optional deps** follow the `castrum` pattern: `@ignex/native`
+depends on `castrum` optionally and loads it lazily; `@ignex/core` depends on
+`@ignex/nova` optionally (peer, marked optional) and `novaPlugin` loads it
+lazily in `init()`, never at module import. TypeScript resolves both through
+root tsconfig `paths` to hand-maintained ambient declarations
+(`vendor/castrum.d.ts`, `vendor/nova.d.ts`), so the repo type-checks even when
+the packages aren't installed.
+
 The runtime is the single source of truth. The compiler imports runtime
 primitives (`runHooks`, `createContext`, `serializeCookie`,
 `errorToResponse`, `ValidationError`, `validateAsync`) into the generated

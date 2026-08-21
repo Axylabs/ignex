@@ -84,12 +84,11 @@ describe("webhook templates", () => {
 });
 
 describe("bus templates", () => {
-  it("lib exports on/off/emit/listenerCount", () => {
+  it("lib re-exports the @ignex/nova typed events API", () => {
     const code = eventBusLibTemplate();
-    expect(code).toContain("export function on<T>");
-    expect(code).toContain("export function off<T>");
-    expect(code).toContain("export async function emit<T>");
-    expect(code).toContain("export function listenerCount");
+    expect(code).toContain('from "@ignex/nova/events"');
+    expect(code).toContain("emitToUser");
+    expect(code).toContain("novaPlugin({ port: 3001");
   });
 
   it("emit route publishes <name>.created", () => {

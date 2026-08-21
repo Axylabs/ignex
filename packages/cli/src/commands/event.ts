@@ -10,6 +10,10 @@
  * Every flow scaffolds the business logic into `src/modules/` (or
  * `src/lib/events.ts` for the bus) and keeps the route file a thin HTTP layer.
  */
+
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   EVENT_KINDS,
@@ -21,7 +25,7 @@ import {
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { error, info, step, success } from "../utils/logger.js";
-import { PromptCancelError, promptSelect, promptText } from "../utils/prompt.js";
+import { PromptCancelError, promptConfirm, promptSelect, promptText } from "../utils/prompt.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
 
 const isKind = (value: string): value is EventKind =>
@@ -144,8 +148,59 @@ export async function runEvent(args: string[]): Promise<void> {
     success(eventSummary(kind, name));
     if (kind === "bus") {
       info("Wire the consumer from your app bootstrap (e.g. src/app.config.ts).");
+      info("Add novaPlugin({ port: 3001, inbound: [...] }) to src/app.config.ts plugins.");
+      await maybeInstallNova(root);
     } else {
       info(`Business logic lives in src/modules/ — routes stay thin.`);
     }
   }
 }
+
+/**
+ * Offer to add the `@ignex/nova` dependency when the bus scaffold needs it and
+ * the project doesn't have it yet (the realtime transport backing the typed
+ * events file). Mirrors `maybeInstallTypebox` in `route.ts`.
+ */
+async function maybeInstallNova(root: string): Promise<void> {
+  const pkgPath = join(root, "package.json");
+  let hasNova = false;
+  try {
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    hasNova = Boolean(pkg.dependencies?.["@ignex/nova"] ?? pkg.devDependencies?.["@ignex/nova"]);
+  } catch {
+    // No package.json — leave the hint only.
+  }
+
+  if (!hasNova && process.stdin.isTTY) {
+    try {
+      const install = await promptConfirm({ message: "Add @ignex/nova?", initial: true });
+      if (install) {
+        const pm = detectPm(root);
+        const result = spawnSync(pm, ["add", "@ignex/nova"], {
+          cwd: root,
+          stdio: "inherit",
+        });
+        if (result.status === 0) {
+          success("Installed @ignex/nova.");
+        }
+      }
+    } catch {
+      // cancelled — the hint below still explains the manual step
+    }
+  } else if (!hasNova) {
+    info("  Install it if missing: bun add @ignex/nova");
+  }
+}
+
+/** Best-effort package manager detection from lockfiles, defaulting to bun. */
+const detectPm = (root: string): "bun" | "npm" | "pnpm" | "yarn" => {
+  const has = (f: string): boolean => existsSync(join(root, f));
+  if (has("bun.lock") || has("bun.lockb")) return "bun";
+  if (has("pnpm-lock.yaml")) return "pnpm";
+  if (has("yarn.lock")) return "yarn";
+  if (has("package-lock.json")) return "npm";
+  return "bun";
+};

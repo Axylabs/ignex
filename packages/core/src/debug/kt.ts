@@ -39,6 +39,7 @@ const KNOWN_PLUGINS: Record<string, string> = {
   security: "Security headers on every response.",
   session: "Signed-cookie sessions (stateless or store-backed) with rolling expiry.",
   debugbar: "Developer debug dashboard (traces, waterfall, errors, replay, system profile, KT).",
+  nova: "Typed realtime transport (@ignex/nova): FlatBuffer pub/sub over Bun WebSockets, Rust FFI serializer, NATS cluster sync.",
 };
 
 const spanKindNames: Record<SpanKind, string> = {
