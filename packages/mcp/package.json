@@ -7,6 +7,7 @@
   "module": "./src/index.ts",
   "types": "./src/index.ts",
   "files": [
+    "bin",
     "src"
   ],
   "engines": {
@@ -16,7 +17,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json",
     "test": "vitest run"
   },
-  "description": "Model Context Protocol server for Ignex — agent tooling for build/dev/route/info/openapi/doctor.",
+  "description": "Model Context Protocol server for Ignex \u2014 agent tooling for build/dev/route/info/openapi/doctor.",
   "bin": {
     "ignex-mcp": "./bin/ignex-mcp.js"
   },

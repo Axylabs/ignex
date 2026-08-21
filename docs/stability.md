@@ -167,6 +167,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 | `bun run verify:perf` | `bench:server:check` + `bench:compare:check` (perf regression gates). |
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
+| `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |
 
 ### CI gate matrix (see `.github/workflows/ci.yml`)
 
@@ -230,6 +231,16 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
    Rust-side catch_unwind/fuzz remains cross-repo with castrum.
 4. ~~`/api/big` native-mode overhead investigation~~ ✅ 2026-08-19 (~2% gap;
    server-bench is a hard gate again).
-5. `noUncheckedIndexedAccess` at the root tsconfig (very invasive — staged last).
+5. ~~`noUncheckedIndexedAccess` at the root tsconfig (very invasive — staged
+   last).~~ ✅ 2026-08-22 — enabled at the root tsconfig; 70 errors across 17
+   files (core runtime + compiler + app tests + scripts) fixed with minimal
+   non-null/guard edits. The CLI tsconfig already had it.
 6. Vitest alias consolidation across the 7 per-package configs (core/cli/compiler
    subpath aliases fixed 2026-08-19; remaining packages may still need it).
+7. **Publish readiness** — `@ignex/mcp` tarball was missing its `bin/` entry
+   (`files: ['src']` excluded the declared `bin/ignex-mcp.js`); fixed
+   2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
+   `castrum@0.9.1` is already published on npm and resolves via
+   `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
+   `bun scripts/publish.ts` with a real `NPM_TOKEN` to release the monorepo
+   packages (manual step — no credentials in this environment).
