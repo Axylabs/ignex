@@ -1,5 +1,5 @@
 /**
- * @fileoverview `ignex migrate` — run the project's ninox schema migrations.
+ * @fileoverview `ignex migrate` — run the project's schema migrations.
  *
  *   ignex migrate            → apply pending migrations (up)
  *   ignex migrate up         → apply pending migrations
@@ -8,10 +8,15 @@
  *   ignex migrate status     → list applied + pending migrations
  *   ignex migrate create <n> → scaffold a new `NNN_name.ts` migration file
  *
- * `up` / `down` / `status` delegate to the `migrations` runner exported by the
- * generated `src/db.ts` (`createMongoToolkit`), so they share the project's
- * configured collections, connection URL, and migration directory. `create` is
- * self-contained (a pure file write) so it works without a running database.
+ * Mongo (default): `up` / `down` / `status` delegate to the `migrations`
+ * runner exported by the generated `src/db.ts` (`createMongoToolkit`), sharing
+ * its collections, connection URL, and migration directory.
+ *
+ * SQL (`--db sql`): delegates to drizzle-kit against the scaffolded
+ * `drizzle.config.ts` (`generate` = create, `push` = up, `check` = status).
+ *
+ * `create` is self-contained (a pure file write) so it works without a running
+ * database.
  */
 
 import { mkdir, readdir } from "node:fs/promises";
@@ -138,6 +143,7 @@ export async function runMigrate(args: string[]): Promise<void> {
     root: { type: "string" },
     action: { type: "string" },
     name: { type: "string" },
+    db: { type: "string" },
   });
 
   // The first positional is the action (+ optional name), never the root.
@@ -150,6 +156,44 @@ export async function runMigrate(args: string[]): Promise<void> {
   if (!MIGRATION_ACTIONS.includes(action)) {
     error(`Unknown migrate action "${action}". Expected one of: ${MIGRATION_ACTIONS.join(", ")}.`);
     process.exitCode = 1;
+    return;
+  }
+
+  // `--db sql` → drizzle-kit (the generated Drizzle schema). Delegates to the
+  // `drizzle-kit` CLI so migrations share the drizzle.config.ts the
+  // `--db sql` resource scaffolded. `create`/`generate` are pure file writes
+  // (no DB connection); `up`/`push`/`status` need the configured DB.
+  if (values.db === "sql") {
+    const drizzleConfig = join(root, "drizzle.config.ts");
+    if (!(await exists(drizzleConfig))) {
+      error(
+        "No drizzle.config.ts found — scaffold an SQL resource first with `ignex resource <Name> --db sql`.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const { spawnSync } = await import("node:child_process");
+    const argsForKit: string[] = [];
+    switch (action) {
+      case "create":
+        argsForKit.push("generate", "--name", name ?? "migration");
+        break;
+      case "up":
+        argsForKit.push("push"); // drizzle-kit push = apply schema to the DB
+        break;
+      case "status":
+        argsForKit.push("check");
+        break;
+      default:
+        error(`migrate --db sql supports create | up | status (drizzle-kit).`);
+        process.exitCode = 1;
+        return;
+    }
+    const res = spawnSync("bunx", ["drizzle-kit", ...argsForKit], {
+      cwd: root,
+      stdio: "inherit",
+    });
+    process.exitCode = res.status ?? 1;
     return;
   }
 

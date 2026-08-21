@@ -42,6 +42,36 @@ export default post(async (ctx) => {
 `ctx.body.json()`, `ctx.body.formData()`, `ctx.body.text()` are lazy — the body
 is only parsed when you read it.
 
+## SQL resources (Drizzle)
+
+For SQL, ignex wraps the **standard approach** — [Drizzle](https://orm.drizzle.team)
+— with the same CLI surface as the Mongo path:
+
+```sh
+# Scaffold a User model + CRUD routes + drizzle.config.ts + src/db-sql.ts
+ignex resource User --db sql --fields "email:string(format email),age:integer,active:boolean"
+
+# Migrations via drizzle-kit (generate/push/check)
+ignex migrate create add-profile --db sql    # drizzle-kit generate
+ignex migrate up --db sql                    # drizzle-kit push
+```
+
+What you get (Mongo and SQL share the route contract and field DSL):
+
+- `src/models/users.ts` — a typed drizzle sqlite table (`$inferSelect` /
+  `$inferInsert`). Field mapping: `string→text`, `integer→integer`,
+  `number→real`, `boolean→integer(mode boolean)`, `date→integer(timestamp_ms)`,
+  `array/enum/objectId→text`.
+- `src/db-sql.ts` — the shared client (`bun:sqlite`, WAL). Swap the driver for
+  Postgres by changing one import.
+- `src/routes/api/users/*` — list/getOne/create/update/delete backed by drizzle
+  queries (`select/insert/update/delete` + `eq`), validated with TypeBox.
+- `drizzle.config.ts` — drizzle-kit config pointing at `src/models/*.ts`.
+
+The storage is file-backed SQLite (zero-config); `DATABASE_URL` overrides the
+path. This is intentionally **not** a new ORM — it's Drizzle with ignex-shaped
+DX (same `--fields` DSL, same route layout, same `ignex migrate`).
+
 ## Validation & OpenAPI
 
 ```ts

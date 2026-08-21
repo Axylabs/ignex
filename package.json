@@ -70,7 +70,8 @@
     "release": "bun scripts/publish.ts",
     "release:dry": "bun scripts/publish.ts --dry-run",
     "release:bump": "bun scripts/publish.ts --no-publish",
-    "verify:nova": "bun scripts/verify-nova-plugin.ts"
+    "verify:nova": "bun scripts/verify-nova-plugin.ts",
+    "verify:drizzle": "bun scripts/verify-drizzle-resource.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
@@ -79,6 +80,8 @@
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",
     "ajv": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.29",
     "expect-type": "^1.4.0",
     "fast-check": "^4.9.0",

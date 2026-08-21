@@ -14,6 +14,12 @@
  */
 import { join, relative } from "node:path";
 import {
+  drizzleConfigTemplate,
+  drizzleDbTemplate,
+  drizzleModelTemplate,
+} from "../templates/drizzle.js";
+import { drizzleResourceTemplates } from "../templates/drizzle-resource.js";
+import {
   dbTemplate,
   type ModelField,
   modelTemplate,
@@ -153,6 +159,7 @@ export async function runResource(args: string[]): Promise<void> {
     auth: { type: "boolean" },
     rbac: { type: "boolean" },
     force: { type: "boolean" },
+    db: { type: "string" },
   });
 
   // The first positional is the resource *name*, not a root path.
@@ -163,6 +170,7 @@ export async function runResource(args: string[]): Promise<void> {
   );
   if (!name) return;
 
+  const dbKind = values.db === "sql" ? "sql" : "mongo";
   const config = await loadConfig(root);
   const modelsDir = resolveDir(root, values.dir, config.modelsDir, "src/models");
   const routesDir = resolveDir(root, undefined, config.routesDir, "src/routes");
@@ -177,10 +185,50 @@ export async function runResource(args: string[]): Promise<void> {
   const plural = pluralize(name);
   const modelPath = join(modelsDir, `${plural}.ts`);
   const dbPath = join(root, "src", "db.ts");
+  const dbSqlPath = join(root, "src", "db-sql.ts");
+  const drizzleConfigPath = join(root, "drizzle.config.ts");
   const opts = { auth: Boolean(values.auth), rbac: Boolean(values.rbac) };
 
-  step(`Scaffolding resource ${name} (collection "${plural}")`);
+  step(
+    `Scaffolding resource ${name} (${dbKind === "sql" ? "Drizzle/SQLite" : 'collection "' + plural + '"'})`,
+  );
 
+  if (dbKind === "sql") {
+    // ── Drizzle (SQL) path ──────────────────────────────────────────────
+    if (
+      !(await writeScaffold(modelPath, drizzleModelTemplate(name, fields), {
+        force: Boolean(values.force),
+        overwrite: true,
+      }))
+    ) {
+      return;
+    }
+
+    for (const { path, content } of drizzleResourceTemplates(
+      name,
+      fields.map((f) => f.line.split(":")[0]?.trim() ?? "field"),
+    )) {
+      // drizzle paths already include the `api/` prefix.
+      await writeScaffold(join(routesDir, path), content, {
+        force: Boolean(values.force),
+      });
+    }
+
+    // db-sql.ts + drizzle.config.ts are idempotent (never overwrite a custom
+    // client once present).
+    await writeScaffold(dbSqlPath, drizzleDbTemplate());
+    await writeScaffold(drizzleConfigPath, drizzleConfigTemplate());
+
+    // Install drizzle-orm + typebox (imported by the generated files).
+    await ensureDrizzleDeps(root);
+
+    if (opts.auth || opts.rbac) {
+      info("SQL resources: add auth hooks via config.hooks (drizzle has no guard pre-wiring yet).");
+    }
+    return;
+  }
+
+  // ── Mongo (ninox) path ────────────────────────────────────────────────
   // 1. The model (blocking exists/--force gate).
   if (
     !(await writeScaffold(modelPath, modelTemplate(name, fields), {
@@ -221,5 +269,23 @@ export async function runResource(args: string[]): Promise<void> {
     if (opts.auth) hints.push("add authModule() to your plugins (EdDSA JWT)");
     if (opts.rbac) hints.push("permissions use the `<collection>:read|write` convention");
     info(`Guards pre-wired — ${hints.join("; ")}.`);
+  }
+}
+
+/** Install drizzle-orm (the generated SQL resource imports it). */
+async function ensureDrizzleDeps(root: string): Promise<void> {
+  const pkgPath = join(root, "package.json");
+  try {
+    const pkg = JSON.parse(await readTextFile(pkgPath)) as {
+      dependencies?: Record<string, string>;
+    };
+    const deps = pkg.dependencies ?? {};
+    const added = ["drizzle-orm", "drizzle-kit"].filter((dep) => !deps[dep]);
+    if (added.length === 0) return;
+    for (const dep of added) deps[dep] = "latest";
+    await writeFileEnsuringDir(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    success(`Added ${added.join(", ")} to package.json dependencies.`);
+  } catch {
+    info("Add manually: bun add drizzle-orm drizzle-kit");
   }
 }

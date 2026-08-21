@@ -129,10 +129,11 @@ export const commands: readonly Command[] = [
     name: "resource",
     aliases: ["res"],
     group: "Scaffold",
-    description: "Scaffold a ninox model + pregenerated CRUD routes",
+    description: "Scaffold a model + pregenerated CRUD routes (Mongo ninox or Drizzle SQL)",
     options: `  --root <dir>                  Project root
   --dir <dir>                   Override models directory
   --fields <list>               Comma-separated fields
+  --db <mongo|sql>              Data layer: mongo (ninox, default) or sql (Drizzle/SQLite)
   --auth                        Pre-wire require-auth on every route
   --rbac                        Pre-wire RBAC permissions (withGuards)
   --force                       Overwrite existing files`,
@@ -154,12 +155,13 @@ export const commands: readonly Command[] = [
     name: "migrate",
     aliases: ["migrations", "mg"],
     group: "Scaffold",
-    description: "Run the project's ninox DB migrations (up/down/status/create)",
+    description: "Run the project's DB migrations — ninox (Mongo) or drizzle-kit (--db sql)",
     options: `  <action>                      up (default) | down [name] | status | create <name>
   --root <dir>                  Project root
   --action <up|down|status|create>
                                 Same as the positional action
-  --name <name>                 Migration name (with create) / target (with down)`,
+  --name <name>                 Migration name (with create) / target (with down)
+  --db <mongo|sql>              mongo (ninox, default) or sql (drizzle-kit)`,
     run: runMigrate,
   },
   {
