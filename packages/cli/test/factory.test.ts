@@ -38,8 +38,7 @@ describe("factoryTemplate", () => {
     expect(code).toContain("export function makeUser(");
     expect(code).toContain("makeManyUser");
     expect(code).toContain("seedUser");
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting the
-    // literal `${…}` text the generated factory must contain.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: assert the literal
     expect(code).toContain("user${Math.floor(Math.random() * 1000)}@example.com");
     expect(code).toContain('"admin", "editor"');
     expect(code).toContain("tags: Array.from({ length: 1 +");
