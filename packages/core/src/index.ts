@@ -128,6 +128,13 @@ export {
   parseQueryFromURL,
 } from "./data/query";
 export type { RateLimitAlgorithm } from "./data/ratelimit";
+export {
+  type DefinedRequest,
+  defineRequest,
+  type RequestOptions,
+  type RequestPart,
+  ValidationForbiddenError,
+} from "./data/request";
 export { compileValidator, validateAsync, validateOrThrow } from "./data/schema";
 export {
   createFileStore,

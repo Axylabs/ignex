@@ -87,6 +87,36 @@ export default get(
 );
 ```
 
+### FormRequest-style validation (`defineRequest`)
+
+Bundle a schema, its request part, and an optional authorization gate into a
+reusable object — the Laravel FormRequest pattern, sugar over the existing
+Standard-Schema validation:
+
+```ts
+// src/requests/create-user.ts
+import { defineRequest } from "@ignex/core";
+import { Type } from "typebox";
+
+export const CreateUser = defineRequest({
+  part: "body", // body | query | params | headers
+  schema: Type.Object({
+    email: Type.String({ format: "email" }),
+    role: Type.Optional(Type.Union([Type.Literal("admin"), Type.Literal("user")])),
+  }),
+  // optional: 403 when false (runs before validation)
+  authorize: (ctx) => ctx.state.user?.role === "admin",
+});
+```
+
+```ts
+// in a route
+export default post(async (ctx) => {
+  const input = await CreateUser.validate(ctx); // 422 with per-field errors
+  return ctx.json(input, { status: 201 });
+});
+```
+
 Schemas are precompiled to standalone validators/serializers at build time and
 flow into the generated `openapi.json`. Serve it — plus a docs UI — with the
 `openapi()` plugin:
