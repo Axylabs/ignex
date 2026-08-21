@@ -382,6 +382,59 @@ wrapper + `*Fallback`, add parity vectors to
 holds with and without the addon. Only wire a native path when its output is
 **proven identical** (see Performance notes).
 
+## 2026-08-21 — castrum sync: lean native-stack responder + hot-path ports
+
+Synced the latest castrum working-tree changes into `@ignex/native`:
+
+- **Header-packing fast paths** (`ingress.ts`, synced from castrum's
+  `gatherRawHeadersPacked`): a plan selecting no headers short-circuits to the
+  shared empty block; a CORS-only plan on a non-preflight request returns a
+  **cached origin block** (the packed block is a pure function of the typically
+  constant `Origin` — no per-request UTF-8 encode, no scratch write); a
+  cookie+cors plan on a request with no `Cookie` header reuses the same cached
+  block, and the already-fetched cookie is handed down to the general path
+  (no second `headers.get('cookie')`). Pre-encoded header names + the shared
+  per-header size guards (`MAX_COOKIE_HEADER_BYTES` / `MAX_SMALL_HEADER_BYTES` /
+  `MAX_XFF_HEADER_BYTES`) now match castrum's single policy.
+- **u32-halves i64 decode** (`decodeVerdict`): `rateResetMs`/`retryAfterMs` are
+  read as two `getUint32` halves instead of `getBigUint64` — no per-read BigInt
+  boxing (~10ns/read off the hot path; bit-identical result).
+- **`NativeRoute.runParts(query, cookie, body)`**: the compiled handlers' hot
+  path packs the route frame from pre-encoded bytes (new
+  `packRouteFramePartsLength`/`packRouteFramePartsInto` wire helpers) — no
+  per-request frame object; `run(frame)` now delegates to the same core. The
+  compiler emits `runParts(...)` for eligible routes, and
+  `parseQuery`/`parseCookies` are exposed on the compiled route.
+- **Lean native-stack responder** (`nativeRouteHandler` + the router `native`
+  route kind, synced from castrum's `routes/native.ts` + router `native` spec):
+  a route whose plan is only parse+verdict (parseQuery/parseCookies/
+  requireJsonBody/validateBody) runs ONE native call with NO CORS/rate-limit/
+  security/IP/metadata envelope — 400 for non-JSON under `requireJsonBody`, 422
+  for schema failure, 413 for an oversized body, then the responder builds the
+  2xx from the decoded snapshot. Measured in castrum ~580ns cheaper per request
+  than the full-pipeline responder (+34% RPS at the HTTP level).
+
+The fastest path is the default: `IGNEX_FFI_MODE=auto` binds the C-ABI
+(`bun:ffi`) transport on Bun, the compiled routes get the native prelude by
+default (`nativeRoutes` on), and the native-preflight pipeline runs the direct
+C-ABI `createNativeIngress` when the framework owns the body.
+
+### 2026-08-21 (later) — usage-only native prelude (castrum-aligned query/cookie parse)
+
+The per-route native prelude now fires for **any** route that reads query or
+cookies — not just validated routes. A schema-less route like
+`for (const [k, v] of ctx.query)` used to parse in JS via `URLSearchParams`
+(~5.7µs for a 20-param query); it now runs the Rust parse in ONE native call
+and seeds `ctx.query` with `NativeQueryParams` (`packages/core/src/data/query.ts`)
+— a read-only URLSearchParams-compatible facade over the native pairs
+(iteration, `.get`/`.has`/`.getAll`/`.size`/`.toString`/`.forEach`, `null` on
+miss for `?? default` parity) with ZERO URLSearchParams construction
+(~1.4µs total, ~4× cheaper). `ctx.cookie` seeds from the native pairs via the
+standard lazy cookie jar. When the addon is absent the lazy getters stay —
+byte-parity preserved. This is the same move castrum's router makes (its
+`/api/users` bench route parses query+cookies natively at ~90k RPS vs ~48k for
+the JS `URLSearchParams` path on this host).
+
 ## Performance notes
 
 - Only use castrum primitives that beat the JS/Bun baseline (`rust.*` proven

@@ -46,6 +46,7 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
   forward: "forward",
   cache: "cache",
   loader: "loader",
+  debug: "debug",
 };
 
 /**

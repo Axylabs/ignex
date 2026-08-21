@@ -94,8 +94,6 @@ export {
   type ConditionalRequest,
   cookiePairs,
   cookiePairsFallback,
-  cookiesToJson,
-  cookiesToJsonFallback,
   createAcceptNegotiator,
   createAcceptNegotiatorFallback,
   createConditionalRequest,
@@ -121,8 +119,6 @@ export {
   parseQuery,
   queryPairs,
   queryPairsFallback,
-  queryToJson,
-  queryToJsonFallback,
 } from "./http";
 export {
   buildIngressHeaderPlan,
@@ -150,6 +146,12 @@ export {
   type NativeInitOptions,
   type NativeInitResult,
 } from "./loader";
+export {
+  type NativeRouteHandlerOptions,
+  type NativeRouteResponder,
+  type NativeRouteSnapshot,
+  nativeRouteHandler,
+} from "./native-handler";
 export { packBatch, pairsToObject, readPairsPacked } from "./packed";
 export {
   brotliCompress,
@@ -197,6 +199,8 @@ export {
   packRouteFrame,
   packRouteFrameInto,
   packRouteFrameLength,
+  packRouteFramePartsInto,
+  packRouteFramePartsLength,
   planHasStage,
   ROUTE_DESC_MAGIC,
   ROUTE_DESC_VERSION,

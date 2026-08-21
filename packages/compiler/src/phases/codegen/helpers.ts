@@ -168,7 +168,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   return undefined;
 }`,
   __wrap: `function __wrap(handler, wildcards = [], prefix) {
-  return async function (req, a, b) {
+  return function (req, a, b) {
     let params = __extractParams(req, a, b);
 
     if (wildcards.length) {
@@ -197,12 +197,22 @@ export const HELPER_SOURCES: Record<string, string> = {
 
     const server = __extractServer(a, b);
 
-    try {
-      return await handler(req, params ?? EMPTY_PARAMS, server);
-    } catch (err) {
+    // Non-async wrapper: the route core fns are already async, so wrapping
+    // them in ANOTHER async fn (with its own Promise + microtask) is pure
+    // overhead on the hot path. Return the handler's promise directly; both
+    // a synchronous throw AND a promise rejection funnel into __handleError
+    // (the async core catches sync throws, the .catch handles rejections).
+    const onError = (err) => {
       const ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts);
       ctx.server = server;
       return __handleError(err, ctx);
+    };
+
+    try {
+      const __r = handler(req, params ?? EMPTY_PARAMS, server);
+      return __r instanceof Promise ? __r.catch(onError) : __r;
+    } catch (err) {
+      return onError(err);
     }
   };
 }`,

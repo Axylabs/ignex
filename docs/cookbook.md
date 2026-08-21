@@ -72,14 +72,22 @@ export const plugins = [
 ```
 
 - `GET /openapi.json` — the OpenAPI 3.1 document. In AOT builds it serves the
-  compiler-generated `openapi.json` artifact; in interpreted `createApp` apps
-  it enumerates the router's routes at request time.
+  compiler-generated `openapi.json` artifact (the **newest** candidate among
+  `artifactPath` and the `.ignex`/`dist` defaults is used, so dev regeneration
+  is always picked up — even while the server stays running); in interpreted
+  `createApp` apps it enumerates the router's routes at request time.
 - `GET /openapi` — Scalar docs UI (`provider: "swagger-ui"` for Swagger-UI,
   `provider: null` for spec-only).
 
 Paths are configurable via `path` / `specPath`; routes can be excluded with
 `exclude`, and per-route metadata (`summary`/`tags`/`hide`/…) via `detail`
 (interpreted: in the route schema object; AOT: `export const config = { detail }`).
+
+Operations are **auto-grouped into tags by their first path segment**
+(`/api/orders` → `api`, `/auth/login` → `auth` — mirroring the `routes/`
+folder layout) so docs UIs render collapsible resource groups; a top-level
+`tags` array is derived from the operations. An explicit `detail.tags` (even an
+empty array, meaning "no tags") overrides the auto-tag for that route.
 
 ## Plugins & config (`src/app.config.ts`)
 
@@ -118,14 +126,17 @@ export const lifecycle = { beforeHandle: [logRequests(), markResponse()] };
 export const server = {
   port: Number(process.env.PORT ?? 3000),
   https: true,                            // default; serve HTTPS (TLS)
+  h2: true,                               // opt-in HTTP/2 (requires TLS)
   tls: { certFile: "./cert.pem", keyFile: "./key.pem" }, // your own certs
-};since we don't have http2 support in bun now discard the code related to it 
+};
 ```
 
 - Force plain HTTP/1: `server.https: false`, or `IGNEX_HTTPS=0` for CI/tooling.
-- `Bun.serve` currently serves HTTP/1.1 over TLS. For true HTTP/2 / HTTP/3,
-  put **Caddy** in front — it auto-provisions real certs (Let's Encrypt) and
-  terminates h2/h3 for clients while proxying to Bun:
+- TLS serves HTTP/1.1 by default. Opt into **HTTP/2** with `server.h2: true`
+  (compiled and interpreted paths both forward it to `Bun.serve`). HTTP/3 is
+  still not available from `Bun.serve`, so for h3 put **Caddy** in front — it
+  auto-provisions real certs (Let's Encrypt) and terminates h2/h3 for clients
+  while proxying to Bun:
 
   ```caddyfile
   example.com {

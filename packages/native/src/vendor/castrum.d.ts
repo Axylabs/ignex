@@ -278,6 +278,13 @@ export declare class ConditionalRequest {
 export declare class AcceptNegotiator {
   constructor(supported: Array<string>);
   negotiate(header: Uint8Array): string | null;
+  /**
+   * Best supported encoding with SERVER-preference tie-breaking (q-only; the
+   * supported list's order decides ties — ignex `negotiateEncoding` semantic).
+   * Empty header → `null` (identity). Absent on addons built before the
+   * feature existed (the JS wrapper falls back to the pure-TS engine).
+   */
+  negotiateServerPreference(header: Uint8Array): string | null;
   /** Opaque handle for the C-ABI instance fast path (`castrum_accept_negotiator_negotiate`). */
   innerPtr(): bigint;
 }

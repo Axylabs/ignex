@@ -59,7 +59,7 @@ describe("complete", () => {
   });
 
   it("completes flag values from the preceding token", () => {
-    expect(complete(commands, "ignex create --runtime ", 23)).toEqual(["bun", "node"]);
+    expect(complete(commands, "ignex create --runtime ", 23)).toEqual(["bun"]);
     expect(complete(commands, "ignex create --runtime b", 24)).toEqual(["bun"]);
     expect(complete(commands, "ignex create --pm n", 20)).toEqual(["npm"]);
   });
@@ -88,7 +88,7 @@ describe("parseFlagDocs", () => {
 
   it("parses inline enum values from the option docs", () => {
     const flags = parseFlagDocs(create?.options);
-    expect(flags).toContainEqual({ flag: "--runtime", values: ["bun", "node"] });
+    expect(flags).toContainEqual({ flag: "--runtime", values: ["bun"] });
     expect(flags).toContainEqual({ flag: "--pm", values: ["bun", "npm", "pnpm", "yarn"] });
     expect(flags).toContainEqual({ flag: "--root" });
     expect(flags).toContainEqual({ flag: "--no-install" });
@@ -110,9 +110,13 @@ describe("parseFlagDocs", () => {
 describe("_complete (hidden backend)", () => {
   it("prints newline-separated suggestions for --line/--cursor", async () => {
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    await runComplete(["--line", "ignex create --runtime ", "--cursor", "23"]);
-    expect(String(write.mock.calls[0]?.[0])).toBe("bun\nnode\n");
-    write.mockRestore();
+    try {
+      await runComplete(["--line", "ignex create --runtime ", "--cursor", "23"]);
+      // `--runtime` accepts only bun (the generated server requires Bun).
+      expect(String(write.mock.calls[0]?.[0])).toBe("bun\n");
+    } finally {
+      write.mockRestore();
+    }
   });
 
   it("prints nothing when there are no suggestions", async () => {

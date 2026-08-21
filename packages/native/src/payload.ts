@@ -13,7 +13,7 @@ import {
   gunzipSync,
   gzipSync,
 } from "node:zlib";
-import { bunGunzipSync, bunGzipSync } from "./bun";
+import { bunGunzipSync, bunGzipSync, bunSha1Base64 } from "./bun";
 import { isFfiActive } from "./ffi";
 import { nativeFor } from "./runtime";
 import { fromBytes, toBytes, toPlain, toStr } from "./util";
@@ -207,7 +207,9 @@ export const wsAcceptKey = (key: string): string => {
     }
     return toStr(n.wsAcceptKey(toBytes(key)));
   }
-  return createHash("sha1")
-    .update(key + WS_GUID)
-    .digest("base64");
+  const plain = key + WS_GUID;
+  // Under Bun, `Bun.CryptoHasher` SHA-1 beats `node:crypto` (~1.1–1.25x — see
+  // docs/bun-internals.md) and yields the same standard-base64 accept value.
+  if (bunSha1Base64) return bunSha1Base64(plain);
+  return createHash("sha1").update(plain).digest("base64");
 };

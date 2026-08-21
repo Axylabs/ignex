@@ -186,8 +186,8 @@ with the CLI:
 
 ```sh
 ignex create my-api --yes        # generates hello-world routes (named-export style)
-ignex route products/featured --named   # export const httpGet = ...
-ignex route about                # export default ...
+ignex route products/featured --named   # route + src/modules/products/featured.get.ts logic
+ignex route about                # export default ... (plus its src/modules/about.get.ts)
 ```
 
 **DataLoaders are available by default** on every request context — batching,
@@ -256,6 +256,11 @@ options, and diagnostic-code reference.
 
 ### Developer experience & automations
 
+- **`ignex sdk`** — generates a standalone, installable SDK from the compiled
+  artifacts (`manifest.json` + `openapi.json`): a self-contained zero-dependency
+  typed client for frontend teams, plus optional distribution as a git tag
+  (`sdk-v<version>`), npm publish (private registry supported), and GitHub
+  release with the tarball. See [docs/sdk.md](docs/sdk.md).
 - **`@ignex/mcp`** — a Model Context Protocol server exposing `build`, `route`,
   `info`, `doctor`, `openapi`, and `dev` as agent tools over stdio. Launch it with
   `ignex mcp` and point an MCP client (Claude, Copilot, Codex, …) at it to scaffold,
@@ -306,10 +311,18 @@ bun run test            # full vitest suite (all packages)
   (`createRouter` + `createApp({ router })`): Bun-native runtime routing,
   guarded lifecycle, and the reply path shared with AOT.
 - [docs/adding-a-feature.md](docs/adding-a-feature.md) — step-by-step guides
-  for plugins, hooks, routes, native functions, `ctx` members, and compiler
-  passes.
+  for plugins, hooks, routes, native functions, `ctx` members, compiler
+  passes, and store drivers.
+- [docs/drivers.md](docs/drivers.md) — the Laravel-style store driver layer:
+  the `Store` contract, built-in `memory`/`sqlite`/`file` drivers, the
+  `createStoreManager` registry, and custom `extend` overrides for sessions,
+  jobs, cache, and rate-limit state.
 - [docs/release-process.md](docs/release-process.md) — cache-version bumps,
   tagging, publishing.
+- [docs/sdk.md](docs/sdk.md) — generating + distributing the app SDK
+  (`ignex sdk`) for frontend teams.
+- [docs/debugbar.md](docs/debugbar.md) — the developer dashboard: request
+  waterfalls, DB timing, errors + replay, system profile, SDK list, KT docs.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — setup, quality gates, commit conventions.
 - [SECURITY.md](SECURITY.md) — how to report vulnerabilities.
 - Per-package READMEs: `packages/core`, `packages/native`, `packages/cli`,
@@ -331,11 +344,12 @@ bun run test            # full vitest suite (all packages)
 | i18n | Message catalogs, `Accept-Language` negotiation, `withI18n` middleware + `ctx.t`. |
 | HTTP primitives | Lazy body parsing (JSON/text/form/multipart/upload), query/cookie parsing, ETags, media types, SSE, WebSockets, static files + ranges, proxying. |
 | Caching | Cache-Control builder, ETag/conditional requests, response cache with stale-while-revalidate. |
-| Observability | Request IDs, tracing spans + headers, access logging (pino). |
+| Observability | Request IDs, tracing spans + headers, access logging (pino). **`debugbar()`** — a Laravel-debugbar-class developer dashboard (debug mode): per-request **waterfall** with DB/cache/HTTP timing, error capture + **one-click request replay**, CPU/memory/event-loop **system profile**, published **SDK list**, and generated **KT docs** ("how this app works"). See [docs/debugbar.md](docs/debugbar.md). |
 | Jobs | In-process task queue with `schedule`/`every`/`once`, concurrency, retries (`withRetry`), timeouts (`withTimeout`). |
 | Config & env | dotenv loading, typed `defineConfig`, typed env accessors. |
 | Lifecycle | `createApp` with plugin/lifecycle composition and graceful shutdown (`stop`). |
 | Client | Generated typed client (`client.ts`) backed by a runtime `createClient`. |
+| SDK | **`ignex sdk`** — generate a self-contained, zero-dependency typed SDK from the compiled artifacts (TypeScript platform + extensible multi-platform registry), pack it, git-tag/push to GitHub, publish to a (private) npm registry, and attach the tarball to a GitHub release for frontend teams to install. See [docs/sdk.md](docs/sdk.md). |
 | Artifacts | `routes.d.ts`, `client.d.ts` + `client.ts`, `openapi.json` (real schemas), `manifest.json`. |
 
 ### Native acceleration (`@ignex/native`)
@@ -358,11 +372,14 @@ The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a
 - ✅ **Standard-Schema build-time codegen** — parts exposing `toJSONSchema` (or zod/valibot vendors) are converted to JSON Schema and precompiled into Ajv standalone validators + `fast-json-stringify` serializers (and emitted in OpenAPI); unconvertible parts fall back to runtime with `IGN_STANDARD_SCHEMA_RUNTIME`.
 - ✅ OpenAPI generation wired to real route schemas (request body, params, headers, status-keyed responses).
 - ✅ Generated typed client implementation (`client.ts`).
+- ✅ **SDK generation + distribution** (`ignex sdk` + `scripts/generate-sdk.ts`) — multi-platform SDK pipeline (TypeScript platform first, `openapi` spec platform, extensible registry) that emits a self-contained zero-dependency typed client + `.d.ts` types + `openapi.json` from the compiled artifacts, packs it, and can git-tag/push to GitHub, publish to a private npm registry, and attach the tarball to a GitHub release for frontend consumption. See [docs/sdk.md](docs/sdk.md).
 - ✅ **Durable background jobs** — `JobStore` (file-backed JSONL, plus `bun:sqlite`-backed when available) and a durable queue with claim/lease, crash-recovery via lease expiry, retries with backoff, recurring interval jobs, and `onComplete`/`onFailed`/`onRetry` hooks.
 - ✅ **i18n JSON catalog loading** — `loadCatalogDir` / `createI18nFromDir` read `locales/*.json` (incl. namespaced `en/errors.json`) alongside TS catalogs; `withI18n` middleware alias.
 - ✅ Runtime security suite (JWT, auth hooks, sessions, CSRF, signed cookies, password hashing, AEAD).
 - ✅ Templates (minijinja native / JS fallback), i18n, env/config, background jobs, graceful shutdown, typed client.
 - ✅ **MCP server + automation** — `@ignex/mcp` exposes `build`/`route`/`info`/`doctor`/`openapi`/`dev` tools over stdio, launched via `ignex mcp`; scaffolded `ignex create` projects now ship the production optimization profile.
+- ✅ **Debugbar** — `debugbar()` plugin (debug-mode dashboard at `/__debugbar`): per-request span tracing + **request waterfall**, `ctx.debug`/ALS-propagated `debugSpan`/`debugQuery` helpers, DB query timing, error capture with stacks + **request replay**, CPU/memory/event-loop **system profile**, published-SDK list, and generated **KT docs** from the AOT manifest / router. **Zero production impact**: the compiler eliminates provably-disabled `debugbar()` instances from production builds (restoring constant hoisting + context specialization), the runtime filters `__ignexDevOnly` plugins out of the lifecycle, and `ctx.debug` is a zero-cost prototype getter. See [docs/debugbar.md](docs/debugbar.md).
+- ✅ Codegen fix: full-context route core functions now assign (not redeclare) `ctx`, so the catch block hands the REAL context to `__handleError` — compiled error-stage hooks (e.g. plugin `onError`) previously received `undefined` (interpreted parity restored).
 - ✅ Core bug fix: `ctx.set` is now exposed, so cookies/headers set via `ctx.cookie`/`ctx.set` are serialized into responses.
 - ✅ Core bug fix: plugin `onResponse` hooks no longer run on raw (non-`Response`) handler results.
 

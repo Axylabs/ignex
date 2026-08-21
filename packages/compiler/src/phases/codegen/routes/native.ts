@@ -10,7 +10,7 @@
  * The plan enables ONLY the stages the route needs (features on/off) and lists
  * them in the exact order the compiled JS prelude runs them — so the addon
  * pre-bakes the minimal fixed function stack (see route-wire.ts `NativeRoutePlan`
- * and castrum `rust/route.rs`). When the addon lacks the route surface
+ * and castrum `rust/ingress/native_route.rs`). When the addon lacks the route surface
  * (`createNativeRoute` → null) or a native run fails, the core fn falls back to
  * the existing JS prelude — byte-parity preserved.
  */
@@ -42,12 +42,14 @@ interface RouteNativeNeeds {
 const schemaDocOf = (route: RouteIR): Record<string, unknown> | undefined =>
   route.decisions.schemaDoc as Record<string, unknown> | undefined;
 
-/** Per-part schema presence (conservative `true` when precompilation is off). */
+/** Per-part schema presence. `false` when the route has no schema export at
+ *  all (no parts exist) — a conservative `true` would make every schema-less
+ *  route compile parseQuery+parseCookies native stages it never reads. */
 const hasSchemaPart =
   (route: RouteIR) =>
   (kind: string): boolean => {
     const doc = schemaDocOf(route);
-    return doc !== undefined ? doc[kind] !== undefined : true;
+    return doc !== undefined ? doc[kind] !== undefined : false;
   };
 
 const routeNativeNeeds = (
@@ -74,14 +76,19 @@ const routeNativeNeeds = (
 };
 
 /**
- * True when this route should get a native prelude: `nativeRoutes` is on, the
- * validation prelude would actually fire (schema export or a precompiled
- * validator), and the route parses query/cookies or validates an unread body.
+ * True when this route should get a native prelude: `nativeRoutes` is on and
+ * the route parses query/cookies (validated OR merely read by the handler) or
+ * validates an unread body. The native stack pre-bakes the exact
+ * parse/validate stages the route needs, so a route that only READS query or
+ * cookies (no validation — e.g. `ctx.query.get(...)` / `for (const [k, v] of
+ * ctx.query)`) gets the Rust parse too: synced from castrum, whose router
+ * parses query/cookies natively for every route that touches them (its
+ * `/api/users` bench route reads query + cookies and runs ~90k RPS vs ~48k
+ * for a JS `URLSearchParams` parse on this host).
  */
 export const nativeRouteEligible = (route: RouteIR, opts: CompilerOptions): boolean => {
   if (!opts.nativeRoutes) return false;
   const flags = validationFlags(route);
-  if (!(route.analysis.hasValidation || flags.any)) return false;
   const { needsQuery, needsCookie, needsBody } = routeNativeNeeds(
     route,
     opts,
@@ -208,6 +215,21 @@ export const emitNativeValidationPrelude = (
   const hasPart = hasSchemaPart(route);
   const { needsQuery, needsCookie, needsBody } = routeNativeNeeds(route, opts, flags, hasPart);
 
+  // Usage-only route (reads query/cookies, NO validation): the native stack
+  // still parses them in Rust, but the seeding differs — no record +
+  // validation, and no JS re-parse fallback (the lazy `ctx.query`/
+  // `ctx.cookie` getters stay when the addon is absent). This is the
+  // castrum-aligned fast path: `ctx.query` becomes a `NativeQueryParams`
+  // facade over the native pairs (URLSearchParams contract, zero
+  // URLSearchParams construction). Discriminate on the RELIABLE signals
+  // (a schema export / precompiled validators) — `hasSchemaPart` is
+  // conservative-true when `schemaDoc` is absent, which would misclassify
+  // every schema-less route as validated.
+  const hasValidation = flags.any || route.analysis.hasValidation;
+  if (!hasValidation) {
+    return emitNativeUsagePrelude(route, needsQuery, needsCookie, helpers);
+  }
+
   markValidationPreludeHelpers(route, flags.any, helpers, hasPart);
   helpers.markCore("createNativeRoute");
   if (needsQuery) {
@@ -260,6 +282,54 @@ export const emitNativeValidationPrelude = (
 };
 
 /**
+ * Usage-only native prelude (no validation/schema parts): run the per-route
+ * stack ONCE and seed `ctx.query`/`ctx.cookie` from the native pairs —
+ * `ctx.query` as a {@link NativeQueryParams} facade (URLSearchParams
+ * contract: iteration + `.get`/`.has`/`.getAll`/`.size`/`.toString`) instead
+ * of a `URLSearchParams` rebuilt from the raw string, and `ctx.cookie` as the
+ * grouped record behind the standard lazy cookie jar.
+ *
+ * No JS re-parse fallback is emitted: when the addon is absent or the run
+ * fails, `ctx.query`/`ctx.cookie` remain the context's lazy getters — the
+ * exact behavior these routes have today (byte-parity preserved).
+ */
+const emitNativeUsagePrelude = (
+  route: RouteIR,
+  needsQuery: boolean,
+  needsCookie: boolean,
+  helpers: Emitter,
+): string[] => {
+  helpers.markCore("createNativeRoute");
+  const pre: string[] = [`const __native = ${nativeRouteVar(route)};`];
+  pre.push(`if (__native) {`);
+  pre.push(`  const __qIdx = req.url.indexOf("?");`);
+  pre.push(`  let __nr;`);
+  pre.push(`  try {`);
+  pre.push(
+    `    __nr = __native.runParts(__qIdx < 0 ? "" : req.url.slice(__qIdx + 1), req.headers.get("cookie") ?? "", null);`,
+  );
+  pre.push(`  } catch {`);
+  pre.push(`    __nr = null;`);
+  pre.push(`  }`);
+  pre.push(`  if (__nr && __nr.ok) {`);
+  if (needsQuery) {
+    helpers.markCore("NativeQueryParams");
+    pre.push(`    ctx.query = new NativeQueryParams(__nr.query);`);
+  }
+  if (needsCookie) {
+    helpers.markCore("cookiePairsToRecord");
+    helpers.markCore("createLazyCookieJar");
+    pre.push(`    const __cookies = cookiePairsToRecord(__nr.cookie);`);
+    pre.push(
+      `    ctx.cookie = createLazyCookieJar(ctx.set, () => req.headers.get("cookie"), undefined, __cookies);`,
+    );
+  }
+  pre.push(`  }`);
+  pre.push(`}`);
+  return pre;
+};
+
+/**
  * The `if (__native) { … }` block: pack the frame (raw body bytes pass through
  * zero-copy), run the pre-baked stack once, seed query/cookie records on
  * success, and — for body-validating routes — throw on a native body verdict
@@ -298,11 +368,12 @@ const emitNativeRunBlock = (
     );
   }
   out.push(`  try {`);
-  out.push(`    __nr = __native.run({`);
-  out.push(`      query: __qIdx < 0 ? "" : req.url.slice(__qIdx + 1),`);
-  out.push(`      cookie: req.headers.get("cookie") ?? "",`);
-  out.push(`      body: ${needsBody ? "__bodyBytes" : "null"},`);
-  out.push(`    });`);
+  // runParts(query, cookie, body) — the pre-encoded frame pack + ONE native
+  // call, no per-request frame object (synced from castrum's
+  // `native-route.ts` `run(query, cookie, body)` shape).
+  out.push(
+    `    __nr = __native.runParts(__qIdx < 0 ? "" : req.url.slice(__qIdx + 1), req.headers.get("cookie") ?? "", ${needsBody ? "__bodyBytes" : "null"});`,
+  );
   out.push(`  } catch {`);
   out.push(`    __nr = null;`);
   out.push(`  }`);

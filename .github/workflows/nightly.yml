@@ -1,13 +1,14 @@
 name: Nightly stability
 
 # Scheduled stability sweep — runs the slow/expensive gates that don't belong
-# on every PR: full native parity on plain Bun, perf regression against the
-# committed baseline, and a compare-bench soak. Failures here are real signals
-# (drift in Bun/castrum, perf regressions, machine-sensitive flakes) — they do
-# NOT block PRs but should be triaged.
+# on every PR: full native parity on plain Bun, malformed-input fuzz, perf
+# regression against the committed baseline, and a compare-bench soak. Failures
+# here are real signals (drift in Bun/castrum, perf regressions, machine-
+# sensitive flakes) — they do NOT block PRs but should be triaged.
 #
-# TODO(nightly): add a malformed-FFI fuzz job once the deterministic fuzz
-# harness (docs/stability.md, Phase 1A-2) lands.
+# The Rust-side catch_unwind/malformed-FFI fuzz (castrum, Axylabs/flux-rs)
+# remains cross-repo; the JS-side malformed-input fuzz below covers the request-
+# path decoders that run on every server.
 on:
   schedule:
     # 02:00 UTC daily.
@@ -63,6 +64,28 @@ jobs:
         env:
           IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run test:native:real
+
+  malformed-input-fuzz:
+    name: Malformed-input fuzz (JS side)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ignex
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install ignex dependencies
+        run: bun install --frozen-lockfile
+
+      # Deterministic malformed-input fuzz over the request-path decoders
+      # (cookies/query/form/WS frames/multipart): adversarial input must never
+      # throw, and native+fallback must agree. Fails on any violation.
+      - name: Malformed-input fuzz
+        run: bun run fuzz:malformed
 
   perf-regression:
     name: Perf regression vs committed baseline

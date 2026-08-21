@@ -5,12 +5,12 @@
  *
  * Writes `src/models/<plural>.ts` (idempotent; `--force` overwrites).
  */
-import { join, relative, resolve } from "node:path";
-import { modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
+import { join } from "node:path";
+import { type ModelField, modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
-import { exists, writeFileEnsuringDir } from "../utils/fs.js";
-import { error, step, success } from "../utils/logger.js";
+import { error, step } from "../utils/logger.js";
+import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
 
 export async function runModel(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
@@ -22,33 +22,25 @@ export async function runModel(args: string[]): Promise<void> {
 
   // The first positional is the model *name*, not a root path.
   const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const name = positionals[0];
-
-  if (!name) {
-    error("Model name is required (e.g. ignex model User).");
-    process.exitCode = 1;
-    return;
-  }
+  const name = firstPositional(positionals, "Model name is required (e.g. ignex model User).");
+  if (!name) return;
 
   const config = await loadConfig(root);
-  const modelsDir = resolve(
-    root,
-    (values.dir as string | undefined) ??
-      (config as { modelsDir?: string }).modelsDir ??
-      "src/models",
-  );
+  const modelsDir = resolveDir(root, values.dir, config.modelsDir, "src/models");
 
-  const fields = parseModelFields(values.fields as string | undefined);
+  let fields: ModelField[];
+  try {
+    fields = parseModelFields(values.fields as string | undefined);
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return;
+  }
   const plural = pluralize(name);
   const filePath = join(modelsDir, `${plural}.ts`);
 
-  if ((await exists(filePath)) && !values.force) {
-    error(`${relative(process.cwd(), filePath)} already exists. Use --force to overwrite.`);
-    process.exitCode = 1;
-    return;
-  }
-
   step(`Creating model ${name} (collection "${plural}")`);
-  await writeFileEnsuringDir(filePath, modelTemplate(name, fields));
-  success(`Created ${relative(process.cwd(), filePath)}`);
+  await writeScaffold(filePath, modelTemplate(name, fields), {
+    force: Boolean(values.force),
+    overwrite: true,
+  });
 }

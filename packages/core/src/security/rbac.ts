@@ -12,7 +12,7 @@
  * wildcard (`*`), and namespace wildcards (`users:*`).
  */
 import type { IgnexContext } from "../http/context";
-import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
+import { composeHooks, continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { MaybePromise } from "../types";
 import { type AuthUser, forbidden, getUser, unauthorized } from "./auth";
 
@@ -42,13 +42,23 @@ export const resolveUser = async (
 ): Promise<AuthUser | null> => (opts.loadUser ? opts.loadUser(ctx) : (getUser(ctx) ?? null));
 
 /**
+ * Build a guard from a predicate over the authenticated subject. Shared
+ * skeleton behind `requireAuthenticated` / `hasRole` / `can` / `canAll`:
+ * 401 when unauthenticated, 403 when the predicate fails, else continue.
+ */
+const guard =
+  (authorize: (user: AuthUser, ctx: IgnexContext) => boolean): HookFn =>
+  async (ctx) => {
+    const user = await resolveUser(ctx);
+    if (user == null) return haltHook(unauthorized());
+    return authorize(user, ctx) ? continueHook(ctx) : haltHook(forbidden());
+  };
+
+/**
  * Require an authenticated user (no role/permission check). 401 when absent.
  * The guard used by `withGuards(handler)` with no explicit requirements.
  */
-export const requireAuthenticated: HookFn = async (ctx) => {
-  const user = await resolveUser(ctx);
-  return user == null ? haltHook(unauthorized()) : continueHook(ctx);
-};
+export const requireAuthenticated: HookFn = guard(() => true);
 
 /**
  * True when a `grant` (a permission the subject holds) satisfies a `requirement`
@@ -96,16 +106,10 @@ const subjectGrants = (
  * // or as a hook: config.hooks = ["require-auth"] then can(...) in a wrapper
  * ```
  */
-export const hasRole =
-  (...roles: string[]): HookFn =>
-  async (ctx) => {
-    if (roles.length === 0) return continueHook(ctx);
-    const user = await resolveUser(ctx);
-    if (user == null) return haltHook(unauthorized());
-    const { roles: granted } = subjectGrants(ctx, user);
-    if (granted.some((r) => roles.includes(r))) return continueHook(ctx);
-    return haltHook(forbidden());
-  };
+export const hasRole = (...roles: string[]): HookFn =>
+  roles.length === 0
+    ? continueHook
+    : guard((user, ctx) => subjectGrants(ctx, user).roles.some((r) => roles.includes(r)));
 
 /**
  * Require the authenticated user to hold ANY of the given permissions.
@@ -114,28 +118,16 @@ export const hasRole =
  * can("users:read", "users:write")  // any-of
  * ```
  */
-export const can =
-  (...permissions: string[]): HookFn =>
-  async (ctx) => {
-    if (permissions.length === 0) return continueHook(ctx);
-    const user = await resolveUser(ctx);
-    if (user == null) return haltHook(unauthorized());
-    const { permissions: granted } = subjectGrants(ctx, user);
-    if (hasAnyPermission(granted, permissions)) return continueHook(ctx);
-    return haltHook(forbidden());
-  };
+export const can = (...permissions: string[]): HookFn =>
+  permissions.length === 0
+    ? continueHook
+    : guard((user, ctx) => hasAnyPermission(subjectGrants(ctx, user).permissions, permissions));
 
 /** Require the authenticated user to hold ALL of the given permissions. */
-export const canAll =
-  (...permissions: string[]): HookFn =>
-  async (ctx) => {
-    if (permissions.length === 0) return continueHook(ctx);
-    const user = await resolveUser(ctx);
-    if (user == null) return haltHook(unauthorized());
-    const { permissions: granted } = subjectGrants(ctx, user);
-    if (hasAllPermissions(granted, permissions)) return continueHook(ctx);
-    return haltHook(forbidden());
-  };
+export const canAll = (...permissions: string[]): HookFn =>
+  permissions.length === 0
+    ? continueHook
+    : guard((user, ctx) => hasAllPermissions(subjectGrants(ctx, user).permissions, permissions));
 
 /** Guard requirements for a route (used by {@link withGuards}). */
 export interface RouteGuards {
@@ -160,24 +152,16 @@ export const guardChain = (guards: RouteGuards = {}): HookFn[] => {
     chain.push(guards.all ? canAll(...guards.permissions) : can(...guards.permissions));
   } else if (guards.authenticated !== false && chain.length === 0) {
     // Default: at minimum an authenticated user is required.
-    chain.push(async (ctx) => {
-      const user = await resolveUser(ctx);
-      return user == null ? haltHook(unauthorized()) : continueHook(ctx);
-    });
+    chain.push(requireAuthenticated);
   }
   return chain;
 };
 
 /**
  * Compose multiple guard hooks into a single hook (run left-to-right).
+ *
+ * Delegates to the shared hook engine's `composeHooks` — guard hooks ARE
+ * `HookFn`s, so there is no reason to re-implement chain running here.
  */
-export const composeGuards = (...guards: HookFn[]): HookFn => {
-  const list = guards.filter(Boolean);
-  return async (ctx) => {
-    for (const guard of list) {
-      const result = await guard(ctx);
-      if (!result.ok) return result;
-    }
-    return continueHook(ctx);
-  };
-};
+export const composeGuards = (...guards: HookFn[]): HookFn =>
+  composeHooks(...guards.filter(Boolean));

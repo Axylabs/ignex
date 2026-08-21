@@ -43,7 +43,10 @@ const createLogPayload = (ctx: IgnexContext, response: Response) => {
   const duration = performance.now() - ctx.startTime;
 
   return {
-    requestId: ctx.requestId,
+    // Prefer the middleware-assigned id (inbound x-request-id or generated) so
+    // access logs correlate with the echoed response header; fall back to the
+    // context's lazy id when no request-id middleware is registered.
+    requestId: ctx.getState<string>("requestId") ?? ctx.requestId,
     method: ctx.method,
     path: ctx.path,
     status: response.status,

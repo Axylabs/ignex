@@ -50,8 +50,22 @@ import { FEATURE_NAMES, type Feature } from "../types.js";
 import { parseCliArgs } from "../utils/args.js";
 import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, step, success, warn } from "../utils/logger.js";
-import { ask, askConfirm, openPrompt } from "../utils/prompt.js";
+import {
+  PromptCancelError,
+  promptConfirm,
+  promptMultiSelect,
+  promptSelect,
+  promptText,
+} from "../utils/prompt.js";
 import { normalizeRuntime } from "../utils/runtime.js";
+
+/**
+ * Default `--yes` / interactive features. Includes the baseline plugin set
+ * (cors/compression/security/logger) so a default scaffold is feature-driven
+ * (`src/plugins/index.ts`) yet behaves like the classic kitchen-sink app
+ * config; users can drop/add plugins via `--features`.
+ */
+const DEFAULT_FEATURES = "openapi,middleware,examples,tests,cors,compression,security,logger";
 
 interface CreateDefaults {
   name?: string;
@@ -62,152 +76,217 @@ interface CreateDefaults {
   git?: boolean;
 }
 
+/** Human labels for the feature multi-select in the create wizard. */
+const FEATURE_LABELS: Record<Feature, string> = {
+  cors: "CORS",
+  rateLimit: "Rate limiting",
+  security: "Security headers",
+  compression: "Compression",
+  logger: "Request logging",
+  middleware: "Global middleware",
+  openapi: "OpenAPI docs",
+  files: "File uploads",
+  ws: "WebSockets",
+  sse: "Server-Sent Events",
+  cache: "Browser cache",
+  proxy: "HTTP proxy",
+  auth: "Auth (register / login / me)",
+  refresh: "Refresh tokens + logout",
+  sessions: "Sessions",
+  templates: "HTML templates",
+  env: "Env route",
+  jobs: "Jobs route",
+  i18n: "i18n",
+  examples: "Example routes",
+  tests: "Tests (vitest)",
+};
+
 /** Ask the user for any option not already provided (TTY only). */
 async function resolveInteractive(options: CreateDefaults): Promise<Required<CreateDefaults>> {
-  const rl = openPrompt();
-  try {
-    const name = options.name ?? (await ask(rl, "Project name", "ignex-app"));
-    const runtime = options.runtime ?? (await ask(rl, "Runtime (bun/node)", "bun"));
-    const pm =
-      options.pm ??
-      (await ask(rl, "Package manager (bun/npm/pnpm/yarn)", runtime === "node" ? "npm" : "bun"));
-    const features =
-      options.features ??
-      (await ask(rl, "Features (all, none, or comma-separated)", "openapi,examples,tests"));
-    const install = options.install ?? (await askConfirm(rl, "Install dependencies?", true));
-    const git = options.git ?? (await askConfirm(rl, "Initialize git?", true));
-    return { name, runtime, pm, features, install, git };
-  } finally {
-    rl.close();
-  }
+  const name =
+    options.name ?? (await promptText({ message: "Project name", initial: "ignex-app" }));
+  const runtime =
+    options.runtime ??
+    (await promptSelect({
+      message: "Runtime",
+      options: [{ value: "bun", label: "Bun", hint: "the only runtime ignex targets" }],
+      initial: "bun",
+    }));
+  const pm =
+    options.pm ??
+    (await promptSelect({
+      message: "Package manager",
+      options: [{ value: "bun" }, { value: "npm" }, { value: "pnpm" }, { value: "yarn" }],
+      initial: "bun",
+    }));
+  const defaultFeatures = DEFAULT_FEATURES.split(",");
+  const features =
+    options.features ??
+    (
+      await promptMultiSelect({
+        message: "Features to scaffold",
+        hint: "Space toggles · a selects all · Enter confirms",
+        options: FEATURE_NAMES.map((feature) => ({
+          value: feature,
+          label: FEATURE_LABELS[feature],
+        })),
+        initial: defaultFeatures,
+      })
+    ).join(",");
+  const install =
+    options.install ?? (await promptConfirm({ message: "Install dependencies?", initial: true }));
+  const git = options.git ?? (await promptConfirm({ message: "Initialize git?", initial: true }));
+  return { name, runtime, pm, features, install, git };
 }
+
+/** One planned scaffold file: target-relative `path` + a content factory. */
+interface PlannedFile {
+  readonly path: string;
+  /**
+   * Gate: the file is written only when this holds (feature name, any-of
+   * feature list, or predicate over the enabled feature set). Always written
+   * when omitted.
+   */
+  readonly when?: Feature | Feature[] | ((features: Set<Feature>) => boolean);
+  readonly content: () => string;
+}
+
+/** The full scaffold file plan — base files plus feature-conditional ones. */
+const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
+  const features = opts.features;
+  const APP_CONFIG_FEATURES = ["sessions", "auth", "middleware", "openapi"] as const;
+
+  return [
+    // Base files (always written).
+    { path: "package.json", content: () => packageJsonTemplate(opts) },
+    { path: "tsconfig.json", content: () => tsconfigTemplate() },
+    { path: "ignex.config.mjs", content: () => ignexConfigTemplate() },
+    { path: "biome.json", content: () => biomeTemplate() },
+    { path: ".gitignore", content: () => gitignoreTemplate() },
+    { path: "README.md", content: () => readmeTemplate(opts) },
+    // Validated env config + .env.example (base — src/app.config.ts imports it).
+    { path: "src/config/env.ts", content: () => envConfigTemplate() },
+    { path: ".env.example", content: () => envExampleTemplate() },
+    { path: "src/routes/index.get.ts", content: () => indexRouteTemplate(opts.name) },
+    { path: "src/routes/health.get.ts", content: () => healthRouteTemplate() },
+    { path: "src/hooks/README.md", content: () => `# Hooks\n\nPlace shared hooks here.\n` },
+
+    // Feature-conditional routes/plugins/hooks.
+    {
+      path: "src/routes/products/[id].get.ts",
+      when: "examples",
+      content: () => productByIdRouteTemplate(),
+    },
+    {
+      path: "src/routes/products/add.post.ts",
+      when: "examples",
+      content: () => productAddRouteTemplate(),
+    },
+    { path: "src/routes/upload.post.ts", when: "files", content: () => uploadRouteTemplate() },
+    { path: "src/routes/events.get.ts", when: "sse", content: () => sseRouteTemplate() },
+    { path: "src/routes/cached.get.ts", when: "cache", content: () => cacheRouteTemplate() },
+    { path: "src/routes/proxy.get.ts", when: "proxy", content: () => proxyRouteTemplate() },
+    {
+      path: "src/plugins/index.ts",
+      when: (f) => hasPluginFeatures(f),
+      content: () => pluginsTemplate(opts),
+    },
+    { path: "src/ws.example.ts", when: "ws", content: () => wsExampleTemplate() },
+    {
+      path: "src/middleware/README.md",
+      when: "middleware",
+      content: () => middlewareReadmeTemplate(),
+    },
+    {
+      path: "src/middleware/index.ts",
+      when: "middleware",
+      content: () => middlewareIndexTemplate(),
+    },
+    {
+      path: "src/middleware/request-id.ts",
+      when: "middleware",
+      content: () => middlewareRequestIdTemplate(),
+    },
+    {
+      path: "src/middleware/log-requests.ts",
+      when: "middleware",
+      content: () => middlewareLogRequestsTemplate(),
+    },
+    {
+      path: "src/lib/auth.ts",
+      when: "auth",
+      content: () => authLibTemplate({ refresh: features.has("refresh") }),
+    },
+    {
+      path: "src/hooks/require-auth.ts",
+      when: "auth",
+      content: () => requireAuthHookTemplate(),
+    },
+    {
+      path: "src/routes/auth/register.post.ts",
+      when: "auth",
+      content: () => registerRouteTemplate({ refresh: features.has("refresh") }),
+    },
+    {
+      path: "src/routes/auth/login.post.ts",
+      when: "auth",
+      content: () => loginRouteTemplate({ refresh: features.has("refresh") }),
+    },
+    { path: "src/routes/auth/me.get.ts", when: "auth", content: () => meRouteTemplate() },
+    {
+      path: "src/routes/auth/refresh.post.ts",
+      when: "refresh",
+      content: () => refreshRouteTemplate(),
+    },
+    {
+      path: "src/routes/auth/logout.post.ts",
+      when: "refresh",
+      content: () => logoutRouteTemplate(),
+    },
+    {
+      path: "src/routes/session.get.ts",
+      when: "sessions",
+      content: () => sessionRouteTemplate(),
+    },
+    {
+      path: "src/app.config.ts",
+      when: (f) => APP_CONFIG_FEATURES.some((n) => f.has(n)) || hasPluginFeatures(f),
+      content: () =>
+        appConfigTemplate({
+          middleware: features.has("middleware"),
+          plugins: hasPluginFeatures(features),
+        }),
+    },
+    { path: "src/views/layout.html", when: "templates", content: () => layoutTemplate() },
+    { path: "src/views/home.html", when: "templates", content: () => homeTemplate() },
+    { path: "src/routes/page.get.ts", when: "templates", content: () => pageRouteTemplate() },
+    { path: "src/routes/i18n.get.ts", when: "i18n", content: () => i18nRouteTemplate() },
+    { path: "src/routes/env.get.ts", when: "env", content: () => envRouteTemplate() },
+    { path: "src/routes/jobs.get.ts", when: "jobs", content: () => jobsRouteTemplate() },
+    { path: "vitest.config.ts", when: "tests", content: () => vitestConfigTemplate() },
+    {
+      path: "test/app.test.ts",
+      when: "tests",
+      content: () => testTemplate(opts.name, opts.runtime),
+    },
+  ];
+};
 
 /** Write every scaffolded file (feature-conditional routes/plugins/hooks). */
 async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Promise<void> {
-  const features = opts.features;
-  await writeFileEnsuringDir(join(target, "package.json"), packageJsonTemplate(opts));
-  await writeFileEnsuringDir(join(target, "tsconfig.json"), tsconfigTemplate(opts));
-  await writeFileEnsuringDir(join(target, "ignex.config.mjs"), ignexConfigTemplate());
-  await writeFileEnsuringDir(join(target, "biome.json"), biomeTemplate());
-  await writeFileEnsuringDir(join(target, ".gitignore"), gitignoreTemplate());
-  await writeFileEnsuringDir(join(target, "README.md"), readmeTemplate(opts));
-  // Validated env config + .env.example (base — src/app.config.ts imports it).
-  await writeFileEnsuringDir(join(target, "src/config/env.ts"), envConfigTemplate());
-  await writeFileEnsuringDir(join(target, ".env.example"), envExampleTemplate());
-  await writeFileEnsuringDir(
-    join(target, "src/routes/index.get.ts"),
-    indexRouteTemplate(opts.name),
-  );
-  await writeFileEnsuringDir(join(target, "src/routes/health.get.ts"), healthRouteTemplate());
-  await writeFileEnsuringDir(
-    join(target, "src/hooks/README.md"),
-    `# Hooks\n\nPlace shared hooks here.\n`,
-  );
-
-  if (features.has("examples")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/products/[id].get.ts"),
-      productByIdRouteTemplate(),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/routes/products/add.post.ts"),
-      productAddRouteTemplate(),
-    );
-  }
-  if (features.has("files")) {
-    await writeFileEnsuringDir(join(target, "src/routes/upload.post.ts"), uploadRouteTemplate());
-  }
-  if (features.has("sse")) {
-    await writeFileEnsuringDir(join(target, "src/routes/events.get.ts"), sseRouteTemplate());
-  }
-  if (features.has("cache")) {
-    await writeFileEnsuringDir(join(target, "src/routes/cached.get.ts"), cacheRouteTemplate());
-  }
-  if (features.has("proxy")) {
-    await writeFileEnsuringDir(join(target, "src/routes/proxy.get.ts"), proxyRouteTemplate());
-  }
-  if (hasPluginFeatures(features)) {
-    await writeFileEnsuringDir(join(target, "src/plugins/index.ts"), pluginsTemplate(opts));
-  }
-  if (features.has("ws")) {
-    await writeFileEnsuringDir(join(target, "src/ws.example.ts"), wsExampleTemplate());
-  }
-  if (features.has("middleware")) {
-    await writeFileEnsuringDir(
-      join(target, "src/middleware/README.md"),
-      middlewareReadmeTemplate(),
-    );
-    await writeFileEnsuringDir(join(target, "src/middleware/index.ts"), middlewareIndexTemplate());
-    await writeFileEnsuringDir(
-      join(target, "src/middleware/request-id.ts"),
-      middlewareRequestIdTemplate(),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/middleware/log-requests.ts"),
-      middlewareLogRequestsTemplate(),
-    );
-  }
-  if (features.has("auth")) {
-    await writeFileEnsuringDir(
-      join(target, "src/lib/auth.ts"),
-      authLibTemplate({ refresh: features.has("refresh") }),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/hooks/require-auth.ts"),
-      requireAuthHookTemplate(),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/routes/auth/register.post.ts"),
-      registerRouteTemplate({ refresh: features.has("refresh") }),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/routes/auth/login.post.ts"),
-      loginRouteTemplate({ refresh: features.has("refresh") }),
-    );
-    await writeFileEnsuringDir(join(target, "src/routes/auth/me.get.ts"), meRouteTemplate());
-  }
-  if (features.has("refresh")) {
-    await writeFileEnsuringDir(
-      join(target, "src/routes/auth/refresh.post.ts"),
-      refreshRouteTemplate(),
-    );
-    await writeFileEnsuringDir(
-      join(target, "src/routes/auth/logout.post.ts"),
-      logoutRouteTemplate(),
-    );
-  }
-  if (features.has("sessions")) {
-    await writeFileEnsuringDir(join(target, "src/routes/session.get.ts"), sessionRouteTemplate());
-  }
-  if (
-    features.has("sessions") ||
-    features.has("auth") ||
-    features.has("middleware") ||
-    features.has("openapi") ||
-    hasPluginFeatures(features)
-  ) {
-    await writeFileEnsuringDir(
-      join(target, "src/app.config.ts"),
-      appConfigTemplate({ middleware: features.has("middleware") }),
-    );
-  }
-  if (features.has("templates")) {
-    await writeFileEnsuringDir(join(target, "src/views/layout.html"), layoutTemplate());
-    await writeFileEnsuringDir(join(target, "src/views/home.html"), homeTemplate());
-    await writeFileEnsuringDir(join(target, "src/routes/page.get.ts"), pageRouteTemplate());
-  }
-  if (features.has("i18n")) {
-    await writeFileEnsuringDir(join(target, "src/routes/i18n.get.ts"), i18nRouteTemplate());
-  }
-  if (features.has("env")) {
-    await writeFileEnsuringDir(join(target, "src/routes/env.get.ts"), envRouteTemplate());
-  }
-  if (features.has("jobs")) {
-    await writeFileEnsuringDir(join(target, "src/routes/jobs.get.ts"), jobsRouteTemplate());
-  }
-  if (features.has("tests")) {
-    await writeFileEnsuringDir(join(target, "vitest.config.ts"), vitestConfigTemplate());
-    await writeFileEnsuringDir(join(target, "test/app.test.ts"), testTemplate());
+  for (const { path, when, content } of plannedFiles(opts)) {
+    let enabled = true;
+    if (when !== undefined) {
+      if (typeof when === "function") {
+        enabled = when(opts.features);
+      } else if (Array.isArray(when)) {
+        enabled = when.some((name) => opts.features.has(name));
+      } else {
+        enabled = opts.features.has(when);
+      }
+    }
+    if (!enabled) continue;
+    await writeFileEnsuringDir(join(target, path), content());
   }
 }
 
@@ -247,6 +326,65 @@ function printNextSteps(rel: string, install: boolean, pm: string, name: string)
   console.log();
 }
 
+/** Normalized inputs after merging flags + interactive answers. */
+interface CreateInputs {
+  name: string;
+  runtimeInput?: string;
+  pmInput?: string;
+  featuresInput?: string;
+  install: boolean;
+  git: boolean;
+}
+
+/** Merge CLI flags with wizard answers (TTY) into normalized inputs. */
+async function resolveCreateInputs(
+  values: Record<string, unknown>,
+  positionals: readonly string[],
+  interactive: boolean,
+): Promise<CreateInputs | undefined> {
+  let name = positionals[0] ?? (values.name as string | undefined);
+  let runtimeInput = values.runtime as string | undefined;
+  let pmInput = values.pm as string | undefined;
+  let featuresInput = values.features as string | undefined;
+  let install = values.install as boolean | undefined;
+  let git = values.git as boolean | undefined;
+  // Bun's parseArgs turns `--no-x` into the literal key `no-x`; handle the
+  // negation flags explicitly so defaults are never accidentally flipped.
+  if (values["no-install"] === true) install = false;
+  if (values["no-git"] === true) git = false;
+
+  if (interactive) {
+    try {
+      const resolved = await resolveInteractive({
+        name,
+        runtime: runtimeInput,
+        pm: pmInput,
+        features: featuresInput,
+        install,
+        git,
+      });
+      name = resolved.name;
+      runtimeInput = resolved.runtime;
+      pmInput = resolved.pm;
+      featuresInput = resolved.features;
+      install = resolved.install;
+      git = resolved.git;
+    } catch (err) {
+      if (err instanceof PromptCancelError) return undefined;
+      throw err;
+    }
+  }
+
+  return {
+    name: name ?? "ignex-app",
+    runtimeInput,
+    pmInput,
+    featuresInput,
+    install: install ?? false,
+    git: git ?? false,
+  };
+}
+
 export async function runCreate(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
     name: { type: "string" },
@@ -261,49 +399,19 @@ export async function runCreate(args: string[]): Promise<void> {
   });
 
   const interactive = Boolean(process.stdin.isTTY && !values.yes);
-
-  let name = positionals[0] ?? (values.name as string | undefined);
-  let runtimeInput = values.runtime as string | undefined;
-  let pmInput = values.pm as string | undefined;
-  let featuresInput = values.features as string | undefined;
-  let install = values.install as boolean | undefined;
-  let git = values.git as boolean | undefined;
-  // Bun's parseArgs turns `--no-x` into the literal key `no-x`; handle the
-  // negation flags explicitly so defaults are never accidentally flipped.
-  if (values["no-install"] === true) install = false;
-  if (values["no-git"] === true) git = false;
-
-  if (interactive) {
-    const resolved = await resolveInteractive({
-      name,
-      runtime: runtimeInput,
-      pm: pmInput,
-      features: featuresInput,
-      install,
-      git,
-    });
-    name = resolved.name;
-    runtimeInput = resolved.runtime;
-    pmInput = resolved.pm;
-    featuresInput = resolved.features;
-    install = resolved.install;
-    git = resolved.git;
-  }
-
-  name = name ?? "ignex-app";
+  const inputs = await resolveCreateInputs(values, positionals, interactive);
+  if (!inputs) return; // wizard cancelled
+  const { name, runtimeInput, pmInput, featuresInput, install, git } = inputs;
 
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);
 
-  const features = parseFeatures(featuresInput ?? (values.yes ? "openapi,examples,tests" : "none"));
+  const features = parseFeatures(featuresInput ?? (values.yes ? DEFAULT_FEATURES : "none"));
 
   if (features.has("refresh") && !features.has("auth")) {
     features.add("auth");
     warn("'refresh' requires 'auth' — enabling 'auth' too.");
   }
-
-  install = install ?? false;
-  git = git ?? false;
 
   // `--root <dir>` targets an explicit parent directory; otherwise the app is
   // scaffolded into a folder named `name` inside the current directory.
@@ -374,7 +482,6 @@ const FEATURE_ALIASES: Record<string, Feature> = {
   sse: "sse",
   cache: "cache",
   proxy: "proxy",
-  cluster: "cluster",
   auth: "auth",
   refresh: "refresh",
   "refresh-tokens": "refresh",

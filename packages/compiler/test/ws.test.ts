@@ -53,16 +53,48 @@ describe("compile (WS route)", () => {
     // The route module's `wsHandler` is imported for the websocket option.
     expect(result.code).toContain("wsHandler as wsHandler__h0");
 
-    // The GET route-table entry upgrades the request instead of serving a
-    // normal HTTP response.
+    // The GET route-table entry upgrades the request (recording the route
+    // path) instead of serving a normal HTTP response.
     expect(result.code).toContain('"/ws": {');
     expect(result.code).toContain("GET: __wrap(WS__h0");
-    expect(result.code).toContain("server.upgrade(req)");
+    expect(result.code).toContain("server.upgrade(req");
+    expect(result.code).toContain('{ data: { __route: "/ws" } }');
 
     // The server's websocket option is wired from the route's wsHandler.
     expect(result.code).toContain("__serveOptions.websocket ??= wsHandler__h0;");
 
     // It must NOT be lowered as a plain GET response route.
     expect(result.code).not.toMatch(/GET__h0/);
+  });
+
+  it("dispatches multiple WS routes to their own wsHandler by path", async () => {
+    const layout = materializeFixture("ws-multi");
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      generateTypes: false,
+      generateOpenAPI: false,
+      generateClient: false,
+    });
+
+    expect(result.errors).toHaveLength(0);
+
+    // Both route wsHandlers are imported.
+    expect(result.code).toContain("wsHandler as wsHandler__h0");
+    expect(result.code).toContain("wsHandler as wsHandler__h1");
+
+    // Each upgrade records its route path on the socket.
+    expect(result.code).toContain('{ data: { __route: "/chat" } }');
+    expect(result.code).toContain('{ data: { __route: "/echo" } }');
+
+    // A single server websocket handler dispatches by `ws.data.__route`.
+    expect(result.code).toContain(
+      'const __wsHandlers = { "/chat": wsHandler__h0, "/echo": wsHandler__h1 }',
+    );
+    expect(result.code).toContain("__wsHandlers[ws.data?.__route]");
+
+    // Not just the first handler (the pre-fix behavior).
+    expect(result.code).not.toContain("__serveOptions.websocket ??= wsHandler__h0;");
   });
 });

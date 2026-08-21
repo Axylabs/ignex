@@ -21,7 +21,7 @@ import { brotliCompressSync, brotliDecompressSync, constants, gzipSync } from "n
  *   bun scripts/bench-native.ts
  *   IGNEX_NATIVE=off ...                 # addon unavailable → skip native rows
  */
-import Ajv from "../packages/core/node_modules/ajv";
+import Ajv from "ajv";
 import { bunGunzipSync, bunGzipSync } from "../packages/native/src/bun";
 import {
   aeadDecryptFallback,

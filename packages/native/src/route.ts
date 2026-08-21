@@ -25,13 +25,14 @@ import {
   type NativeRouteFrame,
   type NativeRoutePlan,
   type NativeRouteRunResult,
-  packRouteFrameInto,
-  packRouteFrameLength,
+  packRouteFramePartsInto,
+  packRouteFramePartsLength,
   planHasStage,
   readRouteFrameLengths,
   readRouteResult,
 } from "./route-wire";
 import { withScratch } from "./scratch";
+import { encoder } from "./util";
 
 // Re-export the wire types so `./route` is the single import for the per-route
 // stack (the index barrel re-exports from here).
@@ -56,6 +57,10 @@ function warnRouteSurfaceAbsent(): void {
 
 /** A compiled, pre-baked per-route native stack. */
 export interface NativeRoute {
+  /** Whether the plan compiled `parseQuery` (the result carries a query section). */
+  readonly parseQuery: boolean;
+  /** Whether the plan compiled `parseCookies` (the result carries a cookie section). */
+  readonly parseCookies: boolean;
   /**
    * Run the pre-baked stack once for a request frame and return the decoded
    * result (parsed query/cookie pairs + per-part validation verdicts). Safe
@@ -63,6 +68,13 @@ export interface NativeRoute {
    * per-thread arena).
    */
   run(frame: NativeRouteFrame): NativeRouteRunResult;
+  /**
+   * Convenience (synced from castrum's `native-route.ts` `run(query, cookie,
+   * body)` shape): run the stack from raw request inputs, packing the frame
+   * from pre-encoded bytes — no per-request frame object on the compiled
+   * handlers' hot path.
+   */
+  runParts(query: string, cookie: string, body: Uint8Array | null): NativeRouteRunResult;
   /** Release the native instance's resources (route dropped / app shutdown). */
   destroy(): void;
 }
@@ -159,41 +171,60 @@ export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => 
   const hasQuerySection = planHasStage(plan, "parseQuery");
   const hasCookieSection = planHasStage(plan, "parseCookies");
 
-  return {
-    run(frame) {
+  // Single pack→run→decode core over PRE-ENCODED query/cookie bytes: the
+  // compiled handlers' hot path encodes once and reuses the bytes for both
+  // the frame-size computation and the pack (no double walk, no frame object).
+  const runPacked = (
+    query: Uint8Array,
+    cookie: Uint8Array,
+    body: Uint8Array | null,
+  ): NativeRouteRunResult =>
+    withScratch(packRouteFramePartsLength(query, cookie, body), (packed) => {
+      packRouteFramePartsInto(packed, query, cookie, body);
       // Both the frame pack and the first result attempt are pooled — neither
       // the packed frame nor the raw result escapes this call
       // (`readRouteResult` decodes into fresh JS values: strings + pair
-      // arrays). Frame length and the TIGHT initial result bound are computed
-      // from the packed wire (no re-encoding): the addon's route writer uses
-      // the needed-size convention (`w > out.length` = EXACT required size), so
-      // the common case is ONE pooled call at ~4 bytes/input byte instead of
-      // the old `len*9` worst-case scratch, and only the rare miss allocates
-      // EXACTLY once and retries (no re-run loop, no 9× over-allocation).
-      return withScratch(packRouteFrameLength(frame), (packed) => {
-        packRouteFrameInto(packed, frame);
-        const { qLen, cLen } = readRouteFrameLengths(packed);
-        const initial = 8 + qLen * 4 + cLen * 4 + 16;
-        return withScratch(initial, (out) => {
-          const w = binding.run(packed, out);
-          if (w === 0) throw new Error("native route run failed");
-          if (w <= out.length) {
-            return readRouteResult(out.subarray(0, w), {
-              query: hasQuerySection,
-              cookie: hasCookieSection,
-            });
-          }
-          // Rare miss: grow EXACTLY to the reported size and retry once.
-          const exact = new Uint8Array(w);
-          const w2 = binding.run(packed, exact);
-          if (w2 === 0) throw new Error("native route run failed");
-          if (w2 > exact.length) throw new Error("native route run: unstable needed size");
-          return readRouteResult(exact.subarray(0, w2), {
+      // arrays). The TIGHT initial result bound is computed from the packed
+      // wire (no re-encoding): the addon's route writer uses the needed-size
+      // convention (`w > out.length` = EXACT required size), so the common
+      // case is ONE pooled call at ~4 bytes/input byte instead of the old
+      // `len*9` worst-case scratch, and only the rare miss allocates EXACTLY
+      // once and retries (no re-run loop, no 9× over-allocation).
+      const { qLen, cLen } = readRouteFrameLengths(packed);
+      const initial = 8 + qLen * 4 + cLen * 4 + 16;
+      return withScratch(initial, (out) => {
+        const w = binding.run(packed, out);
+        if (w === 0) throw new Error("native route run failed");
+        if (w <= out.length) {
+          return readRouteResult(out.subarray(0, w), {
             query: hasQuerySection,
             cookie: hasCookieSection,
           });
+        }
+        // Rare miss: grow EXACTLY to the reported size and retry once.
+        const exact = new Uint8Array(w);
+        const w2 = binding.run(packed, exact);
+        if (w2 === 0) throw new Error("native route run failed");
+        if (w2 > exact.length) throw new Error("native route run: unstable needed size");
+        return readRouteResult(exact.subarray(0, w2), {
+          query: hasQuerySection,
+          cookie: hasCookieSection,
         });
       });
+    });
+
+  return {
+    parseQuery: hasQuerySection,
+    parseCookies: hasCookieSection,
+    run(frame) {
+      const q = encoder.encode(frame.query);
+      const c = encoder.encode(frame.cookie);
+      return runPacked(q, c, frame.body);
+    },
+    runParts(query, cookie, body) {
+      const q = encoder.encode(query);
+      const c = encoder.encode(cookie);
+      return runPacked(q, c, body);
     },
     destroy: () => binding.destroy(),
   };

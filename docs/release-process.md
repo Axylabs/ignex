@@ -61,6 +61,19 @@ npm publish --workspace packages/cli
 > The CLI is source-only (`bin/ignex.js` imports `../src/index.ts`), so the
 > published tarball must include `src` — it does via `files: ["bin", "src"]`.
 
+## npm authentication (no committed tokens)
+
+- **Prefer env-based auth.** For local publishes, export `NODE_AUTH_TOKEN`
+  (or configure `~/.npmrc` in your user profile) instead of a repo `.npmrc`.
+- **Never commit a token.** A hardcoded `//registry.npmjs.org/:_authToken=...`
+  in the repo `.npmrc` is a live credential — if one is present, rotate it at
+  https://www.npmjs.com/settings/<user>/tokens and delete the line (the file is
+  gitignored, but a leaked token is a leak regardless).
+- CI has no npm publish job by design; releases are manual via
+  `scripts/publish.ts` (`bun run release:dry` / `release:bump` / `release`). If
+  a CI publish job is ever added, wire the token via a GitHub secret +
+  `NODE_AUTH_TOKEN` (never a file).
+
 ## Post-release
 
 - Update `packages/app` and the CLI's scaffolded `@ignex/*` dependency versions.
@@ -68,6 +81,21 @@ npm publish --workspace packages/cli
   changed (keep `Cargo.toml` ↔ `package.json` in sync).
 - Verify a fresh `bun install` from the tarballs in a clean project
   (`bunx ignex create my-app`).
+
+## App SDK releases
+
+The app's typed SDK (see [sdk.md](sdk.md)) is versioned independently of the
+framework packages and released on its own cadence:
+
+```sh
+bun run sdk:push       # build + generate + git tag sdk-v<version> + push
+bun run sdk:publish    # + npm publish (private registry via SDK_NPM_REGISTRY / --registry)
+bun run sdk:release    # + GitHub release with the packed .tgz for direct download
+```
+
+Keep the SDK version aligned with the API version the client targets so
+frontend teams can pin SDK ↔ API versions 1:1. Use `bun run sdk --dry-run`
+first to preview the plan.
 
 ## Security
 

@@ -1,9 +1,10 @@
 /**
  * @fileoverview Per-route native stack — binary wire format.
  *
- * The contract between `@ignex/native` and the Rust addon (`rust/route.rs`),
+ * The contract between `@ignex/native` and the Rust addon
+ * (`rust/ingress/native_route.rs`),
  * in the same section-tagged `[u32 len][bytes]` little-endian style as the
- * existing packed formats (`packed.ts` / `tasks.ts`). Three layouts:
+ * existing packed format (`packed.ts`). Three layouts:
  *
  *   1. ROUTE DESCRIPTOR (compile-time) — what the per-route Rust instance
  *      pre-bakes: parse flags, limits, and the draft-07 JSON schemas it must
@@ -66,7 +67,7 @@ const TAG_PART: readonly RoutePartKind[] = [
  * stages the route needs (features on/off), in the exact order the compiled JS
  * prelude runs them — so Rust follows the same fixed function stack per route.
  *
- * Stage tags MUST match `STAGE_*` in castrum `rust/route.rs`.
+ * Stage tags MUST match `STAGE_*` in castrum `rust/ingress/native_route.rs`.
  */
 export type NativeRouteStage =
   | "parseQuery"
@@ -76,7 +77,7 @@ export type NativeRouteStage =
   | "validateBody"
   | "requireJsonBody";
 
-/** Stage tag bytes (wire values; mirror castrum `rust/route.rs`). */
+/** Stage tag bytes (wire values; mirror castrum `rust/ingress/native_route.rs`). */
 export const ROUTE_STAGE_TAG: Record<NativeRouteStage, number> = {
   parseQuery: 0,
   parseCookies: 1,
@@ -261,6 +262,23 @@ export const packRouteFrameLength = (frame: NativeRouteFrame): number => {
   );
 };
 
+/**
+ * Packed byte-length of a request frame from PRE-ENCODED query/cookie bytes
+ * (synced from castrum's `packRouteFrame` shape — the compiled handlers' hot
+ * path encodes once and then measures/packs without re-encoding or building
+ * the frame object).
+ */
+export const packRouteFramePartsLength = (
+  query: Uint8Array,
+  cookie: Uint8Array,
+  body: Uint8Array | null,
+): number => {
+  const hasBody = body != null && body.byteLength > 0 ? 1 : 0;
+  return (
+    4 + 4 + query.byteLength + 4 + cookie.byteLength + (hasBody ? 4 + (body?.byteLength ?? 0) : 0)
+  );
+};
+
 /** Query/cookie byte-lengths read back from a packed frame (no re-encode). */
 export const readRouteFrameLengths = (packed: Uint8Array): { qLen: number; cLen: number } => {
   const view = dv(packed);
@@ -273,21 +291,35 @@ export const readRouteFrameLengths = (packed: Uint8Array): { qLen: number; cLen:
 export const packRouteFrameInto = (out: Uint8Array, frame: NativeRouteFrame): void => {
   const q = encoder.encode(frame.query);
   const c = encoder.encode(frame.cookie);
-  const b = frame.body;
+  packRouteFramePartsInto(out, q, c, frame.body);
+};
+
+/**
+ * Write a request frame from PRE-ENCODED query/cookie bytes into `out` (must
+ * be ≥ {@link packRouteFramePartsLength}) — no re-encode, no frame object.
+ * Body bytes pass through zero-copy.
+ */
+export const packRouteFramePartsInto = (
+  out: Uint8Array,
+  query: Uint8Array,
+  cookie: Uint8Array,
+  body: Uint8Array | null,
+): void => {
+  const b = body;
   const hasBody = b != null && b.byteLength > 0 ? 1 : 0;
 
   const view = dv(out);
   let pos = 0;
   view.setUint32(pos, hasBody, true);
   pos += 4;
-  view.setUint32(pos, q.byteLength, true);
+  view.setUint32(pos, query.byteLength, true);
   pos += 4;
-  out.set(q, pos);
-  pos += q.byteLength;
-  view.setUint32(pos, c.byteLength, true);
+  out.set(query, pos);
+  pos += query.byteLength;
+  view.setUint32(pos, cookie.byteLength, true);
   pos += 4;
-  out.set(c, pos);
-  pos += c.byteLength;
+  out.set(cookie, pos);
+  pos += cookie.byteLength;
   if (hasBody) {
     view.setUint32(pos, b?.byteLength ?? 0, true);
     pos += 4;

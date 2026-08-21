@@ -22,6 +22,14 @@ export interface IgnexPlugin {
   readonly name: string;
   readonly version?: string;
 
+  /**
+   * Dev-only plugin marker: when `true` (the plugin factory determined it is
+   * disabled at runtime — e.g. `debugbar()` outside debug mode), the compiled
+   * server filters the plugin out of the lifecycle at boot, so a disabled dev
+   * tool contributes zero per-request hooks to production artifacts.
+   */
+  readonly __ignexDevOnly?: boolean;
+
   // Lifecycle
   init?(): MaybePromise<void>;
   close?(): MaybePromise<void>;
@@ -87,10 +95,22 @@ export const createPluginContext = (): PluginContext => {
     },
     async initAll() {
       // Run every plugin's init even if one fails; report failures but don't
-      // leave later plugins un-initialized.
+      // leave later plugins un-initialized. If any init failed, rethrow so
+      // callers can fail CLOSED (`createApp({ strictInit: true })` never binds
+      // the listener) — `Promise.allSettled` guarantees later plugins still
+      // ran regardless.
       const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
+      const failures: unknown[] = [];
       for (const r of results) {
-        if (r.status === "rejected") console.error("[ignex] plugin init failed:", r.reason);
+        if (r.status === "rejected") {
+          console.error("[ignex] plugin init failed:", r.reason);
+          failures.push(r.reason);
+        }
+      }
+      if (failures.length > 0) {
+        throw failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, `${failures.length} plugin(s) failed to initialize`);
       }
     },
     async closeAll() {
@@ -205,7 +225,14 @@ export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleS
  * `error` stage. Non-plugin entries are filtered out.
  */
 export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> => {
-  const list = (plugins ?? []).flat().filter(isIgnexPlugin);
+  // Dev-only plugins that are disabled at runtime (`__ignexDevOnly: true`,
+  // e.g. `debugbar()` outside debug mode) contribute no lifecycle hooks —
+  // mirroring the compiled server's boot-time filter, so interpreted apps pay
+  // zero per-request hook costs for a disabled dev tool too.
+  const list = (plugins ?? [])
+    .flat()
+    .filter(isIgnexPlugin)
+    .filter((p) => p.__ignexDevOnly !== true);
 
   const request: HookContainer[] = list
     .filter((p) => typeof p.onRequest === "function")

@@ -56,7 +56,12 @@ export const parseRouteFilename = (
   const dirPart = dirname(file);
   let routePath = `/${join(dirPart, routeName).replace(/\\/g, "/")}`;
   if (routePath.endsWith("/index")) {
-    routePath = routePath.slice(0, -5) || "/";
+    // `/index` (6 chars including the leading slash) maps to the parent path:
+    // `/dup/index` → `/dup`, `/index` → `/`. Previously `slice(0, -5)` left a
+    // trailing slash (`/dup/index` → `/dup/`), which (a) produced a subtly
+    // different path for nested index files and (b) let an `x.get.ts` +
+    // `x/index.get.ts` pair evade exact-duplicate detection.
+    routePath = routePath.slice(0, -6) || "/";
   }
 
   const paramNames: string[] = [];

@@ -53,3 +53,4 @@ bench/results/server
 .npmrc
 .npm-tmp-cache/
 bench/results/server
+bench/results/compare

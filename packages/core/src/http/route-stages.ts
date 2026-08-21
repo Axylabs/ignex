@@ -1,0 +1,94 @@
+/**
+ * @fileoverview Route lifecycle stage runners — the guarded pre/post/observe
+ * stage helpers shared by the interpreted router.
+ *
+ * Extracted from `./router` so the per-route pipeline is a set of small,
+ * independently testable functions: each runner is pure over
+ * `(hooks, ctx, response)` and returns the interpreted result the same way
+ * the compiled server's `__runHooks` path does (halt on `Response`, advance
+ * on `{ ctx }`). The router composes them; the stage arrays come from
+ * `createApp`'s bound lifecycle.
+ */
+
+import { parseQueryFromURL } from "../data/query";
+import { validateAsync } from "../data/schema";
+import { runHooks } from "../lifecycle/lifecycle";
+import type { AnySchema, HookContainer } from "../types";
+import type { IgnexContext } from "./context";
+import { parseCookieString } from "./cookies";
+import { applySet } from "./headers";
+import type { RouteSchemas } from "./route";
+
+/** Runtime per-part validation (mirrors the compiled full-context prelude). */
+export const validateSchema = async (
+  schema: RouteSchemas,
+  ctx: IgnexContext,
+  req: Request,
+): Promise<void> => {
+  if (schema.params) await validateAsync(schema.params as AnySchema, ctx.params, "params");
+  if (schema.query) {
+    const query = parseQueryFromURL(req.url);
+    Object.defineProperty(ctx, "query", { value: query, configurable: true });
+    await validateAsync(schema.query as AnySchema, query, "query");
+  }
+  if (schema.headers) {
+    await validateAsync(
+      schema.headers as AnySchema,
+      Object.fromEntries(req.headers.entries()),
+      "headers",
+    );
+  }
+  if (schema.cookie) {
+    await validateAsync(
+      schema.cookie as AnySchema,
+      parseCookieString(req.headers.get("cookie")),
+      "cookie",
+    );
+  }
+  if (schema.body) {
+    await validateAsync(schema.body as AnySchema, await ctx.body.json(), "body");
+  }
+};
+
+/**
+ * Run pre-handler hooks: halt with the applied response, or advance the ctx.
+ * Shared by the route pipeline and the 404/405/OPTIONS fallback.
+ */
+export const runPreStage = async (
+  hooks: readonly HookContainer[],
+  ctx: IgnexContext,
+): Promise<{ halt: Response | undefined; ctx: IgnexContext }> => {
+  if (hooks.length === 0) return { halt: undefined, ctx };
+  const r = await runHooks(hooks, ctx);
+  if (r.response) return { halt: applySet(r.response, r.ctx.set), ctx: r.ctx };
+  return { halt: undefined, ctx: r.ctx };
+};
+
+/**
+ * Run post-handler hooks, threading ctx + response through (either may be
+ * replaced). Shared by the route pipeline and the fallback path.
+ */
+export const runPostStage = async (
+  hooks: readonly HookContainer[],
+  ctx: IgnexContext,
+  response: Response,
+): Promise<{ ctx: IgnexContext; response: Response }> => {
+  if (hooks.length === 0) return { ctx, response };
+  const r = await runHooks(hooks, ctx, response);
+  return { ctx: r.ctx ?? ctx, response: r.response ?? response };
+};
+
+/** Run observe-only hooks (afterResponse): never replaces the response. */
+export const runObserveStage = async (
+  hooks: readonly HookContainer[],
+  ctx: IgnexContext,
+  response: Response,
+  label = "afterResponse",
+): Promise<void> => {
+  if (hooks.length === 0) return;
+  try {
+    await runHooks(hooks, ctx, response);
+  } catch (err) {
+    console.error(`[ignex] ${label} hook error:`, err);
+  }
+};

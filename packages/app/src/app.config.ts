@@ -7,6 +7,7 @@
 import {
   compression,
   createI18n,
+  debugbar,
   type IgnexPlugin,
   nativePreflight,
   openapi,
@@ -20,6 +21,13 @@ export const plugins: IgnexPlugin[] = [
   // Custom global plugins (see src/middleware/) — run on every request.
   ...middleware,
   compression(),
+  // Developer debug dashboard (traces, waterfall, errors + replay, system
+  // profile, SDK list, KT docs) at `/__debugbar`. Registered only when the
+  // app runs with DEBUG=true (see src/config/env.ts / packages/app/.env).
+  // `enabled: true` makes DEBUG authoritative — the dashboard comes up even
+  // when the shell exports NODE_ENV=production, which would otherwise
+  // self-disable the plugin's debug-mode default.
+  ...(env.DEBUG ? [debugbar({ enabled: true, serviceName: "ignex-app" })] : []),
   // Lazy sessions: `createIfMissing: "lazy"` defers session creation until a
   // handler actually reads it (via `getSession`), so requests that never use
   // a session (health checks, static routes, most APIs) do ZERO session work —

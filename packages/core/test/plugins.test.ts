@@ -384,6 +384,44 @@ describe("nativePreflight", () => {
       expect(res.status).toBe(200);
     }
   });
+
+  it("skipWhenSafe (default): origin-less GETs pass through, CORS requests still served", async () => {
+    // The fastest-path gate skips the Rust pipeline for requests that provably
+    // cannot trigger a pipeline decision (no Origin, not a preflight, no rate
+    // limit) — the handler must still run, and CORS-relevant requests (with an
+    // Origin) must still reach the pipeline untouched.
+    const app = createApp({
+      plugins: [
+        nativePreflight({ options: { cors: { allowOrigin: ["*"] } } }), // skipWhenSafe defaults on
+      ],
+      handler: () => new Response("ok"),
+    });
+    await app.init();
+
+    const plain = await app.handler(req("/health")); // no Origin → gate skips
+    expect(plain.status).toBe(200);
+    expect(await plain.text()).toBe("ok");
+
+    // A GET carrying an Origin must NOT be skipped (the pipeline's CORS
+    // OK-path still evaluates it; the terminal decision is never a GET).
+    const withOrigin = await app.handler(
+      req("/api/users", { headers: { origin: "https://app.example.com" } }),
+    );
+    expect(withOrigin.status).toBe(200);
+
+    // Explicit opt-out still runs the pipeline for everything (same outcome).
+    const strict = createApp({
+      plugins: [
+        nativePreflight({
+          options: { cors: { allowOrigin: ["*"] } },
+          skipWhenSafe: false,
+        }),
+      ],
+      handler: () => new Response("ok"),
+    });
+    await strict.init();
+    expect((await strict.handler(req("/health"))).status).toBe(200);
+  });
 });
 
 describe("session", () => {

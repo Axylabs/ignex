@@ -4,27 +4,39 @@
  * Each command carries its name, aliases, description, the flag docs shown in
  * `ignex help`, and its `run` function. `main` in `src/index.ts` dispatches by
  * looking up this registry (no hard-coded switch), so adding a command is a
- * one-line addition here.
+ * one-line addition here. Commands are grouped in help output for navigation.
  */
 
+import { bold, cyan, dim } from "../utils/logger.js";
+import { cliVersion } from "../version.js";
 import { runBuild } from "./build.js";
 import { runComplete } from "./complete.js";
 import { runCompletions } from "./completions.js";
 import { runCreate } from "./create.js";
 import { runDev } from "./dev.js";
 import { runDoctor } from "./doctor.js";
+import { runEvent } from "./event.js";
 import { runHook } from "./hook.js";
+import { runHotRoute } from "./hotroute.js";
 import { runInfo } from "./info.js";
 import { runMcp } from "./mcp.js";
+import { runMigrate } from "./migrate.js";
 import { runModel } from "./model.js";
 import { runOps } from "./ops.js";
 import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
+import { runSdk } from "./sdk.js";
+import { runSeed } from "./seed.js";
+
+/** Help sections — keep the command list navigable. */
+export type CommandGroup = "Scaffold" | "Develop" | "Deploy" | "Integrate";
 
 export interface Command {
   name: string;
   aliases?: readonly string[];
   description: string;
+  /** Help group this command renders under (default "Scaffold"). */
+  group?: CommandGroup;
   /** Flag docs / usage shown under this command in `ignex help`. */
   options?: string;
   /** Skip this command in `ignex help` (internal backends like `_complete`). */
@@ -32,12 +44,15 @@ export interface Command {
   run(args: string[]): Promise<void>;
 }
 
+const GROUP_ORDER: readonly CommandGroup[] = ["Scaffold", "Develop", "Deploy", "Integrate"];
+
 export const commands: readonly Command[] = [
   {
     name: "create",
     aliases: ["init", "new", "scaffold"],
+    group: "Scaffold",
     description: "Scaffold a new app",
-    options: `  --runtime <bun|node>          Runtime to target
+    options: `  --runtime <bun>               Runtime to target (bun is the only runtime; the generated server requires Bun)
   --pm <bun|npm|pnpm|yarn>      Package manager
   --root <dir>                  Parent directory for the new app (default: cwd)
   --features <list>             Comma-separated features (auth, refresh adds token refresh/logout; middleware adds global hooks)
@@ -50,13 +65,119 @@ export const commands: readonly Command[] = [
     run: runCreate,
   },
   {
+    name: "route",
+    aliases: ["r"],
+    group: "Scaffold",
+    description: "Scaffold a route + its src/modules business logic",
+    options: `  <path>                        Route path (e.g. products/[id].get, health.get)
+  --root <dir>                  Project root
+  --dir <dir>                   Override routes directory
+  --method <get|post|put|patch|del|all>
+                                HTTP method (inferred from a trailing .post etc.)
+  --schema                      Generate TypeBox schema boilerplate
+  --named                       Generate a named-export handler
+  --module                      Scaffold src/modules/<route>.ts + a thin route (default)
+  --no-module                   Single-file route (classic behavior)
+  --force                       Overwrite existing route file`,
+    run: runRoute,
+  },
+  {
+    name: "event",
+    aliases: ["events", "ev"],
+    group: "Scaffold",
+    description: "Scaffold event flows (SSE streams, webhook receivers, event bus)",
+    options: `  <kind>                        sse | webhook | bus
+  <name>                        Kebab-case event name (e.g. order-created)
+  --kind <sse|webhook|bus>      Same as the positional kind
+  --name <name>                 Same as the positional name
+  --root <dir>                  Project root
+  --force                       Overwrite existing files
+
+  sse      → GET /events/<name> SSE stream + producer module
+  webhook  → POST /hooks/<name> receiver (receives event data) + module
+  bus      → typed in-process event bus (src/lib/events.ts) + publish route + consumer
+
+  Run with no arguments for the interactive wizard.`,
+    run: runEvent,
+  },
+  {
+    name: "hook",
+    aliases: ["h"],
+    group: "Scaffold",
+    description: "Scaffold a named or global hook",
+    options: `  --root <dir>                  Project root
+  --global                      Scaffold a global lifecycle hook (registered on app.config lifecycle)
+  --stage <stage>               Lifecycle stage for --global (default beforeHandle)
+  --force                       Overwrite existing hook file`,
+    run: runHook,
+  },
+  {
+    name: "model",
+    aliases: ["m"],
+    group: "Scaffold",
+    description: "Scaffold a ninox schema-first model",
+    options: `  --root <dir>                  Project root
+  --dir <dir>                   Override models directory
+  --fields <list>               Comma-separated fields (name:string, age:integer, role:enum(a,b), ...)
+  --force                       Overwrite existing model file`,
+    run: runModel,
+  },
+  {
+    name: "resource",
+    aliases: ["res"],
+    group: "Scaffold",
+    description: "Scaffold a ninox model + pregenerated CRUD routes",
+    options: `  --root <dir>                  Project root
+  --dir <dir>                   Override models directory
+  --fields <list>               Comma-separated fields
+  --auth                        Pre-wire require-auth on every route
+  --rbac                        Pre-wire RBAC permissions (withGuards)
+  --force                       Overwrite existing files`,
+    run: runResource,
+  },
+  {
+    name: "hotroute",
+    aliases: ["hot", "hr"],
+    group: "Scaffold",
+    description:
+      "Scaffold a ninox model + hot-cached CRUD split into thin routes + src/modules logic",
+    options: `  --root <dir>                  Project root
+  --dir <dir>                   Override models directory
+  --fields <list>               Comma-separated fields
+  --force                       Overwrite existing files`,
+    run: runHotRoute,
+  },
+  {
+    name: "migrate",
+    aliases: ["migrations", "mg"],
+    group: "Scaffold",
+    description: "Run the project's ninox DB migrations (up/down/status/create)",
+    options: `  <action>                      up (default) | down [name] | status | create <name>
+  --root <dir>                  Project root
+  --action <up|down|status|create>
+                                Same as the positional action
+  --name <name>                 Migration name (with create) / target (with down)`,
+    run: runMigrate,
+  },
+  {
+    name: "seed",
+    aliases: ["seed-db"],
+    group: "Scaffold",
+    description: "Run (or scaffold) the DB seed script (src/seed.ts)",
+    options: `  --create                      Scaffold src/seed.ts if missing, then run it
+  --root <dir>                  Project root`,
+    run: runSeed,
+  },
+  {
     name: "dev",
     aliases: ["watch"],
+    group: "Develop",
     description: "Watch + run the app",
     options: `  --root <dir>                  Project root
   --port <port>                 PORT env for spawned server
-  --runtime <bun|node|auto>     Runtime used to execute generated server
+  --runtime <bun|auto>          Runtime used to execute generated server (bun is the only runtime)
   --no-spawn                    Build/watch only, do not run server
+  --kill-port                   Kill the process occupying --port before spawning
   --outDir <dir>                Compiler output directory
   --routesDir <dir>             Route directory
   --minify                      Enable minification if supported
@@ -66,6 +187,7 @@ export const commands: readonly Command[] = [
   },
   {
     name: "build",
+    group: "Develop",
     description: "AOT-compile the app",
     options: `  --root <dir>                  Project root
   --outDir <dir>                Compiler output directory
@@ -77,55 +199,26 @@ export const commands: readonly Command[] = [
     run: runBuild,
   },
   {
-    name: "route",
-    aliases: ["r"],
-    description: "Scaffold a route file",
-    options: `  --root <dir>                  Project root
-  --dir <dir>                   Override routes directory
-  --method <method>             get, post, put, patch, del, all
-  --schema                      Generate TypeBox schema boilerplate
-  --named                       Generate a named-export handler
-  --force                       Overwrite existing route file`,
-    run: runRoute,
+    name: "doctor",
+    aliases: ["check", "diagnose"],
+    group: "Develop",
+    description: "Check project health (runtime, native, config, build)",
+    options: `  --root <dir>                  Project root`,
+    run: runDoctor,
   },
   {
-    name: "hook",
-    aliases: ["h"],
-    description: "Scaffold a named or global hook",
-    options: `  --root <dir>                  Project root
-  --global                      Scaffold a global lifecycle hook (registered on app.config lifecycle)
-  --stage <stage>               Lifecycle stage for --global (default beforeHandle)
-  --force                       Overwrite existing hook file`,
-    run: runHook,
-  },
-  {
-    name: "model",
-    aliases: ["m"],
-    description: "Scaffold a ninox schema-first model",
-    options: `  --root <dir>                  Project root
-  --dir <dir>                   Override models directory
-  --fields <list>               Comma-separated fields (name:string, age:integer, role:enum(a,b), ...)
-  --force                       Overwrite existing model file`,
-    run: runModel,
-  },
-  {
-    name: "resource",
-    aliases: ["res"],
-    description: "Scaffold a ninox model + pregenerated CRUD routes",
-    options: `  --root <dir>                  Project root
-  --dir <dir>                   Override models directory
-  --fields <list>               Comma-separated fields
-  --auth                        Pre-wire require-auth on every route
-  --rbac                        Pre-wire RBAC permissions (withGuards)
-  --force                       Overwrite existing files`,
-    run: runResource,
+    name: "info",
+    group: "Develop",
+    description: "Show app/compiler info",
+    run: runInfo,
   },
   {
     name: "ops",
     aliases: ["devops", "deploy"],
-    description: "Generate deployment files (Dockerfile, docker-compose, Caddyfile)",
-    options: `  <target>                      dockerfile | compose | caddy | docker (docker = all)
-  --target <dockerfile|compose|caddy|docker>
+    group: "Deploy",
+    description: "Generate deployment files (Dockerfile, docker-compose, Caddyfile, CI workflow)",
+    options: `  <target>                      dockerfile | compose | caddy | ci | docker (docker = all)
+  --target <dockerfile|compose|caddy|ci|docker>
                                 Same as the positional target
   --root <dir>                  Project root
   --port <port>                 App listen port (default 3000)
@@ -134,6 +227,10 @@ export const commands: readonly Command[] = [
   --health-path <path>          Health check path (default /health)
   --private-registry            Copy .npmrc/.env into the builder for private installs
   --app-image <image>           App image name for compose (default ignex-app:latest)
+  --services <list>             Compose infra services (mongo, redis, nats; default mongo)
+  --no-mongo                    Compose without MongoDB (app only or --redis/--nats)
+  --redis                       Add Redis to compose (cache / sessions)
+  --nats                        Add NATS to compose (event streaming, JetStream)
   --db-user <user>              MongoDB root username (default app)
   --db-password <pass>          MongoDB root password (prompted when omitted)
   --db-name <db>                MongoDB database name (default app)
@@ -141,26 +238,46 @@ export const commands: readonly Command[] = [
   --replica                     Enable a single-node MongoDB replica set
   --no-replica                  Disable the replica set
   --mongo-uri-var <var>         Env var for the app→db URI (default MONGO_URL)
+  --redis-password <pass>       Redis requirepass (generated when omitted)
+  --redis-image <image>         Redis image (default redis:7-alpine)
+  --redis-uri-var <var>         Env var for the app→redis URI (default REDIS_URL)
+  --nats-image <image>          NATS image (default nats:2-alpine)
+  --nats-uri-var <var>          Env var for the app→nats URI (default NATS_URL)
   --domain <domain>             Caddy site domain (default example.com)
   --upstream <host:port>        Caddy backend upstream (default 127.0.0.1:3000)
+  --image <image>               Registry image for the CI deploy job (default ghcr.io/<owner>/<repo>)
+  --deploy-host <user@host>     SSH host to deploy to (ci/docker only; omitted = build/push only)
+  --deploy-dir <dir>            Remote dir holding docker-compose.yml (default /opt/ignex-app)
   --yes                         Skip all prompts (use defaults)
   --force                       Overwrite existing files`,
     run: runOps,
   },
   {
-    name: "info",
-    description: "Show app/compiler info",
-    run: runInfo,
-  },
-  {
-    name: "doctor",
-    aliases: ["check", "diagnose"],
-    description: "Check project health (runtime, native, config, build)",
-    options: `  --root <dir>                  Project root`,
-    run: runDoctor,
+    name: "sdk",
+    aliases: ["generate-sdk", "sdk:generate"],
+    group: "Deploy",
+    description: "Generate + distribute the app SDK (typed client) for frontend teams",
+    options: `  --platform <ts|openapi|all>    Platform(s) to generate (default: typescript; comma-separated or "all")
+  --name <name>                  npm package name (default: <serviceName>-sdk, e.g. @acme/api-sdk)
+  --scope <scope>                npm scope for the default name (e.g. @acme)
+  --version <semver>             SDK version (default: nearest package.json version)
+  --out <dir>                    SDK output directory (default: <outDir>/sdk)
+  --tag-prefix <prefix>          Git tag prefix (default: sdk-v)
+  --push                         Git-tag the SDK (sdk-v<version>) and push to origin
+  --publish                      npm publish (private registry via --registry / SDK_NPM_REGISTRY)
+  --registry <url>               npm registry URL for --publish
+  --access <public|restricted>   npm access level (default: public)
+  --dist-tag <tag>               npm dist-tag (default: latest)
+  --release                      Create a GitHub release with the packed tarball (gh CLI or GITHUB_TOKEN)
+  --repo <owner/repo>            GitHub repo for --release (default: origin remote)
+  --token <token>                GitHub token for --release (default: GITHUB_TOKEN/GH_TOKEN)
+  --no-build                     Skip the pre-build (use existing compiled artifacts)
+  --dry-run                      Generate + print the plan; push/publish/release nothing`,
+    run: runSdk,
   },
   {
     name: "mcp",
+    group: "Integrate",
     description: "Run the Model Context Protocol server (stdio)",
     options: `  Exposes agent tools: build, route, info, doctor, openapi, dev
   Run via an MCP client (e.g. npx @modelcontextprotocol/inspector ignex mcp)`,
@@ -169,6 +286,7 @@ export const commands: readonly Command[] = [
   {
     name: "completions",
     aliases: ["completion"],
+    group: "Integrate",
     description: "Print a shell completion script (bash, zsh, fish, powershell, cmd)",
     options: `  <shell>   bash | zsh | fish | powershell | cmd
 
@@ -193,37 +311,85 @@ export const findCommand = (name: string): Command | undefined =>
   commands.find((c) => c.name === name || c.aliases?.includes(name));
 
 const ALIAS_LABEL = (aliases: readonly string[] | undefined): string =>
-  aliases && aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
+  aliases && aliases.length > 0 ? dim(` (${aliases.join(", ")})`) : "";
 
-/** Render the full `ignex help` text from the registry. */
+const hasOptions = (c: Command): c is Command & { options: string } => c.options !== undefined;
+
+/** One line of the command list, padded to align descriptions. */
+function commandLine(c: Command, width: number): string {
+  const left = `${cyan(c.name)}${ALIAS_LABEL(c.aliases)}`.padEnd(width);
+  return `  ${left} ${c.description}`;
+}
+
+/** Render `ignex help` — grouped command list + per-command flag docs. */
 export const renderHelp = (): string => {
   const visible = commands.filter((c) => !c.hidden);
-  const usage = visible.map((c) => `  ignex ${c.name} [options]`).join("\n");
-  const list = visible
-    .map((c) => `  ${c.name}${ALIAS_LABEL(c.aliases)}   ${c.description}`)
-    .join("\n");
-  const hasOptions = (c: Command): c is Command & { options: string } => c.options !== undefined;
+  const grouped = new Map<CommandGroup, Command[]>();
+  for (const c of visible) {
+    const group = c.group ?? "Scaffold";
+    grouped.set(group, [...(grouped.get(group) ?? []), c]);
+  }
+
+  const width = Math.min(
+    42,
+    Math.max(...visible.map((c) => c.name.length + (c.aliases?.join(", ").length ?? 0) + 4)),
+  );
+
+  const sections = GROUP_ORDER.map((group) => {
+    const list = grouped.get(group);
+    if (!list || list.length === 0) return "";
+    const header = `${bold(group)}`;
+    const body = list.map((c) => commandLine(c, width)).join("\n");
+    return `${header}\n${body}`;
+  }).filter(Boolean);
+
   const options = visible
     .filter(hasOptions)
-    .map((c) => `${c.name.charAt(0).toUpperCase() + c.name.slice(1)} options:\n${c.options}`)
+    .map(
+      (c) =>
+        `${bold(`${c.name.charAt(0).toUpperCase()}${c.name.slice(1)} options:`)}\n${c.options}`,
+    )
     .join("\n\n");
 
   return `
-@ignex/cli
+${cyan("ignex")} — the Ignex developer CLI ${dim(`(v${cliVersion()})`)}
 
 Usage:
-${usage}
+  ignex <command> [options]
+  ignex <command> --help       Command-specific help
 
 Commands:
-${list}
+${sections.join("\n\n")}
 
 ${options}
 
 Examples:
-  ignex create my-app --runtime bun --features openapi,files,tests --pm bun
-  ignex dev packages/app
-  ignex build packages/app --minify
-  ignex route products/[id].get --schema
-  ignex route upload.post --method post
+  ignex create my-app --features auth,openapi --pm bun
+  ignex route products/[id].get
+  ignex event webhook orders
+  ignex ops compose
+  ignex dev --kill-port
+`;
+};
+
+/** Render help for a single command (`ignex <command> --help`). */
+export const renderCommandHelp = (command: Command): string => {
+  const usage = `ignex ${command.name}${command.options ? " [options]" : ""}`;
+  const aliases =
+    command.aliases && command.aliases.length > 0
+      ? ` (aliases: ${command.aliases.join(", ")})`
+      : "";
+  const options = command.options ? `${command.options}\n` : "";
+
+  return `
+${cyan("ignex")} ${command.name}${dim(aliases)} ${dim(`(v${cliVersion()})`)}
+
+${command.description}
+
+Usage:
+  ${usage}
+
+Options:
+${options}
 `;
 };

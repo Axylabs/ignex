@@ -99,7 +99,11 @@ export const buildFullContextPrelude = (
   // emitted by `generateRouteCode` — the inline object literal used to be
   // re-allocated on every request.
   return [
-    `let ctx = createContext(req, params ?? EMPTY_PARAMS, ${ctxOptsVar(route)});`,
+    // Assignment (not `let`): the core fn declares `let ctx;` OUTSIDE the try
+    // so the catch block can hand the real context to `__handleError`. A
+    // `let` here would shadow the outer binding and pass `undefined` to
+    // error-stage hooks (every compiled error lost its ctx).
+    `ctx = createContext(req, params ?? EMPTY_PARAMS, ${ctxOptsVar(route)});`,
     `ctx.server = server;`,
     sync
       ? `{

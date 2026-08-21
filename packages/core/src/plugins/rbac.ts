@@ -24,7 +24,6 @@
  * forbidden) and compose with `config.hooks` / the hook lifecycle.
  */
 import type { IgnexContext } from "../http/context";
-import { executeHooks } from "../lifecycle/hooks";
 import type { IgnexPlugin } from "../lifecycle/plugin";
 import { type AuthUser, getUser } from "../security/auth";
 import {
@@ -62,10 +61,10 @@ export const withGuards = <H extends (ctx: IgnexContext) => MaybePromise<unknown
   handler: H,
   guards: RouteGuards = {},
 ): H => {
-  const chain = guardChain(guards);
+  const runGuards = composeGuards(...guardChain(guards));
   const wrapped = async (ctx: IgnexContext): Promise<unknown> => {
-    const { halted } = await executeHooks(ctx, chain);
-    if (halted) return halted;
+    const result = await runGuards(ctx);
+    if (!result.ok) return result.response;
     return (handler as (c: IgnexContext) => MaybePromise<unknown>)(ctx);
   };
   return wrapped as H;

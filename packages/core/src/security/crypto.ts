@@ -3,7 +3,6 @@
  * AEAD encryption — backed by the Rust addon through `@ignex/native` (with
  * byte-compatible pure-TS fallbacks). Composable, stateless, safe by default.
  */
-import { randomBytes } from "node:crypto";
 import {
   aeadDecrypt,
   aeadEncrypt,
@@ -253,7 +252,14 @@ export interface PasswordHasher {
 
 /** Create a password hasher (argon2id native / scrypt fallback). */
 export const createPasswordHasher = (options?: PasswordHashOptions): PasswordHasher => ({
-  hash: async (password) => passwordHash(password, randomBytes(16), options),
+  // `crypto.getRandomValues` (webcrypto) is the fast, portable CSPRNG — native
+  // in Bun (~87x vs `node:crypto` randomBytes for small buffers — see
+  // docs/bun-internals.md) and available in Node too.
+  hash: async (password) => {
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return passwordHash(password, salt, options);
+  },
   verify: (password, phc) => passwordVerify(password, phc),
 });
 

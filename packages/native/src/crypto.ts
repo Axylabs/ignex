@@ -10,7 +10,7 @@
  * - passwords:      argon2id PHC (native) or `$scrypt$` PHC (fallback)
  * - AEAD:           AES-256-GCM, ciphertext ‖ 16-byte tag
  */
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
+import { createCipheriv, createDecipheriv, scryptSync } from "node:crypto";
 import { bunHmacSha256 } from "./bun";
 import { nativeFor } from "./runtime";
 import {
@@ -142,7 +142,12 @@ export const csrfToken = (secret: string | Uint8Array): string => {
 
 /** `<64-hex(random)>.<64-hex(HMAC-SHA256(secret, rnd_hex))>`. */
 export const csrfTokenFallback = (secret: Uint8Array): string => {
-  const rndHex = hexEncode(randomBytes(32));
+  // `crypto.getRandomValues` (webcrypto) is the fast, portable CSPRNG — native
+  // in Bun (~87x vs `node:crypto` randomBytes for small buffers — see
+  // docs/bun-internals.md) and available in Node too.
+  const rnd = new Uint8Array(32);
+  crypto.getRandomValues(rnd);
+  const rndHex = hexEncode(rnd);
   const sig = hexEncode(hmacSha256Bytes(secret, toBytes(rndHex)));
   return `${rndHex}.${sig}`;
 };

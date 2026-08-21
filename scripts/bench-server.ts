@@ -409,7 +409,7 @@ async function main(): Promise<void> {
   const first = modes[0] ?? "native";
 
   console.log(
-    `benchmarking $routes.lengthroutes: duration=$DURATION_Ss warmup=$WARMUP_Ss concurrency=$CONCURRENCYrepeats=$REPEATSmodes=$modes.join(",")`,
+    `benchmarking ${routes.length} routes: duration=${DURATION_S}s warmup=${WARMUP_S}s concurrency=${CONCURRENCY} repeats=${REPEATS} modes=${modes.join(",")}`,
   );
 
   // Interleave: each repeat reverses the mode order to cancel order/drift.
@@ -419,7 +419,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < REPEATS; i++) {
     const ordered = i % 2 === 0 ? modes : [...modes].reverse();
     for (const mode of ordered) {
-      process.stdout.write(`repeat $i + 1/${REPEATS} mode=${mode} ... `);
+      process.stdout.write(`repeat ${i + 1}/${REPEATS} mode=${mode} ... `);
       const run = await runOnce(mode);
       byMode.get(mode)?.push(run);
       process.stdout.write(`done (${run.routes.reduce((a, r) => a + r.requests, 0)} req)\n`);

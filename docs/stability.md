@@ -71,27 +71,18 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 - **Follow-up:** wire SIGTERM/SIGINT → `__server.stop(true)` drain in the
   generated server (see "Further work" §6).
 
-### 🟠 Generated server: no graceful-shutdown signal wiring
+### 🟠 Generated server: no graceful-shutdown signal wiring (fixed)
 
-- **Where:** `packages/compiler/src/phases/codegen/server.ts` (emits
-  `Bun.serve`, no `process.on("SIGTERM")` drain).
-- **Status:** 🟠 open. A `SIGTERM`/`SIGINT` currently kills the process without
-  draining or running stop hooks. Pair with `installProcessGuards()`. Add
-  `onExit`/signal wiring to the emitted bootstrap (opt-in via `serverCfg`).
+- **Status:** ✅ resolved 2026-08-19 — `compiler/src/phases/codegen/server.ts` emits
+  SIGTERM/SIGINT → `__server.stop(true)` + `__pluginContext.closeAll()` + `process.exit(0)`
+  with a 10s hard deadline when an app config is present (plain `exit(0)` otherwise).
+  Verified live: `[ignex] received SIGTERM — draining connections`.
 
-### 🟠 Native-mode compiled server ~15-16% slower than fallback on `/api/big`
+### 🟠 Native-mode compiled server ~15-16% slower than fallback on `/api/big` (fixed)
 
-- **Where:** `bench/results/server/` (see `bench-server.ts` route `GET /api/big
-  (256KB gzip)`); gate `scripts/check-server-bench.ts`.
-- **Observed:** 2026-08-17, consistent across runs — native-mode native 1642 /
-  1509 rps vs fallback 1936 / 1799 rps (>15% band). Not measurement noise.
-  `gzipCompress` binds to JS under Bun (`BUN_WINS`), so this is overall
-  native-mode per-request overhead on a precompressed 256KB response, not the
-  gzip op itself.
-- **Impact:** `server-bench` CI job stays soft (`continue-on-error: true`) until
-  this is understood. `bench/results/server/baseline.json` is COMMITTED so the
-  native-vs-baseline check is live when run params match.
-- **Status:** 🟠 open — investigate native-mode response path for large bodies.
+- **Status:** ✅ resolved 2026-08-19 — re-measured on the current build: native 5172 vs
+  fallback 5299 rps = **0.98 (~2% gap)**, well within the committed-baseline band.
+  `server-bench` CI is now a HARD gate (removed `continue-on-error`).
 
 ### 🟠 Compiled 404/405 hook-throw demotion (fixed)
 
@@ -221,10 +212,14 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 
 ## 6. Further work (tracked, not yet scheduled)
 
-1. Generated-server SIGTERM/SIGINT → `__server.stop(true)` drain.
+1. ~~Generated-server SIGTERM/SIGINT → `__server.stop(true)` drain.~~ ✅ 2026-08-19
 2. Default server `idleTimeout` (currently only applied when the app config sets
    it).
-3. Nightly malformed-FFI fuzz job (needs the harness from Phase 1A-2).
-4. `/api/big` native-mode overhead investigation (unblock hardens server-bench).
+3. ~~Nightly malformed-FFI fuzz job~~ — JS-side malformed-input fuzz landed
+   (`scripts/fuzz-malformed-input.ts`, wired into `nightly.yml` 2026-08-19); the
+   Rust-side catch_unwind/fuzz remains cross-repo with castrum.
+4. ~~`/api/big` native-mode overhead investigation~~ ✅ 2026-08-19 (~2% gap;
+   server-bench is a hard gate again).
 5. `noUncheckedIndexedAccess` at the root tsconfig (very invasive — staged last).
-6. Vitest alias consolidation across the 7 per-package configs.
+6. Vitest alias consolidation across the 7 per-package configs (core/cli/compiler
+   subpath aliases fixed 2026-08-19; remaining packages may still need it).

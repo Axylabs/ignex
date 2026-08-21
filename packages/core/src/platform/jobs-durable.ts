@@ -158,12 +158,22 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
       pending = Math.max(0, pending - claimed.length);
 
       for (const job of claimed) {
+        // Run the handler + store bookkeeping (complete/fail/enqueue). A store
+        // I/O failure inside `runClaimed` rejects the task — surface it via
+        // `onError` and always clean up `running`/`inFlight`. Previously this
+        // `void task.finally(...)` produced an UNHANDLED rejection that
+        // bypassed both `onRetry`/`onFailed` and `onError`.
         running += 1;
-        const task = runClaimed(job).finally(() => {
-          running -= 1;
-        });
+        const task = runClaimed(job);
         inFlight.set(job.id, task);
-        void task.finally(() => inFlight.delete(job.id));
+        void task
+          .catch((error) => {
+            options.onError?.(error);
+          })
+          .finally(() => {
+            running -= 1;
+            inFlight.delete(job.id);
+          });
       }
     } catch (error) {
       options.onError?.(error);
@@ -189,6 +199,11 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
     },
 
     start() {
+      // A stopped queue can be restarted: clear the flag so `tick()` resumes
+      // claiming. Previously `stopped` was never reset, so `start()` after
+      // `stop()` reinstalled the interval but every tick returned immediately
+      // and lease-expired jobs were never recovered.
+      stopped = false;
       if (timer) return;
       timer = setInterval(() => {
         void tick();

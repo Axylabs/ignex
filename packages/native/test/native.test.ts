@@ -256,6 +256,25 @@ describe("accept negotiation", () => {
     // Empty header → first supported.
     expect(neg.negotiate("")).toBe("gzip");
   });
+
+  it("negotiates server-preference (q-only, supported order breaks ties)", () => {
+    const neg = createAcceptNegotiator(["br", "gzip", "deflate"]);
+    // Tie (both q=1) → the FIRST supported entry (br) wins, NOT client order.
+    expect(neg.negotiateServerPreference("gzip, br")).toBe("br");
+    expect(neg.negotiateServerPreference("br, gzip")).toBe("br");
+    // q ordering.
+    expect(neg.negotiateServerPreference("br;q=0.8, gzip;q=0.9")).toBe("gzip");
+    // q=0 excludes.
+    expect(neg.negotiateServerPreference("gzip;q=0, deflate")).toBe("deflate");
+    // Wildcard applies to all supported equally (no specificity).
+    expect(neg.negotiateServerPreference("*")).toBe("br");
+    // Explicit q beats wildcard when higher.
+    expect(neg.negotiateServerPreference("gzip;q=1, *;q=0.5")).toBe("gzip");
+    // Unsupported → null.
+    expect(neg.negotiateServerPreference("identity")).toBeNull();
+    // Empty header → null (identity), unlike negotiate() which returns first.
+    expect(neg.negotiateServerPreference("")).toBeNull();
+  });
 });
 
 describe("json schema", () => {

@@ -95,7 +95,8 @@ export const generateRouteCode = (
     route.analysis.usage.cache ||
     route.analysis.usage.loader ||
     route.analysis.usage.sendFile ||
-    route.analysis.usage.file;
+    route.analysis.usage.file ||
+    route.analysis.usage.debug;
 
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);

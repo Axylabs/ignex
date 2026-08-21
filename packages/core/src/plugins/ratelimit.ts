@@ -29,6 +29,42 @@ import { reWrapResponse } from "../http/headers";
 import type { IgnexPlugin } from "../lifecycle/plugin";
 import { firstForwardedIp } from "../platform/coerce";
 
+/** One-time warning when IP detection is unavailable (see onRequest below). */
+let anonymousWarned = false;
+const warnAnonymousKeyOnce = (): void => {
+  if (anonymousWarned) return;
+  anonymousWarned = true;
+  console.warn(
+    '[ignex] rateLimit: request IP is unavailable (no `server.requestIP` and `trustProxy: false`) — every request keys as "anonymous" and would share ONE bucket, so the limit is being skipped. Enable `trustProxy: true` (or pass a `keyGenerator`) to key per client.',
+  );
+};
+
+/**
+ * A pluggable rate-limit state store — the per-key window/token state.
+ *
+ * The default is an in-process LRU; pass a shared store (e.g. a sqlite/file
+ * `data/store` driver or a custom distributed store) to share limits across
+ * instances. Sync-capable like the store drivers: `get`/`set` may return
+ * plain values or Promises — the plugin branches on `instanceof Promise`.
+ */
+export interface RateLimitStore {
+  /** Read the persisted state for a key (or `undefined` when absent/expired). */
+  get(
+    key: string,
+  ):
+    | FixedWindowEntry
+    | SlidingWindowEntry
+    | TokenBucketEntry
+    | undefined
+    | Promise<FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry | undefined>;
+  /** Persist the next state for a key with a TTL. */
+  set(
+    key: string,
+    state: FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry,
+    options?: { ttlMs?: number },
+  ): void | Promise<void>;
+}
+
 /** Options for {@link rateLimit}. */
 export interface RateLimitOptions {
   windowMs?: number;
@@ -45,16 +81,23 @@ export interface RateLimitOptions {
    */
   algorithm?: RateLimitAlgorithm;
   /**
+   * Pluggable state store (default: an LRU bounded by `storeMax`). Pass a
+   * shared driver to make limits stick across processes.
+   */
+  store?: RateLimitStore;
+  /**
    * Use the native Rust rate limiter when the addon is present (default
    * `false`). The native backend is fixed-window only; other algorithms use
    * the TS state machines. Falls back to the TS implementation without the
-   * addon.
+   * addon. Ignored when `store` is provided (a custom store implies the TS
+   * state machines).
    */
   native?: boolean;
 }
 
 /** Unified rate-limit state carried to `onResponse` for the headers. */
 interface RateState {
+  allowed: boolean;
   remaining: number;
   resetTime: number;
 }
@@ -94,16 +137,20 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
   // Native backend (opt-in). `createRateLimiter` is native when the addon is
   // present and otherwise returns a pure-TS fixed-window limiter with the same
   // semantics — so `native: true` never changes behavior, only the backend.
-  const nativeLimiter = native
-    ? createRateLimiter({ limit: maxRequests, windowMs, maxEntries: storeMax })
-    : null;
+  // A custom `store` implies the TS state machines (native ignores it).
+  const nativeLimiter =
+    native && !options.store
+      ? createRateLimiter({ limit: maxRequests, windowMs, maxEntries: storeMax })
+      : null;
 
-  const store = nativeLimiter
-    ? null
-    : new LRUCache<string, FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry>({
-        max: storeMax,
-        ttlMs: windowMs,
-      });
+  const store =
+    options.store ??
+    (nativeLimiter
+      ? null
+      : new LRUCache<string, FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry>({
+          max: storeMax,
+          ttlMs: windowMs,
+        }));
 
   const getHeaders = (state: RateState): Record<string, string> => ({
     "X-RateLimit-Limit": String(maxRequests),
@@ -123,18 +170,69 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
       },
     );
 
+  /** Run one TS state-machine check for the algorithm and persist the next state. */
+  const checkWithStore = (
+    key: string,
+    stored: FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry | undefined,
+    now: number,
+  ): RateState => {
+    const config = { windowMs, maxRequests };
+
+    let decision: RateDecision;
+
+    if (algorithm === "sliding-window") {
+      const base = (stored as SlidingWindowEntry | undefined) ?? freshSlidingWindow(now);
+      decision = checkSlidingWindow(config, base, now);
+    } else if (algorithm === "token-bucket") {
+      const base = (stored as TokenBucketEntry | undefined) ?? freshTokenBucket(now, maxRequests);
+      decision = checkTokenBucket(config, base, now);
+    } else {
+      const base = (stored as FixedWindowEntry | undefined) ?? freshFixedWindow(now, windowMs);
+      decision = checkFixedWindow(config, base, now);
+    }
+
+    store?.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
+
+    return {
+      allowed: decision.allowed,
+      remaining: decision.remaining,
+      resetTime: decision.resetMs,
+    };
+  };
+
+  /** Finish an onRequest: 429 when the budget is exhausted, else record + pass. */
+  const finishCheck = (ctx: IgnexContext, state: RateState): IgnexContext | Response => {
+    if (!state.allowed) return limitResponse(state);
+    ctx.setState("__ratelimit", state);
+    return ctx;
+  };
+
   return {
     name: "rateLimit",
 
-    onRequest(ctx) {
+    onRequest(ctx): IgnexContext | Response | Promise<IgnexContext | Response> {
       if (skip?.(ctx)) return ctx;
 
       const key = keyGenerator(ctx);
       const now = Date.now();
 
+      // IP detection unavailable (no `server.requestIP` and `trustProxy:
+      // false`, e.g. behind a reverse proxy): the DEFAULT key resolves to
+      // "anonymous" for every client, so they would ALL share one bucket —
+      // a single actor could exhaust the budget for everyone. Warn loudly
+      // (once) so the operator enables `trustProxy: true` (or passes a
+      // `keyGenerator`); the limiter itself keeps its documented semantics.
+      if (key === "anonymous" && keyGenerator === defaultKeyGenerator) {
+        warnAnonymousKeyOnce();
+      }
+
       if (nativeLimiter) {
         const check = nativeLimiter.check(key, now);
-        const state: RateState = { remaining: check.remaining, resetTime: check.resetMs };
+        const state: RateState = {
+          allowed: check.allowed,
+          remaining: check.remaining,
+          resetTime: check.resetMs,
+        };
 
         if (!check.allowed) return limitResponse(state);
 
@@ -142,31 +240,14 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
         return ctx;
       }
 
-      const config = { windowMs, maxRequests };
       const stored = store?.get(key);
-
-      let decision: RateDecision;
-
-      if (algorithm === "sliding-window") {
-        const base = (stored as SlidingWindowEntry | undefined) ?? freshSlidingWindow(now);
-        decision = checkSlidingWindow(config, base, now);
-      } else if (algorithm === "token-bucket") {
-        const base = (stored as TokenBucketEntry | undefined) ?? freshTokenBucket(now, maxRequests);
-        decision = checkTokenBucket(config, base, now);
-      } else {
-        const base = (stored as FixedWindowEntry | undefined) ?? freshFixedWindow(now, windowMs);
-        decision = checkFixedWindow(config, base, now);
+      if (stored instanceof Promise) {
+        // Async store (e.g. a shared sqlite/file/custom driver): resolve the
+        // state, run the check, then decide — the plugin returns a Promise.
+        return stored.then((value) => finishCheck(ctx, checkWithStore(key, value, now)));
       }
 
-      store?.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
-
-      const state: RateState = { remaining: decision.remaining, resetTime: decision.resetMs };
-
-      if (!decision.allowed) return limitResponse(state);
-
-      ctx.setState("__ratelimit", state);
-
-      return ctx;
+      return finishCheck(ctx, checkWithStore(key, stored, now));
     },
 
     onResponse(ctx, response) {

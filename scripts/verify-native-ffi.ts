@@ -8,8 +8,8 @@
  * the pair writers use the needed-size convention (exact required size on a
  * too-small buffer instead of `0`) with the `packedWrite` growExact wrapper.
  * NOTE: the `castrum_query_to_json` / `castrum_cookies_to_json` writers were
- * REMOVED by castrum — those ops are JS-only now (http/queryToJson.ts), so
- * this script no longer checks them. It asserts:
+ * REMOVED by castrum — those ops were JS-only (no native counterpart) and
+ * have been removed from `@ignex/native`. It asserts:
  *   1. byte-parity with the JS fallbacks on the parity vectors, AND
  *   2. the growExact path is actually exercised — a pathological input whose
  *      packed output exceeds the wrapper's TIGHT initial bound

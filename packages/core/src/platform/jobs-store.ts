@@ -2,23 +2,29 @@
  * Durable background jobs — storage layer.
  *
  * The in-process queue in `./jobs` is memory-only. For durability we add a
- * `JobStore` abstraction over serializable job records (`StoredJob`) with two
- * implementations:
+ * `JobStore` abstraction over serializable job records (`StoredJob`) with a
+ * driver-backed implementation built on the generic `data/store` layer:
  *
  * - {@link createFileJobStore} — JSON-lines file (portable `node:fs`), the
  *   default for any runtime;
  * - {@link createSqliteJobStore} — `bun:sqlite`-backed, gated on availability
  *   (returns `null` when `bun:sqlite` is unavailable, so callers can fall
- *   back to the file store).
+ *   back to the file store);
+ * - {@link createStoreJobStore} — wrap ANY `Store` driver (memory, sqlite,
+ *   file, or a user's custom driver) as a durable job store.
  *
  * Jobs are claimed with a lease; a crashed worker's leases expire and are
  * re-queued by {@link JobStore.releaseExpired}. Completed/failed jobs are kept
  * for observability (`list`).
+ *
+ * The whole job map is persisted under a single reserved key, so any store
+ * driver (sync or async, any backend) can back the queue — the Laravel-style
+ * "bring your own driver" story.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { loadBunSqlite } from "./sqlite";
+import { createFileStore } from "../data/store/file";
+import { createSqliteStore } from "../data/store/sqlite";
+import type { MaybePromise, Store } from "../data/store/types";
 
 /** The lifecycle status of a durable job. */
 export type JobStatus = "queued" | "running" | "completed" | "failed";
@@ -43,7 +49,7 @@ export interface StoredJob {
 }
 
 /**
- * A pluggable persistent store for durable jobs (file, SQLite, …).
+ * A pluggable persistent store for durable jobs (file, SQLite, custom driver).
  */
 export interface JobStore {
   /** Persist a job for future processing. */
@@ -77,21 +83,49 @@ export const newJobId = (): string => `job-${Date.now()}-${++durableJobIdCounter
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-type Persist = (jobs: ReadonlyMap<string, StoredJob>) => void;
+/** The reserved key holding the whole serialized job map. */
+const JOBS_KEY = "__jobs";
+
+/** Rehydrate the job map from a store read (`null`/missing → empty map). */
+const jobsFromRaw = (raw: unknown): Map<string, StoredJob> => {
+  const jobs = new Map<string, StoredJob>();
+  if (raw == null || typeof raw !== "object") return jobs;
+  for (const [id, job] of Object.entries(raw as Record<string, unknown>)) {
+    if (job && typeof job === "object" && typeof (job as StoredJob).id === "string") {
+      jobs.set(id, job as StoredJob);
+    }
+  }
+  return jobs;
+};
 
 /**
- * Shared in-memory job map + persistence hook. Both the file and SQLite stores
- * are this core with a different `load`/`persist`.
+ * Wrap any {@link Store} driver as a {@link JobStore}.
+ *
+ * The whole job map is kept in memory (matching the previous file/SQLite
+ * stores) and persisted under the reserved `__jobs` key on every mutation.
+ * The initial load must be synchronous (memory/file/sqlite drivers are; a
+ * custom async driver must be pre-warmed before being passed here).
+ *
+ * @param store - The generic store driver backing this job store.
+ * @returns The job store (see {@link JobStore}).
+ * @throws TypeError when the store's initial read is asynchronous.
  */
-const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persist): JobStore => {
-  const jobs = load();
+export const createStoreJobStore = (store: Store): JobStore => {
+  const raw = store.get(JOBS_KEY);
+  if (raw instanceof Promise) {
+    throw new TypeError(
+      "createStoreJobStore requires a store with synchronous reads (memory/file/sqlite); " +
+        "pre-warm async drivers before passing them in.",
+    );
+  }
+  const jobs = jobsFromRaw(raw);
 
-  const save = (): void => persist(jobs);
+  const save = (): MaybePromise<void> => store.set(JOBS_KEY, Object.fromEntries(jobs));
 
   return {
     async enqueue(job) {
       jobs.set(job.id, job);
-      save();
+      await save();
     },
 
     async claim(limit, leaseMs, now = Date.now()) {
@@ -106,7 +140,7 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
         job.leaseUntil = now + leaseMs;
         claimed.push(job);
       }
-      if (claimed.length > 0) save();
+      if (claimed.length > 0) await save();
       return claimed;
     },
 
@@ -115,7 +149,7 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
       if (!job) return;
       job.status = "completed";
       delete job.leaseUntil;
-      save();
+      await save();
     },
 
     async fail(id, error, retryAt) {
@@ -130,14 +164,14 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
       } else {
         job.status = "failed";
       }
-      save();
+      await save();
     },
 
     async heartbeat(id, until) {
       const job = jobs.get(id);
       if (job?.status !== "running") return;
       job.leaseUntil = until;
-      save();
+      await save();
     },
 
     async releaseExpired(now = Date.now()) {
@@ -149,7 +183,7 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
           released += 1;
         }
       }
-      if (released > 0) save();
+      if (released > 0) await save();
       return released;
     },
 
@@ -160,35 +194,8 @@ const createBackedJobStore = (load: () => Map<string, StoredJob>, persist: Persi
 };
 
 /** JSON-lines file store — portable across Bun and Node. */
-export const createFileJobStore = (dir: string): JobStore => {
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, "jobs.jsonl");
-
-  const load = (): Map<string, StoredJob> => {
-    const jobs = new Map<string, StoredJob>();
-    if (!existsSync(file)) return jobs;
-    for (const line of readFileSync(file, "utf-8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const job = JSON.parse(trimmed) as StoredJob;
-        if (job && typeof job.id === "string") jobs.set(job.id, job);
-      } catch {
-        // Skip corrupt lines; the rest of the log stays usable.
-      }
-    }
-    return jobs;
-  };
-
-  const persist = (jobs: ReadonlyMap<string, StoredJob>): void => {
-    const tmp = `${file}.tmp`;
-    const lines = [...jobs.values()].map((job) => JSON.stringify(job)).join("\n");
-    writeFileSync(tmp, lines ? `${lines}\n` : "");
-    renameSync(tmp, file);
-  };
-
-  return createBackedJobStore(load, persist);
-};
+export const createFileJobStore = (dir: string): JobStore =>
+  createStoreJobStore(createFileStore(dir, { file: "jobs.jsonl" }));
 
 /**
  * SQLite-backed store via `bun:sqlite`. Returns `null` when the module is
@@ -196,35 +203,10 @@ export const createFileJobStore = (dir: string): JobStore => {
  * back to the file store.
  */
 export const createSqliteJobStore = async (file = ":memory:"): Promise<JobStore | null> => {
-  const Database = await loadBunSqlite();
-  if (!Database) return null;
-
-  const db = new Database(file);
-  db.run("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL)");
-
-  const load = (): Map<string, StoredJob> => {
-    const jobs = new Map<string, StoredJob>();
-    const rows = db.query("SELECT data FROM jobs").all() as Array<{ data: string }>;
-    for (const row of rows) {
-      try {
-        const job = JSON.parse(row.data) as StoredJob;
-        if (job && typeof job.id === "string") jobs.set(job.id, job);
-      } catch {
-        // Skip corrupt rows.
-      }
-    }
-    return jobs;
-  };
-
-  const persist = (jobs: ReadonlyMap<string, StoredJob>): void => {
-    const run = db.run.bind(db);
-    for (const job of jobs.values()) {
-      run(
-        "INSERT INTO jobs (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-        [job.id, JSON.stringify(job)],
-      );
-    }
-  };
-
-  return createBackedJobStore(load, persist);
+  const store = await createSqliteStore(file, {
+    table: "jobs",
+    keyColumn: "id",
+    valueColumn: "data",
+  });
+  return store ? createStoreJobStore(store) : null;
 };

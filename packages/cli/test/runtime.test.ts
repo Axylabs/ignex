@@ -7,9 +7,11 @@ describe("normalizeRuntime", () => {
     expect(normalizeRuntime("")).toBe("bun");
   });
 
-  it("maps node explicitly", () => {
-    expect(normalizeRuntime("node")).toBe("node");
-    expect(normalizeRuntime("NODE")).toBe("node");
+  it("normalizes node to bun (node is not a supported runtime)", () => {
+    // The generated server requires Bun — a `--runtime node` request must not
+    // scaffold a server that cannot boot.
+    expect(normalizeRuntime("node")).toBe("bun");
+    expect(normalizeRuntime("NODE")).toBe("bun");
   });
 });
 
@@ -25,20 +27,14 @@ describe("commandExists", () => {
 });
 
 describe("detectRuntime", () => {
-  it("resolves node to a real node binary when requested", () => {
-    const result = detectRuntime("node");
-    // On a machine with node on PATH this is exactly "node"; otherwise it
-    // degrades to the current runtime (never an empty string).
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("prefers bun when requested", () => {
-    const result = detectRuntime("bun");
-    expect(result.length).toBeGreaterThan(0);
+  it("always resolves to bun (node is not a supported runtime)", () => {
+    // Tests run under Bun, so the only runtime resolves to "bun".
+    expect(detectRuntime("node")).toBe("bun");
+    expect(detectRuntime("bun")).toBe("bun");
   });
 
   it("falls back to auto-detection for unknown values", () => {
-    expect(detectRuntime("bogus").length).toBeGreaterThan(0);
-    expect(detectRuntime("auto").length).toBeGreaterThan(0);
+    expect(detectRuntime("bogus")).toBe("bun");
+    expect(detectRuntime("auto")).toBe("bun");
   });
 });

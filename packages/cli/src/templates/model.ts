@@ -45,6 +45,10 @@ const splitFields = (input: string): string[] => {
  *   email:string(format email)
  *   age:integer  qty:number  active:boolean  at:date  user:objectId
  *   tags:array(string)  role:enum(admin,editor)  anything:any
+ *
+ * @throws A descriptive {@link Error} on a malformed spec (bad field name,
+ * unknown type, unknown array item type, empty enum) — a silently-dropped
+ * field would otherwise produce a schema missing data the user asked for.
  */
 export const parseModelFields = (input: string | undefined): ModelField[] => {
   if (!input?.trim()) return [{ line: "name: s.string(),", type: "string" }];
@@ -60,10 +64,21 @@ export const parseModelFields = (input: string | undefined): ModelField[] => {
     const colon = clean.indexOf(":");
     const name = (colon < 0 ? clean : clean.slice(0, colon)).trim();
     const spec = (colon < 0 ? "" : clean.slice(colon + 1)).trim();
-    if (!name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+    if (!name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(
+        `Invalid model field "${part}": expected \`name:type\` where name is a valid identifier (e.g. \`email:string, age:integer\`).`,
+      );
+    }
 
     const field = renderField(name, spec, optional);
-    if (field) out.push(field);
+    if (!field) {
+      throw new Error(
+        `Unsupported model field type for "${name}" (spec: ${JSON.stringify(spec)}). ` +
+          "Supported: string, string(format email|uuid), string(min/max N), integer, number, boolean, " +
+          'date, objectId, any, array(<type>), enum(a,b,c) — and "?" for optional.',
+      );
+    }
+    out.push(field);
   }
   return out;
 };
@@ -109,7 +124,7 @@ const renderField = (name: string, spec: string, optional: boolean): ModelField 
   // array(string) / array(integer)
   const arrayMatch = /^array\(\s*([a-z]+)\s*\)$/.exec(spec);
   if (arrayMatch) {
-    const item = arrayMatch[1] ?? "string";
+    const item = arrayMatch[1] ?? "";
     const itemExpr: Record<string, string> = {
       string: "s.string()",
       integer: "s.integer()",
@@ -118,7 +133,12 @@ const renderField = (name: string, spec: string, optional: boolean): ModelField 
       date: "s.date()",
       objectId: "s.objectId()",
     };
-    const expr = itemExpr[item] ?? "s.string()";
+    const expr = itemExpr[item];
+    if (!expr) {
+      throw new Error(
+        `Unsupported array item type "${item}" for "${name}". Supported: string, integer, number, boolean, date, objectId.`,
+      );
+    }
     return literal(`s.array(${expr})`, `Array<${item}>`);
   }
 
@@ -128,10 +148,13 @@ const renderField = (name: string, spec: string, optional: boolean): ModelField 
     const values = (enumMatch[1] ?? "")
       .split(",")
       .map((v) => v.trim())
-      .filter(Boolean)
-      .map((v) => `"${v}"`)
-      .join(", ");
-    return literal(`s.enum([${values}] as const)`, "string");
+      .filter(Boolean);
+    if (values.length === 0) {
+      throw new Error(
+        `Invalid enum for "${name}": enum() needs at least one value (e.g. enum(admin,user)).`,
+      );
+    }
+    return literal(`s.enum([${values.map((v) => `"${v}"`).join(", ")}] as const)`, "string");
   }
 
   return null;
@@ -201,13 +224,24 @@ import { ${plural} } from "./models/${plural}.js";
 // .env.example), or set dbUrl on the primary definition to override.
 export const { service, migrations } = createMongoToolkit(
   { primary: { name: "app", collections: defineCollections(${plural}) } },
-  { cacheWatch: true },
+  {
+    cacheWatch: true,
+    // Versioned schema migrations live in src/migrations (ignex migrate up).
+    migrationDir: "src/migrations",
+  },
 );
+
+// Connect eagerly at module load so db.* is usable from module top-level code
+// (e.g. a HotCache watch ref that reads db.client). Every module that imports
+// this file waits for the connection before its own top-level code runs —
+// without this, top-level db.* access would hit an empty manager.
+// makeConnections is idempotent, so dbPlugin().init() below can reuse it.
+await service.makeConnections();
 
 // The typed CRUD manager used by the generated resource routes.
 //
 // service.db.primaryClient is only populated after service.makeConnections()
-// (run at boot by dbPlugin below). A plain module-scope snapshot would stay
+// (done above at module load). A plain module-scope snapshot would stay
 // undefined for every request, so db is a proxy that resolves the live
 // manager on each access — routes can safely call db.insertOne(...).
 export const db: typeof service.db.primaryClient = new Proxy(
@@ -216,9 +250,7 @@ export const db: typeof service.db.primaryClient = new Proxy(
     get(_target, prop) {
       const manager = service.db.primaryClient;
       if (!manager) {
-        throw new Error(
-          "[ignex] MongoDB is not connected — is dbPlugin() registered in src/app.config.ts?",
-        );
+        throw new Error("[ignex] MongoDB is not connected — failed to connect at boot");
       }
       const value = Reflect.get(manager, prop, manager);
       return typeof value === "function" ? value.bind(manager) : value;
@@ -227,13 +259,13 @@ export const db: typeof service.db.primaryClient = new Proxy(
 );
 
 /**
- * Ignex plugin: connect + provision validators/indexes at boot, close at
- * shutdown. Register it in src/app.config.ts (plugins: [..., dbPlugin()]).
+ * Ignex plugin: provision validators/indexes at boot, close at shutdown.
+ * Register it in src/app.config.ts (plugins: [..., dbPlugin()]).
  */
 export const dbPlugin = (): IgnexPlugin => ({
   name: "db",
   async init() {
-    await service.makeConnections();
+    await service.makeConnections(); // idempotent — reuses the client opened above
     await db.createSchema("${plural}");
   },
   async close() {

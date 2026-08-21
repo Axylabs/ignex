@@ -22,9 +22,6 @@ export const arbJsonObject: fc.Arbitrary<Record<string, unknown>> = fc.dictionar
   { maxKeys: 8 },
 );
 
-/** A small, collision-prone array of JSON values (good for dedup/merge tests). */
-export const arbJsonArray: fc.Arbitrary<unknown[]> = fc.array(arbJsonValue, { maxLength: 12 });
-
 /** HTTP method vocabulary (must stay aligned with `@ignex/shared` HTTP_METHODS). */
 export const arbHttpMethod = fc.constantFrom(
   "GET",
@@ -75,18 +72,6 @@ export const arbRoutePath: fc.Arbitrary<string> = fc
   )
   .map((parts) => (parts.length ? parts.join("") : "/"));
 
-/** An HTTP header field name (RFC 7230 token). */
-export const arbHeaderName: fc.Arbitrary<string> = stringFromChars(
-  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-".split(""),
-  { minLength: 1, maxLength: 24 },
-);
-
-/** An HTTP header field value (printable ASCII, may be empty). */
-export const arbHeaderValue: fc.Arbitrary<string> = stringFromChars(
-  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,;:/=@._-*()".split(""),
-  { minLength: 0, maxLength: 64 },
-);
-
 /** A cookie name/value pair (no separators that would break serialization). */
 export const arbCookiePair: fc.Arbitrary<[string, string]> = fc.tuple(
   arbParamName,
@@ -105,49 +90,8 @@ export const arbQueryPair: fc.Arbitrary<[string, string]> = fc.tuple(
   }),
 );
 
-/** A full query string starting with `?` or empty. */
-export const arbQueryString: fc.Arbitrary<string> = fc
-  .array(arbQueryPair, { minLength: 0, maxLength: 6 })
-  .map((pairs) => (pairs.length ? `?${pairs.map(([k, v]) => `${k}=${v}`).join("&")}` : ""));
-
-/** Any valid 3-digit HTTP status code. */
-export const arbStatusCode: fc.Arbitrary<number> = fc.integer({ min: 100, max: 599 });
-
 /** A plausible Accept-Language q-value (`q=0`..`1`). */
 export const arbQsValue: fc.Arbitrary<number> = fc.oneof(
   fc.constantFrom(0, 0.1, 0.5, 0.9, 1),
   fc.integer({ min: 0, max: 100 }).map((n) => n / 100),
-);
-
-/**
- * A single Accept-Language entry: `lang`, optionally `-REGION`, optionally
- * with a `;q=` weight. Mirrors the `negotiateLocale` parser input space.
- */
-export const arbLocaleEntry: fc.Arbitrary<string> = fc
-  .tuple(
-    fc.constantFrom("en", "en", "fr", "de", "es", "pt", "zh", "ja", "ar", "hi", "xx", "x"),
-    fc.constantFrom("", "-US", "-GB", "-FR", "-DE", "-BR", "-CN"),
-    fc.boolean(),
-    arbQsValue,
-  )
-  .map(([lang, region, weighted, weight]) => {
-    const tag = `${lang}${region}`;
-    return weighted ? `${tag};q=${weight}` : tag;
-  });
-
-/** A full Accept-Language header value (comma-joined entries). */
-export const arbAcceptLanguageHeader: fc.Arbitrary<string> = fc
-  .array(arbLocaleEntry, { minLength: 0, maxLength: 5 })
-  .map((entries) => entries.join(", "));
-
-/** A `{lang, quality}` pair for locale negotiation tests. */
-export const arbLocaleQuality: fc.Arbitrary<[string, number]> = fc.tuple(
-  fc.constantFrom("en", "en-US", "fr", "fr-FR", "de", "es", "pt-BR", "zh-CN", "ja"),
-  arbQsValue,
-);
-
-/** A short lowercase identifier (package/route/field names). */
-export const arbIdentifier: fc.Arbitrary<string> = stringFromChars(
-  "abcdefghijklmnopqrstuvwxyz0123456789_".split(""),
-  { minLength: 1, maxLength: 20 },
 );

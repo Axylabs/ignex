@@ -11,6 +11,7 @@ import { runOps } from "../src/commands/ops.js";
 import { findCommand } from "../src/commands/registry.js";
 import {
   caddyfileTemplate,
+  ciWorkflowTemplate,
   composeTemplate,
   dockerEnvTemplate,
   dockerfileTemplate,
@@ -26,7 +27,10 @@ function tmpTarget(): string {
 describe("dockerfileTemplate", () => {
   it("emits the multi-stage builder/production split", () => {
     const code = dockerfileTemplate();
-    expect(code).toContain("FROM oven/bun:canary-slim AS builder");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Dockerfile ARG reference
+    expect(code).toContain("FROM ${BUN_IMAGE} AS builder");
+    expect(code).toContain("ARG BUN_IMAGE=oven/bun:1.4.0-slim");
+    expect(code).not.toContain("FROM oven/bun:canary-slim");
     expect(code).toContain("FROM debian:stable-slim AS production");
     expect(code).toContain("bun run build --compile --binary-outfile server");
     expect(code).toContain('CMD ["./server"]');
@@ -131,6 +135,56 @@ describe("composeTemplate", () => {
     expect(yaml).toContain("http://127.0.0.1:4444/live");
     expect(yaml).toContain("DATABASE_URL` from .env.docker");
   });
+
+  it("adds Redis with a requirepass healthcheck when selected", () => {
+    const yaml = composeTemplate({ dbPassword: "s3cret", services: ["mongo", "redis"] });
+    expect(yaml).toContain("redis:7-alpine");
+    expect(yaml).toContain('redis-server --requirepass "$$REDIS_PASSWORD"');
+    expect(yaml).toContain('redis-cli -a "$$REDIS_PASSWORD" ping');
+    expect(yaml).toContain("redis-data:/data");
+    expect(yaml).toContain("REDIS_URL` from .env.docker");
+  });
+
+  it("adds NATS with JetStream and a healthcheck when selected", () => {
+    const yaml = composeTemplate({ dbPassword: "s3cret", services: ["nats"] });
+    expect(yaml).toContain("nats:2-alpine");
+    expect(yaml).toContain('["-js", "-m", "8222", "-sd", "/data"]');
+    expect(yaml).toContain('"4222:4222"');
+    expect(yaml).toContain("nats-data:/data");
+    expect(yaml).toContain("http://127.0.0.1:8222/healthz");
+    expect(yaml).toContain("NATS_URL` from .env.docker");
+    expect(yaml).not.toContain("mongodb:");
+  });
+
+  it("wires the app depends_on to every selected service", () => {
+    const yaml = composeTemplate({ dbPassword: "s3cret", services: ["mongo", "redis", "nats"] });
+    // The app's depends_on block: `mongo` maps to the `mongodb` service name.
+    const start = yaml.indexOf("depends_on:");
+    const end = yaml.indexOf("healthcheck:", start);
+    const appDepends = yaml.slice(start, end);
+    expect(appDepends).toContain("mongodb:");
+    expect(appDepends).toContain("redis:");
+    expect(appDepends).toContain("nats:");
+    expect(yaml).toContain("#   - Services: mongo, redis, nats");
+  });
+
+  it("emits per-service env vars (REDIS_URL / NATS_URL) in .env.docker", () => {
+    const env = dockerEnvTemplate({
+      dbPassword: "s3cret",
+      services: ["mongo", "redis", "nats"],
+      redisPassword: "r3d",
+    });
+    expect(env).toContain("REDIS_PASSWORD=r3d");
+    expect(env).toContain("REDIS_URL=redis://:r3d@redis:6379");
+    expect(env).toContain("NATS_URL=nats://nats:4222");
+    expect(env).toContain("MONGO_INITDB_ROOT_USERNAME=app");
+  });
+
+  it("omits mongo env when mongo is not selected", () => {
+    const env = dockerEnvTemplate({ services: ["redis"], redisPassword: "r3d" });
+    expect(env).not.toContain("MONGO_INITDB_ROOT_USERNAME");
+    expect(env).toContain("REDIS_URL=redis://:r3d@redis:6379");
+  });
 });
 
 describe("caddyfileTemplate", () => {
@@ -191,6 +245,53 @@ describe("dockerignoreTemplate", () => {
   });
 });
 
+describe("ciWorkflowTemplate", () => {
+  it("emits a GitHub Actions quality gate (typecheck/lint/build/test)", () => {
+    const yaml = ciWorkflowTemplate();
+    expect(yaml).toContain("name: CI");
+    expect(yaml).toContain("bun run typecheck");
+    expect(yaml).toContain("bun run lint");
+    expect(yaml).toContain("bun run build");
+    expect(yaml).toContain("bun run test");
+    expect(yaml).toContain("bun install --frozen-lockfile");
+  });
+
+  it("keeps GitHub expressions literal (no template interpolation)", () => {
+    const yaml = ciWorkflowTemplate();
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
+    expect(yaml).toContain("${{ github.ref }}");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
+    expect(yaml).toContain("${{ github.repository }}");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
+    expect(yaml).toContain("${{ secrets.GITHUB_TOKEN }}");
+    expect(yaml).not.toMatch(/\$\{github/);
+  });
+
+  it("deploys on main via SSH only when a deploy host is given", () => {
+    const plain = ciWorkflowTemplate();
+    expect(plain).toContain("if: github.ref == 'refs/heads/main'");
+    expect(plain).not.toContain("appleboy/ssh-action");
+
+    const withHost = ciWorkflowTemplate({ deployHost: "deploy@api.example.com" });
+    expect(withHost).toContain("appleboy/ssh-action");
+    expect(withHost).toContain("host: api.example.com");
+    expect(withHost).toContain("username: deploy");
+    expect(withHost).toContain("DEPLOY_SSH_KEY");
+    expect(withHost).toContain("docker compose up -d --remove-orphans");
+  });
+
+  it("honors a custom image and deploy dir", () => {
+    const yaml = ciWorkflowTemplate({
+      image: "registry.example.com/api:latest",
+      deployHost: "root@api.example.com",
+      deployDir: "/srv/api",
+    });
+    expect(yaml).toContain("tags: registry.example.com/api:latest");
+    expect(yaml).toContain("cd /srv/api");
+    expect(yaml).toContain("username: root");
+  });
+});
+
 describe("ignex ops (command wiring)", () => {
   it("generates a Dockerfile + .dockerignore", async () => {
     const dir = tmpTarget();
@@ -199,9 +300,9 @@ describe("ignex ops (command wiring)", () => {
 
       expect(existsSync(join(dir, "Dockerfile"))).toBe(true);
       expect(existsSync(join(dir, ".dockerignore"))).toBe(true);
-      expect(readFileSync(join(dir, "Dockerfile"), "utf8")).toContain(
-        "FROM oven/bun:canary-slim AS builder",
-      );
+      const dockerfile = readFileSync(join(dir, "Dockerfile"), "utf8");
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Dockerfile ARG reference
+      expect(dockerfile).toContain("FROM ${BUN_IMAGE} AS builder");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -265,9 +366,32 @@ describe("ignex ops (command wiring)", () => {
         "docker-compose.yml",
         ".env.docker",
         "Caddyfile",
+        ".github/workflows/ci.yml",
       ]) {
         expect(existsSync(join(dir, file))).toBe(true);
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("generates a CI workflow via the --target flag", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps([
+        "--target",
+        "ci",
+        "--root",
+        dir,
+        "--force",
+        "--deploy-host",
+        "deploy@api.example.com",
+      ]);
+
+      const workflow = readFileSync(join(dir, ".github/workflows/ci.yml"), "utf8");
+      expect(workflow).toContain("name: CI");
+      expect(workflow).toContain("host: api.example.com");
+      expect(workflow).toContain("bun run typecheck");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -336,15 +460,21 @@ describe("ignex ops (command wiring)", () => {
     }
   });
 
-  it("requires a db password for compose non-interactively", async () => {
+  it("generates a random db password for compose non-interactively", async () => {
     const dir = tmpTarget();
-    const originalExitCode = process.exitCode;
     try {
+      // Non-interactive with no --db-password must NOT hard-fail: a strong
+      // random password is generated and written to .env.docker (never the
+      // committed compose file), so --yes/CI flows work without MongoDB.
       await runOps(["compose", "--root", dir]);
-      expect(process.exitCode).toBe(1);
-      expect(existsSync(join(dir, "docker-compose.yml"))).toBe(false);
+
+      expect(existsSync(join(dir, "docker-compose.yml"))).toBe(true);
+      expect(existsSync(join(dir, ".env.docker"))).toBe(true);
+      const env = readFileSync(join(dir, ".env.docker"), "utf8");
+      const match = env.match(/^MONGO_INITDB_ROOT_PASSWORD=(.+)$/m);
+      expect(match?.[1]).toBeTruthy();
+      expect(match?.[1]).not.toBe("");
     } finally {
-      process.exitCode = originalExitCode;
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -354,6 +484,88 @@ describe("ignex ops (command wiring)", () => {
     expect(ops).toBeDefined();
     const flags = parseFlagDocs(ops?.options);
     const target = flags.find((f) => f.flag === "--target");
-    expect(target?.values).toEqual(["dockerfile", "compose", "caddy", "docker"]);
+    expect(target?.values).toEqual(["dockerfile", "compose", "caddy", "ci", "docker"]);
+  });
+
+  it("generates compose with redis + nats via --services", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps([
+        "compose",
+        "--root",
+        dir,
+        "--force",
+        "--services",
+        "redis,nats",
+        "--redis-password",
+        "r3d",
+      ]);
+
+      const compose = readFileSync(join(dir, "docker-compose.yml"), "utf8");
+      expect(compose).toContain("redis:7-alpine");
+      expect(compose).toContain("nats:2-alpine");
+      expect(compose).not.toContain("mongodb:");
+      expect(compose).toContain("redis-data:/data");
+      expect(compose).toContain("nats-data:/data");
+
+      const env = readFileSync(join(dir, ".env.docker"), "utf8");
+      expect(env).toContain("REDIS_URL=redis://:r3d@redis:6379");
+      expect(env).toContain("NATS_URL=nats://nats:4222");
+      expect(env).not.toContain("MONGO_INITDB_ROOT_USERNAME");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports --redis/--nats/--no-mongo toggles", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps([
+        "compose",
+        "--root",
+        dir,
+        "--force",
+        "--no-mongo",
+        "--redis",
+        "--nats",
+        "--redis-password",
+        "r3d",
+      ]);
+
+      const compose = readFileSync(join(dir, "docker-compose.yml"), "utf8");
+      expect(compose).toContain("redis:");
+      expect(compose).toContain("nats:");
+      expect(compose).not.toContain("mongodb:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unknown compose services", async () => {
+    const dir = tmpTarget();
+    const originalExitCode = process.exitCode;
+    try {
+      await runOps(["compose", "--root", dir, "--services", "mysql"]);
+      expect(process.exitCode).toBe(1);
+      expect(existsSync(join(dir, "docker-compose.yml"))).toBe(false);
+    } finally {
+      process.exitCode = originalExitCode;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("generates a random redis password non-interactively", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps(["compose", "--root", dir, "--services", "redis"]);
+
+      const env = readFileSync(join(dir, ".env.docker"), "utf8");
+      const match = env.match(/^REDIS_PASSWORD=(.+)$/m);
+      expect(match?.[1]).toBeTruthy();
+      expect(match?.[1]).not.toBe("");
+      expect(env).toContain(`REDIS_URL=redis://:${match?.[1]}@redis:6379`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

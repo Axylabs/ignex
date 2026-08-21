@@ -40,29 +40,35 @@ export const forbidden = (message = "Forbidden"): Response =>
   Response.json({ error: message }, { status: 403 });
 
 /**
- * Halt unless a user can be extracted. On success the user is attached to
- * `ctx.state`; on failure the request is halted with a 401.
+ * Shared user-resolution flow behind `requireAuth` / `optionalAuth`: extract
+ * a user, attach it to `ctx.state`, and optionally halt with a 401 when it is
+ * absent.
  */
-export const requireAuth =
-  <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
+const authFlow =
+  <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>, required: boolean): HookFn =>
   async (ctx) => {
     const user = await extract(ctx);
-    if (user == null) return haltHook(unauthorized());
+    if (user == null) {
+      if (required) return haltHook(unauthorized());
+      return continueHook(ctx);
+    }
     setUser(ctx, user);
     return continueHook(ctx);
   };
 
 /**
+ * Halt unless a user can be extracted. On success the user is attached to
+ * `ctx.state`; on failure the request is halted with a 401.
+ */
+export const requireAuth = <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
+  authFlow<T>(extract, true);
+
+/**
  * Attach a user when one can be extracted, but never halt — for endpoints
  * that work for guests and authenticated users alike.
  */
-export const optionalAuth =
-  <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
-  async (ctx) => {
-    const user = await extract(ctx);
-    if (user != null) setUser(ctx, user);
-    return continueHook(ctx);
-  };
+export const optionalAuth = <T>(extract: (ctx: IgnexContext) => MaybePromise<T | null>): HookFn =>
+  authFlow<T>(extract, false);
 
 /** Split an `Authorization` header into its (lowercased) scheme + credentials. */
 const parseAuthorizationHeader = (ctx: IgnexContext): { scheme: string; credentials: string } => {
@@ -74,53 +80,60 @@ const parseAuthorizationHeader = (ctx: IgnexContext): { scheme: string; credenti
   return { scheme: scheme.toLowerCase(), credentials };
 };
 
-/** Parse + verify HTTP Basic credentials (`Authorization: Basic base64(u:p)`). */
-export const basicAuth =
-  (
-    verify: (username: string, password: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
+/**
+ * Shared scheme-based auth skeleton behind `basicAuth` / `bearerAuth`: parse
+ * the `Authorization` header, require the expected `scheme`, verify the raw
+ * credentials, attach the resulting user, and halt with a 401 challenge on
+ * any failure.
+ */
+const schemeAuth =
+  <T>(
+    scheme: "basic" | "bearer",
+    challenge: string | undefined,
+    verify: (credentials: string, ctx: IgnexContext) => MaybePromise<T | null>,
   ): HookFn =>
   async (ctx) => {
-    const { scheme, credentials } = parseAuthorizationHeader(ctx);
-
-    if (scheme !== "basic" || !credentials) {
-      return haltHook(unauthorized('Basic realm="ignex"'));
-    }
-
-    let decoded: string;
-    try {
-      decoded = Buffer.from(credentials, "base64").toString("utf8");
-    } catch {
-      return haltHook(unauthorized('Basic realm="ignex"'));
-    }
-
-    const colon = decoded.indexOf(":");
-    const username = colon < 0 ? decoded : decoded.slice(0, colon);
-    const password = colon < 0 ? "" : decoded.slice(colon + 1);
-
-    const user = await verify(username, password, ctx);
-    if (user == null) return haltHook(unauthorized('Basic realm="ignex"'));
-    setUser(ctx, user);
-    return continueHook(ctx);
-  };
-
-/** Parse + verify HTTP Bearer credentials (`Authorization: Bearer <token>`). */
-export const bearerAuth =
-  (
-    verify: (token: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
-    challenge = "Bearer",
-  ): HookFn =>
-  async (ctx) => {
-    const { scheme, credentials: token } = parseAuthorizationHeader(ctx);
-
-    if (scheme !== "bearer" || !token) {
-      return haltHook(unauthorized(challenge));
-    }
-
-    const user = await verify(token, ctx);
+    const { scheme: actual, credentials } = parseAuthorizationHeader(ctx);
+    if (actual !== scheme || !credentials) return haltHook(unauthorized(challenge));
+    const user = await verify(credentials, ctx);
     if (user == null) return haltHook(unauthorized(challenge));
     setUser(ctx, user);
     return continueHook(ctx);
   };
+
+/** Strict base64 validation — `Buffer.from(s, "base64")` is LENIENT (it
+ * decodes whatever it can and ignores invalid characters), so a malformed
+ * credential would silently decode. Fail closed instead: only accept the
+ * standard base64 alphabet with at most two trailing `=` pads and a length
+ * that cannot be misaligned (unpadded length % 4 !== 1). */
+const isStrictBase64 = (s: string): boolean => {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(s)) return false;
+  return s.replace(/=+$/, "").length % 4 !== 1;
+};
+
+/** Parse + verify HTTP Basic credentials (`Authorization: Basic base64(u:p)`). */
+export const basicAuth = (
+  verify: (username: string, password: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
+): HookFn =>
+  schemeAuth<unknown>("basic", 'Basic realm="ignex"', (credentials, ctx) => {
+    if (!isStrictBase64(credentials)) return null;
+    let decoded: string;
+    try {
+      decoded = Buffer.from(credentials, "base64").toString("utf8");
+    } catch {
+      return null;
+    }
+    const colon = decoded.indexOf(":");
+    const username = colon < 0 ? decoded : decoded.slice(0, colon);
+    const password = colon < 0 ? "" : decoded.slice(colon + 1);
+    return verify(username, password, ctx);
+  });
+
+/** Parse + verify HTTP Bearer credentials (`Authorization: Bearer <token>`). */
+export const bearerAuth = (
+  verify: (token: string, ctx: IgnexContext) => MaybePromise<unknown | null>,
+  challenge = "Bearer",
+): HookFn => schemeAuth<unknown>("bearer", challenge, verify);
 
 /** Options for {@link jwtAuth}: JWT service options plus challenge behavior. */
 export interface JwtAuthOptions extends JwtServiceOptions {

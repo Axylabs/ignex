@@ -94,6 +94,10 @@ export {
   renderTemplate,
   withLayout,
 } from "./content/template";
+export type {
+  HttpResponseCacheOptions,
+  HttpResponseCacheStore,
+} from "./data/cache";
 // ── data ────────────────────────────────────────────────────────
 export {
   cacheControl,
@@ -110,11 +114,59 @@ export type {
   DataLoaderOptions,
 } from "./data/dataloader";
 export { createDataLoader } from "./data/dataloader";
+export {
+  createDriverManager,
+  type DriverFactory,
+  type DriverManager,
+  type DriverManagerOptions,
+} from "./data/drivers/manager";
 export { LRUCache } from "./data/lru";
-export { groupQueryPairs, parseQuery, parseQueryFromURL } from "./data/query";
+export {
+  groupQueryPairs,
+  NativeQueryParams,
+  parseQuery,
+  parseQueryFromURL,
+} from "./data/query";
 export type { RateLimitAlgorithm } from "./data/ratelimit";
 export { compileValidator, validateAsync, validateOrThrow } from "./data/schema";
+export {
+  createFileStore,
+  createMemoryStore,
+  createSqliteStore,
+  createStoreManager,
+  type FileStoreOptions,
+  type MaybePromise,
+  type MemoryStoreOptions,
+  type SqliteStoreOptions,
+  type Store,
+  type StoreManagerOptions,
+  type StoreSetOptions,
+} from "./data/store";
 export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./data/validation";
+export {
+  debugCache,
+  debugError,
+  debugEvent,
+  debugQuery,
+  debugSpan,
+} from "./debug/api";
+export { TraceStore } from "./debug/store";
+export { SystemProfiler } from "./debug/system";
+export {
+  currentTrace,
+  isTracingEnabled,
+} from "./debug/tracer";
+// ── debug (developer dashboard primitives) ──────────────────────
+export type {
+  DebugApi,
+  DebugSpanHandle,
+  RequestTrace,
+  Span,
+  SpanAttrs,
+  SpanKind,
+  SystemSample,
+  SystemStats,
+} from "./debug/types";
 // ── http ────────────────────────────────────────────────────────
 export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody } from "./http/body";
@@ -146,7 +198,7 @@ export {
   type RouteRegistration,
   type RouterMethod,
 } from "./http/router";
-export { formatSSE, sse } from "./http/sse";
+export { formatSSE, type SSEMessage, type SSEOptions, sse } from "./http/sse";
 export {
   DEV_CERT_FILENAMES,
   type DevCert,
@@ -242,7 +294,12 @@ export type {
 } from "./platform/jobs-durable";
 export { createDurableJobQueue } from "./platform/jobs-durable";
 export type { JobStatus, JobStore, StoredJob } from "./platform/jobs-store";
-export { createFileJobStore, createSqliteJobStore, newJobId } from "./platform/jobs-store";
+export {
+  createFileJobStore,
+  createSqliteJobStore,
+  createStoreJobStore,
+  newJobId,
+} from "./platform/jobs-store";
 export { installProcessGuards } from "./platform/process-guards";
 // ── plugins ─────────────────────────────────────────────────────
 export {
@@ -255,13 +312,15 @@ export {
 } from "./plugins/auth";
 export type { AuthMode, AuthModule, AuthModuleOptions } from "./plugins/auth-module";
 export { authModule, createAuthModule } from "./plugins/auth-module";
-export { compression } from "./plugins/compression";
-export { cors } from "./plugins/cors";
+export { type CompressionOptions, compression } from "./plugins/compression";
+export { type CorsOptions, cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
-export { logger } from "./plugins/logger";
+export { type DebugbarOptions, debugbar } from "./plugins/debugbar";
+export { type LoggerOptions, logger } from "./plugins/logger";
 export { type NativePreflightOptions, nativePreflight } from "./plugins/native";
 export { type OpenAPIOptions, type OpenAPIProvider, openapi } from "./plugins/openapi";
-export { type RateLimitOptions, rateLimit } from "./plugins/ratelimit";
+export type { RateLimitOptions, RateLimitStore } from "./plugins/ratelimit";
+export { rateLimit } from "./plugins/ratelimit";
 export type { RbacOptions, RouteGuards } from "./plugins/rbac";
 export {
   authorize,
@@ -276,8 +335,8 @@ export {
   requireAuthenticated,
   withGuards,
 } from "./plugins/rbac";
-export { security } from "./plugins/security";
-export { session } from "./plugins/session";
+export { type SecurityOptions, security } from "./plugins/security";
+export { type SessionPluginOptions, session } from "./plugins/session";
 // ── security ────────────────────────────────────────────────────
 export type { AuthUser, JwtAuthOptions } from "./security/auth";
 export {
@@ -329,10 +388,12 @@ export type {
   SessionManager,
   SessionManagerOptions,
   SessionStore,
+  SessionStoreOptions,
 } from "./security/session";
 export {
   createMemorySessionStore,
   createSessionManager,
+  createSessionStoreFromStore,
   createSqliteSessionStore,
   getSession,
   withSession,

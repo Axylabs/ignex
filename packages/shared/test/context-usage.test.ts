@@ -29,6 +29,7 @@ const FLAGS: (keyof ContextUsage)[] = [
   "forward",
   "cache",
   "loader",
+  "debug",
 ];
 
 describe("ContextUsage", () => {

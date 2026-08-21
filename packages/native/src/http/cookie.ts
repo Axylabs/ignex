@@ -8,7 +8,9 @@ import type { Pairs } from "./types";
 
 /** Parse a `Cookie` header into `[name, value]` pairs. */
 export const cookiePairs = (input: string | Uint8Array): Pairs => {
-  // Selection: js (native x0.65) — see selection.ts.
+  // Selection: js — the packed C-ABI writer (`cookieParsePacked`) measured
+  // SLOWER (x0.65, scripts/bench-ffi.ts), so it is deliberately NOT selected
+  // (native only where proven faster). It stays as the C-ABI parity surface.
   return cookiePairsFallback(input);
 };
 

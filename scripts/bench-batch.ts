@@ -20,7 +20,7 @@
  * to crash the run.
  *
  * A batch is worth wiring when it beats BOTH scalars at a usable N (and the
- * parity suite `packages/native/test/batch.test.ts` proves byte-equality).
+ * C-ABI parity suite `scripts/verify-native-ffi.ts` proves byte-equality).
  *
  * Usage:
  *   bun scripts/bench-batch.ts                        # decision table to stdout

@@ -1,11 +1,14 @@
 import { pathToFileURL } from "node:url";
-import { findCommand, renderHelp } from "./commands/registry.js";
+import { findCommand, renderCommandHelp, renderHelp } from "./commands/registry.js";
+import { cliVersion } from "./version.js";
 
 /**
  * CLI entry: dispatch `argv` to the matching command (or print help).
  *
- * Unknown commands print help and set a non-zero exit code; each command's
- * `run` is awaited so errors propagate to the bin-level catch.
+ * `--version` prints the CLI version; `ignex <command> --help` prints that
+ * command's flag reference; unknown commands print help and set a non-zero
+ * exit code. Each command's `run` is awaited so errors propagate to the
+ * bin-level catch.
  *
  * @param argv - Arguments after the binary name (`process.argv.slice(2)`).
  */
@@ -17,12 +20,22 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (commandName === "--version" || commandName === "-v" || commandName === "version") {
+    console.log(cliVersion());
+    return;
+  }
+
   const command = findCommand(commandName);
 
   if (!command) {
     console.error(`Unknown command: ${commandName}\n`);
     console.log(renderHelp().trim());
     process.exitCode = 1;
+    return;
+  }
+
+  if (rest.includes("--help") || rest.includes("-h")) {
+    console.log(renderCommandHelp(command).trim());
     return;
   }
 

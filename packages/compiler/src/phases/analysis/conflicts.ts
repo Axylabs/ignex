@@ -12,8 +12,10 @@ export const staticRouteKey = (route: RouteIR): string =>
 export const detectDeadRoutes = (
   routes: readonly RouteIR[],
   modules: readonly ModuleInfo[],
+  opts: { strictDuplicates?: boolean } = {},
+  ctx?: CompilerContext,
 ): { alive: RouteIR[]; dead: RouteIR[] } => {
-  const seen = new Map<string, number>();
+  const seen = new Map<string, RouteIR>();
   const alive: RouteIR[] = [];
   const dead: RouteIR[] = [];
 
@@ -24,12 +26,34 @@ export const detectDeadRoutes = (
       dead.push(route);
       continue;
     }
-    if (route.source.isStatic && seen.has(staticRouteKey(route))) {
-      dead.push(route);
-      continue;
-    }
     if (route.source.isStatic) {
-      seen.set(staticRouteKey(route), alive.length);
+      const key = staticRouteKey(route);
+      const existing = seen.get(key);
+      if (existing) {
+        // Exact static duplicate. Under `strictRouteConflicts` this is FATAL:
+        // emit an error diagnostic so the pipeline's final `hasErrors` gate
+        // fails the build. (Previously `detectDeadRoutes` deduped BEFORE
+        // `detectRouteConflicts`, so an exact duplicate could never reach the
+        // duplicate-route error path — even in strict mode.)
+        if (opts.strictDuplicates && ctx) {
+          ctx.diagnostics.error({
+            code: DiagnosticCodes.RouteConflict,
+            message: `Duplicate route: ${route.source.method} ${route.source.path}`,
+            file: route.source.file,
+            related: [
+              {
+                code: DiagnosticCodes.RouteConflict,
+                severity: "info",
+                message: "First defined here",
+                file: existing.source.file,
+              },
+            ],
+          });
+        }
+        dead.push(route);
+        continue;
+      }
+      seen.set(key, route);
     }
     alive.push(route);
   }

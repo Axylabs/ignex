@@ -118,11 +118,40 @@ const PLACEHOLDER_VALUES: Record<string, readonly string[]> = {
 };
 
 /**
+ * Generic argument metavariables used in option docs (`--root <dir>`,
+ * `--port <port>`, …). These name a user-supplied argument, NOT a literal
+ * value, so they are not expanded into completion candidates.
+ */
+const GENERIC_ARGUMENTS = new Set([
+  "dir",
+  "port",
+  "list",
+  "method",
+  "stage",
+  "name",
+  "action",
+  "target",
+  "binary",
+  "path",
+  "image",
+  "user",
+  "pass",
+  "db",
+  "var",
+  "domain",
+  "shell",
+  "file",
+  "url",
+  "value",
+]);
+
+/**
  * Parse a command's `options` doc string into its flags and value hints.
  *
- * Inline enums (`--runtime <bun|node>`) become `values`; boolean flags have no
- * values; `--features` maps to `FEATURE_NAMES` and the `method`/`stage`
- * placeholders map to the HTTP verbs / lifecycle stages.
+ * Inline enums (`--runtime <bun|auto>`) and single literal values
+ * (`--runtime <bun>`) become `values`; generic metavariables (`--root <dir>`)
+ * and boolean flags have no values; `--features` maps to `FEATURE_NAMES` and
+ * the `method`/`stage` placeholders map to the HTTP verbs / lifecycle stages.
  *
  * @param options - The `Command.options` doc string (may be `undefined`).
  * @returns The parsed flags, in declaration order.
@@ -143,7 +172,13 @@ export function parseFlagDocs(options: string | undefined): readonly FlagComplet
           .map((v) => v.trim())
           .filter(Boolean);
       } else {
-        values = PLACEHOLDER_VALUES[placeholder];
+        // Known keyword placeholders (`method`/`stage`) map to their value
+        // lists first; generic metavariables (`dir`, `port`, …) name a
+        // user-supplied argument (no candidates); anything else (`bun`) is a
+        // single literal value.
+        values =
+          PLACEHOLDER_VALUES[placeholder] ??
+          (GENERIC_ARGUMENTS.has(placeholder) ? undefined : [placeholder]);
       }
     }
     flags.push({ flag, values });

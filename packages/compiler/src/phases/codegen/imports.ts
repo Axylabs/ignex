@@ -43,7 +43,7 @@ const emitWsImport = (
   state.imports.add(
     `import { wsHandler as ${wsHandlerImportName(route)} } from ${JSON.stringify(toImportPath(mod.path, opts))};`,
   );
-  state.wsHandlers.push(wsHandlerImportName(route));
+  state.wsHandlers.push({ path: route.source.path, handler: wsHandlerImportName(route) });
 };
 
 /** Import a route's HTTP handler (plus its schema when it validates). */
@@ -126,7 +126,7 @@ export const stageImports = (
   // can still specialize/hoist. When the config wasn't analyzed (e.g. direct
   // `generateServer` callers), conservatively treat its presence as hooks.
   state.appConfigHasHooks = appConfig
-    ? appConfig.hasPlugins || appConfig.hasLifecycle
+    ? appConfig.hasActivePlugins || appConfig.hasLifecycle
     : state.hasAppConfig;
 
   coreNames.push(
@@ -150,6 +150,9 @@ export const stageImports = (
     "createNativeRoute",
     "groupQueryPairs",
     "cookiePairsToRecord",
+    // Usage-only native prelude: ctx.query becomes a URLSearchParams-
+    // compatible facade over the native pairs (no URLSearchParams rebuild).
+    "NativeQueryParams",
   );
 
   if (state.hasAppConfig) {

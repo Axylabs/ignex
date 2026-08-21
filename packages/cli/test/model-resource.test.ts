@@ -52,9 +52,36 @@ test("parseModelFields defaults to a single name field when empty", () => {
   expect(field?.line).toBe("name: s.string(),");
 });
 
+test("parseModelFields fails loud on malformed specs (no silent drop)", () => {
+  // A bad field name must not be silently dropped.
+  expect(() => parseModelFields("1bad:string")).toThrow(/Invalid model field/);
+  expect(() => parseModelFields("valid:string, ")).not.toThrow();
+
+  // An unknown type must not be silently skipped.
+  expect(() => parseModelFields("age:integer, weight:kilograms")).toThrow(
+    /Unsupported model field type/,
+  );
+
+  // An unknown array item type must not degrade to s.string().
+  expect(() => parseModelFields("tags:array(blob)")).toThrow(/Unsupported array item type/);
+
+  // An empty enum must not emit an invalid schema (either error is fine —
+  // the key is that it fails loud instead of emitting `s.enum([])`).
+  expect(() => parseModelFields("role:enum()")).toThrow();
+  expect(() => parseModelFields("role:enum( )")).toThrow(/Invalid enum/);
+});
+
 test("dbTemplate emits a live db handle + dbPlugin (connects at boot)", () => {
   const code = dbTemplate("Gig");
   expect(code).toContain("export const { service, migrations } = createMongoToolkit(");
+  // Versioned migrations are pinned to src/migrations (`ignex migrate up`).
+  expect(code).toContain('migrationDir: "src/migrations"');
+  // Eager top-level connect so module top-level `db.*` access (e.g. HotCache
+  // watch refs reading `db.client`) works before any request.
+  expect(code).toContain("await service.makeConnections();");
+  expect(code.indexOf("await service.makeConnections();")).toBeLessThan(
+    code.indexOf("export const db:"),
+  );
   expect(code).toContain("export const db: typeof service.db.primaryClient = new Proxy(");
   expect(code).toContain("value.bind(manager)");
   expect(code).toContain("export const dbPlugin = (): IgnexPlugin => ({");

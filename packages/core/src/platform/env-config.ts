@@ -41,87 +41,27 @@
  * schema so the two stay in sync.
  */
 
-import type { Static, TObject, TProperties, TSchema } from "typebox";
-import { Check, Convert, Default, Errors, Parse } from "typebox/value";
-import { coerceBoolean } from "./coerce";
+import type { Static, TObject } from "typebox";
+import { Convert, Default, Parse } from "typebox/value";
 import { loadEnv } from "./env";
-
-// ── diagnostics ───────────────────────────────────────────────────────────
-
-/** Stable env diagnostic codes (public contract — do not rename). */
-export const EnvIssueCodes = {
-  /** A required variable is absent. */
-  MissingRequired: "IGN_ENV_MISSING_REQUIRED",
-  /** A variable is present but fails its schema. */
-  Invalid: "IGN_ENV_INVALID",
-  /** An optional variable without a default is absent. */
-  MissingOptional: "IGN_ENV_MISSING_OPTIONAL",
-} as const;
-
-/** A stable env diagnostic code (any value of {@link EnvIssueCodes}). */
-export type EnvIssueCode = (typeof EnvIssueCodes)[keyof typeof EnvIssueCodes];
-
-/** Severity of an {@link EnvIssue}. */
-export type EnvIssueSeverity = "error" | "warning";
-
-/** A single structured env validation issue. */
-export interface EnvIssue {
-  /** Stable machine-readable code (see {@link EnvIssueCodes}). */
-  readonly code: EnvIssueCode;
-  /** Whether the issue blocks `defineEnv`. */
-  readonly severity: EnvIssueSeverity;
-  /** The environment variable name (schema property key). */
-  readonly key: string;
-  /** Human-readable, actionable message. */
-  readonly message: string;
-  /** The expected schema type (e.g. "integer", "boolean"). */
-  readonly expected?: string;
-  /** The offending value (omitted for secrets). */
-  readonly got?: string;
-  /** True when the key is a secret (value redacted). */
-  readonly secret?: boolean;
-}
-
-/** The result of a non-throwing {@link validateEnv} call. */
-export interface EnvResult<T extends TObject> {
-  /** True when there are no error-severity issues. */
-  readonly ok: boolean;
-  /** The validated, defaulted config — `undefined` when `ok` is false. */
-  readonly value: Static<T> | undefined;
-  /** All issues (errors + warnings). */
-  readonly issues: readonly EnvIssue[];
-}
-
-// ── error ─────────────────────────────────────────────────────────────────
-
-/** Renders the full issue list into a single error message. */
-const renderEnvError = (issues: readonly EnvIssue[]): string => {
-  const parts = issues.map((i) => `${i.key}: ${i.message}`);
-  return `Environment validation failed (${issues.length} issue${issues.length === 1 ? "" : "s"}):\n  - ${parts.join("\n  - ")}`;
-};
-
-/**
- * Thrown by {@link defineEnv} when the environment fails validation.
- *
- * Carries the structured {@link EnvIssue} list so callers can render or
- * surface it however they like. Secret values are never included.
- */
-export class EnvError extends Error {
-  readonly code = "IGN_ENV_VALIDATION_FAILED";
-  /** The structured issues that caused the failure. */
-  readonly issues: readonly EnvIssue[];
-
-  constructor(issues: readonly EnvIssue[]) {
-    super(renderEnvError(issues));
-    this.name = "EnvError";
-    this.issues = issues;
-  }
-}
-
-// ── options ───────────────────────────────────────────────────────────────
-
-/** An environment source (defaults to `process.env`). */
-export type EnvSource = Record<string, string | undefined>;
+import {
+  EnvError,
+  type EnvIssue,
+  EnvIssueCodes,
+  type EnvResult,
+  type EnvSource,
+} from "./env-diagnostics";
+import {
+  buildInput,
+  collectErrors,
+  collectOptionalWarnings,
+  dedupeByKey,
+  describeType,
+  formatValue,
+  isRequiredKey,
+  isSecret,
+  properties,
+} from "./env-schema";
 
 /** Options for {@link defineEnv}. */
 export interface DefineEnvOptions {
@@ -142,175 +82,6 @@ export interface ValidateEnvOptions {
   /** Environment source. Defaults to `process.env`. */
   readonly source?: EnvSource;
 }
-
-// ── schema introspection ──────────────────────────────────────────────────
-
-/** The schema properties of a `TObject`. */
-const properties = (schema: TObject): TProperties => schema.properties;
-
-/**
- * True when a key is required — i.e. listed in the schema's `required` array.
- * In TypeBox 1.x, `Type.Optional(...)` marks a key optional by excluding it
- * from `required` (there is no runtime `OptionalKind` marker).
- */
-const isRequiredKey = (schema: TObject, key: string): boolean =>
-  (schema as { required?: readonly string[] }).required?.includes(key) ?? false;
-
-/** True when a property declares a `default` (via schema options). */
-const hasDefault = (prop: TSchema): boolean =>
-  (prop as { default?: unknown }).default !== undefined;
-
-/** True when a property is marked secret via `metadata.secret`. */
-const isSecret = (prop: TSchema): boolean => {
-  const metadata = (prop as { metadata?: { secret?: unknown } }).metadata;
-  return metadata?.secret === true;
-};
-
-/** A short human-readable description of a property's JSON-schema type. */
-const describeType = (prop: TSchema): string => {
-  const type = (prop as { type?: unknown }).type;
-  if (typeof type === "string") return type;
-  if (Array.isArray(type)) return type.join(" | ");
-  return "value";
-};
-
-/** Render an offending value for the report (truncated when long). */
-const formatValue = (value: unknown): string => {
-  if (value === undefined) return "<unset>";
-  const rendered = JSON.stringify(value);
-  return rendered.length > 80 ? `${rendered.slice(0, 77)}…` : rendered;
-};
-
-// ── core pipeline ─────────────────────────────────────────────────────────
-
-/** True when a property's effective JSON-schema type is boolean. */
-const isBooleanProp = (prop: TSchema): boolean => (prop as { type?: unknown }).type === "boolean";
-
-/** True when a property's effective JSON-schema type is array or object. */
-const isJsonProp = (prop: TSchema): boolean => {
-  const type = (prop as { type?: unknown }).type;
-  return type === "array" || type === "object";
-};
-
-/** Attempt to JSON.parse a raw env string; returns `undefined` on failure. */
-const tryJsonParse = (raw: string): unknown => {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return undefined;
-  }
-};
-
-/** Result of {@link buildInput}. */
-interface BuildInputResult {
-  /** Coerced input for keys with a usable value. */
-  readonly input: Record<string, unknown>;
-  /** Keys whose raw value is a non-empty string that failed JSON.parse. */
-  readonly invalidJson: ReadonlyMap<string, string>;
-}
-
-/**
- * Build the flat input object from a source, keeping only keys the schema
- * declares that are actually set (absent keys stay absent — typebox 1.x
- * `Convert` turns explicit `undefined` into empty strings), pre-coercing
- * boolean strings (`1/0/yes/no/on/off`) that typebox does not understand, and
- * JSON-parsing array/object values. Unrelated `PATH`/`HOME`-style vars are
- * never included, so they can't fail validation.
- */
-const buildInput = (schema: TObject, source: EnvSource): BuildInputResult => {
-  const input: Record<string, unknown> = {};
-  const invalidJson = new Map<string, string>();
-  const props = properties(schema);
-  for (const key of Object.keys(props)) {
-    const value = source[key];
-    if (value !== undefined) input[key] = value;
-  }
-  for (const [key, prop] of Object.entries(props)) {
-    const value = input[key];
-    if (typeof value !== "string") continue;
-    if (isBooleanProp(prop)) {
-      const coerced = coerceBoolean(value);
-      if (coerced !== undefined) input[key] = coerced;
-    } else if (isJsonProp(prop)) {
-      const parsed = tryJsonParse(value);
-      if (parsed !== undefined) input[key] = parsed;
-      else invalidJson.set(key, value);
-    }
-  }
-  return { input, invalidJson };
-};
-
-/** De-duplicate issues by key, keeping the first occurrence. */
-const dedupeByKey = (issues: EnvIssue[]): EnvIssue[] => {
-  const seen = new Set<string>();
-  const out: EnvIssue[] = [];
-  for (const issue of issues) {
-    if (seen.has(issue.key)) continue;
-    seen.add(issue.key);
-    out.push(issue);
-  }
-  return out;
-};
-
-/** Collect warning issues for optional keys without a default that are unset. */
-const collectOptionalWarnings = (schema: TObject, input: Record<string, unknown>): EnvIssue[] => {
-  const props = properties(schema);
-  const issues: EnvIssue[] = [];
-  for (const [key, prop] of Object.entries(props)) {
-    if (!isRequiredKey(schema, key) && !hasDefault(prop) && input[key] === undefined) {
-      issues.push({
-        code: EnvIssueCodes.MissingOptional,
-        severity: "warning",
-        key,
-        message: `Optional environment variable not set: ${key}`,
-      });
-    }
-  }
-  return issues;
-};
-
-/**
- * Map per-property validation failures onto structured {@link EnvIssue}s.
- *
- * TypeBox 1.x reports object-level errors (no per-key paths), so each
- * property is checked individually via `Check(prop, value)`.
- */
-const collectErrors = (schema: TObject, defaulted: Record<string, unknown>): EnvIssue[] => {
-  const props = properties(schema);
-  const issues: EnvIssue[] = [];
-
-  for (const [key, prop] of Object.entries(props)) {
-    const secret = isSecret(prop);
-    const value = defaulted[key];
-
-    if (value === undefined) {
-      if (isRequiredKey(schema, key)) {
-        issues.push({
-          code: EnvIssueCodes.MissingRequired,
-          severity: "error",
-          key,
-          message: `Missing required environment variable: ${key}`,
-          ...(secret ? { secret: true } : {}),
-        });
-      }
-      continue;
-    }
-
-    if (!Check(prop, value)) {
-      const first = [...Errors(prop, value)][0];
-      issues.push({
-        code: EnvIssueCodes.Invalid,
-        severity: "error",
-        key,
-        message: `Invalid value for ${key}: ${first?.message ?? describeType(prop)}`,
-        expected: describeType(prop),
-        ...(secret ? { secret: true } : { got: formatValue(value) }),
-      });
-    }
-  }
-
-  return issues;
-};
 
 /**
  * Validate an environment against a TypeBox object schema without throwing.
@@ -477,3 +248,12 @@ export function envExampleFromSchema(schema: TObject): string {
 export { Type } from "typebox";
 // The env subpath also exposes the raw typed accessors (dotenv loading + reads).
 export { env, envBool, envFloat, envInt, envJson, envSecret, loadEnv } from "./env";
+export {
+  EnvError,
+  type EnvIssue,
+  type EnvIssueCode,
+  EnvIssueCodes,
+  type EnvIssueSeverity,
+  type EnvResult,
+  type EnvSource,
+} from "./env-diagnostics";

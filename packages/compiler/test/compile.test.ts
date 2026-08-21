@@ -46,6 +46,32 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain('+ __serveTls.protocol + "://"');
   });
 
+  it("emits graceful shutdown on SIGTERM/SIGINT", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // Containers / rolling deploys send SIGTERM; the generated server must
+    // never die abruptly on a signal.
+    expect(result.code).toContain('process.on("SIGTERM"');
+    expect(result.code).toContain('process.on("SIGINT"');
+  });
+
+  it("drains requests + closes plugins on shutdown when an app config is present", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+
+    expect(result.errors).toHaveLength(0);
+    // Graceful shutdown: drain active requests, then close plugin resources
+    // (DB connections, stores) before exiting.
+    expect(result.code).toContain("__server.stop(true)");
+    expect(result.code).toContain("__pluginContext.closeAll()");
+    expect(result.code).toContain('received " + __signal');
+  });
+
   it("is deterministic across builds", async () => {
     const a = materializeFixture("basic");
     const b = materializeFixture("basic");

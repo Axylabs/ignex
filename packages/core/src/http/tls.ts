@@ -37,6 +37,8 @@ export interface ServerTlsConfig {
 export interface ServerProtocolConfig {
   /** Serve HTTPS over TLS. Default `true`; set `false` for plain HTTP/1. */
   https?: boolean;
+  /** Enable HTTP/2 (requires TLS). Opt-in; default HTTP/1.1. */
+  h2?: boolean;
   /** Explicit TLS cert/key config. Omit in dev to auto-generate local certs. */
   tls?: ServerTlsConfig;
   /** Directory for generated dev certificates (default `.ignex/certs`). */

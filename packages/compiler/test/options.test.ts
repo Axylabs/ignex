@@ -34,12 +34,19 @@ describe("validateOptions", () => {
     expect(value?.bytecode).toBe(false);
   });
 
-  it("warns on deprecated options and strips them", () => {
+  it("treats removed options (router/cluster/inlineHooks) as unknown and strips them", () => {
+    // These options were removed — the compiler no longer accepts them as
+    // "deprecated" (they are not part of the surface at all). They fall into
+    // the unknown-option path: warned + stripped, never fatal.
     const d = new DiagnosticCollector();
-    const result = validateOptions({ ...valid, router: "bun-native" } as never, d);
+    const result = validateOptions(
+      { ...valid, router: "bun-native", cluster: true, inlineHooks: true } as never,
+      d,
+    );
 
     expect(result.ok).toBe(true);
-    expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionDeprecated)).toBe(true);
+    expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionUnknown)).toBe(true);
+    expect(d.warnings.some((x) => x.code === DiagnosticCodes.OptionDeprecated)).toBe(false);
   });
 
   it("warns on unknown options, strips them, and still validates", () => {

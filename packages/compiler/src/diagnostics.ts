@@ -56,6 +56,8 @@ export const DiagnosticCodes = {
   AmbiguousRoute: "IGN_AMBIGUOUS_ROUTE",
   /** A route was detected as dead and excluded from the build. */
   DeadRoute: "IGN_ROUTE_DEAD",
+  /** A route file has no handler export — it would silently 404. */
+  NoHandlerExport: "IGN_NO_HANDLER_EXPORT",
   /** A schema failed Ajv standalone compilation; validation was dropped. */
   ValidatorCompileFailed: "IGN_VALIDATOR_COMPILE_FAILED",
   /** Response schema serialization fell back to JSON.stringify. */

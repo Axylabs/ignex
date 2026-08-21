@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { type FixtureLayout, materializeFixture } from "./helpers";
+import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
 
 const baseOptions = (layout: FixtureLayout, extra: Record<string, unknown> = {}) => ({
   routesDir: layout.routesDir,
@@ -38,7 +38,7 @@ describe("per-route native prelude (nativeRoutes)", () => {
     // native-first parse seeds ctx.query via the pair→record helper, with a
     // JS `parseQueryFromURL` fallback (parity when the addon lacks the surface).
     expect(result.code).toContain("groupQueryPairs");
-    expect(result.code).toContain("__native.run(");
+    expect(result.code).toContain("__native.runParts("); // synced from castrum: positional run(query, cookie, body)
     expect(result.code).toContain("parseQueryFromURL");
   });
 
@@ -70,7 +70,7 @@ describe("per-route native prelude (nativeRoutes)", () => {
     expect(result.code).toContain("new TextEncoder().encode"); // body schema bytes
     // The native verdict skips the JS body parse entirely.
     expect(result.code).toContain("__bodyValidated = true");
-    expect(result.code).toContain("__native.run(");
+    expect(result.code).toContain("__native.runParts("); // synced from castrum: positional run(query, cookie, body)
     // 400 / 422 error mapping.
     expect(result.code).toContain("BodyParseError");
     expect(result.code).toContain("validationError");
@@ -86,5 +86,28 @@ describe("per-route native prelude (nativeRoutes)", () => {
     // Body still validated via the JS path (runtime or precompiled).
     expect(result.code).toContain("validate_");
     expect(result.code).toContain("ctx.body.json");
+  });
+
+  it("emits the usage-only native prelude (NativeQueryParams) for a schema-less query route", async () => {
+    // usage-native/echo.get.ts reads `ctx.query` with NO schema — the
+    // castrum-aligned usage-only path: the Rust stack parses query and seeds
+    // ctx.query with the URLSearchParams-compatible facade (no URLSearchParams
+    // rebuild, no record, no JS re-parse fallback). The fixture's app config
+    // forces the full-context path (the prelude only runs there).
+    const layout = materializeFixture("usage-native");
+    const result = await buildAsync(
+      baseOptions(layout, {
+        nativeRoutes: true,
+        appConfig: fixturePath("usage-native", "app.config.ts"),
+      }),
+    );
+
+    expect(result.code).toContain("createNativeRoute");
+    expect(result.code).toContain("runParts(");
+    expect(result.code).toContain("new NativeQueryParams(__nr.query)");
+    // The usage-only path must NOT emit the record/fallback machinery.
+    expect(result.code).not.toContain("groupQueryPairs(__nr.query)");
+    expect(result.code).not.toContain("parseQueryFromURL");
+    expect(result.code).not.toContain("__validatePart(__schema?.query");
   });
 });

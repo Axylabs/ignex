@@ -20,9 +20,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./http": "./src/http/route.ts",
+    "./debug": "./src/debug/index.ts",
     "./config": "./src/platform/config.ts",
     "./env": "./src/platform/env-config.ts",
     "./jobs": "./src/jobs.ts",
+    "./store": "./src/data/store/index.ts",
     "./content": "./src/content/index.ts",
     "./openapi": "./src/openapi.ts",
     "./package.json": "./package.json"

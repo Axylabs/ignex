@@ -191,8 +191,11 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
       permissions = [...new Set([...direct, ...fromRoles])];
     }
 
+    // A user without `id`/`sub` gets a UNIQUE per-token subject (previously a
+    // constant "anon" made every such token indistinguishable — role-scoped
+    // auth could not tell them apart).
     const claims: Record<string, unknown> = {
-      sub: String(user.id ?? user.sub ?? "anon"),
+      sub: String(user.id ?? user.sub ?? crypto.randomUUID()),
     };
     if (mode === "role" || mode === "both") claims.roles = roles;
     if (mode === "permission" || mode === "both") claims.permissions = permissions;

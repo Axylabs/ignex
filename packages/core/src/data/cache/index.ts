@@ -16,4 +16,5 @@ export type {
   CacheControlOptions,
   CachedHttpResponse,
   HttpResponseCacheOptions,
+  HttpResponseCacheStore,
 } from "./types";

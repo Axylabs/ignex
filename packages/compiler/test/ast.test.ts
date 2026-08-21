@@ -747,14 +747,16 @@ describe("parseModule / memoization", () => {
     expect(() => estimateNodeCount("export default (((")).not.toThrow();
   });
 
-  it("returns an empty Program and emits a diagnostic for malformed source", () => {
+  it("returns an empty Program and emits an ERROR diagnostic for malformed source", () => {
     const dc = new DiagnosticCollector();
     const parsed = parseModule("export default (((", dc);
 
     expect(parsed.ast.type).toBe("Program");
     expect(parsed.ast.body).toEqual([]);
     expect(parsed.handler).toBeNull();
-    expect(dc.warnings.some((w) => w.code === "IGN_PARSE_ERROR")).toBe(true);
+    // Parse failures are build-fatal (fail-fast): error, not warning.
+    expect(dc.errors.some((e) => e.code === "IGN_PARSE_ERROR")).toBe(true);
+    expect(dc.warnings.some((w) => w.code === "IGN_PARSE_ERROR")).toBe(false);
   });
 
   it("returns an empty parse for non-string input", () => {

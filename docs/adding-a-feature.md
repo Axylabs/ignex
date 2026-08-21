@@ -93,8 +93,7 @@ bound.
 This is the one that crosses the compiler boundary — follow it precisely.
 
 1. **shared**: add the flag to `ContextUsage` in `packages/shared/src/context-usage.ts`
-   (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).
-2. **core**: add the member to `IgnexContext` in `core/src/http/context.ts` and
+   (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).2. **core**: add the member to `IgnexContext` in `core/src/http/context.ts` and
    implement it in `createContext`.
 3. **compiler**: add the member name to `USAGE_FLAGS` in
    `utils/ast/usage.ts`; gate the context emission in `phases/codegen/` (the
@@ -118,20 +117,32 @@ This is the one that crosses the compiler boundary — follow it precisely.
 
 ---
 
-## Quality gates (run before pushing)
+## G: Add a store driver
 
-```sh
-bun run verify          # typecheck + typecheck:cli + lint + test
-bun run test:coverage   # tests + coverage thresholds
-bun run build && bun run smoke   # AOT compile + boot + assert routes
-bun run jsdoc:check     # every public export has attached JSDoc
-```
+Storage lives on the generic `Store` contract in `packages/core/src/data/store/`
+(see [drivers.md](drivers.md)). To add a new backend (e.g. a Redis driver):
 
-CI (`.github/workflows/ci.yml`) runs all of these on every push/PR.
+1. Create `data/store/redis.ts` implementing the `Store` interface from
+   `data/store/types.ts`. Use `resolveExpiry` (from `types.ts`) for TTL
+   semantics — every driver shares it so expiry never drifts. Return `null`
+   from the factory when the backend is unavailable (matching `sqlite`).
+2. Export the factory with full JSDoc from `data/store/index.ts` and the
+   top-level `core/src/index.ts` barrel.
+3. Register it in `createStoreManager` (`data/store/manager.ts`) if it should
+   be a built-in; otherwise document `stores.extend("redis", () => …)` as the
+   user-facing path (custom drivers need no core change).
+4. Add tests in `packages/core/test/store.test.ts`: round-trip, TTL/expiry,
+   `close()`, plus a driver-override test in
+   `store-driver-integration.test.ts` proving a consumer (session / jobs /
+   cache / rate-limit) uses it.
+5. Keep the driver **sync-capable** where possible (the built-ins are
+   synchronous after construction); a factory may be async for module
+   bootstrap, but the returned methods should return plain values so hot paths
+   stay microtask-free.
 
 ---
 
-## G: JSDoc on every public API
+## H: JSDoc on every public API
 
 Because packages ship **source-only** (`exports` point at `src/*.ts`), the JSDoc
 in `src/` **is** the consumer-facing API documentation. Every public export
@@ -178,3 +189,16 @@ symbol. Run it with `bun run jsdoc:check`.
 
 7. Keep the `@fileoverview` file header as the module-level summary; the
    per-symbol JSDoc explains the individual contract.
+
+---
+
+## Quality gates (run before pushing)
+
+```sh
+bun run verify          # typecheck + typecheck:cli + lint + test
+bun run test:coverage   # tests + coverage thresholds
+bun run build && bun run smoke   # AOT compile + boot + assert routes
+bun run jsdoc:check     # every public export has attached JSDoc
+```
+
+CI (`.github/workflows/ci.yml`) runs all of these on every push/PR.

@@ -12,9 +12,18 @@ export const expectStatus = (res: Response, code: number): Response => {
   return res;
 };
 
-/** Assert a Response is `application/json` and (optionally) equals a body. */
-export const expectJson = async <T = unknown>(res: Response, body?: T): Promise<T> => {
-  expectStatus(res, 200);
+/**
+ * Assert a Response is `application/json` and (optionally) equals a body.
+ *
+ * `status` is optional: pass it to assert a non-200 JSON envelope (400/422
+ * validation, 401, …) in a single call; omit it to assert JSON only.
+ */
+export const expectJson = async <T = unknown>(
+  res: Response,
+  body?: T,
+  status?: number,
+): Promise<T> => {
+  if (status !== undefined) expectStatus(res, status);
   const ct = res.headers.get("content-type") ?? "";
   expect(ct).toContain("application/json");
   const parsed = (await res.json()) as T;
@@ -24,17 +33,15 @@ export const expectJson = async <T = unknown>(res: Response, body?: T): Promise<
   return parsed;
 };
 
-/** Assert a Response is `text/*` and (optionally) equals a string. */
+/**
+ * Assert a Response is `text/*` and (optionally) equals a string.
+ */
 export const expectText = async (res: Response, body?: string): Promise<string> => {
+  const ct = res.headers.get("content-type") ?? "";
+  expect(ct).toMatch(/^text\//);
   const text = await res.text();
   if (body !== undefined) {
     expect(text).toBe(body);
   }
   return text;
-};
-
-/** Assert a Response body is empty. */
-export const expectEmpty = (res: Response): Response => {
-  expect(res.body).toBeNull();
-  return res;
 };

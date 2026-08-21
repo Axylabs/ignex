@@ -12,7 +12,19 @@ import { DiagnosticCodes } from "../../diagnostics";
 import type { SourceManager } from "../../frontend";
 import type { AppConfigInfo, CompilerContext, CompilerOptions } from "../../types";
 import { projectPath } from "../../utils/path";
+import { analyzeDevOnlyPlugins } from "./dev-only-plugins";
 import { safeReadFile } from "./fs";
+
+/**
+ * Is this build production-shaped? Production builds bake `NODE_ENV=production`
+ * (`--compile`) or run with it set, and unless `IGNEX_DEBUG=1` is set at build
+ * time the default-enabled `debugbar()` is provably disabled — so the compiler
+ * can eliminate it and keep every AOT optimization (constant hoisting,
+ * context specialization) for the shipped artifact.
+ */
+export const isProductionBuild = (opts: CompilerOptions): boolean =>
+  (opts.compile === true || process.env.NODE_ENV === "production") &&
+  process.env.IGNEX_DEBUG !== "1";
 
 export const resolveAppConfig = (
   opts: CompilerOptions,
@@ -40,16 +52,29 @@ export const resolveAppConfig = (
     return undefined;
   }
 
-  // Parse once through the source layer (no diagnostics — matches legacy
-  // silent parse of the app config). The SourceFile retains the AST.
-  const source = sources.fromSource(absPath, relPath, content);
+  // Parse once through the source layer. Diagnostics flow so a syntax error in
+  // the app config is surfaced as a BUILD ERROR (previously a silent parse that
+  // produced a cryptic boot-time module failure in the generated server). The
+  // SourceFile retains the AST.
+  const source = sources.fromSource(absPath, relPath, content, ctx.diagnostics);
   const exportNames = new Set(source.exports.map((x) => x.name));
+  const hasPlugins = exportNames.has("plugins");
+  const hasLifecycle = exportNames.has("lifecycle") || exportNames.has("hooks");
+
+  // A `plugins` export whose only elements are always-disabled dev-only
+  // plugins (debugbar) contributes no per-request hooks: drop it from the AOT
+  // optimization decision. The runtime lifecycle is cleaned separately in
+  // codegen (the `__ignexDevOnly` filter), so build-time and runtime agree.
+  const devOnly = analyzeDevOnlyPlugins(source, isProductionBuild(opts));
+  const hasActivePlugins =
+    hasPlugins && !(devOnly.eliminated > 0 && devOnly.eliminated === devOnly.totalElements);
 
   return {
     path: absPath,
     relPath,
-    hasPlugins: exportNames.has("plugins"),
-    hasLifecycle: exportNames.has("lifecycle") || exportNames.has("hooks"),
+    hasPlugins,
+    hasLifecycle,
     hasServer: exportNames.has("server"),
+    hasActivePlugins,
   };
 };

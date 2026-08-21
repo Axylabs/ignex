@@ -22,14 +22,17 @@ const OPENAPI_OUT = process.env.OPENAPI_OUT || "./packages/app/dist/openapi.json
 const CLIENT_OUT = process.env.CLIENT_OUT || "./packages/app/src/client";
 
 async function loadRouteSchema(absPath: string) {
+  let mod: any;
   try {
-    const mod: any = await import(pathToFileURL(absPath).href);
-
-    return mod?.schema ?? mod?.default?.schema ?? undefined;
+    mod = await import(pathToFileURL(absPath).href);
   } catch (err) {
-    console.warn(`[openapi] Skipped ${absPath}: ${(err as Error).message}`);
-    return undefined;
+    // A route module that cannot be imported would SILENTLY vanish from the
+    // spec (and thus the generated client) — fail loudly instead.
+    console.error(`[openapi] Failed to import ${absPath}: ${(err as Error).message}`);
+    process.exit(1);
   }
+
+  return mod?.schema ?? mod?.default?.schema ?? undefined;
 }
 
 async function main() {
@@ -96,10 +99,10 @@ async function main() {
   );
 
   if (result.exitCode !== 0) {
-    console.warn("[heyapi] Client generation failed. Check @hey-api/openapi-ts install.");
-  } else {
-    console.log(`[heyapi] Generated client in ${CLIENT_OUT}`);
+    console.error("[heyapi] Client generation failed. Check @hey-api/openapi-ts install.");
+    process.exit(1);
   }
+  console.log(`[heyapi] Generated client in ${CLIENT_OUT}`);
 }
 
 await main();

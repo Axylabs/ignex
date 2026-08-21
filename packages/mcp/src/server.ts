@@ -14,9 +14,11 @@ import type {
 } from "./tools.js";
 import {
   runBuildTool,
+  runDevStopTool,
   runDevTool,
   runDoctorTool,
   runInfoTool,
+  runListRoutesTool,
   runOpenApiTool,
   runRouteTool,
 } from "./tools.js";
@@ -113,6 +115,19 @@ export const createMcpServer = (): McpServer => {
   );
 
   register(
+    "list-routes",
+    {
+      title: "List route files",
+      description:
+        "Enumerate the project's route files under src/routes (no build required) — path, method, and structure for the agent.",
+      inputSchema: { root: z.string().optional().describe("Project root (default: cwd)") },
+    },
+    async (args) => ({
+      content: [{ type: "text", text: await runListRoutesTool(args as unknown as InfoToolArgs) }],
+    }),
+  );
+
+  register(
     "doctor",
     {
       title: "Check the environment",
@@ -139,14 +154,30 @@ export const createMcpServer = (): McpServer => {
     "dev",
     {
       title: "Start the dev server",
-      description: "Spawn `ignex dev` for the project in the background and report the process.",
+      description:
+        "Spawn `ignex dev` for the project in the background and report the process. Pass --port as a CLI flag via the `port` arg (default 3000).",
       inputSchema: {
         root: z.string().optional().describe("Project root (default: cwd)"),
-        port: z.number().optional().describe("PORT env for the spawned server"),
+        port: z.number().optional().describe("Listen port passed via --port (default 3000)"),
       },
     },
     async (args) => ({
-      content: [{ type: "text", text: runDevTool(args as unknown as DevToolArgs) }],
+      content: [{ type: "text", text: await runDevTool(args as unknown as DevToolArgs) }],
+    }),
+  );
+
+  register(
+    "devStop",
+    {
+      title: "Stop a dev server",
+      description:
+        "Stop a dev server previously started with the `dev` tool (by the pid it returned).",
+      inputSchema: {
+        pid: z.number().describe("The pid returned by the `dev` tool"),
+      },
+    },
+    async (args) => ({
+      content: [{ type: "text", text: runDevStopTool({ pid: (args as { pid: number }).pid }) }],
     }),
   );
 

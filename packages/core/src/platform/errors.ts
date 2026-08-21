@@ -229,7 +229,16 @@ const cachedErrorBody = (status: number, code: string | undefined, message: stri
  * @returns A JSON `Response` with security headers pre-applied.
  */
 export const errorToResponse = (err: unknown, exposeDetails = false): Response => {
+  // An intentional client-facing status (400/403/404/…) is not an "unhandled"
+  // error — never log it here.
   if (err instanceof HTTPError) return err.toResponse();
+
+  // A non-HTTP error reached the response boundary with nobody to handle it:
+  // log the ORIGINAL error so a generic 500 (whose details are hidden from the
+  // client) is still diagnosable in server logs. This is the default 500
+  // observability backstop — the lifecycle `error` stage or a `logger()`
+  // plugin may add richer logging on top.
+  console.error("[ignex] unhandled error:", err instanceof Error ? (err.stack ?? err) : err);
 
   const message = exposeDetails && err instanceof Error ? err.message : "Internal Server Error";
 

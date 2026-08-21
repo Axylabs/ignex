@@ -6,6 +6,10 @@
  * (`__runHooks`: a hook may return a `Response` to halt, `{ response }` to
  * halt, or `{ ctx }` to continue with a new context). `serve` wraps
  * `Bun.serve`; `stop` drains and runs `onStop`/`stop` hooks.
+ *
+ * The per-request machinery (`runHooks`, `runLifecycle`, the stage builders)
+ * lives in `./run` — this module owns the app factory and re-exports the
+ * pipeline so the public surface is unchanged.
  */
 import { initNative } from "@ignex/native";
 import { HttpResponseCache } from "../data/cache";
@@ -15,12 +19,10 @@ import {
   type IgnexContext,
   type IgnexServer,
 } from "../http/context";
-import { applySet } from "../http/headers";
 import type { IgnexRouter } from "../http/router";
 import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
-import { errorToResponse } from "../platform/errors";
 import { installProcessGuards } from "../platform/process-guards";
-import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
+import type { LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
 import {
   createPluginContext,
@@ -28,6 +30,24 @@ import {
   pluginContextToLifecycle,
   pluginsToLifeCycle,
 } from "./plugin";
+import { buildPostStages, buildPreStages, runLifecycle } from "./run";
+
+export {
+  buildPostStages,
+  buildPreStages,
+  POST_HANDLER_STAGES,
+  PRE_HANDLER_STAGES,
+  type RunHooksResult,
+  runHooks,
+  runLifecycle,
+} from "./run";
+
+/**
+ * Default maximum time {@link IgnexApp.stop} waits for plugin `close()` hooks
+ * before giving up — a stuck close (never-resolving promise, leaked socket)
+ * must not hang graceful shutdown forever (matches the job-queue deadline).
+ */
+const STOP_DEADLINE_MS = 5_000;
 
 /**
  * Options for {@link createApp}.
@@ -82,6 +102,8 @@ export type ServeOptions = Record<string, unknown> & {
   hostname?: string;
   /** Serve HTTPS over TLS. Default `true`; set `false` for plain HTTP/1. */
   https?: boolean;
+  /** Enable HTTP/2 (requires TLS). Opt-in; default HTTP/1.1. */
+  h2?: boolean;
   /** TLS cert/key file paths. Omit in dev to auto-generate local certs. */
   tls?: ServerTlsConfig;
   /** Directory for generated dev certs (default `.ignex/certs`). */
@@ -106,89 +128,8 @@ export interface IgnexApp {
   /** Start a `Bun.serve` instance backed by this handler. */
   serve(options?: ServeOptions): unknown;
   /** Run plugin `close` + `stop` hooks and close the server (draining active requests). */
-  stop(options?: { closeActive?: boolean }): Promise<void>;
+  stop(options?: { closeActive?: boolean; stopDeadlineMs?: number }): Promise<void>;
   readonly lifecycle: LifeCycleStore;
-}
-
-/** Outcome of a hook chain: continue with `ctx`, or halt with a `response`. */
-export interface RunHooksResult {
-  ctx: IgnexContext;
-  response?: Response;
-}
-
-/** Interpret one hook result: halt with a Response or continue with a ctx. */
-const interpretHook = (
-  result: unknown,
-  ctx: IgnexContext,
-): { halted: Response | undefined; next: IgnexContext } => {
-  if (result instanceof Response) return { halted: result, next: ctx };
-  if (result && typeof result === "object") {
-    const res = result as { ok?: boolean; response?: Response; ctx?: IgnexContext };
-    if (res.ok === false && res.response instanceof Response)
-      return { halted: res.response, next: ctx };
-    if (res.response instanceof Response) return { halted: res.response, next: ctx };
-    if (res.ctx) return { halted: undefined, next: res.ctx };
-  }
-  return { halted: undefined, next: ctx };
-};
-
-/**
- * Run hooks until one halts, WITHOUT forcing an async boundary when every hook
- * is synchronous (the common case: cors/security/ratelimit/logger, native-
- * preflight steady state, sync i18n). Returns the result object synchronously;
- * only when a hook actually returns a Promise is an async continuation used
- * for the remainder. Existing `await` callers keep working; hot-path callers
- * branch on `instanceof Promise` to stay microtask-free (the compiled server
- * emits exactly that).
- */
-export const runHooks = (
-  hooks: readonly HookContainer[] | undefined,
-  ctx: IgnexContext,
-  arg?: unknown,
-): RunHooksResult | Promise<RunHooksResult> => {
-  let current = ctx;
-  if (!hooks || hooks.length === 0) return { ctx: current };
-  for (let i = 0; i < hooks.length; i++) {
-    const entry = hooks[i];
-    if (entry == null) continue;
-    const fn = typeof entry === "function" ? entry : entry.fn;
-    if (typeof fn !== "function") continue;
-    const r = arg === undefined ? fn(current) : fn(current, arg);
-    if (r instanceof Promise) {
-      // An async hook: continue the remainder asynchronously from here.
-      return (async () => {
-        const first = interpretHook(await r, current);
-        if (first.halted) return { response: first.halted, ctx: current };
-        return runHooksAsync(hooks, i + 1, first.next, arg);
-      })();
-    }
-    const out = interpretHook(r, current);
-    if (out.halted) return { response: out.halted, ctx: current };
-    current = out.next;
-  }
-  return { ctx: current };
-};
-
-/** Async continuation used once an async hook is encountered. */
-async function runHooksAsync(
-  hooks: readonly HookContainer[],
-  start: number,
-  ctx: IgnexContext,
-  arg?: unknown,
-): Promise<RunHooksResult> {
-  let current = ctx;
-  for (let i = start; i < hooks.length; i++) {
-    const entry = hooks[i];
-    if (entry == null) continue;
-    const fn = typeof entry === "function" ? entry : entry.fn;
-    if (typeof fn !== "function") continue;
-    const r = arg === undefined ? fn(current) : fn(current, arg);
-    const result = r instanceof Promise ? await r : r;
-    const out = interpretHook(result, current);
-    if (out.halted) return { response: out.halted, ctx: current };
-    current = out.next;
-  }
-  return { ctx: current };
 }
 
 /**
@@ -339,49 +280,89 @@ export const createApp = (options: AppOptions): IgnexApp => {
           stop(closeActive?: boolean): void;
         };
       };
-      // Run plugin init hooks before accepting requests (best-effort). A
-      // rejected init must not become an unhandled rejection / crash the app.
+
+      const serveOpts = router
+        ? {
+            // Routed apps use Bun's native route table (Rust path/method
+            // matching) with the router's fallback for 404/405/OPTIONS —
+            // the same shape as the AOT-compiled server.
+            routes: router.buildRoutes(),
+            fetch: (req: Request, srv: unknown) =>
+              router.fetch(req, srv as IgnexServer | undefined),
+            port,
+            hostname,
+            ...tlsOpts,
+            ...rest,
+          }
+        : {
+            fetch: (req: Request, srv: unknown) => handler(req, srv as IgnexServer | undefined),
+            port,
+            hostname,
+            ...tlsOpts,
+            ...rest,
+          };
+
+      // Bind the listener once (guard against double-bind when onStart is
+      // async and resolves later). `server` stays the single source of truth
+      // for the bound instance.
+      const bind = (): unknown => {
+        if (server) return server;
+        server = serve(serveOpts);
+        return server;
+      };
+
+      // Run onStart BEFORE the listener accepts traffic so a slow onStart
+      // (DB connect / warmup) never races the first requests. When onStart is
+      // async, binding is deferred until it resolves; its failure is logged,
+      // never fatal.
+      const bindAfterOnStart = (): unknown => {
+        try {
+          const r = options.onStart?.();
+          if (r && typeof (r as Promise<void>).then === "function") {
+            void (r as Promise<void>)
+              .catch((err) => {
+                console.error("[ignex] onStart failed:", err);
+              })
+              .then(() => bind());
+          } else {
+            bind();
+          }
+        } catch (err) {
+          console.error("[ignex] onStart failed:", err);
+          bind();
+        }
+        return server;
+      };
+
+      if (options.strictInit) {
+        // Fail CLOSED: never bind the listener unless every plugin
+        // initialized. `init()` rejects (see `initAll`) so a failing plugin
+        // (e.g. a DB connection at boot) means the app serves nothing and
+        // callers get connection refused until it is restarted with the
+        // issue fixed.
+        void init()
+          .then(() => {
+            bindAfterOnStart();
+          })
+          .catch((err) => {
+            console.error(
+              "[ignex] strict init failed — not starting server; fix the failing plugin and restart.",
+              err,
+            );
+          });
+        return server;
+      }
+
+      // Best-effort (default): bind immediately; a rejected init is logged
+      // but never crashes or stops a serving app (plugin `close` on shutdown
+      // is unaffected).
       void init().catch((err) => {
         console.error("[ignex] plugin init failed:", err);
-        if (options.strictInit) {
-          // Fail closed: never serve in a half-initialized state (e.g. a DB
-          // connection failed at boot). Stop the listener so callers get
-          // connection refused until the app is restarted with the issue fixed.
-          console.error(
-            "[ignex] strict init failed — stopping server; fix the failing plugin and restart.",
-          );
-          server?.stop(true);
-          server = null;
-        }
       });
-      server = serve(
-        router
-          ? {
-              // Routed apps use Bun's native route table (Rust path/method
-              // matching) with the router's fallback for 404/405/OPTIONS —
-              // the same shape as the AOT-compiled server.
-              routes: router.buildRoutes(),
-              fetch: (req, srv) => router.fetch(req, srv as IgnexServer | undefined),
-              port,
-              hostname,
-              ...tlsOpts,
-              ...rest,
-            }
-          : {
-              fetch: (req, srv) => handler(req, srv as IgnexServer | undefined),
-              port,
-              hostname,
-              ...tlsOpts,
-              ...rest,
-            },
-      );
-      void Promise.resolve(options.onStart?.()).catch((err) => {
-        console.error("[ignex] onStart failed:", err);
-      });
-      return server;
+      return bindAfterOnStart();
     },
 
-    async stop(stopOptions = {}) {
+    async stop(stopOptions: { closeActive?: boolean; stopDeadlineMs?: number } = {}) {
       const hooks = [...lifecycle.stop, ...(options.onStop ? [options.onStop] : [])];
       // Run every stop hook even if one throws, so closeAll() always runs and
       // resources (stores, intervals, connections) are not leaked.
@@ -396,135 +377,16 @@ export const createApp = (options: AppOptions): IgnexApp => {
       }
       server?.stop(stopOptions.closeActive ?? false);
       server = null;
-      await pluginContext.closeAll();
+      // Plugin close() must never hang graceful shutdown forever: give it a
+      // hard deadline and resolve anyway (matches the job-queue stop deadline).
+      const deadline = Date.now() + (stopOptions.stopDeadlineMs ?? STOP_DEADLINE_MS);
+      await Promise.race([
+        pluginContext.closeAll(),
+        new Promise((resolve) => {
+          const t = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+          t.unref?.();
+        }),
+      ]);
     },
   };
-};
-
-// ============================================================================
-// Shared lifecycle pipeline
-// ============================================================================
-
-/** Pre-handler lifecycle stages, in execution order. */
-export const PRE_HANDLER_STAGES = [
-  "start",
-  "request",
-  "parse",
-  "transform",
-  "beforeHandle",
-] as const;
-
-/** Post-handler lifecycle stages, in execution order. */
-export const POST_HANDLER_STAGES = ["afterHandle", "mapResponse"] as const;
-
-/** Compose the pre-handler hook chain once (no per-request allocation). */
-export const buildPreStages = (lc: LifeCycleStore): HookContainer[] =>
-  PRE_HANDLER_STAGES.flatMap((stage) => lc[stage]);
-
-/** Compose the post-handler hook chain once. */
-export const buildPostStages = (lc: LifeCycleStore): HookContainer[] =>
-  POST_HANDLER_STAGES.flatMap((stage) => lc[stage]);
-
-/**
- * Run the full request lifecycle pipeline as a sequence of named stages.
- *
- * Shared conceptual model with the compiler-generated server: pre-handler
- * stages (start → request → parse → transform → beforeHandle), the handler,
- * post-handler stages (afterHandle → mapResponse), then afterResponse, with
- * the `error` stage catching failures. Any stage may halt by returning a
- * `Response` (or `{ ok: false, response }`).
- *
- * Written imperatively (rather than composing per-request stage closures) so
- * an empty stage chain costs a single `if` instead of a closure + Promise:
- * empty afterResponse/trace stages are skipped entirely, `runHooks` is only
- * awaited when a chain is non-empty, and no `LifecycleState` objects are
- * spread per request. Semantics are identical to the previous `pipeAsync`
- * composition and are protected by `lifecycle.test.ts`.
- */
-export const runLifecycle = async (
-  lc: LifeCycleStore,
-  pre: readonly HookContainer[],
-  post: readonly HookContainer[],
-  ctx: IgnexContext,
-  handler: (ctx: IgnexContext) => MaybePromise<Response>,
-  exposeErrors = false,
-): Promise<Response> => {
-  // `current` mirrors the ctx seen by the error stage: it is advanced after
-  // the pre-handler chain succeeds so a parse/handler failure reports the ctx
-  // that got that far (same as the compiled `__handleError`).
-  let current = ctx;
-  let response: Response | undefined;
-  let halted = false;
-
-  const errorStage = async (err: unknown): Promise<Response> => {
-    let handled: RunHooksResult;
-    try {
-      const __r = runHooks(lc.error ?? [], current, err);
-      handled = __r instanceof Promise ? await __r : __r;
-    } catch {
-      // An error-stage hook that throws must not mask the original error —
-      // fall back to the default error response (matches compiled __handleError).
-      handled = { ctx: current };
-    }
-    return handled.response ?? errorToResponse(err, exposeErrors);
-  };
-
-  // Observe-only stage (afterResponse / trace): run hooks for side effects and
-  // never replace the response. A throwing observability hook is surfaced (so
-  // broken hooks are debuggable) but can't corrupt an already-finalized
-  // response — matches the compiled server.
-  const observe = async (
-    hooks: readonly HookContainer[] | undefined,
-    label: string,
-  ): Promise<void> => {
-    if ((hooks?.length ?? 0) === 0) return;
-    try {
-      const __r = runHooks(hooks, current, response as Response);
-      if (__r instanceof Promise) await __r;
-    } catch (err) {
-      console.error(`[ignex] ${label} hook error:`, err);
-    }
-  };
-
-  try {
-    // Pre-handler stages. When the chain is empty there is nothing to run —
-    // `current` stays as the incoming ctx and no hook results are synthesized.
-    if (pre.length > 0) {
-      const __r = runHooks(pre, current);
-      const preResult = __r instanceof Promise ? await __r : __r;
-      current = preResult.ctx;
-      halted = preResult.response !== undefined;
-      response = preResult.response;
-    }
-
-    // Handler (skipped when a pre stage already halted).
-    if (!halted) {
-      // When the pre chain is empty, preserve the async boundary the original
-      // pre-stage `await runHooks` provided so a request aborted before the
-      // handler runs is observable via `ctx.req.signal` (see abort-port.test.ts).
-      if (pre.length === 0) await Promise.resolve();
-      response = await handler(current);
-    }
-
-    // Post-handler stages — may replace the response.
-    if (!halted && response !== undefined && post.length > 0) {
-      const __r = runHooks(post, current, response);
-      const postResult = __r instanceof Promise ? await __r : __r;
-      response = postResult.response ?? response;
-    }
-
-    // afterResponse then `trace` (observe-only; declared in that order in
-    // LifeCycleStore), each receiving the finalized response.
-    if (!halted && response !== undefined) {
-      await observe(lc.afterResponse, "afterResponse");
-      await observe(lc.trace, "trace");
-    }
-
-    // A pre-halt returns the response untouched; otherwise apply the
-    // accumulated `set` mutations (headers/status/cookie) — matches the
-    // compiler-generated `__applySet`, so dev and compiled behave identically.
-    return halted ? (response as Response) : applySet(response as Response, current.set);
-  } catch (err) {
-    return errorStage(err);
-  }
 };

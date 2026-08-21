@@ -1,6 +1,10 @@
 /**
- * @fileoverview LRU-backed HTTP response cache with single-flight cold misses
- * and stale-while-revalidate background refresh.
+ * @fileoverview HTTP response cache with a pluggable backing store, single-
+ * flight cold misses and stale-while-revalidate background refresh.
+ *
+ * The default backing store is an LRU (memory); pass a custom
+ * {@link HttpResponseCacheStore} (e.g. a sqlite/file/custom `data/store`
+ * driver) to change where entries live — the Laravel-style cache driver story.
  */
 
 import { isNotModified } from "../../http/conditional";
@@ -8,7 +12,7 @@ import { stripHopByHopHeaders } from "../../http/headers";
 import { LRUCache } from "../lru";
 import { parseCacheControl } from "./cache-control";
 import { entityTag } from "./hash";
-import type { CachedHttpResponse, HttpResponseCacheOptions } from "./types";
+import type { CachedHttpResponse, HttpResponseCacheOptions, HttpResponseCacheStore } from "./types";
 
 function sanitizeHeaders(headers: Headers): [string, string][] {
   return Array.from(stripHopByHopHeaders(headers).entries());
@@ -31,15 +35,15 @@ interface StoredEntry {
 }
 
 /**
- * An LRU-backed HTTP response cache with single-flight cold misses and
- * stale-while-revalidate background refresh.
+ * An HTTP response cache with a pluggable backing store, single-flight cold
+ * misses and stale-while-revalidate background refresh.
  *
  * Only cacheable responses (per `Cache-Control`/`Set-Cookie` rules) are
  * stored; oversized bodies are rejected. `getOrSet` de-duplicates concurrent
  * misses for the same key.
  */
 export class HttpResponseCache {
-  private lru: LRUCache<string, CachedHttpResponse>;
+  private store: HttpResponseCacheStore;
   private maxBodyBytes: number;
   private defaultTtlMs: number;
   /** In-flight factories keyed by cache key — single-flight (thundering-herd) guard. */
@@ -51,13 +55,15 @@ export class HttpResponseCache {
     this.maxBodyBytes = opts.maxBodyBytes ?? 1_048_576;
     this.defaultTtlMs = opts.ttlMs ?? 60_000;
 
-    this.lru = new LRUCache({
-      max: opts.max ?? 1000,
-      ttlMs: this.defaultTtlMs,
-      staleTtlMs: opts.staleTtlMs ?? 300_000,
-      maxBytes: opts.maxBytes ?? 64 * 1024 * 1024,
-      sizeOf: (v) => (v.body?.byteLength ?? 0) + 512,
-    });
+    this.store =
+      opts.store ??
+      new LRUCache<string, CachedHttpResponse>({
+        max: opts.max ?? 1000,
+        ttlMs: this.defaultTtlMs,
+        staleTtlMs: opts.staleTtlMs ?? 300_000,
+        maxBytes: opts.maxBytes ?? 64 * 1024 * 1024,
+        sizeOf: (v) => (v.body?.byteLength ?? 0) + 512,
+      });
   }
 
   key(req: Request, vary: string[] = []): string {
@@ -69,8 +75,14 @@ export class HttpResponseCache {
   }
 
   /** Read the stored entry (stale allowed) with a staleness flag. */
-  private getEntry(key: string): StoredEntry | null {
-    const stored = this.lru.get(key, { allowStale: true });
+  private readEntry(key: string): StoredEntry | Promise<StoredEntry | null> | null {
+    const stored = this.store.get(key, { allowStale: true });
+    if (stored instanceof Promise) {
+      // Async backing store: resolve, then compute staleness.
+      return stored.then((entry) =>
+        entry ? { entry, stale: Date.now() - entry.storedAt > entry.ttlMs } : null,
+      );
+    }
     if (!stored) return null;
 
     return {
@@ -80,10 +92,11 @@ export class HttpResponseCache {
   }
 
   async get(req: Request, key: string): Promise<Response | null> {
-    const found = this.getEntry(key);
-    if (!found) return null;
+    const found = this.readEntry(key);
+    const resolved = found instanceof Promise ? await found : found;
+    if (!resolved) return null;
 
-    const { entry } = found;
+    const { entry } = resolved;
 
     if (isNotModified(req, entry.etag)) {
       return new Response(null, {
@@ -136,7 +149,7 @@ export class HttpResponseCache {
       cached.etag = etag;
     }
 
-    this.lru.set(key, cached, {
+    await this.store.set(key, cached, {
       ...(opts.ttlMs !== undefined ? { ttlMs: opts.ttlMs } : {}),
       ...(opts.staleTtlMs !== undefined ? { staleTtlMs: opts.staleTtlMs } : {}),
     });
@@ -195,8 +208,9 @@ export class HttpResponseCache {
     if (hit) {
       // Serve the hit; when it's stale, refresh in the background so the next
       // request gets fresh data without paying the origin latency now.
-      const found = this.getEntry(key);
-      if (found?.stale && !this.refreshing.has(key)) {
+      const found = this.readEntry(key);
+      const resolved = found instanceof Promise ? await found : found;
+      if (resolved?.stale && !this.refreshing.has(key)) {
         this.startBackgroundRefresh(key, factory, opts);
       }
       return hit;

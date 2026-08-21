@@ -8,6 +8,8 @@ import { isValidPort, shouldIgnore } from "../utils/dev.js";
 import { checkProjectEnv, reportEnvCheck } from "../utils/env-check.js";
 import { error, formatError, info, step, success, warn } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
+import { findPortOwner, killPortOwner } from "../utils/port.js";
+import { isInteractiveTTY, PromptCancelError, promptConfirm } from "../utils/prompt.js";
 import { detectRuntime } from "../utils/runtime.js";
 
 /** Debounce window for rebuilds triggered by file events (ms). */
@@ -46,6 +48,7 @@ class DevServer {
   private readonly runtime: string;
   private readonly port: string;
   private readonly shouldSpawn: boolean;
+  private readonly killPort: boolean;
   private readonly outDir: string;
   private readonly config: Awaited<ReturnType<typeof loadConfig>>;
   private readonly buildArgs: BuildArgs;
@@ -66,6 +69,7 @@ class DevServer {
     runtime: string;
     port: string;
     shouldSpawn: boolean;
+    killPort: boolean;
     outDir: string;
     config: Awaited<ReturnType<typeof loadConfig>>;
     buildArgs: BuildArgs;
@@ -74,6 +78,7 @@ class DevServer {
     this.runtime = opts.runtime;
     this.port = opts.port;
     this.shouldSpawn = opts.shouldSpawn;
+    this.killPort = opts.killPort;
     this.outDir = opts.outDir;
     this.config = opts.config;
     this.buildArgs = opts.buildArgs;
@@ -91,6 +96,10 @@ class DevServer {
     const status = await nativeStatus();
     info(`Native: ${nativeLabel(status)}`);
 
+    // Free the port up-front when another process is squatting on it, so the
+    // first spawn doesn't crash into EADDRINUSE.
+    await this.resolvePortConflict();
+
     await this.buildOnce();
 
     success(
@@ -98,6 +107,50 @@ class DevServer {
         ? "Watching for changes — press Ctrl+C to stop."
         : "Watching for changes (--no-spawn; no server process).",
     );
+  }
+
+  /**
+   * When `port` is already held by another process, either kill it
+   * (`--kill-port`), ask interactively, or warn and let the crash-restart
+   * backoff handle it. Best-effort: no action when the port is free or the
+   * platform can't inspect it.
+   */
+  private async resolvePortConflict(): Promise<void> {
+    if (!this.shouldSpawn) return;
+    const owner = findPortOwner(Number(this.port));
+    if (!owner) return;
+
+    const label = owner.command ? `${owner.command} (PID ${owner.pid})` : `PID ${owner.pid}`;
+    const killAndReport = (): void => {
+      if (killPortOwner(owner)) {
+        success(`Killed ${label} — port ${this.port} is free.`);
+      } else {
+        warn(`Could not kill ${label}. The server may fail to start (use --kill-port).`);
+      }
+    };
+
+    if (this.killPort) {
+      warn(`Port ${this.port} is in use by ${label} — killing it (--kill-port).`);
+      killAndReport();
+      return;
+    }
+
+    if (isInteractiveTTY()) {
+      try {
+        const kill = await promptConfirm({
+          message: `Port ${this.port} is in use by ${label}. Kill it and continue?`,
+          initial: true,
+        });
+        if (kill) killAndReport();
+        else warn(`Continuing with the port occupied — use --kill-port next time.`);
+      } catch (err) {
+        if (err instanceof PromptCancelError) warn("Skipped port check.");
+        else throw err;
+      }
+      return;
+    }
+
+    warn(`Port ${this.port} is in use by ${label}. Run with --kill-port to free it automatically.`);
   }
 
   /**
@@ -174,7 +227,8 @@ class DevServer {
         warn(
           `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
             `Giving up after ${MAX_CRASH_RESTARTS} rapid restarts — it may be crashing on ` +
-            `boot (e.g. the port is already in use). Waiting for a file change to retry.`,
+            `boot (e.g. the port is already in use). Waiting for a file change to retry. ` +
+            `Tip: free the port with "ignex dev --kill-port".`,
         );
         return;
       }
@@ -375,18 +429,21 @@ export async function runDev(args: string[]): Promise<void> {
     minify: { type: "boolean" },
     sourcemap: { type: "boolean" },
     verbose: { type: "boolean" },
+    "kill-port": { type: "boolean" },
   });
 
   const root = resolveRoot(values, positionals);
   const runtime = detectRuntime(values.runtime as string | undefined);
-  const port = (values.port as string | undefined) ?? process.env.PORT ?? "3000";
+  let port = (values.port as string | undefined) ?? process.env.PORT ?? "3000";
   // In Bun, node:util/parseArgs turns `--no-spawn` into the literal "no-spawn"
   // key (not `values.spawn === false`), so check it explicitly.
   const noSpawn = (values as Record<string, unknown>)["no-spawn"] === true;
   const shouldSpawn = values.spawn !== false && !noSpawn;
+  const killPort = Boolean(values["kill-port"]);
 
   if (!isValidPort(port)) {
     warn(`Invalid port "${port}" — defaulting to 3000`);
+    port = "3000";
   }
 
   // Pre-flight env validation (non-blocking warnings/errors).
@@ -400,6 +457,7 @@ export async function runDev(args: string[]): Promise<void> {
     runtime,
     port,
     shouldSpawn,
+    killPort,
     outDir,
     config,
     buildArgs: values as BuildArgs,

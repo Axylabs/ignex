@@ -167,9 +167,9 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 
 | Folder        | Use case                                                   | Modules                     |
 | ------------- | ---------------------------------------------------------- | --------------------------- |
-| `security/`   | Request security & trust                                   | auth, csrf, crypto, session |
+| `security/`   | Request security & trust                                   | auth, csrf, crypto, session, session-store |
 | `http/`       | Request/response handling                                  | context, cookies, headers, body, proxy, files, sse, ws, route DSL |
-| `data/`       | Data access, caching & validation                          | cache, dataloader, lru, query, schema, validation |
+| `data/`       | Data access, caching & validation                          | cache, dataloader, drivers, lru, query, ratelimit, schema, store, validation |
 | `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, plugin |
 | `platform/`  | App runtime infrastructure                                 | env, config, coerce, jobs, durable jobs (`jobs-store.ts` / `jobs-durable.ts`), errors |
 | `content/`    | Rendering & localization                                   | i18n, template |
@@ -199,6 +199,13 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   `http/request-id.ts` (request ids), `platform/coerce.ts` (`coerceBoolean`),
   `compiler/validate.ts` (`mergeOptions` — preset application happens once),
   `compiler/phases/schema-loader.ts` (`forEachRouteWithSchema`).
+- **Driver-based storage.** `data/store/` owns the generic `Store` contract
+  (key-value with TTL, sync-capable) and its `memory`/`sqlite`/`file` drivers;
+  `data/drivers/manager.ts` owns the Laravel-style `createDriverManager`
+  (named factory registry + memoized instances + `extend` overrides). Features
+  that persist state (sessions, durable jobs, the HTTP cache, rate-limit state)
+  build on this layer instead of duplicating persistence — see
+  [drivers.md](drivers.md).
 - **Compose with the FP toolkit.** `pipe`/`pipeAsync`/`fold`/`Result` from
   `@ignex/shared` are used where they make control flow explicit (the compiler
   pipeline, `runLifecycle`, `negotiateLocale`, `defineConfig`, session cookie

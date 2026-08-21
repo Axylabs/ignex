@@ -35,9 +35,14 @@ export const createConditionalRequest = (
         if (inner) {
           return {
             isNotModified(ifNoneMatch, ifModifiedSince) {
-              const inm = ifNoneMatch ? toBytes(ifNoneMatch) : null;
-              const ims = ifModifiedSince ? toBytes(ifModifiedSince) : null;
-              return ffiInst.conditionalIsNotModified(inner, inm, ims);
+              // C-ABI takes the headers as `cstring` ARGs (engine transcodes
+              // in-engine — zero JS encode); absent headers pass `null` and
+              // are gated by the presence flags on the Rust side.
+              return ffiInst.conditionalIsNotModified(
+                inner,
+                ifNoneMatch ?? null,
+                ifModifiedSince ?? null,
+              );
             },
           };
         }

@@ -15,9 +15,20 @@ import type { CompilerContext, CompilerOptions, DiscoveryResult } from "../types
 export { parseRouteFilename } from "../ir/lower";
 
 // Pure Functions
-/** True when a filename looks like a route module (ts/js/mjs/tsx/jsx, not `.d.ts`). */
+/**
+ * True when a filename looks like a route module (ts/js/mjs/tsx/jsx, not
+ * `.d.ts`, not a `.config.*` file).
+ *
+ * Config files (`app.config.ts`, `server-only.config.ts`, …) are never routes
+ * — a bare filename would otherwise parse as a default-GET route (e.g.
+ * `app.config.ts` → GET `/app.config`) and get flagged for missing a handler
+ * export. Excluding them here (and in the build cache) keeps config files
+ * out of route discovery entirely.
+ */
 export const isRouteFile = (entry: string): boolean =>
-  /\.(ts|js|mjs|tsx|jsx)$/.test(entry) && !entry.endsWith(".d.ts");
+  /\.(ts|js|mjs|tsx|jsx)$/.test(entry) &&
+  !entry.endsWith(".d.ts") &&
+  !/\.config\.(ts|js|mjs|tsx|jsx)$/.test(entry);
 
 /** True when a directory should be descended into (skips hidden + node_modules). */
 export const isValidDir = (entry: string): boolean =>

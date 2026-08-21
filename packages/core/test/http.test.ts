@@ -19,6 +19,7 @@ import {
   applySet,
   BodyParseError,
   createLazyBody,
+  NativeQueryParams,
   parseCookieString,
   parseQuery,
   parseQueryFromURL,
@@ -117,6 +118,49 @@ describe("parseQuery", () => {
   it("parseQueryFromURL ignores the path", () => {
     expect(parseQueryFromURL("/search?q=1&q=2")).toEqual({ q: ["1", "2"] });
     expect(parseQueryFromURL("/noquery")).toEqual({});
+  });
+});
+
+describe("NativeQueryParams (URLSearchParams-compatible facade over pairs)", () => {
+  const pairs: Array<[string, string]> = [
+    ["q", "ignex"],
+    ["page", "1"],
+    ["tag", "a"],
+    ["tag", "b"],
+  ];
+
+  it("iterates entries preserving duplicates (URLSearchParams parity)", () => {
+    const params = new NativeQueryParams(pairs);
+    expect([...params]).toEqual(pairs);
+    expect([...params.entries()]).toEqual(pairs);
+    expect([...params.keys()]).toEqual(["q", "page", "tag", "tag"]);
+    expect([...params.values()]).toEqual(["ignex", "1", "a", "b"]);
+    expect(params.size).toBe(4);
+  });
+
+  it("get returns the first value or null", () => {
+    const params = new NativeQueryParams(pairs);
+    expect(params.get("tag")).toBe("a");
+    expect(params.get("q")).toBe("ignex");
+    expect(params.get("missing")).toBe(null); // null, not undefined — `?? default` parity
+  });
+
+  it("has / getAll / forEach match URLSearchParams", () => {
+    const params = new NativeQueryParams(pairs);
+    expect(params.has("page")).toBe(true);
+    expect(params.has("nope")).toBe(false);
+    expect(params.getAll("tag")).toEqual(["a", "b"]);
+    const seen: Array<[string, string]> = [];
+    params.forEach((value, name) => seen.push([name, value]));
+    expect(seen).toEqual(pairs);
+  });
+
+  it("toString percent-encodes like URLSearchParams", () => {
+    const params = new NativeQueryParams([
+      ["q", "hello world"],
+      ["x", "a&b"],
+    ]);
+    expect(params.toString()).toBe("q=hello%20world&x=a%26b");
   });
 });
 

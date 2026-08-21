@@ -881,3 +881,166 @@ Conclusion: for the current hot-path ops, JS-side cuts (above) are the win; the
 only remaining structural Rust transfer (whole-lifecycle-in-one-Rust-call
 pipeline routes) is deferred.
 
+## Round 14 — lifecycle dispatch + route-wrapper micro-opts (2026-08-19)
+
+CPU-profile-driven pass over the compiled production server
+(`packages/app/dist/__server.js`, minified + a non-minified twin for readable
+attribution via `bun --cpu-prof --cpu-prof-md`). The profile's top frames:
+native `create` (object allocation, ~29% — Bun-internal, not framework-
+addressable), `Response` (~7%), `runHooks` (13.8% total incl. the hook work
+itself), the `ctx.query` lazy getter + `new URL` for query-reading routes
+(~4% combined), and the per-request async layers (`__wrap` + async core fns).
+
+### 1. `runHooks` memoized flatten + inline interpretation (`packages/core/src/lifecycle/lifecycle.ts`)
+The per-call loop re-normalized every `HookContainer` (`entry == null` /
+`typeof entry === "function" ? entry : entry.fn`) and built a fresh
+`{ halted, next }` object per hook on the all-sync hot path. Now the stage
+array is flattened to plain callables ONCE (WeakMap-memoized per array identity
+— the stage arrays are boot-time consts in the compiled server and the
+interpreted router), and the sync loop interprets results INLINE: zero per-hook
+normalization, zero per-hook intermediate objects. Async continuation
+(`runHooksAsync`) preserves the original timing exactly (only awaits real
+Promises — a sync hook in the async path must not add a microtask).
+Behavior-preserving: `interpretHook` semantics inlined verbatim.
+
+### 2. Sync `__wrap` (`packages/compiler/src/phases/codegen/helpers.ts`)
+`__wrap` returned an `async` fn that did `await handler(...)` — a redundant
+second Promise + microtask per request (the route core fns are already async).
+The wrapper is now a plain fn: it returns the handler's promise directly and
+funnels both a synchronous throw AND a promise rejection into `__handleError`
+via a shared `onError` closure (`__r.catch(onError)`). Wildcard/params/server
+extraction unchanged. `COMPILER_CACHE_VERSION` → 0.7.4 (output-affecting
+codegen).
+
+### Measurements (interleaved A/B, both servers live, 4 rounds × 4 s, conc 8)
+Two passes, median-consistent:
+| metric | pass 1 | pass 2 |
+| --- | --- | --- |
+| aggregate rps ratio (new/old) | **1.0132** | **1.0147** |
+| per-route | /catalog +4.6%, /api/me +2.5% | /catalog +2.6%, /api/users +2.8% |
+| errors | 0 | 0 |
+
+All routes ≥ +0.7% rps on both passes; p50 down 0.2–0.7%. Modest but real and
+stable. The earlier claimed "+13.1%" for the `runHooks` change alone was a
+measurement artifact (the "old" A/B server wasn't actually serving — every
+request errored); the honest end-to-end gain of BOTH changes is ~+1.4%.
+
+### Rejected / measured-no-win
+- **Sync core fns for async handlers** (drop `isAsync` gate): REGRESSED — every
+  async handler routed through the `resume` continuation (`instanceof Promise`
+  check + async resume call) cost more than the async core fn it replaced.
+  Reverted.
+- **`ctx.query` eager shadow for usage.query routes**: the search handler
+  iterates `ctx.query` via `for...of`, which requires an ITERABLE
+  `URLSearchParams`; shadowing with the parsed Record (non-iterable) breaks it.
+  The lazy `new URL(req.url).searchParams` getter (~1.2 µs/request on
+  query-reading routes) stays.
+- **`__withBody` `{...__DEFAULT_HEADERS}` spread removal**: the static
+  `server.headers` are also applied by Bun.serve's default header sink, but the
+  per-response spread is what makes them visible on the `Response` object to
+  plugins (compression/security read them) — removal risks silent plugin
+  breakage for a sub-µs gain. Left as-is.
+
+### Gates
+verify (typecheck + lint + 1305 tests + JSDoc 689/689) green; app smoke 52/52;
+check:cache-versions green.
+
+## Round 14b — `ctx.query` lazy-getter micro-opt + Rust-candidate trials (2026-08-19)
+
+Follow-up to Round 14, prompted by "trial and test code chunks that can be moved
+to Rust." Profiling showed the `ctx.query` lazy getter + `new URL` are ~4% of the
+compiled-server profile on query-reading routes (e.g. `/api/search`, which
+iterates `ctx.query`). Trial + outcome:
+
+### Shipped: `ctx.query` builds URLSearchParams from the query substring
+`packages/core/src/http/context.ts` `get query()`: `new URL(req.url).searchParams`
+→ `new URLSearchParams(url.slice(url.indexOf("?") + 1))` (empty query → empty
+params). Micro-bench: **1.15×** vs the full URL parse; byte-identical parity
+verified across edge cases (duplicates, malformed `%ZZ`, invalid-UTF-8 `%FF`,
+`+`→space, `%2B`, bare keys, empty/absent query — HTTP request URLs carry no
+`#` fragment, so the substring parse equals the URL's searchParams). This is a
+JS-side cost cut on the SAME path, not a Rust move — the query data itself stays
+in JS because the string round trip loses (below).
+
+### Rust-candidate trials (all measured, C-ABI transport, median-of-5 interleaved)
+| candidate | native:JS ratio | verdict |
+| --- | --- | --- |
+| `validateEmail` | 0.22 | JS wins (regex 28M vs native 6M ops/s) — NOT wired |
+| `validateUuid` | 0.56 | JS wins — NOT wired |
+| `validateIpv4` | 0.35 | JS wins — NOT wired |
+| `validateIpv6` | 2.83 | already in FFI_WINS ✓ |
+| `createAcceptNegotiator` (compiled instance) | **2.20** | fast but BLOCKED — semantics differ |
+
+The validation trio confirms the documented pattern: string-in/string-out ops
+where the JS regex is trivial lose to the C-ABI `cstring` transcode. The accept
+negotiator is a genuine 2.2× native win, but its RFC 7231 §5.3.4 ordering
+(specificity → q → CLIENT order) differs from the compression plugin's
+`negotiateEncoding` (q-only → SERVER order on ties, empty header → null): 2 of 7
+realistic headers diverge (`"gzip, deflate, br"` → br vs gzip; `""` → null vs
+br). Wiring it would silently change which encoding clients receive, so it was
+**not** wired. A future Rust op that replicates the exact q/server-order
+semantics would capture the win without the behavior change.
+
+### Cumulative measurement (baseline = HEAD codegen + original core)
+Interleaved A/B (both servers live, 0 errors): runHooks memoize + sync `__wrap` +
+query getter ≈ **+1.0–2.0%** rps end-to-end (passes: +1.95% / +1.00%; a throttled
+pass read +0.2% — the bench box thermal-drifts, so the function-level
+micro-benchmarks are the reliable signal). Gates: verify green (1305 tests,
+JSDoc 100%), smoke 52/52, check:cache-versions green. NOTE: integration tests
+boot the EXISTING `dist` — a stale `dist` built with `generateOpenAPI:false`
+made `GET /openapi.json` serve an empty doc (< 1024B → no gzip) and failed one
+compression test; rebuild with the real builder before running the app suite.
+
+## Round 15 — native server-preference Accept-Encoding negotiator (2026-08-19)
+
+Implements the Round 14b recommendation: a Rust op that replicates ignex's
+`negotiateEncoding` semantics EXACTLY (q-only, server-preference ties, empty →
+identity), capturing the 2.2×-class native win WITHOUT the behavior change that
+blocked the existing RFC-specificity `AcceptNegotiator`.
+
+### castrum (bun-rust-runtime-bench)
+- `rust/http/accept.rs`: new `negotiate_encoding_server_preference` (zero-alloc
+  stack path + exact heap fallback — mirrors the existing negotiator's
+  discipline) + napi method `AcceptNegotiator::negotiate_server_preference` +
+  `accept_negotiator_negotiate_server_core`. Tests: ignex-vector parity, wildcard
+  vs explicit, stack/heap parity (14 accept tests).
+- `rust/ffi.rs`: new C-ABI `castrum_accept_negotiator_negotiate_server` (same
+  opaque-handle → cstring contract) + C-ABI test. `cargo test --lib` 554 pass.
+- Rebuilt `.node` (bunx napi build --release --platform) + refreshed the
+  bun-cache copy at `node_modules/.bun/castrum@0.9.1+.../castrum.linux-x64-gnu.node`
+  (the loader resolves the symlinked install, NOT the repo `.node` — a stale
+  copy silently lacks new symbols).
+
+### ignex
+- `packages/native/src/ffi.ts`: `acceptNegotiatorNegotiateServer` on the
+  instances surface — returns `undefined` for an absent symbol (old addon) vs
+  `null` (identity) so callers fall back cleanly.
+- `packages/native/src/http/negotiation.ts`: `AcceptNegotiator.negotiateServerPreference`
+  (C-ABI → napi → pure-TS) + shared `negotiateServerPreferenceJs` (the
+  q-only/server-pref engine, also used by the fallback negotiator). Removed a
+  duplicated JSDoc block.
+- `packages/core/src/data/content-encoding.ts`: `negotiateEncoding` is now
+  native-first via a per-supported-list cached compiled negotiator (the
+  compression plugin's lists are fixed per process), pure-TS fallback
+  byte-identical. Removed the dead `listed` array from the JS path.
+- vendor `castrum.d.ts`: `AcceptNegotiator.negotiateServerPreference` typed.
+- Test: `native.test.ts` server-preference semantics (+1).
+
+### Measured
+- **Micro-bench (C-ABI): native `negotiateServerPreference` = 1.76×** vs the
+  pure-TS engine (4.88M vs 2.77M ops/s).
+- **Parity: 28 headers × 2 methods, 0 mismatches** vs the pure-TS engine
+  (incl. the Round 14b divergences `"gzip, deflate, br"` → br and `""` → null
+  now matching).
+- End-to-end A/B with `accept-encoding: gzip, deflate, br`: ~neutral aggregate —
+  the negotiation path is only reached for large, non-precompressed,
+  compressible responses; this app's responses are small or precompressed, so
+  the 1.76× micro-win lands on a sub-1% slice. Correct + parity-safe + a real
+  reduction in per-request CPU on compressible payloads.
+
+### Gates
+verify green (1306 tests, JSDoc 690/690), smoke 52/52, check:cache-versions
+green. Dead-code pass: removed the duplicate JSDoc (negotiation.ts) + the unused
+`listed` array (content-encoding.ts); the castrum repo's other modified files
+are the user's in-progress work and were left untouched.
+

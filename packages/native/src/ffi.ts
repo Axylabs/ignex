@@ -876,13 +876,29 @@ export interface FfiInstancesSurface {
    * context → bytes written (needed-size convention; 0 = real error).
    */
   templateRender(inner: number, context: Uint8Array, out: Uint8Array): number;
-  /** AcceptNegotiator: best supported encoding → cstring (`null` = identity). */
-  acceptNegotiatorNegotiate(inner: number, header: Uint8Array): string | null;
-  /** ConditionalRequest: 304 check → 1 when not-modified (flags = presence bits). */
+  /**
+   * AcceptNegotiator: best supported encoding → cstring (`null` = identity).
+   * `header` is a `cstring` ARG — the engine transcodes the JS string
+   * in-engine (zero JS encode).
+   */
+  acceptNegotiatorNegotiate(inner: number, header: string): string | null;
+  /**
+   * AcceptNegotiator: best supported encoding with SERVER-preference
+   * tie-breaking (ignex `negotiateEncoding` semantics) → cstring (`null` =
+   * identity). Returns `undefined` when the addon lacks the symbol (built
+   * before it existed) so callers fall back to the napi method / JS engine.
+   * `header` is a `cstring` ARG (zero JS encode).
+   */
+  acceptNegotiatorNegotiateServer(inner: number, header: string): string | null | undefined;
+  /**
+   * ConditionalRequest: 304 check → 1 when not-modified. `ifNoneMatch` /
+   * `ifModifiedSince` are `cstring` ARGs (zero JS encode); presence is gated
+   * by the flags byte, so absent headers pass `null` and are never read.
+   */
   conditionalIsNotModified(
     inner: number,
-    ifNoneMatch: Uint8Array | null,
-    ifModifiedSince: Uint8Array | null,
+    ifNoneMatch: string | null,
+    ifModifiedSince: string | null,
   ): boolean;
 }
 
@@ -918,12 +934,22 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
         args: ["u64", "ptr", "usize", "ptr", "usize"],
         returns: "usize",
       },
+      // `header` is a `cstring` ARG — the engine transcodes the JS string
+      // in-engine (zero JS encode), matching the validator/ws_accept_key
+      // pattern. C-ABI returns a cstring (engine-cloned, zero JS decode).
       castrum_accept_negotiator_negotiate: {
-        args: ["u64", "ptr", "usize"],
+        args: ["u64", "cstring"],
         returns: "cstring",
       },
+      castrum_accept_negotiator_negotiate_server: {
+        args: ["u64", "cstring"],
+        returns: "cstring",
+      },
+      // `ifNoneMatch`/`ifModifiedSince` are `cstring` ARGs (zero JS encode);
+      // presence is gated by the flags byte, so absent headers pass `""` (the
+      // raw symbol never sees `null`) and are never read on the Rust side.
       castrum_conditional_is_not_modified: {
-        args: ["u64", "ptr", "usize", "ptr", "usize", "u8"],
+        args: ["u64", "cstring", "cstring", "u8"],
         returns: "u8",
       },
     });
@@ -942,17 +968,24 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
       templateRender: (inner, context, out) =>
         Number(s.castrum_template_render?.(inner, context, context.length, out, out.length) ?? 0),
       acceptNegotiatorNegotiate: (inner, header) => {
-        const v = s.castrum_accept_negotiator_negotiate?.(inner, header, header.length);
+        // `header` is a `cstring` ARG — pass the JS string directly.
+        const v = s.castrum_accept_negotiator_negotiate?.(inner, header);
+        return typeof v === "string" ? v : null;
+      },
+      acceptNegotiatorNegotiateServer: (inner, header) => {
+        const fn = s.castrum_accept_negotiator_negotiate_server;
+        if (typeof fn !== "function") return undefined;
+        const v = fn(inner, header);
         return typeof v === "string" ? v : null;
       },
       conditionalIsNotModified: (inner, ifNoneMatch, ifModifiedSince) =>
         Number(
           s.castrum_conditional_is_not_modified?.(
             inner,
-            ifNoneMatch,
-            ifNoneMatch?.length ?? 0,
-            ifModifiedSince,
-            ifModifiedSince?.length ?? 0,
+            // cstring ARGs: pass "" for absent headers — Rust only reads the
+            // pointer when the corresponding flags bit is set (never null).
+            ifNoneMatch ?? "",
+            ifModifiedSince ?? "",
             (ifNoneMatch ? 1 : 0) | (ifModifiedSince ? 2 : 0),
           ) ?? 0,
         ) === 1,

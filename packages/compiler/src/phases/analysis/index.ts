@@ -55,8 +55,13 @@ export const runAnalysis = (
   ctx: CompilerContext,
 ): AnalysisResult =>
   ctx.logger.time("analysis", () => {
-    const routes = buildRouteGraph(discovery.files, discovery.modules);
-    const { alive, dead } = detectDeadRoutes(routes, discovery.modules);
+    const routes = buildRouteGraph(discovery.files, discovery.modules, ctx);
+    const { alive, dead } = detectDeadRoutes(
+      routes,
+      discovery.modules,
+      { strictDuplicates: opts.strictRouteConflicts ?? false },
+      ctx,
+    );
 
     if (dead.length > 0) {
       for (const r of dead) {

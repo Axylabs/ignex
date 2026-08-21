@@ -88,12 +88,7 @@ const CompilerOptionsSchema = Type.Object(
  * They are accepted with a deprecation warning and ignored, so existing
  * configs do not hard-fail.
  */
-const DEPRECATED_OPTIONS: Record<string, string> = {
-  router: "Ignex always emits Bun's native router. Remove this option.",
-  cluster:
-    "Cluster mode is configured at the runtime/Bun level, not the compiler. Remove this option.",
-  inlineHooks: "Hooks are always invoked at runtime. Remove this option.",
-};
+const DEPRECATED_OPTIONS: Record<string, string> = {};
 
 const SCHEMA_KEYS = new Set(Object.keys((CompilerOptionsSchema as any).properties ?? {}));
 

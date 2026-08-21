@@ -22,12 +22,17 @@ export function middlewareRequestIdTemplate(): string {
  *   onResponse → after the handler (reverse registration order)
  *   onError    → when the handler throws
  *
- * This one stamps a per-request \`x-request-id\` header and echoes it back.
+ * This one stamps a per-request id on the context and echoes it back as
+ * \`x-request-id\`. An inbound \`x-request-id\` (from a proxy / upstream) is
+ * propagated so logs and the response header correlate end-to-end; otherwise
+ * a fresh id is generated. The \`logger()\` plugin reuses the same id in its
+ * structured access logs.
  */
 export const requestId = (): IgnexPlugin => ({
   name: "request-id",
   onRequest(ctx) {
-    ctx.setState("requestId", crypto.randomUUID());
+    const inbound = ctx.headers.get("x-request-id");
+    ctx.setState("requestId", inbound || crypto.randomUUID());
     return ctx;
   },
   onResponse(ctx, response) {

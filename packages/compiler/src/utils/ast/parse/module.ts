@@ -155,7 +155,10 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
   try {
     ast = parseToAst(source);
   } catch (error) {
-    diagnostics?.warn({
+    // A route/hook/app-config module that cannot parse is a BUILD ERROR —
+    // continuing with an empty program silently drops the route (404 in
+    // production). Fail the build with a clear diagnostic instead.
+    diagnostics?.error({
       code: DiagnosticCodes.ParseError,
       message: `Failed to parse module: ${errorMessage(error)}`,
       frame: getCodeFrame(source, { line: 1, column: 0 }),

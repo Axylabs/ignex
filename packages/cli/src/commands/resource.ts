@@ -12,13 +12,20 @@
  * `--rbac` pre-wires `withGuards(..., { permissions: [...] })` (compiler emits
  * the guard chain — works in both runtimes).
  */
-import { join, relative, resolve } from "node:path";
-import { dbTemplate, modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
+import { join, relative } from "node:path";
+import {
+  dbTemplate,
+  type ModelField,
+  modelTemplate,
+  parseModelFields,
+  pluralize,
+} from "../templates/model.js";
 import { resourceReadmeTemplate, resourceRouteTemplates } from "../templates/resource.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
 
 /**
  * Register `dbPlugin()` in `src/app.config.ts` so the ninox toolkit connects at
@@ -30,7 +37,7 @@ import { error, info, step, success } from "../utils/logger.js";
  * and the `import ... from "..."` block); hand-edited configs are left alone
  * with a hint. Idempotent — never duplicates the plugin/import.
  */
-async function wireDbPlugin(root: string): Promise<void> {
+export async function wireDbPlugin(root: string): Promise<void> {
   const configPath = join(root, "src", "app.config.ts");
   if (!(await exists(configPath))) {
     info("No src/app.config.ts found — add dbPlugin() to your plugins array once you have one.");
@@ -79,7 +86,7 @@ const RESOURCE_DEPS = ["@ignex/ninox", "typebox"] as const;
  * resource imports modules that aren't installed and the app can't build.
  * No-op when there's no package.json (or deps already present).
  */
-async function ensureResourceDeps(root: string): Promise<void> {
+export async function ensureResourceDeps(root: string): Promise<void> {
   const pkgPath = join(root, "package.json");
   if (!(await exists(pkgPath))) return;
 
@@ -98,6 +105,46 @@ async function ensureResourceDeps(root: string): Promise<void> {
   success(`Added ${added.join(", ")} to package.json dependencies.`);
 }
 
+/**
+ * Merge a newly scaffolded collection into an existing generated `src/db.ts`:
+ * model import + `defineCollections(...)` member + a `createSchema(...)` call.
+ * Guards on the generated shape — a hand-edited db.ts that doesn't match is
+ * left untouched (with a hint) instead of being mangled.
+ */
+export async function addCollectionToDb(root: string, plural: string): Promise<void> {
+  const dbPath = join(root, "src", "db.ts");
+  if (!(await exists(dbPath))) return;
+
+  const src = await readTextFile(dbPath);
+  if (src.includes(`import { ${plural} } from "./models/${plural}.js";`)) {
+    return; // already wired
+  }
+
+  const next = src
+    // 1. Model import, after the first `import ... from "./models/...js";`.
+    .replace(
+      /(import \{[^}]*\} from "\.\/models\/[^"]+\.js";\n)/,
+      `$1import { ${plural} } from "./models/${plural}.js";\n`,
+    )
+    // 2. Add to defineCollections(...) — keeps any existing members.
+    .replace(
+      /(defineCollections\([^)]*?)(\))/,
+      (_match: string, prefix: string, close: string) => `${prefix}, ${plural}${close}`,
+    )
+    // 3. Provision the schema at boot (matches the indentation of each call).
+    .replace(
+      /(\n(\s*)await db\.createSchema\("[^"]+"\);)/g,
+      `$1$2await db.createSchema("${plural}");`,
+    );
+
+  if (next === src) {
+    info(`Could not auto-wire ${plural} into src/db.ts — add it to the collections map manually.`);
+    return;
+  }
+  await writeFileEnsuringDir(dbPath, next);
+  success(`Added ${plural} to src/db.ts collections.`);
+}
+
 export async function runResource(args: string[]): Promise<void> {
   const { values, positionals } = parseCliArgs(args, {
     root: { type: "string" },
@@ -110,65 +157,55 @@ export async function runResource(args: string[]): Promise<void> {
 
   // The first positional is the resource *name*, not a root path.
   const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const name = positionals[0];
-
-  if (!name) {
-    error("Resource name is required (e.g. ignex resource User).");
-    process.exitCode = 1;
-    return;
-  }
+  const name = firstPositional(
+    positionals,
+    "Resource name is required (e.g. ignex resource User).",
+  );
+  if (!name) return;
 
   const config = await loadConfig(root);
-  const modelsDir = resolve(
-    root,
-    (values.dir as string | undefined) ??
-      (config as { modelsDir?: string }).modelsDir ??
-      "src/models",
-  );
-  const routesDir = resolve(
-    root,
-    typeof config.routesDir === "string" ? config.routesDir : "src/routes",
-  );
+  const modelsDir = resolveDir(root, values.dir, config.modelsDir, "src/models");
+  const routesDir = resolveDir(root, undefined, config.routesDir, "src/routes");
 
-  const fields = parseModelFields(values.fields as string | undefined);
+  let fields: ModelField[];
+  try {
+    fields = parseModelFields(values.fields as string | undefined);
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return;
+  }
   const plural = pluralize(name);
   const modelPath = join(modelsDir, `${plural}.ts`);
   const dbPath = join(root, "src", "db.ts");
   const opts = { auth: Boolean(values.auth), rbac: Boolean(values.rbac) };
 
-  if ((await exists(modelPath)) && !values.force) {
-    error(`${relative(process.cwd(), modelPath)} already exists. Use --force to overwrite.`);
-    process.exitCode = 1;
+  step(`Scaffolding resource ${name} (collection "${plural}")`);
+
+  // 1. The model (blocking exists/--force gate).
+  if (
+    !(await writeScaffold(modelPath, modelTemplate(name, fields), {
+      force: Boolean(values.force),
+      overwrite: true,
+    }))
+  ) {
     return;
   }
 
-  step(`Scaffolding resource ${name} (collection "${plural}")`);
-
-  // 1. The model.
-  await writeFileEnsuringDir(modelPath, modelTemplate(name, fields));
-  success(`Created ${relative(process.cwd(), modelPath)}`);
-
-  // 2. The CRUD routes under src/routes/api/<plural>/.
+  // 2. The CRUD routes under src/routes/api/<plural>/ (best-effort skip).
   for (const { path, content } of resourceRouteTemplates(name, opts)) {
-    const filePath = join(routesDir, "api", path);
-    if ((await exists(filePath)) && !values.force) continue;
-    await writeFileEnsuringDir(filePath, content);
-    success(`Created ${relative(process.cwd(), filePath)}`);
+    await writeScaffold(join(routesDir, "api", path), content, {
+      force: Boolean(values.force),
+    });
   }
-  await writeFileEnsuringDir(
-    join(routesDir, "api", plural, "README.md"),
-    resourceReadmeTemplate(name),
-  );
-  success(`Created ${relative(process.cwd(), join(routesDir, "api", plural, "README.md"))}`);
+  await writeScaffold(join(routesDir, "api", plural, "README.md"), resourceReadmeTemplate(name), {
+    force: Boolean(values.force),
+  });
 
-  // 3. The DB bootstrap (once per project; the user merges further models).
-  if (!(await exists(dbPath)) || values.force) {
-    await writeFileEnsuringDir(dbPath, dbTemplate(name));
-    success(`Created ${relative(process.cwd(), dbPath)}`);
-  } else {
-    info(
-      `Skipped ${relative(process.cwd(), dbPath)} (already exists). Add ${plural} to its collections map.`,
-    );
+  // 3. The DB bootstrap. Once src/db.ts exists it is NEVER regenerated (that
+  // would drop other collections) — new resources are merged in instead.
+  if (!(await writeScaffold(dbPath, dbTemplate(name)))) {
+    info(`Skipped ${relative(process.cwd(), dbPath)} (already exists).`);
+    await addCollectionToDb(root, plural);
   }
 
   // 3b. Wire dbPlugin() into src/app.config.ts so the toolkit connects at boot.

@@ -15,5 +15,4 @@ export * from "./media";
 export * from "./multipart";
 export * from "./negotiation";
 export * from "./query";
-export * from "./queryToJson";
 export * from "./types";

@@ -2,7 +2,8 @@ import type { Feature } from "../types.js";
 
 export interface ProjectTemplateOptions {
   name: string;
-  runtime: "bun" | "node";
+  /** Always "bun" — the generated server requires Bun (Bun.serve, no Node shim). */
+  runtime: "bun";
   pm: string;
   features: Set<Feature>;
 }
@@ -35,11 +36,7 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
     typescript: "^7.0.2",
   };
 
-  if (opts.runtime === "bun") {
-    devDependencies["@types/bun"] = "^1.3.14";
-  } else {
-    devDependencies["@types/node"] = "latest";
-  }
+  devDependencies["@types/bun"] = "^1.3.14";
 
   if (opts.features.has("openapi")) {
     devDependencies["@hey-api/openapi-ts"] = "^0.99.0";
@@ -53,7 +50,7 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
   const scripts: Record<string, string> = {
     dev: "ignex dev",
     build: "ignex build",
-    start: `${opts.runtime === "bun" ? "bun" : "node"} .ignex/server.js`,
+    start: "bun .ignex/server.js",
     route: "ignex route",
     lint: "biome check .",
     format: "biome format --write .",
@@ -76,7 +73,7 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
   return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
-export function tsconfigTemplate(opts: ProjectTemplateOptions): string {
+export function tsconfigTemplate(): string {
   const tsconfig = {
     compilerOptions: {
       target: "ESNext",
@@ -88,7 +85,7 @@ export function tsconfigTemplate(opts: ProjectTemplateOptions): string {
       verbatimModuleSyntax: true,
       skipLibCheck: true,
       noEmit: true,
-      types: opts.runtime === "bun" ? ["bun"] : ["node"],
+      types: ["bun"],
     },
     include: ["src", "test", "ignex.config.ts", "ignex.config.mjs"],
   };
@@ -104,8 +101,10 @@ export default {
   outDir: ".ignex",
   outFile: "server.js",
 
-  // Production optimization profile — matches the framework's tuned example
-  // (packages/app/builder.ts). Explicit knobs below can be overridden.
+  // Production optimization profile. \`minify: false\` keeps the generated
+  // server readable while developing; set \`minify: true\` (like
+  // packages/app/builder.ts) for smaller production output. Explicit knobs
+  // below can be overridden.
   optimizationLevel: 3,
   minify: false,
   sourceMap: false,

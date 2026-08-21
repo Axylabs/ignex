@@ -36,10 +36,18 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   header.push(`const __ACCESS_LOG = ${cfg.enableAccessLog ? "true" : "false"};`);
 
   if (state.hasAppConfig) {
+    // Dev-only plugins (the `debugbar()` dashboard) mark themselves with
+    // `__ignexDevOnly` when they are disabled at runtime (e.g. a dev-built
+    // artifact running with NODE_ENV=production). Filter them out of the
+    // lifecycle so a disabled dev tool costs zero per-request hooks — the
+    // plugin list is small and this runs once at boot.
+    header.push(
+      `const __appPlugins = (__appConfig.plugins ?? []).filter((__p) => !(__p != null && typeof __p === "object" && __p.__ignexDevOnly === true));`,
+    );
     header.push(`const __pluginContext = createPluginContext();`);
     // A throwing plugin must fail boot with a clear, attributable error (not a
     // cryptic module-load failure / unhandled rejection).
-    header.push(`for (const __p of __appConfig.plugins ?? []) {
+    header.push(`for (const __p of __appPlugins) {
   try {
     if (typeof __p === "function") await __p(__pluginContext);
     else if (__p && typeof __p.setup === "function") await __p.setup(__pluginContext);
@@ -50,7 +58,7 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   }
 }`);
     header.push(
-      `const __pluginLC = mergeLifeCycle(pluginContextToLifecycle(__pluginContext), pluginsToLifeCycle(__appConfig.plugins ?? []));`,
+      `const __pluginLC = mergeLifeCycle(pluginContextToLifecycle(__pluginContext), pluginsToLifeCycle(__appPlugins));`,
     );
     header.push(`const __userLC = __appConfig.lifecycle ?? __appConfig.hooks ?? {};`);
     header.push(

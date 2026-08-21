@@ -28,6 +28,12 @@ export default defineConfig({
       "@ignex/native": alias("packages/native/src/index.ts"),
       "@ignex/mcp": alias("packages/mcp/src/index.ts"),
       "@ignex/test-utils": alias("packages/test-utils/src/index.ts"),
+      // Schema fixtures are materialized into /tmp (outside any package), so a
+      // bare `typebox` import can't resolve via node_modules — alias it to a
+      // real install (the compiler's copy). Subpath first (`typebox/value`),
+      // mirroring the @ignex subpath pattern.
+      "typebox/value": alias("packages/compiler/node_modules/typebox/build/value/index.mjs"),
+      typebox: alias("packages/compiler/node_modules/typebox/build/index.mjs"),
       castrum: alias("packages/native/src/vendor/castrum.d.ts"),
     },
   },
@@ -42,10 +48,13 @@ export default defineConfig({
       include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.d.ts", "packages/native/src/vendor/**", "packages/app/**"],
       thresholds: {
-        lines: 60,
-        functions: 50,
-        statements: 55,
-        branches: 40,
+        // Raised 2026-08-19 after the hardening pass (aggregate was ~75-77%
+        // statements/lines). These are the CI floor — drift below fails the
+        // quality job deliberately.
+        lines: 70,
+        functions: 60,
+        statements: 65,
+        branches: 50,
       },
     },
   },

@@ -1,0 +1,155 @@
+{
+  "generated": "2026-08-19T19:38:06.731Z",
+  "runtime": "bun 1.4.0",
+  "trials": 5,
+  "swapAt": 1,
+  "results": [
+    {
+      "name": "fileReadText (8KB)",
+      "bun": 86688.20925192103,
+      "current": 105374.51085241223,
+      "ratio": 0.8226677262904377,
+      "verdict": "keep"
+    },
+    {
+      "name": "fileWrite (8KB)",
+      "bun": 424089.8289122699,
+      "current": 111622.39733776877,
+      "ratio": 3.7993255746781394,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "fileStat (size/mtime)",
+      "bun": 129194.0197125663,
+      "current": 129203.3374709515,
+      "ratio": 0.9999278829899629,
+      "verdict": "parity"
+    },
+    {
+      "name": "dirScan (Bun.Glob vs readdir)",
+      "bun": 25305.4242639355,
+      "current": 31921.367348395608,
+      "ratio": 0.7927424908760172,
+      "verdict": "keep"
+    },
+    {
+      "name": "escapeHTML (512B)",
+      "bun": 2037250.540850017,
+      "current": 34741962.81662424,
+      "ratio": 0.05863947732611067,
+      "verdict": "keep"
+    },
+    {
+      "name": "deepEquals (nested JSON)",
+      "bun": 1401535.9437282258,
+      "current": 4060978.5616835086,
+      "ratio": 0.3451227142522045,
+      "verdict": "keep"
+    },
+    {
+      "name": "sha1 → base64 (WS accept)",
+      "bun": 1677682.9986378304,
+      "current": 1503560.9155461665,
+      "ratio": 1.1158064706865662,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "randomBytes (16B CSPRNG)",
+      "bun": 6754903.000286248,
+      "current": 77626.99767653989,
+      "ratio": 87.01744499295103,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "gzip (8KB, level 6)",
+      "bun": 165383.82821799783,
+      "current": 93498.31722015802,
+      "ratio": 1.7688428319899372,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "wyhash vs fnv1a64 (cache key)",
+      "bun": 1640385.0777866116,
+      "current": 99276.2491456552,
+      "ratio": 16.523439311046964,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "wyhash vs fnv1a64-fallback (cache key)",
+      "bun": 1598264.8419809842,
+      "current": 1743.0431661154207,
+      "ratio": 916.9393352104456,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "crc32 (Bun vs native)",
+      "bun": 4493318.334911128,
+      "current": 4616045.922492787,
+      "ratio": 0.9734128321853038,
+      "verdict": "parity"
+    },
+    {
+      "name": "crc32 (Bun vs TS table)",
+      "bun": 4679996.179023564,
+      "current": 40438.66342192948,
+      "ratio": 115.7307334862519,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "passwordHash (argon2id: Bun vs native)",
+      "bun": 9.266309633903427,
+      "current": 56.59178973954393,
+      "ratio": 0.16373946956882557,
+      "verdict": "keep"
+    },
+    {
+      "name": "passwordHash (Bun argon2id vs scrypt fallback)",
+      "bun": 9.454506103172214,
+      "current": 30.80921876524931,
+      "ratio": 0.30687263364938844,
+      "verdict": "keep"
+    },
+    {
+      "name": "passwordVerify (argon2id: Bun vs native)",
+      "bun": null,
+      "current": null,
+      "ratio": null,
+      "verdict": "error"
+    },
+    {
+      "name": "passwordVerify (scrypt: Bun vs fallback)",
+      "bun": null,
+      "current": null,
+      "ratio": null,
+      "verdict": "error"
+    },
+    {
+      "name": "spawnSync echo (capture)",
+      "bun": 3143.6059055881187,
+      "current": 2642.271400192257,
+      "ratio": 1.1897361888560667,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "env read (Bun.env vs process.env)",
+      "bun": 31589209.955065235,
+      "current": 32768096.06439911,
+      "ratio": 0.964023356528954,
+      "verdict": "parity"
+    },
+    {
+      "name": "semver.satisfies vs manual compare",
+      "bun": 4886105.469341545,
+      "current": 4406691.113172852,
+      "ratio": 1.1087923668476756,
+      "verdict": "bun wins"
+    },
+    {
+      "name": "peek resolved promise",
+      "bun": 25143728.256678298,
+      "current": 29123570.520275425,
+      "ratio": 0.8633463482499024,
+      "verdict": "keep"
+    }
+  ]
+}

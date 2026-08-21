@@ -12,13 +12,15 @@
  * runs on EVERY request (the compiler merges `plugins` + `lifecycle` from
  * `app.config.ts` into the generated server).
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { globalHookTemplate, namedHookTemplate } from "../templates/hook.js";
 import { parseCliArgs } from "../utils/args.js";
+import { bunWriteFile } from "../utils/bun-compat.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success, warn } from "../utils/logger.js";
+import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
 
 /** Lifecycle stages a global hook may be registered on (mirrors `LifeCycleStore`). */
 export const GLOBAL_STAGES = [
@@ -107,15 +109,13 @@ export async function runHook(args: string[]): Promise<void> {
   });
 
   const root = resolve((values.root as string | undefined) ?? ".");
-  const name = positionals[0];
+  const name = firstPositional(
+    positionals,
+    "Hook name is required (e.g. ignex hook require-admin).",
+  );
+  if (!name) return;
   const isGlobal = Boolean(values.global);
   const stage = (values.stage as string | undefined) ?? "beforeHandle";
-
-  if (!name) {
-    error("Hook name is required (e.g. ignex hook require-admin).");
-    process.exitCode = 1;
-    return;
-  }
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
     error(
       `Invalid hook name "${name}" — use a valid JS identifier (e.g. require-admin → requireAdmin).`,
@@ -130,25 +130,22 @@ export async function runHook(args: string[]): Promise<void> {
   }
 
   const config = await loadConfig(root);
-  const hooksDir = resolve(root, (config as { hooksDir?: string }).hooksDir ?? "src/hooks");
+  const hooksDir = resolveDir(root, undefined, config.hooksDir, "src/hooks");
   const hookPath = join(hooksDir, `${name}.ts`);
-
-  if ((await exists(hookPath)) && !values.force) {
-    error(`${relative(process.cwd(), hookPath)} already exists. Use --force to overwrite.`);
-    process.exitCode = 1;
-    return;
-  }
 
   step(
     isGlobal
       ? `Scaffolding global hook ${name} (${stage} stage)`
       : `Scaffolding named hook ${name}`,
   );
-  await writeFileEnsuringDir(
-    hookPath,
-    isGlobal ? globalHookTemplate(name) : namedHookTemplate(name),
-  );
-  success(`Created ${relative(process.cwd(), hookPath)}`);
+  if (
+    !(await writeScaffold(hookPath, isGlobal ? globalHookTemplate(name) : namedHookTemplate(name), {
+      force: Boolean(values.force),
+      overwrite: true,
+    }))
+  ) {
+    return;
+  }
 
   if (isGlobal) {
     await registerGlobalHook(root, name, stage);
@@ -176,6 +173,6 @@ async function registerGlobalHook(root: string, name: string, stage: string): Pr
     return;
   }
 
-  await writeFile(appConfigPath, content);
+  await bunWriteFile(appConfigPath, content);
   success(`Registered ${name} on lifecycle.${stage} in ${relative(process.cwd(), appConfigPath)}`);
 }

@@ -111,11 +111,68 @@ export default defineConfig({
 `;
 }
 
-export function testTemplate(): string {
-  return `import { expect, test } from "vitest";
+export function testTemplate(name: string, runtime: "bun" | "node" = "bun"): string {
+  const safeName = name.replace(/"/g, '\\"');
+  const runner = runtime === "node" ? "node" : "bun";
+  return `import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, beforeAll, expect, test } from "vitest";
 
-test("placeholder", () => {
-  expect(true).toBe(true);
+// Boot smoke test: AOT-compile (if needed), start the compiled server, and
+// assert the core routes respond. Requires MongoDB when the app uses the ninox
+// resource wiring (src/db.ts connects at boot).
+const root = process.cwd();
+const serverPath = join(root, ".ignex", "server.js");
+const port = 3999;
+const baseUrl = "http://127.0.0.1:" + port;
+
+async function ensureBuilt(): Promise<void> {
+  if (existsSync(serverPath)) return;
+  const { execSync } = await import("node:child_process");
+  execSync("bun run build", { cwd: root, stdio: "inherit" });
+}
+
+async function waitForReady(timeoutMs = 15000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(baseUrl + "/health");
+      if (res.ok) return;
+    } catch {
+      // server not up yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("server did not become ready in time");
+}
+
+let server: ChildProcess | null = null;
+
+beforeAll(async () => {
+  await ensureBuilt();
+  server = spawn("${runner}", [serverPath], {
+    env: { ...process.env, PORT: String(port), IGNEX_HTTPS: "0" },
+    stdio: "ignore",
+  });
+  await waitForReady();
+}, 30000);
+
+afterAll(() => {
+  server?.kill();
+});
+
+test("GET /health responds ok", async () => {
+  const res = await fetch(baseUrl + "/health");
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("ok");
+});
+
+test("GET / returns the app name", async () => {
+  const res = await fetch(baseUrl + "/");
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { name?: string };
+  expect(body.name).toBe("${safeName}");
 });
 `;
 }
@@ -472,14 +529,22 @@ export function homeTemplate(): string {
 `;
 }
 
-export function appConfigTemplate(options: { middleware?: boolean } = {}): string {
+export function appConfigTemplate(
+  options: { middleware?: boolean; plugins?: boolean } = {},
+): string {
   const middleware = options.middleware ?? false;
+  const hasPlugins = options.plugins ?? false;
   const middlewareImports = middleware
     ? `import { middleware } from "./middleware/index.js";
 import { logRequests, markResponse } from "./middleware/log-requests.js";
 `
     : "";
-  const pluginsSpread = middleware ? "  ...middleware,\n" : "";
+  const pluginsImport = hasPlugins
+    ? `import { plugins } from "./plugins/index.js";
+`
+    : "";
+  const pluginsSpread = hasPlugins ? "  ...plugins,\n" : "";
+  const middlewareSpread = middleware ? "  ...middleware,\n" : "";
   const lifecycle = middleware
     ? `
 export const lifecycle = {
@@ -488,14 +553,14 @@ export const lifecycle = {
 `
     : "";
 
-  return `${middlewareImports}import { compression, cors, openapi, security, session } from "@ignex/core";
+  // The selected `--features` plugins (cors/rateLimit/security/compression/
+  // logger) come from ./plugins/index.js (spread below); session + openapi are
+  // the baseline every scaffold gets.
+  return `${middlewareImports}${pluginsImport}import { openapi, session } from "@ignex/core";
 import { env } from "./config/env.js";
 
 export const plugins = [
-${pluginsSpread}  cors(),
-  compression(),
-  security(),
-  session({ secret: env.SESSION_SECRET ?? "dev-secret-change-me", createIfMissing: true }),
+${pluginsSpread}${middlewareSpread}  session({ secret: env.SESSION_SECRET || "dev-secret-change-me", createIfMissing: true }),
   // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
   // In AOT builds the plugin serves the compiler-generated openapi.json.
   openapi()

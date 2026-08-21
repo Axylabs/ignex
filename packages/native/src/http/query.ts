@@ -9,7 +9,10 @@ import type { Pairs } from "./types";
 
 /** Parse a query string into `[name, value]` pairs (duplicates preserved). */
 export const queryPairs = (input: string | Uint8Array): Pairs => {
-  // Selection: js (native x0.96) — see selection.ts.
+  // Selection: js — the packed C-ABI writer (`queryParsePacked`) measured
+  // SLOWER (x0.96, scripts/bench-ffi.ts), so it is deliberately NOT selected
+  // (native only where proven faster). The packed writers stay as the
+  // C-ABI parity surface (verify-native-ffi.ts) + a published util.
   return queryPairsFallback(input);
 };
 

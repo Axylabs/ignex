@@ -14,17 +14,15 @@
  * get — without a build step.
  */
 
-import { parseQueryFromURL } from "../data/query";
-import { validateAsync } from "../data/schema";
 import { runHooks } from "../lifecycle/lifecycle";
 import { errorToResponse } from "../platform/errors";
-import type { AnySchema, HookContainer, MaybePromise } from "../types";
+import type { HookContainer, MaybePromise } from "../types";
 import type { ContextOptions, IgnexContext, IgnexServer } from "./context";
 import { createContext } from "./context";
-import { parseCookieString } from "./cookies";
 import { finalizeResponse, jsonReply } from "./finalize";
 import { applySet } from "./headers";
 import type { RouteDetail, RouteSchemas } from "./route";
+import { runObserveStage, runPostStage, runPreStage, validateSchema } from "./route-stages";
 import { extractParams, extractServer, pathToRegex } from "./router-utils";
 
 const EMPTY_PARAMS = Object.freeze({});
@@ -171,37 +169,6 @@ export const createRouter = (): IgnexRouter => {
     return errorToResponse(err, exposeErrors);
   };
 
-  /** Runtime per-part validation (mirrors the compiled full-context prelude). */
-  const validateSchema = async (
-    schema: RouteSchemas,
-    ctx: IgnexContext,
-    req: Request,
-  ): Promise<void> => {
-    if (schema.params) await validateAsync(schema.params as AnySchema, ctx.params, "params");
-    if (schema.query) {
-      const query = parseQueryFromURL(req.url);
-      Object.defineProperty(ctx, "query", { value: query, configurable: true });
-      await validateAsync(schema.query as AnySchema, query, "query");
-    }
-    if (schema.headers) {
-      await validateAsync(
-        schema.headers as AnySchema,
-        Object.fromEntries(req.headers.entries()),
-        "headers",
-      );
-    }
-    if (schema.cookie) {
-      await validateAsync(
-        schema.cookie as AnySchema,
-        parseCookieString(req.headers.get("cookie")),
-        "cookie",
-      );
-    }
-    if (schema.body) {
-      await validateAsync(schema.body as AnySchema, await ctx.body.json(), "body");
-    }
-  };
-
   /** Run the full per-request lifecycle for a matched route (guarded stages). */
   const runRoute = async (
     reg: RouteRegistration,
@@ -211,42 +178,29 @@ export const createRouter = (): IgnexRouter => {
     const s = ensureBound();
     let ctx = initialCtx;
 
+    // A pre-aborted request is short-circuited before any work (matches the
+    // interpreted runLifecycle): the handler and hooks never run.
+    if (req.signal.aborted) return new Response(null, { status: 200 });
+
     // start → request → parse → transform (before validation).
-    if (s.preParse.length > 0) {
-      const pre = await runHooks(s.preParse, ctx);
-      if (pre.response) return applySet(pre.response, pre.ctx.set);
-      ctx = pre.ctx;
-    }
+    const pre = await runPreStage(s.preParse, ctx);
+    if (pre.halt) return pre.halt;
+    ctx = pre.ctx;
 
     // Runtime schema validation (no-op when the route has no schema).
     if (reg.schema) await validateSchema(reg.schema, ctx, req);
 
-    if (s.beforeHandle.length > 0) {
-      const g = await runHooks(s.beforeHandle, ctx);
-      if (g.response) return applySet(g.response, g.ctx.set);
-      ctx = g.ctx;
-    }
+    const before = await runPreStage(s.beforeHandle, ctx);
+    if (before.halt) return before.halt;
+    ctx = before.ctx;
 
     const result = await reg.handler(ctx);
     let response = finalizeResponse(result, ctx, undefined, jsonReply);
 
-    if (s.afterHandle.length > 0) {
-      const after = await runHooks(s.afterHandle, ctx, response);
-      ctx = after.ctx ?? ctx;
-      response = after.response ?? response;
-    }
-    if (s.mapResponse.length > 0) {
-      const mapped = await runHooks(s.mapResponse, ctx, response);
-      ctx = mapped.ctx ?? ctx;
-      response = mapped.response ?? response;
-    }
-    if (s.afterResponse.length > 0) {
-      try {
-        await runHooks(s.afterResponse, ctx, response);
-      } catch (err) {
-        console.error("[ignex] afterResponse hook error:", err);
-      }
-    }
+    // afterHandle → mapResponse (may replace ctx and/or the response).
+    ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response));
+    ({ ctx, response } = await runPostStage(s.mapResponse, ctx, response));
+    await runObserveStage(s.afterResponse, ctx, response);
 
     // Single outer applySet (headers/status/cookies exactly once).
     return applySet(response, ctx.set);
@@ -301,9 +255,8 @@ export const createRouter = (): IgnexRouter => {
 
     const s = ensureBound();
     // Run the full pre-handler chain so plugins/hooks apply to preflight too.
-    const pre = await runHooks(s.pre, ctx);
-    let response = pre.response ?? new Response(null, { status: 204 });
-    response = applySet(response, pre.ctx.set);
+    const pre = await runPreStage(s.pre, ctx);
+    const response = pre.halt ?? applySet(new Response(null, { status: 204 }), pre.ctx.set);
 
     const headers = new Headers(response.headers);
     if (!headers.has("access-control-allow-methods")) headers.set("Allow", allow);
@@ -359,19 +312,14 @@ export const createRouter = (): IgnexRouter => {
     const ctx = createContext(req, EMPTY_PARAMS, ctxOptions ?? {});
     ctx.server = server ?? null;
 
-    const pre = await runHooks(s.pre, ctx);
-    if (pre.response) return applySet(pre.response, pre.ctx.set);
+    const pre = await runPreStage(s.pre, ctx);
+    if (pre.halt) return pre.halt;
 
-    const post = await runHooks([...s.afterHandle, ...s.mapResponse], pre.ctx, response);
-    const result = post.response ?? response;
-    if (s.afterResponse.length > 0) {
-      try {
-        await runHooks(s.afterResponse, pre.ctx, result);
-      } catch (err) {
-        console.error("[ignex] afterResponse hook error:", err);
-      }
-    }
-    return applySet(result, pre.ctx.set);
+    // The fallback path threads the response through the post stages but keeps
+    // the pre-stage ctx for the final applySet (matches the compiled __fallback).
+    const post = await runPostStage([...s.afterHandle, ...s.mapResponse], pre.ctx, response);
+    await runObserveStage(s.afterResponse, pre.ctx, post.response);
+    return applySet(post.response, pre.ctx.set);
   };
 
   /** True when a registered method answers the request method (auto-HEAD → GET). */

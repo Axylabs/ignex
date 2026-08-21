@@ -2,7 +2,8 @@
  * Wire-codec tests for the per-route native stack (`route-wire.ts`).
  *
  * Locks the binary contract between @ignex/native and the Rust addon
- * (rust/route.rs): descriptor encode/decode round-trip, frame packing, and
+ * (rust/ingress/native_route.rs): descriptor encode/decode round-trip, frame
+ * packing, and
  * result decoding must be stable and self-consistent — changing one side
  * alone breaks parity, which these tests guard against.
  */

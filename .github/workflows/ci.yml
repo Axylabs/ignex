@@ -173,15 +173,13 @@ jobs:
   # Benchmarks the AOT-compiled app server and compares native req/s against
   # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).
   # `bench/results/server/baseline.json` is COMMITTED (native-vs-baseline check is
-  # live when run params match). Still soft (continue-on-error) pending a known
-  # issue: native-mode is ~15-16% behind fallback on the 256KB-gzip /api/big route
-  # (tracked in docs/stability.md risk register) — drop continue-on-error once
-  # that is resolved and thresholds are validated on a stable runner.
+  # live when run params match). HARD gate: the previous /api/big native-mode
+  # overhead (~15-16%) was resolved (re-measured ~2% on 2026-08-19), so the perf
+  # regression gate can fail CI again.
   server-bench:
     name: Server bench gate (real addon)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - name: Checkout ignex
         uses: actions/checkout@v4

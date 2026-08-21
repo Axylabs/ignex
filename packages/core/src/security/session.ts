@@ -7,16 +7,25 @@
  * signs + writes the cookie (and the backing store when configured) via the
  * context's cookie jar, so responses automatically carry the right
  * `Set-Cookie` header.
+ *
+ * The backing stores live in `./session-store`: `SessionStore` is the pluggable
+ * driver contract, implemented on the generic `data/store` layer (`memory` /
+ * `sqlite` / file / custom drivers via {@link createSessionStoreFromStore}).
  */
 import { randomToken, signCookie, verifyCookie } from "@ignex/native";
-import { err, isOk, ok, type Result } from "@ignex/shared";
+import { err, ok, type Result } from "@ignex/shared";
 import type { IgnexContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn, type HookResult } from "../lifecycle/hooks";
-import { loadBunSqlite } from "../platform/sqlite";
+import type { SessionData, SessionStore, SessionStoreOptions } from "./session-store";
+import {
+  createMemorySessionStore,
+  createSessionStoreFromStore,
+  createSqliteSessionStore,
+} from "./session-store";
 
-/** Arbitrary session payload data (JSON-serializable). */
-export type SessionData = Record<string, unknown>;
+export type { SessionData, SessionStore, SessionStoreOptions };
+export { createMemorySessionStore, createSessionStoreFromStore, createSqliteSessionStore };
 
 /** A live session attached to a request by the session middleware. */
 export interface Session {
@@ -33,121 +42,6 @@ export interface Session {
   /** Extend the session lifetime (rolling expiry). */
   touch(): void;
 }
-
-/** A pluggable session backing store (memory, SQLite, …). */
-export interface SessionStore {
-  get(id: string): Promise<SessionData | null>;
-  set(id: string, data: SessionData, options?: { expiresAt?: number }): Promise<void>;
-  delete(id: string): Promise<void>;
-  touch?(id: string, options?: { expiresAt?: number }): Promise<void>;
-  close?(): void;
-}
-
-/** In-memory session store with lazy expiry + periodic sweep (unref'd). */
-export const createMemorySessionStore = (
-  options: { ttlSeconds?: number; sweepIntervalMs?: number } = {},
-): SessionStore => {
-  const ttlMs = (options.ttlSeconds ?? 3600) * 1000;
-  const entries = new Map<string, { data: SessionData; expiresAt: number }>();
-
-  const sweep = (): void => {
-    const now = Date.now();
-    for (const [id, entry] of entries) {
-      if (entry.expiresAt <= now) entries.delete(id);
-    }
-  };
-
-  const interval = setInterval(sweep, options.sweepIntervalMs ?? 60_000);
-  interval.unref?.();
-
-  return {
-    async get(id) {
-      const entry = entries.get(id);
-      if (!entry) return null;
-      if (entry.expiresAt <= Date.now()) {
-        entries.delete(id);
-        return null;
-      }
-      return { ...entry.data };
-    },
-    async set(id, data, opts) {
-      entries.set(id, {
-        data: { ...data },
-        expiresAt: opts?.expiresAt ?? Date.now() + ttlMs,
-      });
-    },
-    async delete(id) {
-      entries.delete(id);
-    },
-    async touch(id, opts) {
-      const entry = entries.get(id);
-      if (!entry) return;
-      entry.expiresAt = opts?.expiresAt ?? Date.now() + ttlMs;
-    },
-    close() {
-      clearInterval(interval);
-    },
-  };
-};
-
-/**
- * SQLite-backed session store via `bun:sqlite` (mirrors `createSqliteJobStore`).
- * Returns `null` when the module is unavailable (e.g. running on Node without
- * the polyfill) so callers can fall back to the memory store. Expired rows are
- * deleted lazily on read; a `close()` is provided for clean shutdown.
- */
-export const createSqliteSessionStore = async (
-  file = ":memory:",
-  options: { ttlSeconds?: number } = {},
-): Promise<SessionStore | null> => {
-  const Database = await loadBunSqlite();
-  if (!Database) return null;
-
-  const ttlMs = (options.ttlSeconds ?? 3600) * 1000;
-  const db = new Database(file);
-  db.run(
-    "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL)",
-  );
-  const run = db.run.bind(db);
-  const all = (sql: string, params: unknown[]): Array<{ data: string; expires_at: number }> =>
-    db.query(sql).all(...params) as Array<{ data: string; expires_at: number }>;
-
-  return {
-    async get(id) {
-      const rows = all("SELECT data, expires_at FROM sessions WHERE id = ?", [id]);
-      const row = rows[0];
-      if (!row) return null;
-      if (row.expires_at <= Date.now()) {
-        run("DELETE FROM sessions WHERE id = ?", [id]);
-        return null;
-      }
-      try {
-        return JSON.parse(row.data) as SessionData;
-      } catch {
-        run("DELETE FROM sessions WHERE id = ?", [id]);
-        return null;
-      }
-    },
-    async set(id, data, opts) {
-      run(
-        "INSERT INTO sessions (id, data, expires_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at",
-        [id, JSON.stringify(data), opts?.expiresAt ?? Date.now() + ttlMs],
-      );
-    },
-    async delete(id) {
-      run("DELETE FROM sessions WHERE id = ?", [id]);
-    },
-    async touch(id, opts) {
-      run("UPDATE sessions SET expires_at = ? WHERE id = ?", [
-        opts?.expiresAt ?? Date.now() + ttlMs,
-        id,
-      ]);
-    },
-    close() {
-      db.close();
-    },
-  };
-};
 
 /** Options for {@link createSessionManager}. */
 export interface SessionManagerOptions {
@@ -228,12 +122,38 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
   if (options.secret.length === 0) {
     throw new TypeError("createSessionManager requires a non-empty secret");
   }
+  // Production hardening: a weak or well-known dev default secret must never
+  // ship. Dev/test keep the lenient check so local iteration stays
+  // frictionless (matches the `doctor` security check).
+  if (process.env.NODE_ENV === "production") {
+    if (options.secret.length < 16) {
+      throw new TypeError(
+        "createSessionManager requires a secret of at least 16 characters in production",
+      );
+    }
+    const asString = typeof options.secret === "string" ? options.secret : "";
+    if (asString === "dev-secret-change-me") {
+      throw new TypeError(
+        "createSessionManager refuses the known dev default 'dev-secret-change-me' in production",
+      );
+    }
+  }
   const secret = options.secret;
   const store = options.store;
   const cookieName = options.cookieName ?? "sid";
   const ttlSeconds = options.ttlSeconds ?? 3600;
   const rolling = options.rolling ?? true;
   const cookieOptions = options.cookieOptions ?? { httpOnly: true, sameSite: "lax", path: "/" };
+
+  // Effective cookie options for a request: apply the `secure` default —
+  // production always sets Secure; dev auto-detects from the request URL so
+  // HTTPS-local hosts get Secure cookies without configuration. An explicit
+  // `cookieOptions.secure` always wins.
+  const effectiveCookieOptions = (ctx: IgnexContext): Partial<Record<string, unknown>> => {
+    if (cookieOptions.secure != null) return cookieOptions;
+    const secure = process.env.NODE_ENV === "production" || ctx.req.url.startsWith("https:");
+    return secure ? { ...cookieOptions, secure: true } : cookieOptions;
+  };
 
   const now = (): number => Date.now();
   const expiresAtFor = (): number => now() + ttlSeconds * 1000;
@@ -280,6 +200,16 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
       destroy: () => destroy(ctx, session),
       touch: () => {
         session.expiresAt = expiresAtFor();
+        // Write-through so a bare touch() (handler calls it without a later
+        // save()) still extends the session on the next request: a store gets
+        // its row updated AND the cookie rewritten (the next request reads
+        // expiry from the cookie). The rolling middleware's follow-up persist
+        // makes this redundant there, but it is harmless (same data, single
+        // Set-Cookie key).
+        const p = persist(ctx, session);
+        if (p instanceof Promise) {
+          void p.catch((err) => console.error("[ignex] session touch persist failed:", err));
+        }
       },
     };
     return session;
@@ -300,11 +230,11 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     };
     if (store) {
       return store.set(session.id, session.data, { expiresAt: session.expiresAt }).then(() => {
-        writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
+        writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), effectiveCookieOptions(ctx));
       });
     }
     envelope.data = session.data;
-    writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), cookieOptions);
+    writeCookie(ctx.cookie, cookieName, encodeEnvelope(envelope), effectiveCookieOptions(ctx));
   };
 
   const destroy = async (ctx: IgnexContext, session: Session | null): Promise<void> => {
@@ -315,8 +245,18 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
   // Sync-capable session resolution: without a store the cookie decode +
   // materialize is pure sync (no Promise). With a store, `store.get` is async.
   const resolveSession = (ctx: IgnexContext): Session | null | Promise<Session | null> => {
-    const envelope = decodeEnvelope(ctx.cookie[cookieName]?.value);
-    if (!isOk(envelope)) return null;
+    const raw = ctx.cookie[cookieName]?.value;
+    const envelope = decodeEnvelope(raw);
+    if (envelope.ok === false) {
+      // A tampered/expired/malformed session cookie is treated as missing AND
+      // cleared from the client — otherwise a bad cookie lingers forever or
+      // mints a fresh session on every request (session churn). "missing" is
+      // the no-cookie case and has nothing to clear.
+      if (envelope.error !== "missing") {
+        ctx.cookie[cookieName]?.remove();
+      }
+      return null;
+    }
     const { id, data: envelopeData, exp } = envelope.value;
 
     if (store) {

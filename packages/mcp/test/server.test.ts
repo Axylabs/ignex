@@ -40,8 +40,10 @@ describe("ignex MCP server (protocol)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "build",
       "dev",
+      "devStop",
       "doctor",
       "info",
+      "list-routes",
       "openapi",
       "route",
     ]);

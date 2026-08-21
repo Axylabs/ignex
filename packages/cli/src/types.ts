@@ -11,7 +11,6 @@ export const FEATURE_NAMES = [
   "sse",
   "cache",
   "proxy",
-  "cluster",
   "auth",
   "refresh",
   "sessions",

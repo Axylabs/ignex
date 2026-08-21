@@ -7,7 +7,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseRouteInput, routeFileTemplate } from "@ignex/cli/route";
@@ -78,7 +78,19 @@ export interface RouteToolArgs {
 /** Scaffold a route file, reusing the CLI's template + filename parsing. */
 export const runRouteTool = async (args: RouteToolArgs): Promise<string> => {
   const root = cwd(args.root);
-  const parsed = parseRouteInput(args.input, args.method);
+
+  // `parseRouteInput` throws on empty/invalid input, traversal, or a bad
+  // method — NEVER let that become an exception in the MCP protocol. Return a
+  // structured error so the agent gets an actionable message instead.
+  let parsed: ReturnType<typeof parseRouteInput>;
+  try {
+    parsed = parseRouteInput(args.input, args.method);
+  } catch (error) {
+    return safeJson({
+      ok: false,
+      error: `Invalid route input: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 
   const routesDir = join(root, "src/routes");
   const filePath = join(routesDir, parsed.file);
@@ -162,13 +174,53 @@ export const runDoctorTool = async (): Promise<string> => {
     },
     {
       name: "compiler",
-      ok: true,
+      // Real probe (was a hardcoded `ok: true` stub): the compiler API must
+      // actually be importable + callable from this process.
+      ok: typeof buildAsync === "function",
       detail: "@ignex/compiler importable",
     },
   ];
 
   const failed = checks.filter((c) => !c.ok);
   return safeJson({ ok: failed.length === 0, checks });
+};
+
+export interface ListRoutesToolArgs {
+  root: string | undefined;
+}
+
+/** Enumerate the project's route files (no build required). */
+export const runListRoutesTool = async (args: ListRoutesToolArgs): Promise<string> => {
+  const root = cwd(args.root);
+  const routesDir = join(root, "src/routes");
+  if (!existsSync(routesDir)) {
+    return safeJson({
+      ok: false,
+      error: `No routes directory at ${relative(process.cwd(), routesDir)}`,
+    });
+  }
+
+  const files: string[] = [];
+  const walkDir = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const abs = join(dir, entry);
+      const stat = statSync(abs);
+      if (stat.isDirectory()) {
+        walkDir(abs);
+      } else if (/^[^.].*\.(ts|js|mjs|tsx|jsx)$/.test(entry)) {
+        files.push(relative(routesDir, abs).replace(/\\/g, "/"));
+      }
+    }
+  };
+  walkDir(routesDir);
+  files.sort();
+
+  return safeJson({
+    ok: true,
+    routesDir: relative(process.cwd(), routesDir),
+    count: files.length,
+    files,
+  });
 };
 
 export interface OpenApiToolArgs {
@@ -178,13 +230,31 @@ export interface OpenApiToolArgs {
 /** Build (if needed) and return the generated openapi.json. */
 export const runOpenApiTool = async (args: OpenApiToolArgs): Promise<string> => {
   const root = cwd(args.root);
-  const outDir = join(root, ".ignex");
+
+  // Respect the project's ignex.config (read as TEXT — never execute it):
+  // honor outDir/routesDir and skip a rebuild when openapi.json already
+  // exists. Previously this unconditionally rebuilt and used a hardcoded
+  // `.ignex/openapi.json`, ignoring any custom outDir.
+  const configPath = join(root, "ignex.config.mjs");
+  const configText = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const outDirMatch = /outDir\s*:\s*["']([^"']+)["']/.exec(configText);
+  const routesDirMatch = /routesDir\s*:\s*["']([^"']+)["']/.exec(configText);
+  const generateOpenApi = !/generateOpenAPI\s*:\s*false/.test(configText);
+  const outDir = outDirMatch?.[1] ? resolve(root, outDirMatch[1]) : join(root, ".ignex");
+  const routesDir = routesDirMatch?.[1]
+    ? resolve(root, routesDirMatch[1])
+    : join(root, "src/routes");
   const openapiPath = join(outDir, "openapi.json");
 
-  await runBuildTool({ root: args.root, outDir, routesDir: undefined, minify: undefined });
-
   if (!existsSync(openapiPath)) {
-    return safeJson({ ok: false, error: "openapi.json was not generated (check generateOpenAPI)" });
+    if (!generateOpenApi) {
+      return safeJson({ ok: false, error: "generateOpenAPI is disabled for this project" });
+    }
+    const build = await runBuildTool({ root: args.root, outDir, routesDir, minify: undefined });
+    const summary = JSON.parse(build) as { ok?: boolean; error?: string };
+    if (!summary.ok) {
+      return safeJson({ ok: false, error: `Build failed: ${summary.error ?? "unknown error"}` });
+    }
   }
 
   try {
@@ -200,34 +270,72 @@ export interface DevToolArgs {
   port: number | undefined;
 }
 
-/** Spawn `ignex dev` in the project and report the process. */
-export const runDevTool = (args: DevToolArgs): string => {
+/** Tracked live dev servers, keyed by pid, so `devStop` can stop them. */
+const devServers = new Map<number, unknown>();
+
+/**
+ * Spawn `ignex dev` in the project and report the outcome. Waits for the
+ * spawn `error`/`spawn` events so a failed spawn (bunx missing) is reported
+ * as `{ ok: false }` instead of a false `{ ok: true, pid }`.
+ */
+export const runDevTool = async (args: DevToolArgs): Promise<string> => {
   const root = cwd(args.root);
   const argsList = ["ignex", "dev", root];
   if (args.port) argsList.push("--port", String(args.port));
 
-  const child = spawn("bunx", argsList, {
-    cwd: root,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-  // `bun-types` models `node:child_process`'s ChildProcess WITHOUT the
-  // EventEmitter `.on` method, so type through a minimal structural bridge.
-  // At runtime the child process DOES emit `error` on a failed spawn (bunx
-  // missing / not on PATH); without a listener that event is UNHANDLED and
-  // crashes the MCP server. Log and let the tool's earlier `ok` response stand.
-  (child as unknown as { on(event: string, listener: (err: Error) => void): void }).on(
-    "error",
-    (err) => {
-      console.error(`[ignex-mcp] failed to spawn dev server (bunx unavailable?): ${err.message}`);
-    },
-  );
+  return new Promise<string>((resolveResult) => {
+    let settled = false;
+    const child = spawn("bunx", argsList, {
+      cwd: root,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    const events = child as unknown as {
+      on(event: string, listener: (...a: unknown[]) => void): void;
+    };
 
-  return safeJson({
-    ok: true,
-    pid: child.pid,
-    command: `bunx ${argsList.join(" ")}`,
-    note: "dev server launched in the background; logs are not streamed to the agent.",
+    const finish = (payload: Record<string, unknown>): void => {
+      if (settled) return;
+      settled = true;
+      resolveResult(safeJson(payload));
+    };
+
+    events.on("error", (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[ignex-mcp] failed to spawn dev server (bunx unavailable?): ${message}`);
+      finish({ ok: false, error: `Failed to spawn bunx: ${message}` });
+    });
+
+    events.on("spawn", () => {
+      if (child.pid != null) devServers.set(child.pid, child);
+      finish({
+        ok: true,
+        pid: child.pid,
+        command: `bunx ${argsList.join(" ")}`,
+        note: "dev server launched in the background; logs are not streamed. Stop it with the `devStop` tool (or kill the pid).",
+      });
+    });
+
+    // Safety net: if neither event fires (unlikely), don't hang the tool.
+    const t = setTimeout(
+      () => finish({ ok: false, error: "Timed out waiting for the dev server to spawn." }),
+      5000,
+    );
+    t.unref?.();
   });
+};
+
+/** Stop a previously-spawned dev server by pid. */
+export const runDevStopTool = (args: { pid: number }): string => {
+  if (!devServers.has(args.pid)) {
+    return safeJson({ ok: false, error: `No tracked dev server with pid ${args.pid}.` });
+  }
+  try {
+    process.kill(args.pid, "SIGTERM");
+    devServers.delete(args.pid);
+    return safeJson({ ok: true, stopped: args.pid });
+  } catch (error) {
+    return safeJson({ ok: false, error: `Failed to stop ${args.pid}: ${String(error)}` });
+  }
 };

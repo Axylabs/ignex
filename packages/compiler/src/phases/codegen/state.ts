@@ -37,8 +37,10 @@ export interface CodegenState {
   // Inlined handler bodies (self-contained modules emitted inline).
   inlineHandlers: Map<string, { body: string; isAsync: boolean; param: string }>;
 
-  // WebSocket route `wsHandler` import names (assigned to `Bun.serve.websocket`).
-  wsHandlers: string[];
+  // WebSocket route `wsHandler` imports (route path → import name). A single
+  // route is assigned directly to `Bun.serve.websocket`; multiple routes use
+  // a per-path dispatcher (see server.ts).
+  wsHandlers: Array<{ path: string; handler: string }>;
 
   // Route-table accumulation.
   routeEntries: Map<string, Map<string, string>>;

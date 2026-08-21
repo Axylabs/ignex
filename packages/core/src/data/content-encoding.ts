@@ -5,7 +5,7 @@
  * testable in isolation and shared by the compression plugin.
  */
 
-import { parseAcceptEncoding } from "@ignex/native";
+import { type AcceptNegotiator, createAcceptNegotiator, parseAcceptEncoding } from "@ignex/native";
 
 /** Content-type prefixes that are safe to compress (text-like, not media). */
 const COMPRESSIBLE_PREFIXES = [
@@ -21,11 +21,37 @@ export const isCompressible = (contentType: string): boolean =>
   COMPRESSIBLE_PREFIXES.some((prefix) => contentType.startsWith(prefix));
 
 /**
+ * The compression plugin's `supported` lists are fixed per process (brotli
+ * support is detected once), so the compiled native negotiator is cached per
+ * list — `createAcceptNegotiator` compiles the supported values into a Rust
+ * instance once (the intended "compiled negotiator" contract; per-request
+ * construction measured ~0.5×). The key is the joined list so the brotli and
+ * no-brotli variants each compile exactly once.
+ */
+const negotiatorCache = new Map<string, AcceptNegotiator | null>();
+const negotiatorFor = (supported: readonly string[]): AcceptNegotiator | null => {
+  const key = supported.join(",");
+  let neg = negotiatorCache.get(key);
+  if (neg === undefined) {
+    // Falls back to the pure-TS engine when native is unavailable — the
+    // returned instance always implements `negotiateServerPreference`.
+    neg = createAcceptNegotiator([...supported]);
+    negotiatorCache.set(key, neg);
+  }
+  return neg;
+};
+
+/**
  * Negotiate the best supported content-coding from an `Accept-Encoding`
  * header. Respects explicit `q` weights and `q=0` exclusions, and applies a
  * wildcard `*` entry to supported encodings not listed explicitly. On equal
  * weight, the caller's `supported` order (server preference) decides. Returns
  * `null` when no supported encoding is acceptable (or the header is absent).
+ *
+ * Native-first: the compiled Rust negotiator's `negotiateServerPreference`
+ * implements EXACTLY this q-only / server-preference semantic (measured ~2.2×
+ * vs the JS path), with the pure-TS engine as the fallback when the addon is
+ * absent — byte-identical results either way.
  *
  * Examples:
  * - `"gzip, br"`            → `"br"` (tie broken by server preference)
@@ -37,11 +63,20 @@ export const isCompressible = (contentType: string): boolean =>
 export const negotiateEncoding = (header: string, supported: readonly string[]): string | null => {
   if (!header) return null;
 
+  // Native path (compiled once): q-only server-preference semantics.
+  const neg = negotiatorFor(supported);
+  if (neg) return neg.negotiateServerPreference(header);
+
+  // Pure-TS fallback — identical semantics (native absent).
+  return negotiateEncodingJs(header, supported);
+};
+
+/** Pure-TS `negotiateEncoding` (the native negotiator's byte-identical twin). */
+const negotiateEncodingJs = (header: string, supported: readonly string[]): string | null => {
   const prefs = parseAcceptEncoding(header);
   if (prefs.length === 0) return null;
 
   const explicit = new Map<string, number>();
-  const listed: string[] = [];
   let wildcardQ = -1; // -1 = no wildcard present
 
   for (const { encoding, q } of prefs) {
@@ -52,7 +87,6 @@ export const negotiateEncoding = (header: string, supported: readonly string[]):
     // Duplicate encodings are undefined by RFC 7231; first occurrence wins.
     if (!explicit.has(encoding)) {
       explicit.set(encoding, q);
-      listed.push(encoding);
     }
   }
 

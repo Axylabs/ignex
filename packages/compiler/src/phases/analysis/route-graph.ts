@@ -9,9 +9,10 @@
  * module-table helpers used by the rest of the analysis phase.
  */
 
+import { DiagnosticCodes } from "../../diagnostics";
 import { lowerRoute, parseRouteFilename } from "../../ir/lower";
 import type { RouteIR } from "../../ir/route";
-import type { ModuleInfo } from "../../types";
+import type { CompilerContext, ModuleInfo } from "../../types";
 
 export const parseRouteFile = (file: string) => parseRouteFilename(file);
 
@@ -51,17 +52,30 @@ export const resolveRouteModule = (
 export const buildRouteGraph = (
   files: readonly string[],
   modules: readonly ModuleInfo[],
+  ctx: CompilerContext,
 ): RouteIR[] => {
   const routes: RouteIR[] = [];
 
   for (const file of files) {
-    const resolved = resolveRouteModule(file, modules);
-    if (!resolved) continue;
-
+    const parsed = parseRouteFile(file);
+    if (!parsed) continue; // not a route file — nothing to report
+    const mod = findModuleByPath(modules, file);
+    if (!mod) continue;
+    // A parseable route filename with NO handler export is a hard error: the
+    // route would silently 404 in production (misspelled `httpGet`, missing
+    // export, or an unparseable file that lowered to an empty program). Fail
+    // the build with a clear, actionable diagnostic.
+    if (!mod.hasHandlerExport && parsed.method !== "WS") {
+      ctx.diagnostics.error({
+        code: DiagnosticCodes.NoHandlerExport,
+        message: `Route file has no handler export for "${parsed.method.toUpperCase()} ${parsed.path}" — expected \`export const ${parsed.method} = get(...)\` (or a default export).`,
+        file,
+      });
+      continue;
+    }
     const moduleIdx = findModuleIndex(modules, file);
     if (moduleIdx < 0) continue;
-
-    routes.push(lowerRoute(file, resolved.parsed, resolved.mod, routes.length, moduleIdx));
+    routes.push(lowerRoute(file, parsed, mod, routes.length, moduleIdx));
   }
 
   return routes;

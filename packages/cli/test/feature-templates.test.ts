@@ -28,13 +28,20 @@ test("index/health routes use a named export and a ctx-taking handler", () => {
   expect(health).toContain('export const httpGet = get((ctx) => ctx.text("ok"));');
 });
 
-test("app.config wires the openapi() plugin by default", () => {
-  const code = appConfigTemplate();
-  expect(code).toContain(
-    'import { compression, cors, openapi, security, session } from "@ignex/core";',
-  );
+test("app.config wires the openapi() and session() baseline + selected plugins", () => {
+  const code = appConfigTemplate({ plugins: true });
+  // Selected `--features` plugins come from ./plugins/index.js (spread).
+  expect(code).toContain('import { plugins } from "./plugins/index.js";');
+  expect(code).toContain("  ...plugins,");
+  // Baseline: openapi() docs plugin always present.
   expect(code).toContain("openapi()");
   expect(code).not.toContain("generateOpenAPI(");
+
+  // Without a plugins file (no plugin features), the app config stays valid.
+  const bare = appConfigTemplate();
+  expect(bare).not.toContain("./plugins/index.js");
+  expect(bare).toContain("openapi()");
+  expect(bare).toContain("session({");
 });
 
 test("product routes read params/body with a ctx-taking handler", () => {

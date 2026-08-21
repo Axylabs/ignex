@@ -139,7 +139,10 @@ export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
     }
   };
 
-  const run = (name: string, task: () => Promise<void> | void): Job => {
+  // Internal enqueue — NO stopped guard: timers created before `stop()` may
+  // legitimately fire during shutdown and must not throw into the event loop.
+  // Public entry points below guard `stopped` and fail loud instead.
+  const runUnchecked = (name: string, task: () => Promise<void> | void): Job => {
     const id = `${++jobIdCounter}`;
     const item: { name: string; task: () => Promise<void>; cancelled?: boolean } = {
       name,
@@ -157,11 +160,23 @@ export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
     };
   };
 
+  // Public enqueue: after `stop()` the queue is dead — enqueueing would
+  // silently drop the job. Fail loud so the caller notices the bug.
+  const run = (name: string, task: () => Promise<void> | void): Job => {
+    if (stopped) {
+      throw new Error(`Cannot enqueue job "${name}": the job queue has been stopped.`);
+    }
+    return runUnchecked(name, task);
+  };
+
   const schedule = (
     name: string,
     task: () => Promise<void> | void,
     options: ScheduleOptions = {},
   ): Job => {
+    if (stopped) {
+      throw new Error(`Cannot schedule job "${name}": the job queue has been stopped.`);
+    }
     const id = `${++jobIdCounter}`;
     const delayMs = options.when
       ? Math.max(0, options.when.getTime() - Date.now())
@@ -172,16 +187,16 @@ export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
 
     const timer = setTimeout(() => {
       timers.delete(timer);
-      if (cancelled) return;
+      if (cancelled || stopped) return;
       if (options.interval != null) {
         interval = setInterval(() => {
-          if (cancelled) return;
-          run(name, task);
+          if (cancelled || stopped) return;
+          runUnchecked(name, task);
         }, options.interval);
         interval.unref?.();
         timers.add(interval);
       }
-      run(name, task);
+      runUnchecked(name, task);
     }, delayMs);
 
     timer.unref?.();
@@ -209,10 +224,23 @@ export const createJobQueue = (options: JobQueueOptions = {}): JobQueue => {
     schedule,
     enqueue: run,
     every(name, ms, task) {
-      const interval = setInterval(() => run(name, task), ms);
+      if (stopped) {
+        throw new Error(`Cannot schedule recurring job "${name}": the job queue has been stopped.`);
+      }
+      const interval = setInterval(() => {
+        if (stopped) return;
+        runUnchecked(name, task);
+      }, ms);
       interval.unref?.();
       timers.add(interval);
-      return { id: `${++jobIdCounter}`, name, cancel: () => clearInterval(interval) };
+      return {
+        id: `${++jobIdCounter}`,
+        name,
+        cancel: () => {
+          clearInterval(interval);
+          timers.delete(interval);
+        },
+      };
     },
     once(name, when, task) {
       return schedule(name, task, { when });

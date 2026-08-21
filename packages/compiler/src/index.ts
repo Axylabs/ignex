@@ -16,7 +16,7 @@
  */
 
 import { pipeAsync } from "@ignex/shared";
-import { computeRouteChanges, storeCache, tryCachedBuild } from "./cache";
+import { computeRouteChanges, tryCachedBuild } from "./cache";
 import {
   DiagnosticCodes,
   DiagnosticCollector,
@@ -27,16 +27,20 @@ import { SourceManager } from "./frontend";
 import { loadPersistedModules, persistModules } from "./frontend/persist";
 import type { Logger } from "./logger";
 import { consoleLogger } from "./logger";
-import { runAnalysis } from "./phases/analysis";
-import { writeArtifacts } from "./phases/artifacts";
-import { runCodeGen } from "./phases/codegen";
-import { runDiscovery } from "./phases/discovery";
-import { runLinkerAsync } from "./phases/linker";
-import { runOptimization } from "./phases/optimization";
-import { precompileSerializers } from "./phases/serializers";
-import { precompileValidators } from "./phases/validators";
-import type { CompileResult, CompilerContext, CompilerOptions, RouteIR } from "./types";
-import { DEFAULT_OPTS, type OptimizationMeta } from "./types";
+import {
+  analysisStage,
+  artifactsStage,
+  cacheStage,
+  codegenStage,
+  discoveryStage,
+  finish,
+  linkStage,
+  optimizationStage,
+  type PipelineState,
+  precompileStage,
+} from "./pipeline";
+import type { CompileResult, CompilerContext, CompilerOptions } from "./types";
+import { DEFAULT_OPTS } from "./types";
 import { mergeOptions, validateOptions } from "./validate";
 
 export {
@@ -65,6 +69,39 @@ export {
 // standalone `scripts/generate-openapi-client.ts`) can share the canonical
 // implementations instead of re-implementing (and drifting from) them.
 export { parseRouteFilename } from "./phases/discovery";
+// SDK generation pipeline — multi-platform SDK packages derived from the
+// compiled artifacts (see `sdk/`); consumed by `ignex sdk` and
+// `scripts/generate-sdk.ts`.
+export {
+  DEFAULT_SDK_PLATFORMS,
+  generateSdk,
+  packSdk,
+  sdkPlatforms,
+  writeSdk,
+} from "./sdk";
+export type { JsonSchemaToTsOptions } from "./sdk/json-schema-to-ts";
+export { loadSdkInputs } from "./sdk/load";
+export type {
+  SdkGithubReleaseOptions,
+  SdkNpmPublishOptions,
+  SdkTagOptions,
+} from "./sdk/publish";
+export {
+  createSdkGithubRelease,
+  publishSdkToNpm,
+  resolveRepoUrl,
+  tagSdkVersion,
+} from "./sdk/publish";
+export type {
+  SdkFile,
+  SdkGenerateContext,
+  SdkOptions,
+  SdkPackage,
+  SdkPlatform,
+  SdkPlatformId,
+  SdkResult,
+  SdkRouteInfo,
+} from "./sdk/types";
 export type { CompileResult, CompilerOptions, RouteIR } from "./types";
 export { DEFAULT_OPTS, mergeOptions };
 
@@ -89,249 +126,6 @@ export class CompilationError extends Error {
     this.name = "CompilationError";
   }
 }
-
-// ============================================================================
-// Composed build pipeline
-// ============================================================================
-
-/**
- * Results threaded through the composed build stages. Each stage is a pure
- * function over this state (returning a new state), so the whole build reads
- * as a declarative pipeline:
- *
- *   validate → discover → analyze → optimize → (precompile validators/
- *   serializers) → artifacts → codegen → link → cache
- *
- * Every stage is a pure function composed with `pipeAsync` (the canonical
- * async entry); the precompile + cache stages are async-only.
- */
-interface PipelineState {
-  opts: CompilerOptions;
-  ctx: CompilerContext;
-  t0: number;
-  discovery?: ReturnType<typeof runDiscovery>;
-  analysis?: ReturnType<typeof runAnalysis>;
-  optimized?: ReturnType<typeof runOptimization>;
-  /** Source manager seeded with the persistent parse cache, if any. */
-  sources?: SourceManager;
-  routes: readonly RouteIR[];
-  code?: string;
-  outPath?: string;
-  meta?: OptimizationMeta;
-}
-
-const discoveryStage = (s: PipelineState): PipelineState => ({
-  ...s,
-  discovery: runDiscoveryPhase(s.opts, s.ctx, s.sources),
-});
-
-const analysisStage = (s: PipelineState): PipelineState => ({
-  ...s,
-  analysis: runAnalysisPhase(s.discovery as ReturnType<typeof runDiscovery>, s.opts, s.ctx),
-});
-
-const optimizationStage = (s: PipelineState): PipelineState => {
-  const optimized = runOptimizationPhase(
-    s.analysis as ReturnType<typeof runAnalysis>,
-    s.opts,
-    s.ctx,
-  );
-  return { ...s, optimized, routes: optimized.routes, meta: optimized.meta };
-};
-
-const precompileStage = async (s: PipelineState): Promise<PipelineState> => {
-  const analysis = s.analysis as ReturnType<typeof runAnalysis>;
-  let routes = s.routes;
-  routes = await precompileValidators(routes, analysis.modules, s.opts, s.ctx);
-  routes = await precompileSerializers(routes, analysis.modules, s.opts, s.ctx);
-  // The precompiled routes (validators/serializers/schemaDoc) replace the
-  // optimization result's routes so codegen sees the enriched set.
-  return {
-    ...s,
-    optimized: { ...(s.optimized as ReturnType<typeof runOptimization>), routes },
-    routes,
-  };
-};
-
-const artifactsStage = (s: PipelineState): PipelineState => {
-  writeArtifacts(s.routes, s.opts, s.ctx);
-  return s;
-};
-
-const codegenStage = (s: PipelineState): PipelineState => ({
-  ...s,
-  code: runCodegenPhase(
-    s.optimized as ReturnType<typeof runOptimization>,
-    s.analysis as ReturnType<typeof runAnalysis>,
-    s.opts,
-    s.ctx,
-  ),
-});
-
-const linkStage = async (s: PipelineState): Promise<PipelineState> => ({
-  ...s,
-  outPath: await runLinkingPhaseAsync(s.code as string, s.opts, s.ctx),
-});
-
-const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
-  // Never cache a failed build — analysis/linker errors surface via the final
-  // `hasErrors` check; caching them would poison the next incremental build.
-  if (s.opts.incremental && s.outPath && !s.ctx.diagnostics.hasErrors) {
-    await storeCache(
-      s.opts,
-      s.ctx,
-      s.outPath,
-      (s.optimized as ReturnType<typeof runOptimization>).meta,
-    );
-
-    // Persist per-module parse results so the next build rehydrates instead of
-    // re-parsing unchanged modules (see frontend/persist.ts).
-    try {
-      if (s.discovery?.sources) {
-        persistModules(s.discovery.sources.all(), s.opts.outDir);
-      }
-    } catch (error) {
-      s.ctx.diagnostics.warn({
-        code: DiagnosticCodes.BuildCacheInvalid,
-        message: `Failed to write module parse cache: ${errorMessage(error)}`,
-      });
-    }
-  }
-  return s;
-};
-
-/**
- * Run the discovery phase: scan the routes directory, parse every route
- * module, and build the source manager. Exposed for callers that compose the
- * pipeline themselves instead of using {@link IgnexCompiler}.
- */
-export const runDiscoveryPhase = (
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-  sources?: SourceManager,
-): ReturnType<typeof runDiscovery> =>
-  ctx.logger.time("discovery", () => {
-    const result = runDiscovery(opts, ctx, sources);
-
-    ctx.logger.info("discovery complete", {
-      files: result.files.length,
-      modules: result.modules.length,
-    });
-
-    return result;
-  });
-
-/**
- * Run the analysis phase: build the route graph, detect conflicts, and resolve
- * hooks/app config from the discovery output. Exposed for custom pipelines.
- */
-export const runAnalysisPhase = (
-  discovery: ReturnType<typeof runDiscovery>,
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-): ReturnType<typeof runAnalysis> =>
-  ctx.logger.time("analysis", () => {
-    const result = runAnalysis(discovery, opts, ctx);
-
-    ctx.logger.info("analysis complete", {
-      routes: result.routes.length,
-      hooks: result.hooks.size,
-    });
-
-    return result;
-  });
-
-/**
- * Run the optimization phase: inline eligible handlers, de-duplicate shared
- * code, and eliminate constant routes. Exposed for custom pipelines.
- */
-export const runOptimizationPhase = (
-  analysis: ReturnType<typeof runAnalysis>,
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-): ReturnType<typeof runOptimization> =>
-  ctx.logger.time("optimization", () => {
-    const result = runOptimization(analysis.routes, analysis.modules, opts, ctx);
-
-    ctx.logger.info("optimization complete", {
-      inlined: result.meta.inlined,
-      deduplicated: result.meta.deduplicated,
-      eliminated: result.meta.eliminated,
-    });
-
-    return result;
-  });
-
-/**
- * Run the codegen phase: emit the server module string from the optimized
- * routes. Exposed for custom pipelines.
- */
-export const runCodegenPhase = (
-  optimized: ReturnType<typeof runOptimization>,
-  analysis: ReturnType<typeof runAnalysis>,
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-): string =>
-  ctx.logger.time("codegen", () => {
-    const code = runCodeGen(
-      optimized.routes,
-      analysis.modules,
-      analysis.hooks,
-      opts,
-      ctx,
-      analysis.appConfig,
-    );
-
-    ctx.logger.info("codegen complete", {
-      lines: code.split("\n").length,
-    });
-
-    return code;
-  });
-
-/** Bundle/minify the emitted server via `Bun.build`. */
-export const runLinkingPhaseAsync = (
-  code: string,
-  opts: CompilerOptions,
-  ctx: CompilerContext,
-): Promise<string> => runLinkerAsync(code, opts, ctx);
-
-const finish = (opts: {
-  code: string;
-  outPath: string;
-  ctx: CompilerContext;
-  elapsed: number;
-  cached?: boolean | undefined;
-  meta?: OptimizationMeta | undefined;
-  changedRoutes?: string[] | undefined;
-}): CompileResult => {
-  const { code, outPath, ctx, elapsed, cached = false, meta, changedRoutes } = opts;
-  ctx.logger.info("build complete", {
-    elapsedMs: Number(elapsed.toFixed(2)),
-    outPath,
-    ...(cached ? { cached: true } : {}),
-  });
-
-  reportDiagnostics(ctx.diagnostics.all, ctx.logger);
-
-  const metadata = {
-    inlinedHandlers: meta?.inlined ?? 0,
-    deduplicatedHandlers: meta?.deduplicated ?? 0,
-    eliminatedRoutes: meta?.eliminated ?? 0,
-    totalCompileTime: Number(elapsed.toFixed(2)),
-  };
-
-  return {
-    code,
-    outFile: outPath,
-    diagnostics: ctx.diagnostics.all,
-    warnings: ctx.diagnostics.warnings,
-    errors: ctx.diagnostics.errors,
-    metadata,
-    ...(cached ? { cached } : {}),
-    ...(changedRoutes ? { changedRoutes } : {}),
-  };
-};
 
 /**
  * Per-compile orchestrator.
@@ -386,11 +180,16 @@ export class IgnexCompiler {
         // in the cache, so on a cache hit they could go stale or go missing.
         // Regenerate them from a fresh discovery/analysis (skipping the
         // expensive codegen + link steps) whenever artifact generation is on.
+        // `precompileStage` MUST run too: it is what populates
+        // `decisions.schemaDoc` (validators/serializers → OpenAPI), so without
+        // it the regenerated openapi.json silently loses request/response
+        // schemas and the SDK/client types drift from the served API.
         if (opts.generateTypes || opts.generateOpenAPI || opts.generateClient) {
           const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
             discoveryStage,
             analysisStage,
             optimizationStage,
+            precompileStage,
             artifactsStage,
           )) as PipelineState;
 

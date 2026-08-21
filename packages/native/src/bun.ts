@@ -51,7 +51,11 @@ const CryptoHasher = B?.CryptoHasher as
   | (new (
       algo: string,
       key?: Uint8Array,
-    ) => { update(data: Uint8Array): void; digest(): Uint8Array })
+    ) => {
+      update(data: Uint8Array): void;
+      digest(): Uint8Array;
+      digest(encoding: string): string;
+    })
   | undefined;
 /** HMAC-SHA256 via `Bun.CryptoHasher` when available (~1.2x faster than Rust). */
 export const bunHmacSha256: HmacFn | null =
@@ -66,4 +70,20 @@ export const bunHmacSha256: HmacFn | null =
         // keep sign→verify byte-compatible across backends (the castrum
         // delegation does the same "hex re-encoded" step).
         return encoder.encode(hexEncode(h.digest()));
+      };
+
+/**
+ * SHA-1 → standard base64 (RFC 6455 `Sec-WebSocket-Accept`) via
+ * `Bun.CryptoHasher` when available (~1.1–1.25x faster than `node:crypto`
+ * `createHash("sha1")` — see `docs/bun-internals.md`). The digest is returned
+ * in the same standard-base64 form the pure-TS `wsAcceptKey` fallback
+ * produces, so the websocket handshake stays byte-identical across backends.
+ */
+export const bunSha1Base64: ((input: string) => string) | null =
+  CryptoHasher === undefined
+    ? null
+    : (input: string) => {
+        const h = new CryptoHasher("sha1");
+        h.update(encoder.encode(input));
+        return h.digest("base64");
       };

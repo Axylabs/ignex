@@ -71,7 +71,7 @@ describe("createJobQueue", () => {
     await q.stop();
   });
 
-  it("does not drain new tasks after stop", async () => {
+  it("fails loud when enqueueing after stop (no silent drop)", async () => {
     const q = createJobQueue({ concurrency: 1 });
     let ran = false;
     q.enqueue("first", async () => {
@@ -79,11 +79,22 @@ describe("createJobQueue", () => {
     });
     await sleep(5);
     await q.stop();
-    q.enqueue("after-stop", () => {
-      ran = true;
-    });
-    await sleep(20);
+    // After stop() the queue is dead: enqueueing must throw, not silently
+    // drop the job (a background job that never runs is a silent data-loss bug).
+    expect(() =>
+      q.enqueue("after-stop", () => {
+        ran = true;
+      }),
+    ).toThrow(/stopped/);
     expect(ran).toBe(false);
+  });
+
+  it("fails loud when scheduling after stop", async () => {
+    const q = createJobQueue();
+    await q.stop();
+    expect(() => q.schedule("late", () => {}, { delay: 5 })).toThrow(/stopped/);
+    expect(() => q.every("late-every", 10, () => {})).toThrow(/stopped/);
+    expect(() => q.once("late-once", new Date(Date.now() + 1000), () => {})).toThrow(/stopped/);
   });
 
   it("stop() resolves even when an in-flight task never completes (deadline)", async () => {

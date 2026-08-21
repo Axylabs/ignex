@@ -30,6 +30,35 @@ export interface HttpResponseCacheOptions {
   staleTtlMs?: number;
   maxBytes?: number;
   maxBodyBytes?: number;
+  /**
+   * Pluggable backing store (default: an internal LRU). Implementing the
+   * small {@link HttpResponseCacheStore} surface lets users swap the cache
+   * backend (e.g. a shared sqlite/file/custom store) without changing cache
+   * semantics — the Laravel-style cache driver story.
+   */
+  store?: HttpResponseCacheStore;
+}
+
+/**
+ * The minimal backing-store surface used by {@link HttpResponseCache}.
+ *
+ * Sync-capable like the `data/store` drivers: `get`/`set` may return plain
+ * values or Promises; the cache awaits when needed. Implementors may return
+ * richer values than the declared minimal shape (e.g. an LRU returning `this`
+ * from `set`) — only the listed members are consumed.
+ */
+export interface HttpResponseCacheStore {
+  /** Read an entry, optionally allowing a stale (expired) value. */
+  get(
+    key: string,
+    options?: { allowStale?: boolean },
+  ): CachedHttpResponse | undefined | Promise<CachedHttpResponse | undefined>;
+  /** Write an entry with freshness/staleness lifetimes. */
+  set(
+    key: string,
+    value: CachedHttpResponse,
+    options?: { ttlMs?: number; staleTtlMs?: number },
+  ): unknown;
 }
 
 /** A stored, cacheable HTTP response entry. */

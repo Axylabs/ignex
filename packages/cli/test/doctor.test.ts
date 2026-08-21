@@ -98,6 +98,7 @@ describe("doctor", () => {
       expect(lines.some((line) => line.startsWith("Routes:"))).toBe(true);
       expect(lines.some((line) => line.startsWith("Server:"))).toBe(true);
       expect(lines.some((line) => line.startsWith("Env:"))).toBe(true);
+      expect(lines.some((line) => line.startsWith("Security:"))).toBe(true);
       expect(lines.some((line) => line.includes("problem(s) found"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -158,6 +159,42 @@ export const env = defineEnv(envSchema, { loadEnv: false });
       const report = await collectDoctorReport(["--root", dir]);
       expect(report.env.file).toBeNull();
       expect(report.env.issues).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("flags the default session secret as a blocking issue in production", async () => {
+    const dir = tmpProject();
+    const previous = process.env.NODE_ENV;
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "src/app.config.ts"),
+        'session({ secret: env.SESSION_SECRET || "dev-secret-change-me" })\n',
+      );
+      process.env.NODE_ENV = "production";
+      const report = await collectDoctorReport(["--root", dir]);
+      expect(report.security.defaultSecret).toBe(true);
+      expect(report.issues.some((issue) => issue.startsWith("security:"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not block on the default secret outside production", async () => {
+    const dir = tmpProject();
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "src/app.config.ts"),
+        'session({ secret: env.SESSION_SECRET || "dev-secret-change-me" })\n',
+      );
+      const report = await collectDoctorReport(["--root", dir]);
+      expect(report.security.defaultSecret).toBe(true);
+      expect(report.issues.some((issue) => issue.startsWith("security:"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

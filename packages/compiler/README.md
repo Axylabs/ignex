@@ -102,15 +102,15 @@ interface CompileResult {
 | `verbose` | `false` | Verbose compiler logging. |
 | `serviceName`, `exposeErrorDetails`, `reusePort`, … | — | Server/feature flags. |
 
-### Deprecated / removed options
+### Removed options
 
-Removed options are accepted with an `IGN_OPTION_DEPRECATED` diagnostic and
-ignored, so existing configs do not hard-fail:
+Options removed from the surface are treated as UNKNOWN (warned + stripped,
+never fatal) — they are no longer part of the supported API:
 
-| Option | Replaced by |
+| Option | Why removed |
 | --- | --- |
 | `router` | Always emits Bun's native router. |
-| `cluster` | Configure at the runtime/Bun level. |
+| `cluster` | Configure clustering at the runtime/Bun level. |
 | `inlineHooks` | Hooks are always invoked at runtime. |
 
 ## Diagnostics

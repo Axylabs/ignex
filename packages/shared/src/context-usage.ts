@@ -42,6 +42,8 @@ export interface ContextUsage {
   forward: boolean;
   cache: boolean;
   loader: boolean;
+  /** `ctx.debug` (the debugbar tracing API) was read. */
+  debug: boolean;
 }
 
 /** A `ContextUsage` with every capability disabled (frozen). */
@@ -73,6 +75,7 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
   forward: false,
   cache: false,
   loader: false,
+  debug: false,
 });
 
 /** A `ContextUsage` with every capability enabled (frozen). */
@@ -104,4 +107,5 @@ export const FULL_USAGE: ContextUsage = Object.freeze({
   forward: true,
   cache: true,
   loader: true,
+  debug: true,
 });

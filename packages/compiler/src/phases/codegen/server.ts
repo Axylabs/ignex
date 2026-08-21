@@ -34,13 +34,35 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   production: process.env.NODE_ENV === "production",
   certDir: (import.meta.dir || process.cwd()) + "/certs",
 });
-if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;`);
+if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;
+if (__serverCfg.h2 && __serveTls.tls) __serveOptions.h2 = true;`);
 
   functions.push(`if (__serverCfg.websocket) __serveOptions.websocket = __serverCfg.websocket;`);
-  if (state.wsHandlers.length > 0) {
-    // WS routes provide the server websocket handler; an app-config
-    // `websocket` (escape hatch) takes precedence.
-    functions.push(`__serveOptions.websocket ??= ${state.wsHandlers[0]};`);
+  if (state.wsHandlers.length === 1) {
+    // A single WS route: its `wsHandler` is the server websocket handler
+    // directly (the common case — no dispatch overhead).
+    const only = state.wsHandlers[0];
+    if (only) {
+      functions.push(`__serveOptions.websocket ??= ${only.handler};`);
+    }
+  } else if (state.wsHandlers.length > 1) {
+    // Multiple WS routes: `Bun.serve` has exactly ONE `websocket` handler, so
+    // route each socket to ITS route's `wsHandler` via the path recorded in
+    // the upgrade `data` (see codegen/routes/ws.ts). Unknown/untagged sockets
+    // fall back to the first handler so bookkeeping never leaks.
+    const first = state.wsHandlers[0];
+    if (first) {
+      const map = state.wsHandlers
+        .map(({ path, handler }) => `${JSON.stringify(path)}: ${handler}`)
+        .join(", ");
+      functions.push(`const __wsHandlers = { ${map} };
+__serveOptions.websocket ??= {
+  open(ws) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).open?.(ws); },
+  message(ws, msg) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).message?.(ws, msg); },
+  drain(ws) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).drain?.(ws); },
+  close(ws, code, reason) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).close?.(ws, code, reason); },
+};`);
+    }
   }
   functions.push(
     `if (__serverCfg.idleTimeout) __serveOptions.idleTimeout = __serverCfg.idleTimeout;`,
@@ -61,6 +83,30 @@ if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;`);
   functions.push(
     `console.log(${JSON.stringify(cfg.serviceName)} + " listening on " + __serveTls.protocol + "://" + (__server.hostname || "localhost") + ":" + __server.port);`,
   );
+
+  // Graceful shutdown on SIGTERM/SIGINT (containers, rolling deploys, Ctrl-C):
+  // stop accepting new connections, drain active requests, close plugin
+  // resources (DB connections, stores), then exit. A 10s hard deadline
+  // prevents a stuck plugin close from hanging a container stop forever.
+  if (state.hasAppConfig) {
+    functions.push(`let __shuttingDown = false;
+const __shutdown = (__signal) => {
+  if (__shuttingDown) return;
+  __shuttingDown = true;
+  console.log("[ignex] received " + __signal + " — draining connections");
+  try { __server.stop(true); } catch (__err) { console.error("[ignex] stop error:", __err); }
+  Promise.resolve()
+    .then(() => __pluginContext.closeAll())
+    .catch((__err) => console.error("[ignex] plugin close error:", __err))
+    .finally(() => process.exit(0));
+  setTimeout(() => process.exit(0), 10000).unref?.();
+};
+process.on("SIGTERM", () => __shutdown("SIGTERM"));
+process.on("SIGINT", () => __shutdown("SIGINT"));`);
+  } else {
+    functions.push(`process.on("SIGTERM", () => process.exit(0));
+process.on("SIGINT", () => process.exit(0));`);
+  }
 
   functions.push(`export default __server;`);
 

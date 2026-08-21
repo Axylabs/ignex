@@ -45,7 +45,12 @@ describe("parseRouteFilename (file-based routing lowering)", () => {
 
   it("treats index as the directory root", () => {
     expect(parseRouteFilename("index.get.ts")?.path).toBe("/");
-    expect(parseRouteFilename("api/index.post.ts")?.path).toBe("/api/");
+    // `/index` (6 chars incl. the leading slash) maps to the parent path —
+    // NO trailing slash (`/api/index` → `/api`). A nested index must produce
+    // the same static key as the bare parent route so `x.get.ts` +
+    // `x/index.get.ts` are detected as exact duplicates.
+    expect(parseRouteFilename("api/index.post.ts")?.path).toBe("/api");
+    expect(parseRouteFilename("a/b/index.get.ts")?.path).toBe("/a/b");
   });
 
   it("decodes dynamic segments into :params and *wildcards", () => {

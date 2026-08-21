@@ -26,7 +26,7 @@ import { projectPath } from "./utils/path";
  * Bump when the generated output format changes so stale caches are
  * invalidated even if inputs are identical.
  */
-const COMPILER_CACHE_VERSION = "0.7.3";
+const COMPILER_CACHE_VERSION = "0.7.7";
 
 const CACHE_FILE = ".ignex-cache.json";
 
@@ -172,14 +172,27 @@ const corePackageDir = (): string | undefined => {
  * @returns A stable content fingerprint string.
  */
 export const computeFingerprint = (opts: CompilerOptions): string => {
-  // NOTE: the fingerprint DELIBERATELY excludes the environment (IGNEX_NATIVE,
-  // IGNEX_FFI_MODE, PORT, …). Generated code is env-independent: native
-  // degrades at RUNTIME, not at codegen, and PORT is read at runtime via
-  // `process.env.PORT`. Do NOT add env vars here without also proving the
-  // generated output depends on them — a future "generate native-specific
-  // code" feature must bump COMPILER_CACHE_VERSION instead (see
-  // scripts/check-cache-versions.ts).
-  const chunks: string[] = [COMPILER_CACHE_VERSION, stableOptions(opts)];
+  // NOTE: the fingerprint DELIBERATELY excludes most of the environment
+  // (IGNEX_NATIVE, IGNEX_FFI_MODE, PORT, …). Generated code is env-
+  // independent: native degrades at RUNTIME, not at codegen, and PORT is read
+  // at runtime via `process.env.PORT`. Do NOT add env vars here without also
+  // proving the generated output depends on them — a future "generate
+  // native-specific code" feature must bump COMPILER_CACHE_VERSION instead
+  // (see scripts/check-cache-versions.ts).
+  //
+  // EXCEPTION — NODE_ENV and IGNEX_DEBUG DO change generated output: the
+  // dev-only plugin elimination (`isProductionBuild` in
+  // phases/analysis/app-config.ts) drops provably-disabled `debugbar()`
+  // instances from the AOT decision, which changes route shapes (constant
+  // hoisting, context specialization). A production build must never poison
+  // the dev cache with eliminated routes (and vice versa), so both values
+  // are part of the fingerprint.
+  const chunks: string[] = [
+    COMPILER_CACHE_VERSION,
+    stableOptions(opts),
+    `env:NODE_ENV=${process.env.NODE_ENV ?? ""}`,
+    `env:IGNEX_DEBUG=${process.env.IGNEX_DEBUG ?? ""}`,
+  ];
 
   const hashDir = (dir: string) => {
     for (const rel of listFiles(dir)) {

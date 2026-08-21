@@ -9,29 +9,46 @@
 import { getFfi } from "./ffi";
 import type { NativeAddon } from "./loader";
 import { getNative } from "./loader";
-import { type ExecutionBackend, OPS, type OpName, SELECTION } from "./selection";
+import { type ExecutionBackend, type OpName, SELECTION } from "./selection";
 
-/** The loaded castrum addon (or `null` when unavailable). Resolved once at import. */
+/** The loaded castrum NAPI addon (or `null` when unavailable). Resolved once at import — the documented "never throws on import" contract. */
 export const native = getNative();
 
-/** The C-ABI (`bun:ffi`) surface when it is bound + self-tested (or `null`). */
-export const ffi = getFfi();
+/**
+ * The C-ABI (`bun:ffi`) surface, bound + self-tested LAZILY on first use —
+ * not at module load. Binding runs the bind-time parity self-test and, under
+ * `IGNEX_FFI_MODE=ffi` (forced), THROWS on a broken addon. Deferring it means
+ * a consumer that imports `@ignex/native` but never calls a native op pays no
+ * bind cost and cannot crash at import (the documented lazy contract).
+ */
+let ffiValue: ReturnType<typeof getFfi> | null | undefined;
+const getFfiLazy = (): ReturnType<typeof getFfi> | null => {
+  if (ffiValue === undefined) ffiValue = getFfi();
+  return ffiValue;
+};
 
 /**
  * A single handle that prefers the C-ABI binding for the ops it covers and
  * falls through to the NAPI addon for everything else (stateful classes,
  * `opImpl`, thread-pool init, …). Wrappers keep calling `n.op(...)` unchanged.
+ * Resolved lazily (depends on the lazy FFI bind).
  */
-const preferred: NativeAddon | null =
-  native != null && ffi != null
-    ? new Proxy(native, {
-        get(target, prop, receiver) {
-          const f = (ffi as unknown as Record<PropertyKey, unknown>)[prop];
-          if (typeof f === "function") return f;
-          return Reflect.get(target, prop, receiver);
-        },
-      })
-    : native;
+let preferredValue: NativeAddon | null | undefined;
+const getPreferred = (): NativeAddon | null => {
+  if (preferredValue === undefined) {
+    preferredValue =
+      native != null && getFfiLazy() != null
+        ? new Proxy(native, {
+            get(target, prop, receiver) {
+              const f = (getFfiLazy() as unknown as Record<PropertyKey, unknown>)[prop];
+              if (typeof f === "function") return f;
+              return Reflect.get(target, prop, receiver);
+            },
+          })
+        : native;
+  }
+  return preferredValue;
+};
 
 /**
  * Ops where the C-ABI (`bun:ffi`) transport is PROVEN faster than the JS
@@ -52,8 +69,7 @@ const FFI_WINS: ReadonlySet<string> = new Set([
   "jsonValid",
   // NOTE: `queryToJson`/`cookiesToJson` were dropped from FFI_WINS — castrum
   // removed the `castrum_query_to_json`/`castrum_cookies_to_json` C-ABI
-  // symbols. The ops are JS-only now (http/queryToJson.ts fallback); they have
-  // no core consumers.
+  // symbols; the ops were JS-only and have since been removed entirely.
 ]);
 
 /**
@@ -61,29 +77,32 @@ const FFI_WINS: ReadonlySet<string> = new Set([
  * `castrum`. Ops where native is measured slower bind to the JS fallback even
  * when the addon is present. FFI_WINS overrides to native when the C-ABI
  * transport is live and the median benchmark proves a win.
+ *
+ * The first call triggers the (once-per-process) lazy FFI bind + self-test.
  */
 export const useNative = (op: OpName): boolean =>
-  native != null && (SELECTION[op].impl === "castrum" || (ffi != null && FFI_WINS.has(op)));
+  native != null &&
+  (SELECTION[op].impl === "castrum" || (getFfiLazy() != null && FFI_WINS.has(op)));
+
+/** Per-op native-handle cache (lazily populated on first `nativeFor`). */
+const implCache = new Map<OpName, NativeAddon | null>();
 
 /**
- * Per-op native handle resolved ONCE at module load — `native`/`ffi`/
- * `SELECTION` are fixed for the life of the process (see selection.ts), so the
- * hot per-op wrapper path is a single map lookup instead of re-evaluating the
- * selection table + FFI_WINS membership on every call.
- */
-const IMPL: Record<OpName, NativeAddon | null> = Object.fromEntries(
-  OPS.map((op) => [op, useNative(op) ? preferred : null]),
-) as Record<OpName, NativeAddon | null>;
-
-/**
- * The native handle for an op (C-ABI preferred, NAPI fallback), or `null` when
- * native is unavailable or the selection table binds the op to the JS fallback.
- * Use this in wrappers:
+ * Per-op native handle, resolved lazily and memoized per op (the FFI bind is
+ * triggered on first use, not at import). Returns the C-ABI-preferred handle,
+ * the NAPI fallback, or `null` when native is unavailable or the selection
+ * table binds the op to the JS fallback. Use this in wrappers:
  *
  *   const n = nativeFor("fnv1a64");
  *   if (n) return n.fnv1a64(bytes);
  */
-export const nativeFor = (op: OpName): NativeAddon | null => IMPL[op];
+export const nativeFor = (op: OpName): NativeAddon | null => {
+  const cached = implCache.get(op);
+  if (cached !== undefined) return cached;
+  const value = useNative(op) ? getPreferred() : null;
+  implCache.set(op, value);
+  return value;
+};
 
 /** Which execution backend is active overall ("castrum" | "js"). */
 export const backendName = (): ExecutionBackend => (native ? "castrum" : "js");

@@ -109,6 +109,46 @@ describe("generateOpenAPI", () => {
     expect(op.operationId).toBe("delete__items__id_");
   });
 
+  it("auto-tags operations by their first path segment and emits a tags array", () => {
+    const spec = generateOpenAPI(info, [
+      { method: "GET", path: "/api/orders" },
+      { method: "POST", path: "/api/orders" },
+      { method: "GET", path: "/api/orders/:id" },
+      { method: "POST", path: "/auth/login" },
+      { method: "GET", path: "/health" },
+      { method: "GET", path: "/" },
+    ]);
+    const orders = (spec.paths["/api/orders"] as Record<string, any>).get;
+    const orderById = (spec.paths["/api/orders/{id}"] as Record<string, any>).get;
+    const login = (spec.paths["/auth/login"] as Record<string, any>).post;
+    const health = (spec.paths["/health"] as Record<string, any>).get;
+    const root = (spec.paths["/"] as Record<string, any>).get;
+
+    expect(orders.tags).toEqual(["api"]);
+    expect(orderById.tags).toEqual(["api"]);
+    expect(login.tags).toEqual(["auth"]);
+    expect(health.tags).toEqual(["health"]);
+    expect(root.tags).toEqual(["default"]);
+
+    // Top-level tags array is derived, sorted, de-duplicated.
+    expect(spec.tags).toEqual([
+      { name: "api" },
+      { name: "auth" },
+      { name: "default" },
+      { name: "health" },
+    ]);
+  });
+
+  it("respects an explicit empty tags array (no auto-tag) and a custom tag", () => {
+    const spec = generateOpenAPI(info, [
+      { method: "GET", path: "/hidden", detail: { tags: [] } },
+      { method: "GET", path: "/custom", detail: { tags: ["My Group"] } },
+    ]);
+    expect((spec.paths["/hidden"] as Record<string, any>).get.tags).toEqual([]);
+    expect((spec.paths["/custom"] as Record<string, any>).get.tags).toEqual(["My Group"]);
+    expect(spec.tags).toEqual([{ name: "My Group" }]);
+  });
+
   it("exposes openapi version and info", () => {
     const spec = generateOpenAPI(info, [{ method: "GET", path: "/" }]);
     expect(spec.openapi).toBe("3.1.0");

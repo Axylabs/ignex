@@ -14,7 +14,11 @@
  *     invoked, so `onRequest` intercepts the two paths and serves the
  *     compiler-generated `openapi.json` artifact (probed from
  *     `.ignex/openapi.json` → `dist/openapi.json`, overridable via
- *     `artifactPath`), falling back to runtime generation when absent.
+ *     `artifactPath`), falling back to runtime generation when absent. The
+ *     NEWEST artifact among all candidates wins (keyed by mtime), so dev-mode
+ *     regeneration is always served — a stale `dist` build never shadows the
+ *     fresh `.ignex` artifact the watcher just produced, and no restart is
+ *     needed to pick up a regenerated file.
  *
  * The plugin's own endpoints are hidden from the document both by path
  * exclusion and `detail.hide` (the shared generator skips hidden routes), so
@@ -187,7 +191,8 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
 
   let router: IgnexRouter | undefined;
   let cachedSpec: { count: number; doc: OpenAPIDocument } | undefined;
-  let artifactCache: OpenAPIDocument | undefined;
+  /** Artifact cache keyed by (path, mtimeMs) so a regenerated file invalidates it. */
+  let artifactCache: { path: string; mtimeMs: number; doc: OpenAPIDocument } | undefined;
   let warnedFallback = false;
 
   const info: OpenAPIInfo = {
@@ -253,25 +258,53 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     return doc;
   };
 
-  /** Locate + parse the compiled `openapi.json` artifact (AOT mode). */
+  /** All artifact candidates, most-specific first (explicit overrides win ties). */
+  const candidatePaths = (): string[] =>
+    (Array.isArray(artifactPath) ? artifactPath : artifactPath ? [artifactPath] : []).concat(
+      DEFAULT_ARTIFACT_PATHS,
+    );
+
+  /**
+   * Locate + parse the compiled `openapi.json` artifact (AOT mode).
+   *
+   * Probes EVERY candidate and serves the NEWEST by mtime — in dev, the
+   * watcher regenerates the artifact into the compiler's outDir (`.ignex`)
+   * while an older `dist` build may still exist, so "first found" would serve
+   * stale routes forever. The cache is keyed by `(path, mtimeMs)`, so a
+   * regenerated artifact invalidates it on the next request without a restart.
+   */
   const readArtifact = async (): Promise<OpenAPIDocument | undefined> => {
-    if (artifactCache) return artifactCache;
     if (typeof Bun === "undefined") return undefined;
-    const candidates = (
-      Array.isArray(artifactPath) ? artifactPath : artifactPath ? [artifactPath] : []
-    ).concat(DEFAULT_ARTIFACT_PATHS);
-    for (const candidate of candidates) {
+
+    let newest: { path: string; mtimeMs: number } | undefined;
+    for (const candidate of candidatePaths()) {
       try {
         const file = Bun.file(candidate);
-        if (await file.exists()) {
-          artifactCache = (await file.json()) as OpenAPIDocument;
-          return artifactCache;
-        }
+        if (!(await file.exists())) continue;
+        const mtimeMs = file.lastModified;
+        if (!newest || mtimeMs > newest.mtimeMs) newest = { path: candidate, mtimeMs };
       } catch {
-        // Corrupt/missing artifact — try the next candidate.
+        // Unreadable candidate — try the next.
       }
     }
-    return undefined;
+    if (!newest) return undefined;
+
+    // Serve the cached parse when the newest file is unchanged.
+    if (
+      artifactCache &&
+      artifactCache.path === newest.path &&
+      artifactCache.mtimeMs === newest.mtimeMs
+    ) {
+      return artifactCache.doc;
+    }
+
+    try {
+      const doc = (await Bun.file(newest.path).json()) as OpenAPIDocument;
+      artifactCache = { path: newest.path, mtimeMs: newest.mtimeMs, doc };
+      return doc;
+    } catch {
+      return undefined;
+    }
   };
 
   const specResponse = (): Response => jsonResponse(buildSpec());
@@ -305,7 +338,10 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     if (router) return ctx;
     const { pathname } = ctx.url;
     if (pathname === specPath) {
-      if (artifactCache) return jsonResponse(artifactCache);
+      // Always re-validate through the mtime-keyed cache: in dev the watcher
+      // regenerates the artifact while the process may stay alive, so a stale
+      // per-process cache would keep serving old routes. The stat is cheap
+      // (no file read on a hit); the docs endpoint is not a hot path.
       return readArtifact().then((artifact) => {
         if (artifact) return jsonResponse(artifact);
         if (!warnedFallback) {

@@ -57,7 +57,6 @@ export type OpName =
   | "verifyCookie"
   // http
   | "cookiePairs"
-  | "cookiesToJson"
   | "createAcceptNegotiator"
   | "createConditionalRequest"
   | "etag"
@@ -66,7 +65,6 @@ export type OpName =
   | "parseAcceptEncoding"
   | "parseMediaType"
   | "queryPairs"
-  | "queryToJson"
   // json
   | "createSchemaValidator"
   | "jsonPatch"
@@ -137,6 +135,19 @@ const PINNED_NATIVE: ReadonlySet<string> = new Set([
 const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
 /**
+ * True when the loaded addon actually EXPORTS the op's method. `PINNED_NATIVE`
+ * bypasses castrum's `opImpl` benchmark, so it must not blindly force an op to
+ * native when a loaded addon build lacks the symbol — an older registry build
+ * would otherwise route the call to a missing method (TypeError). Matches the
+ * additive C-ABI surfaces' symbol-presence checks.
+ */
+const hasPinnedSymbol = (op: OpName): boolean => {
+  const addon = getNative();
+  if (!addon) return false;
+  return typeof (addon as Record<string, unknown>)[op] === "function";
+};
+
+/**
  * The decision for `op`, read from castrum's benchmark-generated `opImpl`
  * (the single source of truth, owned by the addon library) plus the runtime
  * Bun refinement above. Bound once at module load — the implementation never
@@ -145,7 +156,7 @@ const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "u
 export const implFor = (op: OpName): ExecutionBackend =>
   isBun() && BUN_WINS.has(op)
     ? "js"
-    : getNative() != null && PINNED_NATIVE.has(op)
+    : getNative() != null && PINNED_NATIVE.has(op) && hasPinnedSymbol(op)
       ? "castrum"
       : getNative()?.opImpl?.(op) === "native"
         ? "castrum"
@@ -174,7 +185,6 @@ export const OPS: readonly OpName[] = [
   "signCookie",
   "verifyCookie",
   "cookiePairs",
-  "cookiesToJson",
   "createAcceptNegotiator",
   "createConditionalRequest",
   "etag",
@@ -183,7 +193,6 @@ export const OPS: readonly OpName[] = [
   "parseAcceptEncoding",
   "parseMediaType",
   "queryPairs",
-  "queryToJson",
   "createSchemaValidator",
   "jsonPatch",
   "jsonValid",

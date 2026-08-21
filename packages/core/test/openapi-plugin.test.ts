@@ -121,4 +121,69 @@ describe("openapi() — AOT fallback (onRequest interception, no router)", () =>
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(await response.json()).toHaveProperty("paths");
   });
+
+  it("serves the NEWEST artifact across candidates (dev regeneration beats stale dist)", async () => {
+    const { mkdtempSync, mkdirSync, utimesSync, writeFileSync, readFileSync } = await import(
+      "node:fs"
+    );
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "ignex-openapi-"));
+
+    const stale = join(dir, "dist", "openapi.json");
+    const fresh = join(dir, ".ignex", "openapi.json");
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    mkdirSync(join(dir, ".ignex"), { recursive: true });
+
+    const doc = (routes: string[]): string =>
+      JSON.stringify({
+        openapi: "3.1.0",
+        info: { title: "T", version: "1.0.0" },
+        paths: Object.fromEntries(routes.map((p) => [p, { get: { responses: {} } }])),
+      });
+
+    // Both exist; `stale` is older (mtime in the past).
+    writeFileSync(stale, doc(["/old"]));
+    writeFileSync(fresh, doc(["/fresh"]));
+    const now = Date.now() / 1000;
+    utimesSync(stale, now - 60, now - 60);
+    utimesSync(fresh, now, now);
+
+    // The AOT artifact reader is Bun-gated; vitest runs under Node workers, so
+    // provide a minimal `Bun.file` shim backed by the real fs.
+    const realBun = (globalThis as { Bun?: unknown }).Bun;
+    const stat = (path: string): { mtimeMs: number } => {
+      const { statSync } = require("node:fs") as typeof import("node:fs");
+      return statSync(path);
+    };
+    (globalThis as { Bun?: unknown }).Bun = {
+      file: (path: string) => ({
+        exists: async () => {
+          const { existsSync } = require("node:fs") as typeof import("node:fs");
+          return existsSync(path);
+        },
+        get lastModified() {
+          return stat(path).mtimeMs;
+        },
+        json: async () => JSON.parse(readFileSync(path, "utf-8")) as unknown,
+      }),
+    };
+    try {
+      const plugin = openapi({ artifactPath: [fresh, stale] });
+      const ctx = { url: new URL("http://localhost/openapi.json") } as never;
+      const res = (await plugin.onRequest?.(ctx)) as Response;
+      const spec = (await res.json()) as { paths?: Record<string, unknown> };
+      expect(spec.paths).toHaveProperty("/fresh");
+      expect(spec.paths).not.toHaveProperty("/old");
+
+      // Regenerating the fresh file (newer mtime) is picked up without a restart.
+      writeFileSync(fresh, doc(["/fresh", "/new-route"]));
+      utimesSync(fresh, now + 1, now + 1);
+      const res2 = (await plugin.onRequest?.(ctx)) as Response;
+      const spec2 = (await res2.json()) as { paths?: Record<string, unknown> };
+      expect(spec2.paths).toHaveProperty("/new-route");
+    } finally {
+      (globalThis as { Bun?: unknown }).Bun = realBun;
+    }
+  });
 });

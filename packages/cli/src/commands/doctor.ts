@@ -11,7 +11,7 @@ import type { EnvIssue } from "@ignex/core/env";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { checkProjectEnv } from "../utils/env-check.js";
-import { exists } from "../utils/fs.js";
+import { exists, readTextFile } from "../utils/fs.js";
 import { error, success } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
 
@@ -55,6 +55,11 @@ export interface DoctorReport {
     readonly file: string | null;
     /** Validation issues (errors + warnings) from the project's env module. */
     readonly issues: readonly EnvIssue[];
+  };
+  /** Security posture. */
+  readonly security: {
+    /** True when app.config uses the scaffold's default session secret. */
+    readonly defaultSecret: boolean;
   };
   /** Blocking problems found; empty when the project is healthy. */
   readonly issues: readonly string[];
@@ -107,6 +112,18 @@ export async function collectDoctorReport(args: string[]): Promise<DoctorReport>
     if (issue.severity === "error") issues.push(`env: ${issue.key}: ${issue.message}`);
   }
 
+  // The scaffold's session secret (`|| "dev-secret-change-me"`) is fine for
+  // local dev but a production footgun — flag it once NODE_ENV=production.
+  const appConfigPath = join(root, "src", "app.config.ts");
+  const defaultSecret =
+    (await exists(appConfigPath)) &&
+    (await readTextFile(appConfigPath)).includes("dev-secret-change-me");
+  if (process.env.NODE_ENV === "production" && defaultSecret) {
+    issues.push(
+      "security: app.config uses the default session secret — set SESSION_SECRET before deploying",
+    );
+  }
+
   const native = await nativeStatus();
 
   return {
@@ -120,6 +137,7 @@ export async function collectDoctorReport(args: string[]): Promise<DoctorReport>
     routes: { dir: routesDir, exists: routesExists },
     server: { path: serverPath, exists: serverExists },
     env,
+    security: { defaultSecret },
     issues,
   };
 }
@@ -154,6 +172,11 @@ export function renderDoctor(report: DoctorReport): string[] {
   } else {
     lines.push("Env: none (no src/config/env.ts)");
   }
+  lines.push(
+    report.security.defaultSecret
+      ? "Security: ⚠ default session secret — set SESSION_SECRET (required in production)"
+      : "Security: ✔",
+  );
   if (report.issues.length > 0) {
     lines.push(`${report.issues.length} problem(s) found`);
   } else {

@@ -13,6 +13,13 @@ import type { EncodingPrefResult } from "./types";
 export interface AcceptNegotiator {
   /** Best supported value for `header`, or `null` when nothing matches. */
   negotiate(header: string | null): string | null;
+  /**
+   * Best supported value for `header` with SERVER-preference tie-breaking
+   * (q-only; the supported list's order decides ties — the semantic of ignex's
+   * `negotiateEncoding` / compression plugin). Empty/absent header → `null`
+   * (identity), unlike {@link negotiate} which returns the first supported.
+   */
+  negotiateServerPreference(header: string | null): string | null;
 }
 
 /** Parse an `Accept-Encoding` header into ordered `{encoding, q}` entries. */
@@ -42,14 +49,11 @@ export const parseAcceptEncodingFallback = (input: string): EncodingPrefResult[]
 
 /**
  * Compile a supported-value list once and negotiate headers against it.
- * Mirrors castrum's `AcceptNegotiator` (RFC 7231 §5.3.4): specificity first
- * (exact > `*`), then q-value, then earliest client order.
- */
-/**
- * Compile a supported-value list once and negotiate headers against it.
  * Native-backed when the addon is available and the selection binds it
  * (`opImpl("createAcceptNegotiator") === "native"`, measured ~1.9× faster than
  * the JS engine on the compiled instance — see `scripts/bench-native.ts`).
+ * Mirrors castrum's `AcceptNegotiator` (RFC 7231 §5.3.4): specificity first
+ * (exact > `*`), then q-value, then earliest client order.
  *
  * NOTE: native wins on the STEADY-STATE negotiate call; constructing a native
  * instance per-request measures slower (~0.5×) — compile once and reuse (the
@@ -64,11 +68,31 @@ export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
       // (NAPI) to ~125ns (C-ABI) on the compiled instance (bench 2026-08-16).
       const ffiInst = getFfiInstances();
       const inner = ffiInst ? Number(inst.innerPtr()) : 0;
+      // Server-preference is a NEW napi method — absent on addons built before
+      // the feature. Its presence cleanly gates the whole server-preference
+      // path (C-ABI symbol ships in the same build): old addons fall back to
+      // the pure-TS engine below, new addons use C-ABI → napi.
+      const hasServerPreference = typeof inst.negotiateServerPreference === "function";
       return {
         negotiate(header) {
           if (header == null) return null;
-          if (inner && ffiInst) return ffiInst.acceptNegotiatorNegotiate(inner, toBytes(header));
+          // C-ABI takes the header as a `cstring` ARG (engine transcodes
+          // in-engine — zero JS encode); NAPI still needs bytes.
+          if (inner && ffiInst) return ffiInst.acceptNegotiatorNegotiate(inner, header);
           return inst.negotiate(toBytes(header));
+        },
+        negotiateServerPreference(header) {
+          if (header == null) return null;
+          if (hasServerPreference) {
+            if (inner && ffiInst) {
+              // undefined = symbol absent (shouldn't happen when the napi
+              // method exists, but never treat it as an answer) → napi fallback.
+              const v = ffiInst.acceptNegotiatorNegotiateServer(inner, header);
+              if (v !== undefined) return v;
+            }
+            return inst.negotiateServerPreference(toBytes(header));
+          }
+          return negotiateServerPreferenceJs(header, supported);
         },
       };
     } catch {
@@ -76,6 +100,43 @@ export const createAcceptNegotiator = (supported: string[]): AcceptNegotiator =>
     }
   }
   return createAcceptNegotiatorFallback(supported);
+};
+
+/**
+ * Pure-TS server-preference negotiation (the `negotiateEncoding` semantic):
+ * explicit q-values with a wildcard fallback for unlisted encodings, `q <= 0`
+ * excluded, ties resolved by the supported list's order (server preference).
+ * Empty/absent header → `null` (identity). Shared by the native-absent paths.
+ */
+export const negotiateServerPreferenceJs = (
+  header: string | null,
+  supported: readonly string[],
+): string | null => {
+  if (!header) return null;
+  const prefs = parseAcceptEncodingFallback(header);
+  if (prefs.length === 0) return null;
+  const explicit = new Map<string, number>();
+  let wildcardQ = -1;
+  for (const { encoding, q } of prefs) {
+    if (encoding === "*") {
+      wildcardQ = Math.max(wildcardQ, q);
+      continue;
+    }
+    // First occurrence wins (RFC 7231 duplicates are undefined).
+    if (!explicit.has(encoding)) explicit.set(encoding, q);
+  }
+  let best: string | null = null;
+  let bestQ = -1;
+  for (const enc of supported) {
+    const q = explicit.has(enc) ? (explicit.get(enc) as number) : wildcardQ >= 0 ? wildcardQ : -1;
+    if (q <= 0) continue;
+    // Ties keep the earlier `supported` entry (server preference).
+    if (q > bestQ) {
+      best = enc;
+      bestQ = q;
+    }
+  }
+  return best;
 };
 
 /** Pure-TS fallback for {@link createAcceptNegotiator} (identical behavior). */
@@ -129,6 +190,9 @@ export const createAcceptNegotiatorFallback = (supported: string[]): AcceptNegot
         if (cand && (best === null || isBetter(cand, best))) best = cand;
       }
       return best ? best.enc : null;
+    },
+    negotiateServerPreference(header) {
+      return negotiateServerPreferenceJs(header, normalized);
     },
   };
 };

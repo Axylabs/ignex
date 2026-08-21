@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../../diagnostics";
-import type { CompilerContext, CompilerOptions, RouteIR } from "../../types";
+import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../../types";
 import { generateClient, generateClientDts } from "./client";
 import { generateManifest } from "./manifest";
 import { generateOpenApi } from "./openapi";
@@ -38,16 +38,20 @@ export const writeGuarded = (
  * Write every requested artifact (routes.d.ts, client.ts/d.ts, openapi.json,
  * manifest.json) into `opts.outDir`. Each write is guarded — failures become
  * diagnostics rather than throwing.
+ *
+ * `modules` feeds the typed-body emission in `routes.d.ts` (a route module
+ * exporting a TypeBox `schema` const yields `Static<typeof schema.body>`).
  */
 export const writeArtifacts = (
   routes: readonly RouteIR[],
+  modules: readonly ModuleInfo[],
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): void => {
   mkdirSync(opts.outDir, { recursive: true });
 
   if (opts.generateTypes) {
-    const types = generateRouteTypes(routes);
+    const types = generateRouteTypes(routes, modules, opts);
     writeGuarded(join(opts.outDir, "routes.d.ts"), types, ctx, "routes.d.ts");
   }
 

@@ -85,6 +85,41 @@ describe("per-route native stack (createNativeRoute)", () => {
     route.destroy();
   });
 
+  it.skipIf(!available)("runParts(query, cookie, body) matches run(frame) byte-for-byte", () => {
+    // Synced from castrum's `native-route.ts` convenience shape: the compiled
+    // handlers' hot path packs from raw inputs (no frame object) — the decoded
+    // result must be identical to the frame-based `run`.
+    const route = createNativeRoute(plan());
+    expect(route).not.toBeNull();
+    if (!route) return;
+
+    expect(route.parseQuery).toBe(true);
+    expect(route.parseCookies).toBe(true);
+
+    const cases: Array<[string, string]> = [
+      ["a=1&b=hello%20world", "sid=abc; theme=dark"],
+      ["m=%ZZ&n=abc%", ""],
+      ["", 'a=1; "quoted"=val'],
+    ];
+    for (const [qs, cs] of cases) {
+      const viaFrame = route.run({ query: qs, cookie: cs, body: null });
+      const viaParts = route.runParts(qs, cs, null);
+      expect(viaParts.ok).toBe(viaFrame.ok);
+      expect(viaParts.query).toEqual(viaFrame.query);
+      expect(viaParts.cookie).toEqual(viaFrame.cookie);
+    }
+    route.destroy();
+  });
+
+  it.skipIf(!available)("exposes parseQuery/parseCookies from the compiled plan", () => {
+    const qOnly = createNativeRoute(plan({ pipeline: ["parseQuery"] }));
+    expect(qOnly).not.toBeNull();
+    if (!qOnly) return;
+    expect(qOnly.parseQuery).toBe(true);
+    expect(qOnly.parseCookies).toBe(false);
+    qOnly.destroy();
+  });
+
   it.skipIf(!available)("validates the raw body bytes (bytes-in / verdict-out)", () => {
     // Phase-2 stack: requireJsonBody (400) + validateBody (422) on raw bytes.
     const route = createNativeRoute(
