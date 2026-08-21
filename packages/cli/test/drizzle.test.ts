@@ -15,10 +15,16 @@ import {
 } from "../src/templates/drizzle.js";
 import {
   drizzleResourceTemplates,
-  drizzleRoutePath,
   drizzleRouteTemplate,
 } from "../src/templates/drizzle-resource.js";
 import { parseModelFields } from "../src/templates/model.js";
+
+/** First parsed model field (the DSL always yields at least one). */
+const firstField = (dsl: string) => {
+  const f = parseModelFields(dsl)[0];
+  if (!f) throw new Error(`expected a field for ${dsl}`);
+  return f;
+};
 
 describe("sqlColumnName", () => {
   it("converts camelCase/kebab to snake_case", () => {
@@ -31,17 +37,13 @@ describe("sqlColumnName", () => {
 
 describe("drizzleColumn", () => {
   it("maps each field DSL type to a drizzle sqlite column", () => {
-    expect(drizzleColumn(parseModelFields("s:string")[0]!)).toBe('s: text("s"),');
-    expect(drizzleColumn(parseModelFields("n:integer")[0]!)).toBe('n: integer("n"),');
-    expect(drizzleColumn(parseModelFields("r:number")[0]!)).toBe('r: real("r"),');
-    expect(drizzleColumn(parseModelFields("b:boolean")[0]!)).toBe(
-      'b: integer("b", { mode: "boolean" }),',
-    );
-    expect(drizzleColumn(parseModelFields("d:date")[0]!)).toBe(
-      'd: integer("d", { mode: "timestamp_ms" }),',
-    );
-    expect(drizzleColumn(parseModelFields("e:enum(a,b)")[0]!)).toBe('e: text("e"),');
-    expect(drizzleColumn(parseModelFields("t:array(string)")[0]!)).toBe('t: text("t"),');
+    expect(drizzleColumn(firstField("s:string"))).toBe('s: text("s"),');
+    expect(drizzleColumn(firstField("n:integer"))).toBe('n: integer("n"),');
+    expect(drizzleColumn(firstField("r:number"))).toBe('r: real("r"),');
+    expect(drizzleColumn(firstField("b:boolean"))).toBe('b: integer("b", { mode: "boolean" }),');
+    expect(drizzleColumn(firstField("d:date"))).toBe('d: integer("d", { mode: "timestamp_ms" }),');
+    expect(drizzleColumn(firstField("e:enum(a,b)"))).toBe('e: text("e"),');
+    expect(drizzleColumn(firstField("t:array(string)"))).toBe('t: text("t"),');
   });
 });
 

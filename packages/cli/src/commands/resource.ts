@@ -190,7 +190,7 @@ export async function runResource(args: string[]): Promise<void> {
   const opts = { auth: Boolean(values.auth), rbac: Boolean(values.rbac) };
 
   step(
-    `Scaffolding resource ${name} (${dbKind === "sql" ? "Drizzle/SQLite" : 'collection "' + plural + '"'})`,
+    `Scaffolding resource ${name} (${dbKind === "sql" ? "Drizzle/SQLite" : `collection "${plural}"`})`,
   );
 
   if (dbKind === "sql") {

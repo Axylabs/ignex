@@ -44,8 +44,8 @@ export const drizzleColumn = (field: ModelField): string => {
   if (s === "date") return `${col}: integer("${col}", { mode: "timestamp_ms" }),`;
   if (s === "objectId") return `${col}: text("${col}"),`;
   if (s === "any") return `${col}: text("${col}"),`;
-  if (/^enum\(/.test(s)) return `${col}: text("${col}"),`;
-  if (/^array\(/.test(s)) return `${col}: text("${col}"),`;
+  if (s.startsWith("enum(")) return `${col}: text("${col}"),`;
+  if (s.startsWith("array(")) return `${col}: text("${col}"),`;
   return `${col}: text("${col}"),`; // string + string(format/min/max)
 };
 
