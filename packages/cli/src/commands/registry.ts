@@ -24,6 +24,7 @@ import { runMcp } from "./mcp.js";
 import { runMigrate } from "./migrate.js";
 import { runModel } from "./model.js";
 import { runOps } from "./ops.js";
+import { runQueueWork } from "./queue-work.js";
 import { runResource } from "./resource.js";
 import { runRoute } from "./route.js";
 import { runRouteList } from "./route-list.js";
@@ -164,6 +165,16 @@ export const commands: readonly Command[] = [
   --name <name>                 Migration name (with create) / target (with down)
   --db <mongo|sql>              mongo (ninox, default) or sql (drizzle-kit)`,
     run: runMigrate,
+  },
+  {
+    name: "queue:work",
+    aliases: ["queue", "work"],
+    group: "Develop",
+    description: "Run durable background jobs as a worker (src/jobs.ts)",
+    options: `  --root <dir>                  Project root
+  --once                        Process due jobs once, then exit
+  --init                        Scaffold src/jobs.ts`,
+    run: runQueueWork,
   },
   {
     name: "schedule:run",

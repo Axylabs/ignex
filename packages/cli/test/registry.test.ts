@@ -108,3 +108,11 @@ it("declares schedule:run with a --once flag", () => {
   const help = renderCommandHelp(findCommand("schedule:run") as never);
   expect(help).toContain("--once");
 });
+
+it("declares queue:work with --once and --init", () => {
+  expect(findCommand("queue:work")?.name).toBe("queue:work");
+  expect(findCommand("queue")?.name).toBe("queue:work");
+  const help = renderCommandHelp(findCommand("queue:work") as never);
+  expect(help).toContain("--once");
+  expect(help).toContain("--init");
+});
