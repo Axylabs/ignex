@@ -6,6 +6,34 @@ import type { CompilerOptions } from "../../types";
 import { indentBody } from "./helpers";
 import type { CodegenState } from "./state";
 
+/**
+ * Dev error-overlay page served while a build-error marker exists (written by
+ * `ignex dev` on a failed compile). Shows the compiler diagnostic in the
+ * browser; the terminal already prints it.
+ */
+export const DEV_OVERLAY_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ignex · build error</title>
+<style>
+  body { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #0f1419; color: #e6edf3; }
+  .wrap { max-width: 860px; margin: 48px auto; padding: 0 20px; }
+  h1 { font-size: 18px; color: #ff6b6b; }
+  .box { background: #161c23; border: 1px solid #26313c; border-left: 4px solid #ff6b6b; border-radius: 8px; padding: 16px 20px; margin-top: 16px; white-space: pre-wrap; word-break: break-word; }
+  .hint { color: #8b949e; font-size: 13px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚡ ignex — compilation failed</h1>
+  <div class="box">__MESSAGE__</div>
+  <div class="hint">The previous build is still serving. Fix the error and save a file — ignex dev rebuilds automatically.</div>
+</div>
+</body>
+</html>`;
+
 /** Emit the always-present header constants (limits, flags, lifecycle stage chains). */
 export const stageHeader = (state: CodegenState, opts: CompilerOptions): void => {
   const { cfg, header } = state;
@@ -34,6 +62,11 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   header.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails ? "true" : "false"};`);
   header.push(`const __TRACE = ${cfg.enableTraceHeaders ? "true" : "false"};`);
   header.push(`const __ACCESS_LOG = ${cfg.enableAccessLog ? "true" : "false"};`);
+  // Dev error overlay: enabled outside production (the marker is written by
+  // `ignex dev` on a failed compile). The fs probe inside __fallback is
+  // skipped entirely in production artifacts (const-folded to false).
+  header.push(`const __DEV_ERROR_MARKER = process.env.NODE_ENV !== "production";`);
+  header.push(`const __DEV_OVERLAY_HTML = ${JSON.stringify(DEV_OVERLAY_HTML)};`);
 
   if (state.hasAppConfig) {
     // Dev-only plugins (the `debugbar()` dashboard) mark themselves with

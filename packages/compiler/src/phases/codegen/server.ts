@@ -144,6 +144,7 @@ process.on("SIGINT", () => process.exit(0));`);
     .join("\n\n");
 
   return [
+    `import { existsSync, readFileSync } from "node:fs";`,
     coreImport,
     Array.from(imports).join("\n"),
     header.join("\n\n"),

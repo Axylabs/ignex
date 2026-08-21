@@ -2,7 +2,7 @@ import { type ChildProcess, spawn as spawnProcess, spawnSync } from "node:child_
 import { type FSWatcher, watch } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
-import { buildProject, findServerEntry } from "../utils/compiler.js";
+import { buildProject, findServerEntry, writeBuildErrorMarker } from "../utils/compiler.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { isValidPort, shouldIgnore } from "../utils/dev.js";
 import { checkProjectEnv, reportEnvCheck } from "../utils/env-check.js";
@@ -303,10 +303,12 @@ class DevServer {
 
       this.lastBuildFailed = false;
       this.crashRestartAttempts = 0;
+      await writeBuildErrorMarker(this.outDir, null);
       success("Build ok — server is up to date");
     } catch (err) {
       this.lastBuildFailed = true;
       error(formatError(err));
+      await writeBuildErrorMarker(this.outDir, formatError(err));
       warn(
         "Build failed — the running server (if any) is still serving the previous build. " +
           "Fix the error and save a file to rebuild.",

@@ -3,14 +3,30 @@
  * in-memory transport) plus unit checks of the tool implementations.
  */
 
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server.js";
 import { runBuildTool, runInfoTool, runRouteTool } from "../src/tools.js";
+
+const mcpTempDirs: string[] = [];
+afterEach(() => {
+  for (const d of mcpTempDirs.splice(0)) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  }
+});
+
+const track = (dir: string): string => {
+  mcpTempDirs.push(dir);
+  return dir;
+};
 
 const connect = async () => {
   const server = createMcpServer();
@@ -69,7 +85,7 @@ describe("ignex MCP server (protocol)", () => {
 
 describe("ignex MCP tools (unit)", () => {
   it("route tool scaffolds a route file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ignex-mcp-route-"));
+    const dir = track(mkdtempSync(join(tmpdir(), "ignex-mcp-route-")));
     const parsed = JSON.parse(await runRouteTool({ root: dir, input: "health.get" })) as {
       ok: boolean;
       path: string;
@@ -86,7 +102,7 @@ describe("ignex MCP tools (unit)", () => {
   });
 
   it("build tool degrades gracefully on a bare project", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ignex-mcp-build-"));
+    const dir = track(mkdtempSync(join(tmpdir(), "ignex-mcp-build-")));
     const parsed = JSON.parse(await runBuildTool({ root: dir })) as { ok?: boolean };
     // A bare dir compiles to an empty server (ok) or reports a structured
     // error — it must never throw into the protocol.

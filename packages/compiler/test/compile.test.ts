@@ -261,3 +261,15 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain("__appConfig");
   });
 });
+
+it("emits the dev error-overlay guard in __fallback", async () => {
+  const layout = materializeFixture("basic");
+  const result = await buildAsync(baseOptions(layout));
+
+  expect(result.errors).toHaveLength(0);
+  // The generated server must serve the dev overlay page while a
+  // build-error marker exists (dev-only; production never checks it).
+  expect(result.code).toContain('__DEV_ERROR_MARKER = process.env.NODE_ENV !== "production"');
+  expect(result.code).toContain(".ignex-build-error.json");
+  expect(result.code).toContain('import { existsSync, readFileSync } from "node:fs"');
+});

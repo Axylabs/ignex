@@ -147,3 +147,21 @@ export async function findServerEntry(
 
   return undefined;
 }
+
+/**
+ * Write (or clear) the dev build-error marker.
+ *
+ * The compiled server (dev mode) serves an overlay page while this marker
+ * exists, so a compile error is visible IN THE BROWSER instead of only in the
+ * terminal. `null` clears the marker (build succeeded).
+ */
+export async function writeBuildErrorMarker(outDir: string, message: string | null): Promise<void> {
+  const { join } = await import("node:path");
+  const { writeFile, rm } = await import("node:fs/promises");
+  const marker = join(outDir, ".ignex-build-error.json");
+  if (message === null) {
+    await rm(marker, { force: true }).catch(() => {});
+    return;
+  }
+  await writeFile(marker, JSON.stringify({ message, at: Date.now() }, null, 2)).catch(() => {});
+}

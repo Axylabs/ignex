@@ -273,6 +273,25 @@ export const HELPER_SOURCES: Record<string, string> = {
   __fallback: `async function __fallback(req, server) {
   const url = new URL(req.url);
 
+  // Dev error overlay: while a build-error marker exists (written by
+  // \`ignex dev\` on a failed compile), every request renders the error page
+  // so the failure is visible in the browser, not just the terminal. Dev-only
+  // (production never checks the marker) and zero-cost on the common path
+  // (the \`existsSync\` guard skips when the file is absent).
+  if (process.env.NODE_ENV !== "production" && __DEV_ERROR_MARKER) {
+    const __markerPath = (import.meta.dir || process.cwd()) + "/.ignex-build-error.json";
+    if (existsSync(__markerPath)) {
+      let __message = "Compilation failed";
+      try {
+        const __raw = readFileSync(__markerPath, "utf-8");
+        const __parsed = JSON.parse(__raw);
+        if (typeof __parsed?.message === "string") __message = __parsed.message;
+      } catch {}
+      const __body = __DEV_OVERLAY_HTML.replace("__MESSAGE__", __message.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
+      return new Response(__body, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+  }
+
   if (req.method === "OPTIONS") {
     return __wrap(__optionsHandler, [])(req, undefined, server);
   }
