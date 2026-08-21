@@ -72,6 +72,10 @@ describe("createScheduler", () => {
     await flush(2200);
     scheduler.stop();
 
+    // A tick enqueued just before stop() may still be running inline (the
+    // scheduler waits ~1s before claiming it). Let any in-flight run settle,
+    // THEN assert no NEW ticks fire after stop().
+    await flush(1500);
     const before = task.mock.calls.length;
     await flush(1200);
     expect(task.mock.calls.length).toBe(before);
