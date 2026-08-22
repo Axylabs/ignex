@@ -52,6 +52,9 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/test/**/*.test.ts"],
+    // Nova's suite runs under `bun test` (bun:test — needs bun:ffi); mongo's
+    // lives in `tests/` (own runner). Keep them out of vitest's gate.
+    exclude: ["packages/nova/test/**"],
     environment: "node",
     testTimeout: 30_000,
     coverage: {
