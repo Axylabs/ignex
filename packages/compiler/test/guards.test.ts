@@ -72,6 +72,25 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     expect(result.code).not.toContain("__finalize({ body:");
   });
 
+  it("a before-guarded constant body is never hoisted (guard would be bypassed)", async () => {
+    // hoist-before.get.ts returns a literal — WITHOUT the before array the
+    // compiler hoists it to a frozen body. The guard array must prevent that
+    // AND still statically emit the guard.
+    const layout = materializeFixture("guards");
+    const result = await buildAsync(baseOptions(layout));
+    expect(result.code).toContain('can("hoist:read")');
+    // The hoisted form uses a frozen body const — absent for the route.
+    expect(result.code).not.toContain("Object.freeze({ ok: true })");
+    expect(result.code).not.toContain("__finalize({ body:");
+  });
+
+  it("an after-only route emits the route.after stage on the full-context path", async () => {
+    const layout = materializeFixture("guards");
+    const result = await buildAsync(baseOptions(layout));
+    expect(result.code).toContain('runTimed("route.after"');
+    expect(result.code).toContain("handler__h4?.config?.after");
+  });
+
   it("without withGuards the output has no guard emission", async () => {
     const layout = materializeFixture("named-export");
     const result = await buildAsync(baseOptions(layout));
