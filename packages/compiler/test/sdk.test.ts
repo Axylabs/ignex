@@ -260,6 +260,11 @@ describe("SDK generation", () => {
     // keys must be present (a bare-path key would collapse them).
     expect(client).toContain('"delete /gigs/:id": "params"');
     expect(client).toContain('"patch /gigs/:id": "params+body"');
+    // Query-carrying routes get a dedicated call shape + URL serialization.
+    expect(client).toContain('"get /search": "query"');
+    expect(client).toContain("const buildQuery = (query) =>");
+    expect(client).toContain("parts.push(");
+    expect(client).toContain("encodeURIComponent(String(v))");
     expect(client).toContain("class ApiClientError");
     expect(client).toContain("export const createApiClient");
 

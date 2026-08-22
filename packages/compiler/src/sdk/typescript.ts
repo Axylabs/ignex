@@ -187,18 +187,31 @@ import type {
 ${importLines}
 } from "./types";
 
-// Per-route call signature, derived from the route's declared params/body:
-//   params+body → (params, body, init?)
-//   params      → (params, init?)
-//   body        → (body, init?)
-//   none        → (init?)
-type IgnexRouteHandler<Route> = Route extends { params: infer P; body: unknown }
-  ? (params: P, body: unknown, init?: RequestInit) => Promise<unknown>
-  : Route extends { params: infer P }
-    ? (params: P, init?: RequestInit) => Promise<unknown>
-    : Route extends { body: unknown }
-      ? (body: unknown, init?: RequestInit) => Promise<unknown>
-      : (init?: RequestInit) => Promise<unknown>;
+// Per-route call signature, derived from the route's declared params/query/body:
+//   params+query+body → (params, query, body, init?)
+//   params+query      → (params, query, init?)
+//   query+body        → (query, body, init?)
+//   params+body       → (params, body, init?)
+//   params            → (params, init?)
+//   query             → (query, init?)
+//   body              → (body, init?)
+//   none              → (init?)
+type IgnexRouteHandler<Route> =
+  Route extends { params: infer P; query: infer Q; body: unknown }
+    ? (params: P, query: Q, body: unknown, init?: RequestInit) => Promise<unknown>
+    : Route extends { params: infer P; query: infer Q }
+      ? (params: P, query: Q, init?: RequestInit) => Promise<unknown>
+      : Route extends { query: infer Q; body: unknown }
+        ? (query: Q, body: unknown, init?: RequestInit) => Promise<unknown>
+        : Route extends { params: infer P; body: unknown }
+          ? (params: P, body: unknown, init?: RequestInit) => Promise<unknown>
+          : Route extends { params: infer P }
+            ? (params: P, init?: RequestInit) => Promise<unknown>
+            : Route extends { query: infer Q }
+              ? (query: Q, init?: RequestInit) => Promise<unknown>
+              : Route extends { body: unknown }
+                ? (body: unknown, init?: RequestInit) => Promise<unknown>
+                : (init?: RequestInit) => Promise<unknown>;
 
 export type IgnexRoutes = {
 ${pathBlocks.join("\n")}
@@ -249,6 +262,16 @@ export declare function createApiClient(options: SdkClientOptions): IgnexClient;
 `;
 
 /** Emit `dist/client.js` — the self-contained runtime client. */
+type CallShape =
+  | "none"
+  | "params"
+  | "body"
+  | "params+body"
+  | "query"
+  | "params+query"
+  | "query+body"
+  | "params+query+body";
+
 const emitClientJs = (routes: readonly SdkRouteInfo[]): string => {
   const routeEntries = routes
     .map(
@@ -257,10 +280,22 @@ const emitClientJs = (routes: readonly SdkRouteInfo[]): string => {
     )
     .join("\n");
 
-  const modeFor = (r: SdkRouteInfo): "none" | "params" | "body" | "params+body" => {
+  const modeFor = (r: SdkRouteInfo): CallShape => {
     const params = hasParams(r);
+    const query = hasQuery(r);
     const body = r.usesBody;
-    return params ? (body ? "params+body" : "params") : body ? "body" : "none";
+    const key = `${params ? "p" : ""}${query ? "q" : ""}${body ? "b" : ""}`;
+    const map: Record<string, CallShape> = {
+      p: "params",
+      pq: "params+query",
+      pb: "params+body",
+      pqb: "params+query+body",
+      q: "query",
+      qb: "query+body",
+      b: "body",
+      "": "none",
+    };
+    return map[key] ?? "none";
   };
 
   // Keyed by the full "method path" (same key shape as ROUTES) — a bare path
@@ -290,7 +325,8 @@ const ROUTES = {
 ${routeEntries}
 };
 
-// Route path → call shape ("none" | "params" | "body" | "params+body").
+// Route template → call shape ("none" | "params" | "body" | "params+body" |
+// "query" | "params+query" | "query+body" | "params+query+body").
 const ROUTE_ARGS = {
 ${argsEntries}
 };
@@ -303,6 +339,23 @@ const buildUrl = (path, params) => {
       .replace(\`*\${key}\`, encodeURIComponent(String(value)));
   }
   return url;
+};
+
+// Serialize a query object to a "?a=1&b=x" suffix (array values repeat).
+const buildQuery = (query) => {
+  if (!query) return "";
+  const parts = [];
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        parts.push(\`\${encodeURIComponent(key)}=\${encodeURIComponent(String(v))}\`);
+      }
+    } else {
+      parts.push(\`\${encodeURIComponent(key)}=\${encodeURIComponent(String(value))}\`);
+    }
+  }
+  return parts.length > 0 ? \`?\${parts.join("&")}\` : "";
 };
 
 // Deep-merge per-call init over the client-wide init so a per-call header
@@ -356,9 +409,26 @@ export const createApiClient = (options) => {
   const routeHandler = (pathKey) => {
     const path = ROUTES[pathKey] ?? pathKey;
     const mode = ROUTE_ARGS[pathKey] ?? "none";
+    const callUrl = (params, query) => buildUrl(path, params) + buildQuery(query);
     return new Proxy({}, {
       get(_, methodKey) {
         return async (...args) => {
+          if (mode === "params+query+body") {
+            const [params, query, body, init] = args;
+            return request(methodKey.toUpperCase(), callUrl(params, query), body, mergeInit(baseOptions, init));
+          }
+          if (mode === "params+query") {
+            const [params, query, init] = args;
+            return request(methodKey.toUpperCase(), callUrl(params, query), undefined, mergeInit(baseOptions, init));
+          }
+          if (mode === "query+body") {
+            const [query, body, init] = args;
+            return request(methodKey.toUpperCase(), callUrl(undefined, query), body, mergeInit(baseOptions, init));
+          }
+          if (mode === "query") {
+            const [query, init] = args;
+            return request(methodKey.toUpperCase(), callUrl(undefined, query), undefined, mergeInit(baseOptions, init));
+          }
           if (mode === "params+body") {
             const [params, body, init] = args;
             return request(methodKey.toUpperCase(), buildUrl(path, params), body, mergeInit(baseOptions, init));
