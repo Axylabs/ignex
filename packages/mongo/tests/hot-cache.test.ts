@@ -18,6 +18,7 @@ import {
   makeEnterpriseService,
   maybeDescribe,
   noopLogger,
+  probe,
   probeReplica,
 } from "./helpers.ts";
 
@@ -504,7 +505,8 @@ describe("HotCache — standalone ticker (probe: false)", () => {
 /* ------------------------- replica change-stream ------------------------- */
 
 const replica = await probeReplica();
-const maybeStandalone = maybeDescribe(!replica);
+// Standalone suites run only when Mongo is REACHABLE but not a replica set.
+const maybeStandalone = maybeDescribe(!replica && (await probe()));
 const maybeReplica = maybeDescribe(replica);
 
 maybeStandalone("HotCache — replica probe fallback", () => {

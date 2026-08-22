@@ -204,8 +204,8 @@ describe("injection & content isolation", () => {
     // and the hostile keys did not leak into the decoded payload as OWN keys
     // (`'__proto__' in obj` is true for every object — the accessor lives on
     // Object.prototype — so check for an own property instead).
-    expect(Object.hasOwn(decoded!.payload, "__proto__")).toBe(false);
-    expect(Object.hasOwn(decoded!.payload, "constructor")).toBe(false);
+    expect(Object.hasOwn(decoded!.payload as object, "__proto__")).toBe(false);
+    expect(Object.hasOwn(decoded!.payload as object, "constructor")).toBe(false);
   });
 
   test("HTML/JS-special content round-trips exactly (binary transport is injection-safe)", () => {

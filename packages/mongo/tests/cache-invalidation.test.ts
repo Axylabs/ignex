@@ -16,12 +16,15 @@ import {
   makeEnterpriseService,
   maybeDescribe,
   noopLogger,
+  probe,
   probeReplica,
 } from "./helpers.ts";
 
 const replica = await probeReplica();
 const maybeReplica = maybeDescribe(replica);
-const maybeStandalone = maybeDescribe(!replica);
+// Standalone suites run only when Mongo is REACHABLE but not a replica set —
+// an unreachable/differently-credentialed local Mongo must skip both suites.
+const maybeStandalone = maybeDescribe(!replica && (await probe()));
 
 maybeStandalone("cacheWatch — standalone fallback", () => {
   let ctx: Awaited<ReturnType<typeof makeEnterpriseService>>;

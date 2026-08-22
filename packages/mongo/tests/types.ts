@@ -162,14 +162,14 @@ const _bad = (): void => {
   manager.populate(orders, [belongsTo({ collection: "nope", localField: "userId", as: "x" })]);
   // @ts-expect-error — bad localField on the source doc
   manager.populate(orders, [belongsTo({ collection: "users", localField: "nope", as: "x" })]);
-  // @ts-expect-error — bad foreignField on the target doc
   manager.populate(orders, [
+    // @ts-expect-error — bad foreignField on the target doc
     belongsTo({ collection: "users", localField: "userId", foreignField: "nope", as: "x" }),
   ]);
   // @ts-expect-error — bad hasMany localField
   manager.populate(orders, [hasMany({ collection: "orders", localField: "nope", as: "x" })]);
-  // @ts-expect-error — bad manyToMany through collection
   manager.populate(orders, [
+    // @ts-expect-error — bad manyToMany through collection
     manyToMany({
       collection: "users",
       localField: "_id",
@@ -177,8 +177,8 @@ const _bad = (): void => {
       through: { collection: "nope", localField: "orderId", foreignField: "tagId" },
     }),
   ]);
-  // @ts-expect-error — bad manyToMany through foreignField
   manager.populate(orders, [
+    // @ts-expect-error — bad manyToMany through foreignField
     manyToMany({
       collection: "users",
       localField: "_id",
@@ -293,9 +293,9 @@ const _badPipe = (): void => {
   manager.pipeline("users").lookup({ from: "nope", localField: "_id", as: "x" });
   // @ts-expect-error — lookup localField is not on the source doc
   manager.pipeline("users").lookup({ from: "orders", localField: "nope", as: "x" });
-  // @ts-expect-error — lookup foreignField is not on the foreign doc
   manager
     .pipeline("users")
+    // @ts-expect-error — lookup foreignField is not on the foreign doc
     .lookup({ from: "orders", localField: "_id", foreignField: "nope", as: "x" });
 };
 
