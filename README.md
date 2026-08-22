@@ -315,6 +315,8 @@ bun run test            # full vitest suite (all packages)
 - [docs/architecture.md](docs/architecture.md) — how the packages and the AOT
   compiler fit together, the one-way dependency rule, and the `ContextUsage`
   contract.
+- [docs/compatibility.md](docs/compatibility.md) — version/API contract with
+  the external standalone projects (`@ignex/ninox`, `@ignex/nova`, `castrum`).
 - [docs/deployment.md](docs/deployment.md) — multi-instance production
   (AOT-only, HTTP/2, jobs across replicas, nova cluster topology, observability).
 - [docs/router.md](docs/router.md) — the interpreted router

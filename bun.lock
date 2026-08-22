@@ -141,7 +141,7 @@
         "vitest": "^4.1.10",
       },
       "optionalDependencies": {
-        "castrum": "^0.9.0",
+        "castrum": "^0.9.1",
       },
     },
     "packages/shared": {
