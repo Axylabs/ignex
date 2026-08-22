@@ -23,6 +23,7 @@
  */
 import { createRequire } from "node:module";
 import { getAddonPath, getNative, type NativeAddon } from "./loader";
+import { toBytes } from "./util";
 
 /** Transport selection for the C-ABI fast path. */
 export type FfiMode = "auto" | "ffi" | "napi";
@@ -892,8 +893,10 @@ export interface FfiInstancesSurface {
   acceptNegotiatorNegotiateServer(inner: number, header: string): string | null | undefined;
   /**
    * ConditionalRequest: 304 check → 1 when not-modified. `ifNoneMatch` /
-   * `ifModifiedSince` are `cstring` ARGs (zero JS encode); presence is gated
-   * by the flags byte, so absent headers pass `null` and are never read.
+   * `ifModifiedSince` cross as `(ptr,len)` byte pairs (the Rust signature is
+   * `(inner, inm: *const u8, inm_len: usize, ims: *const u8, ims_len: usize,
+   * flags: u8)`); presence is gated by the flags byte, so absent headers pass
+   * an empty view and are never read.
    */
   conditionalIsNotModified(
     inner: number,
@@ -945,11 +948,12 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
         args: ["u64", "cstring"],
         returns: "cstring",
       },
-      // `ifNoneMatch`/`ifModifiedSince` are `cstring` ARGs (zero JS encode);
-      // presence is gated by the flags byte, so absent headers pass `""` (the
-      // raw symbol never sees `null`) and are never read on the Rust side.
+      // `ifNoneMatch`/`ifModifiedSince` are `(ptr,len)` byte pairs (Rust:
+      // `castrum_conditional_is_not_modified(inner, inm, inm_len, ims, ims_len,
+      // flags)`); presence is gated by the flags byte, so absent headers pass
+      // an empty view (never null).
       castrum_conditional_is_not_modified: {
-        args: ["u64", "cstring", "cstring", "u8"],
+        args: ["u64", "ptr", "usize", "ptr", "usize", "u8"],
         returns: "u8",
       },
     });
@@ -978,17 +982,26 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
         const v = fn(inner, header);
         return typeof v === "string" ? v : null;
       },
-      conditionalIsNotModified: (inner, ifNoneMatch, ifModifiedSince) =>
-        Number(
-          s.castrum_conditional_is_not_modified?.(
-            inner,
-            // cstring ARGs: pass "" for absent headers — Rust only reads the
-            // pointer when the corresponding flags bit is set (never null).
-            ifNoneMatch ?? "",
-            ifModifiedSince ?? "",
-            (ifNoneMatch ? 1 : 0) | (ifModifiedSince ? 2 : 0),
-          ) ?? 0,
-        ) === 1,
+      conditionalIsNotModified: (inner, ifNoneMatch, ifModifiedSince) => {
+        // `(ptr,len)` pairs: pass the header bytes; absent headers pass an
+        // empty view (the flags bits gate reads on the Rust side — the pointer
+        // is never dereferenced when the corresponding bit is clear).
+        const flags = (ifNoneMatch === null ? 0 : 1) | (ifModifiedSince === null ? 0 : 2);
+        const inm = ifNoneMatch === null ? EMPTY_VIEW : toBytes(ifNoneMatch);
+        const ims = ifModifiedSince === null ? EMPTY_VIEW : toBytes(ifModifiedSince);
+        return (
+          Number(
+            s.castrum_conditional_is_not_modified?.(
+              inner,
+              inm,
+              inm.length,
+              ims,
+              ims.length,
+              flags,
+            ) ?? 0,
+          ) === 1
+        );
+      },
     };
   } catch {
     // Addon lacks the instance surface — not an error.
