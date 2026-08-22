@@ -60,6 +60,27 @@ export default async (ctx) => ctx.json({ id: ctx.params.id, rows: [] });
 `,
   );
 
+  // Same route template, different per-method call shapes (regression: the
+  // SDK client's ROUTE_ARGS must key by "method path", not bare path, or the
+  // DELETE (params) and PATCH (params+body) shapes collide).
+  mkdirSync(join(routesDir, "gigs"), { recursive: true });
+  writeFileSync(
+    join(routesDir, "gigs", "[id].del.ts"),
+    `import { Type } from "typebox";
+
+export default async (ctx) => ctx.json({ deleted: true });
+`,
+  );
+  writeFileSync(
+    join(routesDir, "gigs", "[id].patch.ts"),
+    `import { Type } from "typebox";
+
+export const schema = { body: Type.Object({ title: Type.String() }) };
+
+export default async (ctx) => ctx.json({ ok: true });
+`,
+  );
+
   // Query-schema route.
   writeFileSync(
     join(routesDir, "search.get.ts"),
@@ -231,8 +252,14 @@ describe("SDK generation", () => {
     const client = files.get("dist/client.js") ?? "";
     expect(client).not.toMatch(/^\s*import\s/m);
     expect(client).toContain('"post /orders": "/orders"');
-    expect(client).toContain('"/orders": "body"');
-    expect(client).toContain('"/reports/:id": "params"');
+    // ROUTE_ARGS is keyed by the full "method path" (like ROUTES) so the same
+    // route template with different per-method call shapes doesn't collide.
+    expect(client).toContain('"post /orders": "body"');
+    expect(client).toContain('"get /reports/:id": "params"');
+    // Same template /gigs/:id: DELETE is params, PATCH is params+body — both
+    // keys must be present (a bare-path key would collapse them).
+    expect(client).toContain('"delete /gigs/:id": "params"');
+    expect(client).toContain('"patch /gigs/:id": "params+body"');
     expect(client).toContain("class ApiClientError");
     expect(client).toContain("export const createApiClient");
 
