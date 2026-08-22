@@ -17,9 +17,11 @@ let srv: BootedServer;
 beforeAll(async () => {
   // The example app serves HTTP/2 by default (auto-generated dev certs), so
   // the harness polls and hits it over https with TLS verification disabled.
+  // Allow well beyond the harness's readiness window — under full-suite
+  // parallelism a cold HTTPS boot can be slow.
   srv = await bootServer(APP_DIR, { protocol: "https" });
   BASE = srv.base;
-});
+}, 60_000);
 
 afterAll(() => srv.close());
 
