@@ -94,6 +94,20 @@ export default (ctx) => ctx.query;
 `,
   );
 
+  // Params + query route (path params substituted AND query serialized).
+  mkdirSync(join(routesDir, "products"), { recursive: true });
+  writeFileSync(
+    join(routesDir, "products", "[id].get.ts"),
+    `import { Type } from "typebox";
+
+export const schema = {
+  query: Type.Object({ q: Type.String() }),
+};
+
+export default (ctx) => ctx.query;
+`,
+  );
+
   const result = await buildAsync({
     routesDir,
     outDir,
@@ -284,6 +298,62 @@ describe("SDK generation", () => {
     const content = (pkg: (typeof a.packages)[number]) =>
       pkg.files.map((f) => `${f.path}\n${f.content}`).join("\n");
     expect(content(a.packages[0])).toBe(content(b.packages[0]));
+  });
+
+  it("the generated client dispatches params/query/body per route at runtime", async () => {
+    const outDir = await buildSchemaFixture();
+    await writeSdk({
+      outDir,
+      name: "@acme/api-sdk",
+      version: "1.2.3",
+      platforms: ["typescript"],
+      packageDir: join(outDir, "sdk-out"),
+    });
+
+    const calls: Array<{ url: string; method: string; body: string | undefined }> = [];
+    const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        method: String(init?.method ?? "GET"),
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    const mod = (await import(join(outDir, "sdk-out", "dist", "client.js"))) as {
+      createApiClient: (o: unknown) => Record<string, never>;
+    };
+    const client = mod.createApiClient({ baseUrl: "https://api.example", fetch: fakeFetch }) as {
+      [path: string]: {
+        get: (...a: unknown[]) => Promise<unknown>;
+        del: (...a: unknown[]) => Promise<unknown>;
+        patch: (...a: unknown[]) => Promise<unknown>;
+        post: (...a: unknown[]) => Promise<unknown>;
+      };
+    };
+
+    // params+query: template path + params object + query serialized.
+    await client["/products/:id"]?.get({ id: "7" }, { q: "lamp" });
+    expect(calls[calls.length - 1]?.url).toBe("https://api.example/products/7?q=lamp");
+
+    // query-only.
+    await client["/search"]?.get({ q: "hello world" });
+    expect(calls[calls.length - 1]?.url).toBe("https://api.example/search?q=hello%20world");
+
+    // body.
+    await client["/orders"]?.post({ orderId: "o1", quantity: 2, totalCents: 100 });
+    expect(calls[calls.length - 1]?.url).toBe("https://api.example/orders");
+    expect(calls[calls.length - 1]?.body).toBe(
+      JSON.stringify({ orderId: "o1", quantity: 2, totalCents: 100 }),
+    );
+
+    // Same template, different methods: del = params, patch = params+body.
+    await client["/gigs/:id"]?.del({ id: "abc" });
+    expect(calls[calls.length - 1]?.url).toBe("https://api.example/gigs/abc");
+    expect(calls[calls.length - 1]?.body).toBeUndefined();
+    await client["/gigs/:id"]?.patch({ id: "abc" }, { title: "new" });
+    expect(calls[calls.length - 1]?.url).toBe("https://api.example/gigs/abc");
+    expect(calls[calls.length - 1]?.body).toBe(JSON.stringify({ title: "new" }));
   });
 
   it("generates the openapi spec platform alongside typescript", async () => {

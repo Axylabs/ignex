@@ -358,6 +358,9 @@ const buildQuery = (query) => {
   return parts.length > 0 ? \`?\${parts.join("&")}\` : "";
 };
 
+// Method shorthand (as typed on the client) → HTTP method name.
+const METHOD_NAMES = { get: "get", post: "post", put: "put", patch: "patch", del: "delete", head: "head", options: "options", all: "all" };
+
 // Deep-merge per-call init over the client-wide init so a per-call header
 // doesn't clobber headers set on createApiClient (shallow spread would).
 const mergeInit = (base, per) => {
@@ -408,41 +411,46 @@ export const createApiClient = (options) => {
 
   const routeHandler = (pathKey) => {
     const path = ROUTES[pathKey] ?? pathKey;
-    const mode = ROUTE_ARGS[pathKey] ?? "none";
+    // Mode is keyed by "method path"; resolve it from the method being called
+    // so api["/gigs/:id"].del() and api["/gigs/:id"].patch() get their own
+    // shapes (and bare-path access still works).
+    const modeOf = (methodKey) => ROUTE_ARGS[\`\${METHOD_NAMES[methodKey] ?? methodKey} \${path}\`] ?? "none";
     const callUrl = (params, query) => buildUrl(path, params) + buildQuery(query);
     return new Proxy({}, {
       get(_, methodKey) {
+        const mode = modeOf(methodKey);
+        const httpMethod = String(METHOD_NAMES[methodKey] ?? methodKey).toUpperCase();
         return async (...args) => {
           if (mode === "params+query+body") {
             const [params, query, body, init] = args;
-            return request(methodKey.toUpperCase(), callUrl(params, query), body, mergeInit(baseOptions, init));
+            return request(httpMethod, callUrl(params, query), body, mergeInit(baseOptions, init));
           }
           if (mode === "params+query") {
             const [params, query, init] = args;
-            return request(methodKey.toUpperCase(), callUrl(params, query), undefined, mergeInit(baseOptions, init));
+            return request(httpMethod, callUrl(params, query), undefined, mergeInit(baseOptions, init));
           }
           if (mode === "query+body") {
             const [query, body, init] = args;
-            return request(methodKey.toUpperCase(), callUrl(undefined, query), body, mergeInit(baseOptions, init));
+            return request(httpMethod, callUrl(undefined, query), body, mergeInit(baseOptions, init));
           }
           if (mode === "query") {
             const [query, init] = args;
-            return request(methodKey.toUpperCase(), callUrl(undefined, query), undefined, mergeInit(baseOptions, init));
+            return request(httpMethod, callUrl(undefined, query), undefined, mergeInit(baseOptions, init));
           }
           if (mode === "params+body") {
             const [params, body, init] = args;
-            return request(methodKey.toUpperCase(), buildUrl(path, params), body, mergeInit(baseOptions, init));
+            return request(httpMethod, buildUrl(path, params), body, mergeInit(baseOptions, init));
           }
           if (mode === "params") {
             const [params, init] = args;
-            return request(methodKey.toUpperCase(), buildUrl(path, params), undefined, mergeInit(baseOptions, init));
+            return request(httpMethod, buildUrl(path, params), undefined, mergeInit(baseOptions, init));
           }
           if (mode === "body") {
             const [body, init] = args;
-            return request(methodKey.toUpperCase(), path, body, mergeInit(baseOptions, init));
+            return request(httpMethod, path, body, mergeInit(baseOptions, init));
           }
           const [init] = args;
-          return request(methodKey.toUpperCase(), path, undefined, mergeInit(baseOptions, init));
+          return request(httpMethod, path, undefined, mergeInit(baseOptions, init));
         };
       },
     });
