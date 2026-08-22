@@ -566,7 +566,7 @@ export const plugins = [
 ${pluginsSpread}${middlewareSpread}  // Developer dashboard (request waterfall, errors + replay, system profile,
   // SDK list, KT docs) at '/__debugbar'. Enabled by default in debug mode;
   // when disabled (production) the plugin marks itself dev-only and the
-  // compiled server drops it from the lifecycle — zero per-request cost.
+  // compiled server omits it entirely — zero per-request cost.
   debugbar(),
   session({ secret: env.SESSION_SECRET || "dev-secret-change-me", createIfMissing: true }),
   // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
