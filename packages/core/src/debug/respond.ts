@@ -17,6 +17,17 @@ export const html = (body: string, status = 200): Response =>
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
 
+/**
+ * JavaScript response with `no-store`. The dashboard app at `{path}/app.js`
+ * must be served with a JS MIME type — `text/html` is refused by strict MIME
+ * checking ("Refused to execute script … MIME type ('text/html')").
+ */
+export const jsResponse = (body: string, status = 200): Response =>
+  new Response(body, {
+    status,
+    headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" },
+  });
+
 /** Standard 404 JSON body for unknown dashboard API paths. */
 export const notFound = (): Response => json({ error: "not_found", status: 404 }, 404);
 

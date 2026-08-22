@@ -130,6 +130,11 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   root span of every request (the root is the request itself), and framework
   stage rows are closed without the leak flag when the debugbar finalizes the
   trace inside the afterHandle stage.
+- Debugbar dashboard `{path}/app.js` is served with `text/javascript` (was
+  `text/html`), so browsers with strict MIME checking no longer refuse to
+  execute it ("Refused to execute script … MIME type ('text/html')") — in
+  both the AOT `onRequest` path and the interpreted router path. The shell
+  also ships an inline favicon, removing the `/favicon.ico` 404.
 
 ## [0.1.7] — 2026-08
 

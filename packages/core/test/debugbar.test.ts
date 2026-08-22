@@ -334,6 +334,9 @@ describe("debugbar plugin (AOT-style interception)", () => {
     expect(htmlText).toContain("/app.css");
     const js = await run(app, "/__debugbar/app.js");
     expect(await js.text()).toContain("waterfall");
+    // The app script must be executable: a JS MIME type, never text/html
+    // (strict MIME checking refuses `text/html` scripts).
+    expect(js.headers.get("content-type")).toContain("javascript");
     const css = await run(app, "/__debugbar/app.css");
     expect(css.headers.get("content-type")).toContain("text/css");
     expect(await css.text()).toContain("--bg");
@@ -502,9 +505,11 @@ describe("debugbar plugin (AOT-style interception)", () => {
       headers: { "x-debugbar-token": "sekrit" },
     });
     expect(headerOk.status).toBe(200);
-    // The static JS asset stays reachable for the page to load.
+    // The static JS asset stays reachable for the page to load (no token
+    // gate) and is served as executable JavaScript, not text/html.
     const js = await run(app, "/__debugbar/app.js");
     expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toContain("javascript");
   });
 
   it("is inert when disabled (no dashboard, no tracing overhead)", async () => {
@@ -604,6 +609,11 @@ describe("debugbar plugin (interpreted router)", () => {
     // Dashboard served through the router route.
     const dash = await run(app, "/__debugbar/");
     expect((await dash.text()) as string).toContain("IgnEx Debugbar");
+
+    // Router path also serves app.js with an executable JS MIME type.
+    const routerJs = await run(app, "/__debugbar/app.js");
+    expect(routerJs.status).toBe(200);
+    expect(routerJs.headers.get("content-type")).toContain("javascript");
 
     // KT built from the router's registrations.
     const kt = (await (await run(app, "/__debugbar/api/kt")).json()) as {

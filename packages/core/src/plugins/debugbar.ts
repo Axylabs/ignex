@@ -36,7 +36,7 @@ import { buildAppKnowledge, formatKnowledgeMarkdown } from "../debug/kt";
 import { renderMarkdownHtml } from "../debug/markdown";
 import { NatsEventTracker } from "../debug/nats-tracker";
 import { replayRequest, serverBaseUrl } from "../debug/replay";
-import { html, json, notFound } from "../debug/respond";
+import { html, json, jsResponse, notFound } from "../debug/respond";
 import { TraceStore } from "../debug/store";
 import { SystemProfiler } from "../debug/system";
 import {
@@ -245,7 +245,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
         'var BASE = document.currentScript ? document.currentScript.getAttribute("data-base") || "." : ".";',
         `var BASE = ${JSON.stringify(state.path)};`,
       );
-      return html(js, 200);
+      return jsResponse(js, 200);
     }
     if (rest === "/app.css") {
       return new Response(DEBUGBAR_DASHBOARD_CSS, {
@@ -582,7 +582,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     state.router = router;
     router.get(path, () => new Response(null, { status: 302, headers: { location: `${path}/` } }));
     router.get(`${path}/`, () => html(DEBUGBAR_DASHBOARD_HTML.replaceAll("__BASE__", path)));
-    router.get(`${path}/app.js`, () => html(DEBUGBAR_DASHBOARD_JS));
+    router.get(`${path}/app.js`, () => jsResponse(DEBUGBAR_DASHBOARD_JS));
     router.get(
       `${path}/app.css`,
       () =>
