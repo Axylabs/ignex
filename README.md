@@ -54,6 +54,14 @@ The project is composed of several workspace packages:
   (thin shim that forwards to `@ignex/cli create`)
 - `@ignex/shared` — shared types, FP core, and compile-time/runtime flags
 - `@ignex/native` — Rust-accelerated primitives with pure-TS fallbacks
+- `@ignex/nova` — typed realtime transport (TypeBox-driven FlatBuffer pub/sub
+  over Bun WebSockets, Rust FFI serializer, NATS cluster sync) — see
+  [packages/nova](packages/nova/README.md)
+- `@ignex/ninox` (at `packages/mongo`) — schema-first MongoDB toolkit: typed
+  schema DSL → `$jsonSchema`, CRUD + pagination + aggregation, DataLoader
+  relations, query cache + in-flight dedup, migrations — see
+  [packages/mongo](packages/mongo/README.md)
+- `@ignex/test-utils` — shared vitest arbitraries + matchers
 - `packages/app` — example application used for testing and benchmarking
 - `scripts/` — benchmarking and OpenAPI client generation utilities
 

@@ -16,6 +16,7 @@ cutting a release. Every package is versioned independently
 
    ```sh
    bun run verify         # typecheck + lint + tests + jsdoc:check:strict
+   bun run verify:all     # adds the mongo + nova gates (typecheck/test/verify:nova)
    bun run test:coverage
    bun run build
    bun run smoke
@@ -25,6 +26,20 @@ cutting a release. Every package is versioned independently
    All must be green. `verify` now includes `jsdoc:check:strict` — every
    public export must carry JSDoc (see [adding-a-feature.md §G](adding-a-feature.md)).
    Coverage thresholds are enforced in CI.
+
+## Publishing the workspace packages
+
+`@ignex/nova` (`packages/nova`) and `@ignex/ninox` (`packages/mongo`) are
+published from the monorepo with their own version numbers:
+
+- **Nova** — source-published (`files: index.ts public src rust prebuilds docs`);
+  bump > 0.1.1 before publishing so the `events`/`bindings`/`generate` subpaths
+  land in the registry (the notifier + CLI template import
+  `@ignex/nova/events`). The Rust addon must be built and staged into
+  `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
+- **Ninox** — source-only in the monorepo; the registry package previously
+  shipped `dist/`. Keep the `@ignex/ninox` name and the `check:api` gate
+  (API.md ↔ barrel). Run `bun run prepublishOnly` from `packages/mongo`.
 3. **Regenerate stale artifacts** (if they are committed):
    - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored now).
    - `project.txt` / package `project.txt` — `python3 context.py`.

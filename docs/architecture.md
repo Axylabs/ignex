@@ -13,6 +13,9 @@ codebase and make changes without breaking the AOT contract.
 | `@ignex/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
 | `@ignex/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
 | `@ignex/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
+| `@ignex/nova`     | Typed realtime transport (FlatBuffer pub/sub, Rust FFI, NATS)     | `index.ts`      |
+| `@ignex/ninox`    | Schema-first MongoDB toolkit (at `packages/mongo`)                | `src/index.ts`  |
+| `@ignex/test-utils` | Shared vitest arbitraries + matchers                            | `src/index.ts`  |
 | `packages/app`   | Example application (routes, views, hooks) + benchmarks           | `builder.ts`    |
 
 All packages ship **source-only**: `exports` point at `src/*.ts`, and Bun runs
@@ -33,12 +36,18 @@ shared  ←  native  ←  core  ←  compiler  ←  cli / app
 - **Never** let `core` import from `compiler`, or `shared` from anything.
 
 **External optional deps** follow the `castrum` pattern: `@ignex/native`
-depends on `castrum` optionally and loads it lazily; `@ignex/core` depends on
-`@ignex/nova` optionally (peer, marked optional) and `novaPlugin` loads it
-lazily in `init()`, never at module import. TypeScript resolves both through
-root tsconfig `paths` to hand-maintained ambient declarations
-(`vendor/castrum.d.ts`, `vendor/nova.d.ts`), so the repo type-checks even when
-the packages aren't installed.
+depends on `castrum` optionally and loads it lazily; the only hand-maintained
+ambient declaration left is `vendor/castrum.d.ts` (the out-of-repo Rust
+addon), mapped through root tsconfig `paths` so the repo type-checks even
+when the addon isn't installed.
+
+**Nova and ninox are first-class workspace packages** (no ambient stubs):
+`@ignex/nova` (at `packages/nova`) and `@ignex/ninox` (at `packages/mongo`)
+resolve through the workspace — the tsconfig `paths` entries that previously
+shadowed `@ignex/nova/*` with a type-only stub (and broke `novaPlugin`'s lazy
+`import()` under Bun, which honors `paths` at runtime) are **deleted**.
+`novaPlugin` lazily imports `@ignex/nova/server` in `init()` and keeps
+`options.loader` for tests; the app consumes ninox via `workspace:*`.
 
 The runtime is the single source of truth. The compiler imports runtime
 primitives (`runHooks`, `createContext`, `serializeCookie`,

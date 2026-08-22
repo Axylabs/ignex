@@ -78,7 +78,8 @@
     "test:nova": "bun test --cwd packages/nova",
     "typecheck:nova": "tsc --noEmit -p packages/nova/tsconfig.json",
     "typecheck:mongo": "tsc --noEmit -p packages/mongo/tsconfig.json",
-    "test:mongo": "bun test --cwd packages/mongo"
+    "test:mongo": "bun test --cwd packages/mongo",
+    "verify:all": "bun run verify && bun run typecheck:mongo && bun run test:mongo && bun run typecheck:nova && bun run test:nova && bun run verify:nova"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
