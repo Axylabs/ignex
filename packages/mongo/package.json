@@ -1,0 +1,69 @@
+{
+  "name": "@ignex/ninox",
+  "version": "0.1.3",
+  "description": "Schema-first MongoDB ORM with DataLoader-batched relations, query caching, in-flight dedup, and $facet pagination",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.17.0",
+    "bun": ">=1.0.0"
+  },
+  "files": [
+    "src"
+  ],
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./utils": "./src/utils/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:types": "tsc --noEmit",
+    "bench": "bun run bench/run-bench.ts",
+    "check:api": "bun run scripts/check-api.ts",
+    "lint": "bunx biome check .",
+    "lint:fix": "bunx biome check --write .",
+    "prepublishOnly": "bun run typecheck && bunx biome check . && bun run test && bun run check:api"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/bun": "latest",
+    "tsup": "^8.0.0",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.5.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "mongodb": "^7.5.0"
+  },
+  "keywords": [
+    "mongodb",
+    "orm",
+    "typescript",
+    "schema",
+    "query-builder",
+    "dataloader",
+    "cache",
+    "aggregation",
+    "json-schema"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Axylabs/ninox"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

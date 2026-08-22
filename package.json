@@ -76,7 +76,9 @@
     "verify:drizzle": "bun scripts/verify-drizzle-resource.ts",
     "bench:compare:gate": "bun scripts/check-compare-gate.ts",
     "test:nova": "bun test --cwd packages/nova",
-    "typecheck:nova": "tsc --noEmit -p packages/nova/tsconfig.json"
+    "typecheck:nova": "tsc --noEmit -p packages/nova/tsconfig.json",
+    "typecheck:mongo": "tsc --noEmit -p packages/mongo/tsconfig.json",
+    "test:mongo": "bun test --cwd packages/mongo"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",

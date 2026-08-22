@@ -28,6 +28,9 @@ export default defineConfig({
       "@ignex/native": alias("packages/native/src/index.ts"),
       "@ignex/mcp": alias("packages/mcp/src/index.ts"),
       "@ignex/test-utils": alias("packages/test-utils/src/index.ts"),
+      // Mongo toolkit (source-only workspace package).
+      "@ignex/ninox/utils": alias("packages/mongo/src/utils/index.ts"),
+      "@ignex/ninox": alias("packages/mongo/src/index.ts"),
       // Nova is a workspace package; subpaths resolve through its exports map
       // (public/*.ts) — explicit aliases keep vitest deterministic.
       "@ignex/nova/server": alias("packages/nova/public/server.ts"),

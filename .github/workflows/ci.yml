@@ -274,3 +274,40 @@ jobs:
 
       - name: Verify novaPlugin end-to-end
         run: bun run verify:nova
+
+  # Mongo toolkit (@ignex/ninox): unit suites run everywhere (live-Mongo tests
+  # auto-skip via probe()), integration suites run against the CI Mongo 7
+  # service. The standalone-package replica-set suites (hot-cache change
+  # streams) stay in the upstream repo's own workflow.
+  mongo:
+    name: Mongo toolkit (ninox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (mongo)
+        run: bun run typecheck:mongo
+
+      - name: Test (mongo suite)
+        env:
+          MONGO_URL: mongodb://localhost:27017/
+        run: bun run test:mongo
+
+      - name: API-surface check
+        working-directory: packages/mongo
+        run: bun run check:api
