@@ -17,9 +17,24 @@ export {
   NOOP_DEBUG_API,
 } from "./api";
 export {
+  ClientRegistry,
+  type ClientRegistryOptions,
+  type GitTagInfo,
+  type PublishedClient,
+} from "./clients";
+export {
   buildAppKnowledge,
   formatKnowledgeMarkdown,
 } from "./kt";
+export {
+  NatsConnection,
+  type NatsEvent,
+  type NatsEventStats,
+  type NatsEventSummary,
+  NatsEventTracker,
+  type NatsStatus,
+  type NatsTrackerOptions,
+} from "./nats-tracker";
 export { TraceStore, type TraceStoreOptions, type TraceSummary } from "./store";
 export {
   SystemProfiler,
@@ -31,6 +46,7 @@ export {
   captureRedactedHeaders,
   currentTrace,
   currentTraceContext,
+  debugStageEnd,
   enterTraceContext,
   isRedactedHeader,
   isTracingEnabled,
@@ -40,6 +56,7 @@ export {
   Trace,
 } from "./tracer";
 export type {
+  AiDebugSummary,
   AppKnowledge,
   CapturedRequest,
   DebugApi,

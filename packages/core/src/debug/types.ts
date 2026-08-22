@@ -207,6 +207,65 @@ export interface KnowledgeSdk {
   readonly version: string;
   readonly location: string;
   readonly files: string[];
+  /** Git tags matching the SDK tag prefix (`sdk-v*`), newest first. */
+  readonly gitTags: string[];
+  /** `tagged` when a matching git tag exists (the `ignex sdk --push` signal). */
+  readonly published: "tagged" | "local" | "unknown";
+}
+
+/**
+ * Compact AI-facing debug summary served at `{path}/api/ai/summary`.
+ *
+ * One small JSON document that tells an AI agent (via MCP) what is happening
+ * on this server right now: error/slow traces, event-queue stats and published
+ * clients. Designed to be cheap to fetch and cheap to read — the agent then
+ * drills into specific traces with the per-request endpoints.
+ */
+export interface AiDebugSummary {
+  readonly service: string;
+  readonly version: string;
+  readonly environment: string;
+  readonly uptimeSec: number;
+  readonly traces: {
+    readonly total: number;
+    readonly errors: number;
+    readonly avgDurationMs: number;
+    readonly p95DurationMs: number;
+    /** Most recent failed requests (compact rows). */
+    readonly recentErrors: Array<{
+      id: string;
+      ts: number;
+      method: string;
+      path: string;
+      status: number;
+      error: string;
+    }>;
+    /** Slowest retained requests. */
+    readonly slowest: Array<{
+      id: string;
+      ts: number;
+      method: string;
+      path: string;
+      durationMs: number;
+      status: number;
+    }>;
+  };
+  readonly events: {
+    readonly enabled: boolean;
+    readonly connected: boolean;
+    readonly total: number;
+    readonly errors: number;
+    readonly bySubject: Record<string, number>;
+  };
+  readonly clients: Array<{
+    readonly kind: string;
+    readonly platform: string | null;
+    readonly name: string;
+    readonly version: string;
+    readonly published: string;
+    readonly gitTags: readonly string[];
+  }>;
+  readonly routes: number;
 }
 
 /** Options for {@link KnowledgeBuilder}. */

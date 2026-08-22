@@ -5,9 +5,13 @@
 > (`bun scripts/bench:bun-internals`), which writes `bench/results/bun-internals.json`.
 > A swap ships only when the Bun builtin is **≥ 1.0× the implementation it
 > replaces (median, interleaved trials) AND byte-compatible**. Otherwise the
-> row records "keep" and the code stays as-is. This mirrors castrum's
-> `docs/bun-builtins-decision-matrix.md` / the `BUN_WINS` set in
+> row records "keep" and the code stays as-is. This mirrors castrum's decision
+> matrix (`docs/bun-builtins-decision-matrix.md` in
+> `/home/adeel/poc/bun-rust-runtime-bench`) / the `BUN_WINS` set in
 > `packages/native/src/selection.ts`.
+> 
+> Swaps are re-measured with `bun run bench:bun-internals`; the shipped
+> winners are baked by `scripts/select-native.ts` into `src/selection.json`.
 
 Measured on `Bun v1.4.0-canary` (Linux), 2026-08-20, 5 interleaved trials.
 

@@ -12,11 +12,11 @@ The dashboard is a dependency-free, tokenized dark UI (light theme via the
 `◐` button or the `t` key, persisted in `localStorage`):
 
 - **Top bar** — service identity (`name@version · environment`), view tabs
-  (Requests / Errors / Jobs / Routes / System / KT), a live-tail dot
-  (amber when paused) and the theme toggle.
+  (Requests / Errors / Jobs / Routes / Events / Clients / System / AI / KT), a
+  live-tail dot (amber when paused) and the theme toggle.
 - **Status bar** — native-addon availability, the trace ring-buffer size, and
   the keyboard cheat-sheet.
-- **Keyboard shortcuts** — `1`–`6` switch views, `/` focuses the search box,
+- **Keyboard shortcuts** — `1`–`9` switch views, `/` focuses the search box,
   `r` refreshes the current view, `t` toggles the theme, `Esc` clears/blurs.
 - **Requests** — stat cards (window count, errors, 4xx, 5xx, avg ms), a filter
   toolbar (search, method, status family — applied **server-side** via the
@@ -24,10 +24,18 @@ The dashboard is a dependency-free, tokenized dark UI (light theme via the
   method pills, status badges, inline duration bars and relative timestamps.
 - **Request detail** — a summary strip (method pill, path, status, request id,
   ip, time, *copy curl*, *replay*) plus tabbed panels: **Overview** (stats,
-  lifecycle stages, span tree), **Waterfall** (timeline ruler, colored bars,
-  hover tooltips), **Queries**, **Headers** (redacted), **Body** (pretty JSON,
-  copy), **Error** (stack, copy) and **Replay** (inline result).
+  lifecycle stages, a time-breakdown panel, span tree), **Waterfall** (time
+  breakdown, timeline ruler, color-coded bars, idle-gap segments, hover
+  tooltips, expandable rows), **Queries**, **Headers** (redacted), **Body**
+  (pretty JSON, copy), **Error** (stack, copy) and **Replay** (inline result).
 - **Jobs** — status cards (queued/running/completed/failed) + recent-jobs table.
+- **Events** — NATS event-queue tracking: stats (published/received/errors),
+  a live payload table with subject filtering, and a publish composer for
+  probe events.
+- **Clients** — published SDK + FlatBuffers frontend clients with local
+  versions and git tags (`sdk-v*`) — tagged ✓ vs local-only.
+- **AI** — the compact `ai/summary` snapshot plus a copy-paste MCP config so
+  an AI agent can connect and debug this app (see *AI debugging (MCP)* below).
 - **Routes** — searchable inventory with method pills, source files and
   copy-path buttons.
 - **System** — live gradient-filled charts for CPU / RSS / heap / event-loop
@@ -39,7 +47,7 @@ The dashboard is a dependency-free, tokenized dark UI (light theme via the
 
 | Feature | What it does |
 | --- | --- |
-| **Request waterfall** | Every request is traced end-to-end: lifecycle stages, the handler, and every span your code records. Each row is a bar positioned by start time with its exact duration — the bottleneck of any slow request is visible at a glance. |
+| **Request waterfall** | Every request is traced end-to-end **automatically**: each lifecycle stage (request / handler / afterHandle / …) gets its own row, and every span your code records sits inside the handler at its true position. A time-breakdown panel (per-kind ms + %, idle/unaccounted gaps) makes the bottleneck visible at a glance, and rows unfold to show attrs, origin and errors. |
 | **DB timing** | Queries recorded through `ctx.debug.query()` (or the free `debugQuery()` helper) get their own rows with millisecond timing, plus a per-request `db time` / `query count` headline. |
 | **Errors + replay** | Every error (handler throw, hook failure, 5xx) is captured with its stack. Any stored request can be **replayed** with one click — re-issued through the live server, full routing and hooks — and the fresh result (status, duration, body) is shown inline. |
 | **System profile** | CPU, RSS, heap and event-loop delay are sampled continuously and charted, alongside request totals (avg / p95 duration, error count, in-flight requests). |
@@ -137,9 +145,29 @@ debugbar({
   version: "1.4.2",
   manifestPaths: ["dist/manifest.json"],   // AOT route map for the KT page
   sdkPaths: ["dist/sdk/package.json"],     // published-SDK metadata probes
+  clientPaths: ["dist/sdk/flatbuffers"],   // frontend-client probes (Clients panel)
+  // NATS event tracking (Events panel). URL defaults to $NATS_URL.
+  nats: {
+    url: "nats://localhost:4222", // nats:// or tls:// host[:port]
+    subjects: ["events.>"],       // subscribe for inbound tracking
+    maxEvents: 500,               // ring buffer of tracked events
+    connect: true,                // dial at startup (failures are recorded, never thrown)
+  },
   plugins: ["myPlugin"],      // extra plugin inventory for the KT page
   dispatch: (req) => app.handler(req),     // explicit replay dispatcher
 })
+```
+
+The NATS integration is **zero-dependency**: a minimal core-protocol client
+(INFO/CONNECT/PING/PONG/PUB/SUB/MSG) over Bun's TCP sockets — no npm package
+needed, JetStream-free by design. Publishing from your own code works through
+the same tracker so the Events panel sees it:
+
+```ts
+import { NatsEventTracker } from "@ignex/core";
+const tracker = new NatsEventTracker(); // reads $NATS_URL
+tracker.start();
+tracker.publish("orders.created", { orderId: "o-1" }); // recorded in the Events panel
 ```
 
 ## Tracing from your code
@@ -205,12 +233,26 @@ trace is active (background jobs, production, plugin absent).
 
 ## How the waterfall works
 
-The plugin records three lifecycle stage markers automatically — `request`
-(onRequest), the handler (between onRequest and onResponse) and `response`
-(the after-handle pipeline) — and every span your code records sits between
-them at its true position. Bars are sized relative to the total request
-duration; hovering a row shows its exact start/duration; failed spans are
-marked ✕ and open spans (request cut short) are flagged ⏳.
+The plugin traces the request **automatically** — no instrumentation needed in
+your handlers to see the shape of a request:
+
+- Every lifecycle stage becomes a row: `request` (the onRequest hooks),
+  `beforeHandle`, **`handler`** (the big one), `afterHandle`, `mapResponse`,
+  `afterResponse` and `trace` — each with its own bar and exact duration.
+- Every span your code records (`ctx.debug.*` / the free helpers) sits inside
+  the handler row at its true position, so a slow query, cache miss or
+  outbound HTTP call is visible immediately.
+- **Where the time went** — both the Overview and Waterfall tabs show a
+  time-breakdown panel: a stacked bar + per-kind rows (db, cache, http,
+  render, auth, lifecycle, custom) with milliseconds and % of the total.
+- **Idle gaps** — time between spans that no row accounts for (event-loop
+  waits, untraced I/O) is drawn as thin hatched segments, so "what is this
+  request waiting on?" has an answer.
+- Rows are **expandable**: click any bar to unfold its details (span kind,
+  start/duration, attrs like the query text or target URL, origin stack
+  frame, error). Bars are sized relative to the total request duration;
+  hovering shows the exact start/duration; failed spans are marked ✕ and
+  open spans (request cut short) are flagged ⏳.
 
 ## Errors and replay
 
@@ -233,6 +275,79 @@ CPU, RSS, heap and event-loop delay are sampled every `systemSampleMs` (the
 interval is unref'd — it never keeps the process alive) and charted as
 sparklines, alongside request totals: traced count, error count, avg and p95
 duration.
+
+## NATS event tracking (Events panel)
+
+With `nats` configured (or `$NATS_URL` set), the debugbar tracks your
+event-queue traffic:
+
+- **Events** view — stat cards (window total, published vs received, errors,
+  bytes), a live table (time, direction, subject, size, truncated payload),
+  per-subject filtering, and a **publish composer** to send probe events
+  (`orders.created` + JSON payload → `POST /api/events/publish`) so you can
+  test consumers without leaving the dashboard.
+- **Inbound tracking** — the tracker subscribes to `subjects` (default
+  `events.>`) and records every matching message with its payload.
+- **Outbound tracking** — publishes made through the tracker (dashboard
+  composer, `NatsEventTracker` in your app) are recorded, including failures
+  (server down, not connected) so the panel always shows *what happened*.
+- **Resilient** — a missing/broken NATS server never crashes the app: boot
+  logs the connection status, failures become error events, and the tracker
+  reconnects with backoff.
+
+## Published clients (Clients panel)
+
+The **Clients** view answers "what did we ship to frontend teams, and where?"
+It probes the SDK packages and frontend clients (`sdkPaths` + `clientPaths` —
+directories with `package.json`, the `package.json` itself, or `sdk.json`) and
+combines them with git state:
+
+- **Local** — package name, version, location and shipped files, read straight
+  off disk.
+- **Git tags** — `git for-each-ref` (cached 30s, refreshed by
+  `GET /api/clients?refresh=1`) lists the `sdk-v*` tags — the release signal
+  `ignex sdk --push` creates — so a package shows **tagged ✓** when its tag
+  exists, **local only** otherwise.
+- **SDK vs client** — `kind: "sdk"` packages (typescript/openapi SDKs) and
+  `kind: "client"` packages (the FlatBuffers frontend client — see below) are
+  shown with distinct badges and their platforms.
+
+## AI debugging (MCP)
+
+An AI agent can connect to a **running** app's debugbar over MCP and debug
+issues directly — no context dump, no full logs. Point any MCP client at the
+`@ignex/mcp` server with two env vars:
+
+```jsonc
+{
+  "mcpServers": {
+    "ignex-debug": {
+      "command": "bunx",
+      "args": ["@ignex/mcp"],
+      "env": {
+        "IGNEX_DEBUGBAR_URL": "http://localhost:3000/__debugbar",
+        "IGNEX_DEBUGBAR_TOKEN": ""   // only if debugbar({ token }) is set
+      }
+    }
+  }
+}
+```
+
+Tools (the dashboard's **AI** view shows this config + the tool list):
+
+| Tool | What the agent gets |
+| --- | --- |
+| `debug-summary` | **one compact JSON** — errors, slow traces, event stats, clients. The token-efficient entry point. |
+| `debug-requests` | recent traces, server-side filtered (`error`, `q`, `method`, `status`, `limit`) |
+| `debug-request` | full trace: span tree, waterfall timings, queries, redacted headers, stack |
+| `debug-replay` | re-issue a stored request through the live server |
+| `debug-events` / `debug-event-publish` | inspect the NATS queue, publish probe events |
+| `debug-system` | CPU/RSS/heap/event-loop profile |
+| `debug-clients` | published SDK + client state (local version, git tags) |
+| `debug-kt` | the "how this app works" markdown — instant onboarding |
+
+Flow: `debug-summary` → spot an error → `debug-request` for the spans →
+`debug-replay` to reproduce → `debug-event-publish` to test the event flow.
 
 ## KT — knowledge transfer
 
@@ -273,13 +388,18 @@ All under `{path}` (default `/__debugbar`):
 | `GET /` | dashboard shell (redirects from the bare mount) |
 | `GET /app.js` | dashboard app (static asset, no token required) |
 | `GET /api/meta` | service name/version/env/debug mode |
-| `GET /api/requests?limit=&error=` | trace summaries (newest first) |
+| `GET /api/requests?limit=&error=&q=&method=&status=` | trace summaries (newest first, server-side filters) |
 | `GET /api/requests/:id` | full trace (waterfall data, headers redacted) |
 | `POST /api/requests/:id/replay` | replay the request, return the fresh result |
 | `GET /api/requests/clear` | clear the store |
 | `GET /api/system` | system samples + request totals |
 | `GET /api/kt` | knowledge markdown + structured knowledge |
-| `GET /api/sdks` | published-SDK metadata |
+| `GET /api/sdks` | published-SDK metadata (enriched with git tags) |
+| `GET /api/clients?refresh=` | published SDK + frontend clients (local + git tags) |
+| `GET /api/events?limit=&subject=` | NATS event stats + recent events |
+| `POST /api/events/publish` | publish a probe event `{ subject, payload }` |
+| `POST /api/events/clear` | clear the event buffer |
+| `GET /api/ai/summary` | compact AI-facing snapshot (errors, slow traces, events, clients) |
 
 The dashboard's own requests are excluded from tracing, and the endpoints are
 kept out of the OpenAPI document.

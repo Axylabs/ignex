@@ -20,7 +20,7 @@ import { jsonSchemaToTs } from "./json-schema-to-ts";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRouteInfo } from "./types";
 
 /** Path/name sanitizer: `/api/orders-ack` → `ApiOrdersAck`. */
-const pathToName = (path: string): string =>
+export const pathToName = (path: string): string =>
   path
     .split("/")
     .filter(Boolean)
@@ -31,11 +31,11 @@ const pathToName = (path: string): string =>
     .join("");
 
 /** Whether the route's call shape carries path params. */
-const hasParams = (route: SdkRouteInfo): boolean =>
+export const hasParams = (route: SdkRouteInfo): boolean =>
   route.paramNames.length > 0 || route.paramsSchema !== undefined;
 
 /** Whether the route exposes query typing (schema or handler usage). */
-const hasQuery = (route: SdkRouteInfo): boolean =>
+export const hasQuery = (route: SdkRouteInfo): boolean =>
   route.usesQuery || route.querySchema !== undefined;
 
 /**
@@ -94,7 +94,7 @@ const routeEntry = (route: SdkRouteInfo, names: TypeNameRegistry): string => {
 };
 
 /** Emit `dist/types.d.ts` — named, importable types per route part. */
-const emitTypesDts = (routes: readonly SdkRouteInfo[], ctx: SdkGenerateContext): string => {
+export const emitTypesDts = (routes: readonly SdkRouteInfo[], ctx: SdkGenerateContext): string => {
   const resolveRef = (ref: string): unknown => {
     if (!ref.startsWith("#/")) return undefined;
     const parts = ref.slice(2).split("/");
@@ -153,7 +153,10 @@ const emitTypesDts = (routes: readonly SdkRouteInfo[], ctx: SdkGenerateContext):
 };
 
 /** Emit `dist/routes.d.ts` — the typed route map + client contract. */
-const emitRoutesDts = (routes: readonly SdkRouteInfo[], _ctx: SdkGenerateContext): string => {
+export const emitRoutesDts = (
+  routes: readonly SdkRouteInfo[],
+  _ctx: SdkGenerateContext,
+): string => {
   const names = new TypeNameRegistry();
   const imports = new Set<string>();
 

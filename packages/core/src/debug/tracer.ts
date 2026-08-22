@@ -53,6 +53,16 @@ export const enterTraceContext = (trace: Trace): void => {
   traceContext.enterWith({ trace });
 };
 
+/**
+ * Record that a lifecycle stage finished (framework-side). The stage that
+ * creates the trace (the debugbar plugin's `request` stage) cannot be wrapped
+ * in a span while it runs — the trace does not exist yet — so the pipeline
+ * calls this the moment the stage returns. No-op when no trace is active.
+ */
+export const debugStageEnd = (name: string): void => {
+  currentTrace()?.recordStage(name);
+};
+
 // ============================================================================
 // Trace
 // ============================================================================
@@ -97,6 +107,32 @@ const topFrames = (stack: string | undefined, count = 4): string | null => {
   return lines.slice(0, count).join("\n");
 };
 
+/**
+ * Lifecycle stage names the framework records as spans (`runTimed` /
+ * `recordStage`). These are framework-managed: a stage may still be open when
+ * the debugbar finalizes the trace inside the afterHandle stage, so finalize
+ * closes them without the "left open" leak flag.
+ */
+const FRAMEWORK_STAGE_NAMES = new Set([
+  "start",
+  "request",
+  "parse",
+  "transform",
+  "beforeHandle",
+  "handler",
+  "afterHandle",
+  "mapResponse",
+  "afterResponse",
+  "trace",
+  "error",
+  "route hooks",
+  "response",
+]);
+
+/** True when `span` is a framework lifecycle-stage row (not an app span). */
+const isFrameworkStageSpan = (span: Span): boolean =>
+  span.kind === "lifecycle" && FRAMEWORK_STAGE_NAMES.has(span.name);
+
 /** The first non-debugbar caller frame — a cheap "where was this span created". */
 const callerOrigin = (): string | null => {
   const err = new Error();
@@ -136,6 +172,8 @@ export class Trace {
   private readonly stack: Span[] = [];
   private pendingBody: Promise<string> | null = null;
   private readonly stages = new Set<string>();
+  /** Lifecycle stage rows already recorded (idempotence guard). */
+  private readonly recordedStages = new Set<string>();
 
   constructor(ctx: IgnexContext, captureBody: boolean) {
     this.id = ctx.requestId;
@@ -190,6 +228,33 @@ export class Trace {
 
   get stageNames(): string[] {
     return [...this.stages];
+  }
+
+  /**
+   * Record a lifecycle stage as a waterfall row. Used for the stage that
+   * CREATES the trace (the `request` stage — the debugbar plugin's onRequest
+   * runs inside it), so it can only be recorded once the stage has finished.
+   * The row starts at the trace start (the stage began at — or a few
+   * microseconds before — trace creation) and ends now, so it covers the whole
+   * stage. Idempotent per stage name; `startMs` defaults to the trace start.
+   */
+  recordStage(name: string, startMs = 0): void {
+    if (this.recordedStages.has(name)) return;
+    this.recordedStages.add(name);
+    const span: Span = {
+      id: nextSpanId++,
+      parentId: this.root.id,
+      name,
+      kind: "lifecycle",
+      startMs: Math.max(0, startMs),
+      durationMs: 0,
+      open: true,
+      attrs: null,
+      error: null,
+      origin: null,
+    };
+    this.spansById.set(span.id, span);
+    this.end(span);
   }
 
   /**
@@ -315,13 +380,19 @@ export class Trace {
       this.errorStack = stack ? topFrames(stack) : null;
     }
     // Close dangling spans (request cut short) as failed/open so the waterfall
-    // stays truthful instead of hiding the leak.
+    // stays truthful instead of hiding the leak. Two spans are exempt: the
+    // ROOT (it is the request itself — its duration is set below; flagging it
+    // showed a bogus "✕ … span left open" on every trace) and framework
+    // lifecycle stage spans, which are legitimately mid-flight when the
+    // debugbar finalizes inside the afterHandle stage.
     for (const span of [...this.stack].reverse()) {
       if (span.open) {
         span.open = false;
         span.durationMs = Math.max(0, performance.now() - this.startedAtMs - span.startMs);
-        span.error =
-          span.error ?? (this.error ? `${this.error} (span left open)` : "span left open");
+        if (span !== this.root && !isFrameworkStageSpan(span)) {
+          span.error =
+            span.error ?? (this.error ? `${this.error} (span left open)` : "span left open");
+        }
       }
     }
     this.root.durationMs = Math.max(0, performance.now() - this.startedAtMs);

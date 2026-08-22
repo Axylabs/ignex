@@ -323,7 +323,10 @@ Each generated route:
 | CLI | `model`/`resource` scaffold output + idempotency (`--force`); generated routes **compile** (fixture build via `@ignex/compiler`); `db:sync` dry-run |
 | E2E smoke | seed user w/ roles+permissions → `POST /auth/login` → EdDSA JWT → hit guarded routes (200/401/403) |
 
-**Docs:** `docs/architecture.md`, `docs/native-acceleration.md` (new FFI ops), a new `docs/rbac.md`, `docs/adding-a-feature.md` (generator pattern), README.
+**Docs:** `docs/architecture.md`, `docs/native-acceleration.md` (new FFI ops),
+`docs/cookbook.md` (RBAC recipes), `docs/adding-a-feature.md` (generator
+pattern), README. (No separate `docs/rbac.md` was created — RBAC ships in
+`@ignex/core` and is documented via the `ignex-core-framework` skill.)
 
 ---
 

@@ -57,7 +57,7 @@ touching git/npm/GitHub.
 ```
 ignex sdk [options]
 
-  --platform <ts|openapi|all>   Platforms to generate (default: typescript)
+  --platform <ts|openapi|flatbuffers|all>   Platforms to generate (default: typescript)
   --name <name>                 npm package name (default: <serviceName>-sdk)
   --scope <scope>               npm scope for the default name (e.g. @acme)
   --version <semver>            SDK version (default: nearest package.json version)
@@ -106,9 +106,18 @@ same generation context (routes + OpenAPI document).
 | --- | --- | --- |
 | `typescript` (default) | `<serviceName>-sdk` | Zero-dep ESM typed client, `.d.ts` types, `openapi.json`, README |
 | `openapi` | `<serviceName>-api-spec` | Just the versioned `openapi.json` — feed it to your own codegen |
+| `flatbuffers` | `<serviceName>-flatbuffers-client` | **Binary frontend client**: real `schema.fbs` (wire envelope + route inventory), typed per-route client on the official `flatbuffers` runtime, `application/x-flatbuffers` request/response envelopes with a JSON fallback. Marked `kind: "client"` in its `package.json` so the debugbar **Clients** panel tracks it. |
 
-Select several with `--platform typescript,openapi` (or `--platform all`); each
-gets its own directory and a distinct package name.
+Select several with `--platform typescript,openapi,flatbuffers` (or
+`--platform all`); each gets its own directory and a distinct package name.
+
+The FlatBuffers client is generated with the same builder/reader patterns as
+`@ignex/nova`'s typed realtime transport: strings are created before
+`startObject` (the runtime's `notNested` guard), the builder is pooled, and
+offsets are read via `__offset`/`__string`. GET/HEAD requests carry params in
+the URL (fetch forbids GET bodies) and still decode the response envelope;
+every other method sends the envelope as the body. Round-trips are verified in
+`packages/compiler/test/sdk-flatbuffers.test.ts`.
 
 ### Adding a platform
 

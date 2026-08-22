@@ -94,6 +94,8 @@ export const buildFullContextPrelude = (
   resumeName = "",
 ): string[] => {
   helpers.markCore("runHooks");
+  helpers.markCore("runTimed");
+  helpers.markCore("debugStageEnd");
   helpers.markCore("createContext");
   // The per-route opts const (`__ctxOpts_<ref>`, frozen at module scope) is
   // emitted by `generateRouteCode` — the inline object literal used to be
@@ -115,6 +117,11 @@ export const buildFullContextPrelude = (
     const __r = runHooks(__preParseStages, ctx);
     if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
     const __globalPre = __r;
+    // The request stage is what creates the debug trace (the debugbar
+    // plugin's onRequest runs inside it), so its waterfall row is recorded
+    // the moment the chain returns. Const-folded away when no debugbar is
+    // kept for this build (__TRACE_DEBUG = false).
+    if (__TRACE_DEBUG) debugStageEnd("request");
     if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
     ctx = __globalPre.ctx ?? ctx;
   }
@@ -127,6 +134,11 @@ export const buildFullContextPrelude = (
   if (__hasPreParse) {
     const __r = runHooks(__preParseStages, ctx);
     const __globalPre = __r instanceof Promise ? await __r : __r;
+    // The request stage is what creates the debug trace (the debugbar
+    // plugin's onRequest runs inside it), so its waterfall row is recorded
+    // the moment the chain returns. Const-folded away when no debugbar is
+    // kept for this build (__TRACE_DEBUG = false).
+    if (__TRACE_DEBUG) debugStageEnd("request");
     if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
     ctx = __globalPre.ctx ?? ctx;
   }

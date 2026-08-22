@@ -1,7 +1,7 @@
 # Native acceleration (`@ignex/native` × castrum)
 
 ignex is Rust-accelerated through the **castrum** addon, published on npm as
-`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.0" }` in
+`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.1" }` in
 `packages/native/package.json`; the local dev checkout lives at
 `/home/adeel/poc/bun-rust-runtime-bench` and is wired with `IGNEX_NATIVE_PATH`).
 The `@ignex/native` package is the single, typed bridge over the SAME cdylib's
@@ -482,7 +482,7 @@ the JS `URLSearchParams` path on this host).
 | Route manager | `createPipeline` (TS integration layer) |
 | Entry normalization | `mod.rust ?? mod` (Bun namespace vs Node flat) |
 
-`@ignex/native` pins `castrum` via `optionalDependencies` (`^0.9.0` registry;
+`@ignex/native` pins `castrum` via `optionalDependencies` (`^0.9.1` registry;
 workspace `file:` checkouts are dev-only via `IGNEX_NATIVE_PATH`).
 Compatibility releases should bump castrum's minor version and add a
 `test/compat/ignex-contract.test.ts` in the castrum repo asserting this exact

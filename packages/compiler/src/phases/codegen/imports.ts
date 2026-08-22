@@ -128,6 +128,7 @@ export const stageImports = (
   state.appConfigHasHooks = appConfig
     ? appConfig.hasActivePlugins || appConfig.hasLifecycle
     : state.hasAppConfig;
+  state.traceDebug = appConfig ? appConfig.hasEnabledDebugbar : false;
 
   coreNames.push(
     "createContext",
@@ -145,6 +146,11 @@ export const stageImports = (
     "validateAsync",
     "EMPTY_LIFECYCLE",
     "runHooks",
+    // Lifecycle-stage instrumentation (debugbar waterfall rows): imported only
+    // when emitted code references them (the final import is pruned per
+    // referenced symbol in `server.ts`).
+    "runTimed",
+    "debugStageEnd",
     // Per-route native prelude (`routes/native.ts`): pre-baked query/cookie
     // parse seeds ctx.query/ctx.cookie via the pair→record helpers.
     "createNativeRoute",

@@ -692,7 +692,8 @@ same test multiple times so you can get a median. rust FFI performs well in
 benchmarks compared to native — we might just not be utilizing it correctly."
 
 ### Trial-and-error (medians, 3 runs × 25 samples each)
-Built `bench/orders-native-trial.ts` in castrum: real 473KB / 5000-item orders
+Built `bench/orders-native-trial.ts` in castrum (since removed from that repo's
+`bench/` — historical record): real 473KB / 5000-item orders
 body, valid + invalid@0 + invalid@last + malformed variants, Ajv + `fast_schema`
 + `jsonValid` + derive candidates. Repeated 3× for stable medians.
 
@@ -729,8 +730,8 @@ Findings:
   fallback for non-fast schemas. 491 Rust tests (incl. byte-parity) pass.
 - TS: `SchemaValidatorInstance.derive` + `JsonDeriveResult` types; 598 TS
   tests pass; typecheck clean.
-- Proof of the concept: `bench/orders-native-trial.ts` (kept as a permanent
-  trial-and-error artifact).
+- Proof of the concept: `bench/orders-native-trial.ts` (historical
+  trial-and-error artifact; the file was later removed from castrum's `bench/`).
 
 ### Wired into the compiled server (`/api/orders`)
 - `@ignex/native`: `SchemaValidator.derive` bridge + `JsonDeriveResult` types.

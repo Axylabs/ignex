@@ -27,6 +27,8 @@ import { walk } from "../../utils/ast/walk";
 export interface DevOnlyPluginAnalysis {
   /** Number of provably-disabled dev-only plugin calls found in the array. */
   readonly eliminated: number;
+  /** Number of dev-only plugin calls that are NOT provably disabled. */
+  readonly kept: number;
   /** Total array elements (including spreads / non-debugbar plugins). */
   readonly totalElements: number;
 }
@@ -88,6 +90,56 @@ const classifyElement = (
 };
 
 /**
+ * Number of `debugbar(...)` calls reachable under `node` (through spread /
+ * conditional / array wrappers, e.g. `...(env.DEBUG ? [debugbar()] : [])`)
+ * that are NOT provably disabled for this build. Unlike the top-level
+ * `eliminated` count, this descends — a hidden `debugbar()` still enables the
+ * lifecycle-stage instrumentation at runtime, so `__TRACE_DEBUG` must stay on
+ * unless every reachable call is provably gone.
+ */
+const countKeptDebugbar = (
+  node: Expression | SpreadElement,
+  isProductionBuild: boolean,
+): number => {
+  if (node.type === "SpreadElement") return countKeptDebugbar(node.argument, isProductionBuild);
+  const unwrapped = unwrap(node);
+  if (unwrapped !== undefined && unwrapped !== node) {
+    return countKeptDebugbar(unwrapped, isProductionBuild);
+  }
+  if (node.type === "ArrayExpression") {
+    let n = 0;
+    for (const el of node.elements ?? []) {
+      if (el) n += countKeptDebugbar(el, isProductionBuild);
+    }
+    return n;
+  }
+  if (node.type === "CallExpression") {
+    const callee = unwrap(node.callee);
+    if (callee?.type === "Identifier" && callee.name === "debugbar") {
+      return debugbarProvablyDisabled(node, isProductionBuild) ? 0 : 1;
+    }
+  }
+  // A ternary (`ConditionalExpression`) is outside the typed vocabulary but
+  // appears in real configs — recurse into both branches structurally.
+  const ternary = node as unknown as {
+    type?: string;
+    consequent?: unknown;
+    alternate?: unknown;
+  };
+  if (ternary.type === "ConditionalExpression") {
+    return (
+      (ternary.consequent
+        ? countKeptDebugbar(ternary.consequent as Expression, isProductionBuild)
+        : 0) +
+      (ternary.alternate
+        ? countKeptDebugbar(ternary.alternate as Expression, isProductionBuild)
+        : 0)
+    );
+  }
+  return 0;
+};
+
+/**
  * Scan the app config's `plugins` export for dev-only plugin calls that are
  * provably disabled, so the compiler can restore AOT optimizations they would
  * otherwise force off.
@@ -106,16 +158,17 @@ export const analyzeDevOnlyPlugins = (
       break;
     }
   }
-  if (!importsDebugbar) return { eliminated: 0, totalElements: 0 };
+  if (!importsDebugbar) return { eliminated: 0, kept: 0, totalElements: 0 };
 
   let eliminated = 0;
+  let kept = 0;
   let totalElements = 0;
   walk(source.ast, (n) => {
     if (n.type !== "ExportNamedDeclaration") return;
     const decl = n.declaration;
     if (decl?.type !== "VariableDeclaration") return;
     const declarator = decl.declarations?.[0];
-    if (!declarator || declarator.id.type !== "Identifier" || declarator.id.name !== "plugins") {
+    if (declarator?.id.type !== "Identifier" || declarator.id.name !== "plugins") {
       return;
     }
     const array = unwrap(declarator.init ?? undefined);
@@ -123,11 +176,16 @@ export const analyzeDevOnlyPlugins = (
     for (const el of array.elements ?? []) {
       if (!el) continue;
       totalElements += 1;
+      // Top-level classification drives the AOT decision (hasActivePlugins):
+      // a spread is treated as "unknown plugin" so hooks are conservatively
+      // kept. `kept` additionally descends into wrappers so a hidden
+      // debugbar still turns on the __TRACE_DEBUG instrumentation.
       if (classifyElement(el, isProductionBuild) === "debugbar-disabled") eliminated += 1;
+      kept += countKeptDebugbar(el, isProductionBuild);
     }
     // The plugins export is the only construct this analysis needs — prune.
     return false;
   });
 
-  return { eliminated, totalElements };
+  return { eliminated, kept, totalElements };
 };

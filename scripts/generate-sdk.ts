@@ -174,7 +174,7 @@ async function main(): Promise<void> {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .flatMap((id) => (id === "all" ? ["typescript", "openapi"] : [id]));
+    .flatMap((id) => (id === "all" ? ["typescript", "openapi", "flatbuffers"] : [id]));
 
   const name = flag(flags, "name") ?? process.env.SDK_NAME;
   const scope = flag(flags, "scope") ?? process.env.SDK_SCOPE;

@@ -26,6 +26,7 @@
 
 import { isNativeAvailable } from "@ignex/native";
 import { createDebugApi } from "../debug/api";
+import { ClientRegistry, type PublishedClient } from "../debug/clients";
 import {
   DEBUGBAR_DASHBOARD_CSS,
   DEBUGBAR_DASHBOARD_HTML,
@@ -33,6 +34,7 @@ import {
 } from "../debug/dashboard";
 import { buildAppKnowledge, formatKnowledgeMarkdown } from "../debug/kt";
 import { renderMarkdownHtml } from "../debug/markdown";
+import { NatsEventTracker } from "../debug/nats-tracker";
 import { replayRequest, serverBaseUrl } from "../debug/replay";
 import { html, json, notFound } from "../debug/respond";
 import { TraceStore } from "../debug/store";
@@ -44,7 +46,7 @@ import {
   setTracingEnabled,
   type Trace,
 } from "../debug/tracer";
-import type { AppKnowledge, KnowledgeOptions, SystemStats } from "../debug/types";
+import type { AiDebugSummary, AppKnowledge, KnowledgeOptions, SystemStats } from "../debug/types";
 import type { IgnexContext } from "../http/context";
 import type { IgnexRouter } from "../http/router";
 import type { IgnexPlugin } from "../lifecycle/plugin";
@@ -95,6 +97,30 @@ export interface DebugbarOptions {
     routes?: () => Promise<Array<{ method: string; path: string; file: string }>>;
   };
   /**
+   * NATS event tracking for the Events panel:
+   *  - `url` — NATS server (`nats://host:4222`); defaults to `$NATS_URL`.
+   *    Without a URL the panel shows "not configured".
+   *  - `subjects` — subjects to subscribe to for inbound tracking
+   *    (default `["events.>"]`).
+   *  - `maxEvents` — retained events in the ring buffer (default 500).
+   *  - `connect` — connect at startup (default true; failures are recorded,
+   *    never thrown).
+   */
+  nats?: {
+    url?: string;
+    subjects?: string[];
+    maxEvents?: number;
+    connect?: boolean;
+  };
+  /**
+   * Extra frontend-client package probes for the Clients panel — directories
+   * containing `package.json`, the `package.json` path itself, or an
+   * `sdk.json` metadata file. Defaults probe `dist/sdk` + `.ignex/sdk` and
+   * anything `sdkPaths` points at. Each probed package is shown with its
+   * local version + matching git tags (the `ignex sdk --push` release signal).
+   */
+  clientPaths?: string[];
+  /**
    * Explicit replay dispatcher, e.g. `(req) => app.handler(req)`. When set,
    * replay re-issues the stored request through it (most faithful: same
    * process, full pipeline). When unset, replay uses the live Bun server's
@@ -116,8 +142,13 @@ interface PluginState {
   readonly version: string;
   readonly manifestPaths: string[];
   readonly sdkPaths: string[];
+  readonly clientPaths: string[];
   readonly plugins: string[];
   readonly active: Map<string, Trace>;
+  /** NATS event tracker (null when NATS is not configured). */
+  readonly nats: NatsEventTracker | null;
+  /** Published SDK + frontend-client registry (git tags + local probes). */
+  readonly clients: ClientRegistry;
   router: IgnexRouter | null;
   /** Known to be "ignex:debugbar" so close() stops the profiler once. */
   closed: boolean;
@@ -171,8 +202,16 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     version: options.version ?? "dev",
     manifestPaths: options.manifestPaths ?? [],
     sdkPaths: options.sdkPaths ?? [],
+    clientPaths: options.clientPaths ?? [],
     plugins: ["debugbar", ...(options.plugins ?? [])],
     active: new Map(),
+    // Auto-enabled by $NATS_URL even without an explicit `nats` option — the
+    // tracker itself reads the env default when options.nats is absent.
+    nats:
+      options.nats !== undefined || process.env.NATS_URL
+        ? new NatsEventTracker(options.nats)
+        : null,
+    clients: new ClientRegistry(),
     router: null,
     closed: false,
     bootUrl: null,
@@ -330,11 +369,179 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
 
   const serveKt = async (): Promise<Response> => json(await ktData());
 
-  const serveSdks = async (): Promise<Response> => {
-    const { knowledge } = await ktData();
-    return json({ sdk: knowledge.sdk });
+  /** Probe paths for the Clients panel: sdkPaths + clientPaths, deduped. */
+  const clientProbePaths = (): string[] => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of [...state.sdkPaths, ...state.clientPaths]) {
+      if (p === "" || seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
+    return out;
   };
 
+  /** GET {path}/api/sdks — SDK metadata enriched with git-tag state. */
+  const serveSdks = async (): Promise<Response> => {
+    const { knowledge } = await ktData();
+    const sdk = knowledge.sdk;
+    if (sdk === null) return json({ sdk: null });
+    // Best-effort tag enrichment: find the matching package in the client
+    // registry (same name) and copy its tags + published state.
+    const published = state.clients.list(clientProbePaths()).find((c) => c.name === sdk.name);
+    if (published === undefined) return json({ sdk });
+    return json({
+      sdk: {
+        ...sdk,
+        gitTags: [...published.gitTags],
+        published: published.published,
+      },
+    });
+  };
+
+  /** GET {path}/api/clients — published SDK + frontend clients (git + local). */
+  const serveClients = (ctx: IgnexContext): Response => {
+    if (ctx.url.searchParams.get("refresh") === "1") state.clients.refresh();
+    const clients = state.clients.list(clientProbePaths());
+    return json({
+      enabled: true,
+      count: clients.length,
+      gitError: state.clients.error,
+      clients: clients.map((c: PublishedClient) => ({
+        kind: c.kind,
+        platform: c.platform,
+        name: c.name,
+        version: c.version,
+        location: c.location,
+        files: c.files,
+        gitTags: c.gitTags,
+        latestTag: c.latestTag,
+        published: c.published,
+      })),
+    });
+  };
+
+  /** GET {path}/api/events — NATS event stats + recent events. */
+  const serveEvents = (ctx: IgnexContext): Response => {
+    const tracker = state.nats;
+    if (tracker === null) {
+      return json({
+        enabled: false,
+        hint: "NATS not configured — set NATS_URL or debugbar({ nats: { url } }).",
+        stats: null,
+        recent: [],
+      });
+    }
+    const url = ctx.url;
+    const limit = Number(url.searchParams.get("limit") ?? 100);
+    const subject = url.searchParams.get("subject") ?? undefined;
+    const direction = url.searchParams.get("direction") ?? undefined;
+    const listOptions: { limit?: number; subject?: string; direction?: "in" | "out" } = {
+      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 100,
+    };
+    if (subject !== undefined) listOptions.subject = subject;
+    if (direction === "in" || direction === "out") listOptions.direction = direction;
+    const recent = tracker.list(listOptions);
+    return json({ enabled: true, stats: tracker.stats(), recent });
+  };
+
+  /** POST {path}/api/events/publish — publish a probe event through NATS. */
+  const serveEventPublish = async (ctx: IgnexContext): Promise<Response> => {
+    const tracker = state.nats;
+    if (tracker === null) {
+      return json({ ok: false, error: "NATS not configured (no NATS_URL)" }, 400);
+    }
+    let body: { subject?: unknown; payload?: unknown };
+    try {
+      body = (await ctx.req.json()) as { subject?: unknown; payload?: unknown };
+    } catch {
+      return json({ ok: false, error: "Invalid JSON body — expected { subject, payload }" }, 400);
+    }
+    const subject =
+      typeof body.subject === "string" && body.subject.trim() !== "" ? body.subject.trim() : null;
+    if (subject === null) {
+      return json({ ok: false, error: "Missing subject" }, 400);
+    }
+    const result = tracker.publish(subject, body.payload ?? {});
+    return json({
+      ok: result.ok,
+      subject,
+      error: result.error,
+      note: result.ok
+        ? "published — check the Events panel for the record"
+        : "publish failed — check the NATS connection status",
+    });
+  };
+
+  /** POST {path}/api/events/clear — drop the retained event buffer. */
+  const serveEventsClear = (): Response => {
+    state.nats?.clear();
+    return json({ ok: true, cleared: true });
+  };
+
+  /** GET {path}/api/ai/summary — compact AI-facing debug snapshot. */
+  const serveAiSummary = async (): Promise<Response> => {
+    const p = state.store.percentiles();
+    const traces = state.store.list();
+    const recentErrors = traces
+      .filter((t) => t.error !== null)
+      .slice(0, 8)
+      .map((t) => ({
+        id: t.id,
+        ts: t.ts,
+        method: t.method,
+        path: t.path,
+        status: t.status,
+        error: t.error as string,
+      }));
+    const slowest = [...traces]
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .slice(0, 5)
+      .map((t) => ({
+        id: t.id,
+        ts: t.ts,
+        method: t.method,
+        path: t.path,
+        durationMs: t.durationMs,
+        status: t.status,
+      }));
+    const eventStats = state.nats?.stats() ?? null;
+    const clients = state.clients.list(clientProbePaths()).map((c) => ({
+      kind: c.kind,
+      platform: c.platform,
+      name: c.name,
+      version: c.version,
+      published: c.published,
+      gitTags: c.gitTags.slice(0, 5),
+    }));
+    const { knowledge } = await ktData();
+    const summary: AiDebugSummary = {
+      service: state.serviceName,
+      version: state.version,
+      environment: process.env.NODE_ENV ?? "development",
+      uptimeSec: Math.round(process.uptime()),
+      traces: {
+        total: state.store.size,
+        errors: state.store.errorCount,
+        avgDurationMs: p.avgMs,
+        p95DurationMs: p.p95Ms,
+        recentErrors,
+        slowest,
+      },
+      events: {
+        enabled: eventStats?.enabled ?? false,
+        connected: eventStats?.connected ?? false,
+        total: eventStats?.total ?? 0,
+        errors: eventStats?.errors ?? 0,
+        bySubject: eventStats?.bySubject ?? {},
+      },
+      clients,
+      routes: knowledge.routes.length,
+    };
+    return json(summary);
+  };
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: a linear API-path dispatcher — one branch per endpoint
   const serveApi = async (apiPath: string, ctx: IgnexContext): Promise<Response> => {
     if (apiPath === "meta") return serveMeta();
     if (apiPath === "requests") return serveRequests(ctx);
@@ -354,6 +561,17 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     if (apiPath === "system") return serveSystem();
     if (apiPath === "kt") return serveKt();
     if (apiPath === "sdks") return serveSdks();
+    if (apiPath === "clients") return serveClients(ctx);
+    if (apiPath === "ai/summary") return serveAiSummary();
+    if (apiPath === "events") return serveEvents(ctx);
+    if (apiPath === "events/clear") {
+      if (ctx.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      return serveEventsClear();
+    }
+    if (apiPath === "events/publish") {
+      if (ctx.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      return serveEventPublish(ctx);
+    }
     if (apiPath === "jobs") return serveJobs();
     if (apiPath === "routes") return serveRoutes();
     return notFound();
@@ -379,6 +597,11 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     router.get(`${path}/api/system`, (ctx) => serveApi("system", ctx));
     router.get(`${path}/api/kt`, async (ctx) => serveApi("kt", ctx));
     router.get(`${path}/api/sdks`, async (ctx) => serveApi("sdks", ctx));
+    router.get(`${path}/api/clients`, async (ctx) => serveApi("clients", ctx));
+    router.get(`${path}/api/ai/summary`, async (ctx) => serveApi("ai/summary", ctx));
+    router.get(`${path}/api/events`, async (ctx) => serveApi("events", ctx));
+    router.post(`${path}/api/events/publish`, async (ctx) => serveApi("events/publish", ctx));
+    router.post(`${path}/api/events/clear`, async (ctx) => serveApi("events/clear", ctx));
     router.get(`${path}/api/jobs`, async (ctx) => serveApi("jobs", ctx));
     router.get(`${path}/api/routes`, async (ctx) => serveApi("routes", ctx));
     router.get(`${path}/api/requests/:id`, (ctx) => {
@@ -415,9 +638,18 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
       const scheme = process.env.NODE_ENV === "production" ? "http" : "https";
       state.bootUrl = `${scheme}://localhost:${port}${state.path}/`;
       console.log(
-        `[ignex] debugbar: ${state.bootUrl} — request waterfall, DB timing, errors + replay, system profile, KT docs (debug mode)`,
+        `[ignex] debugbar: ${state.bootUrl} — request waterfall, DB timing, errors + replay, system profile, NATS events, published clients, KT docs (debug mode)`,
       );
       state.profiler.start();
+      // NATS event tracking (best effort — a missing/broken server records
+      // the failure in the Events panel instead of crashing boot).
+      state.nats?.start();
+      const natsStatus = state.nats?.stats();
+      if (natsStatus?.enabled === true) {
+        console.log(
+          `[ignex] debugbar: NATS events ${natsStatus.connected ? "connected" : `not connected (${natsStatus.status})`} at ${natsStatus.url} — subjects: ${natsStatus.subjects.join(", ")}`,
+        );
+      }
       // Event-loop delay probe: measure how late a 50ms timer fires.
       const probe = setInterval(() => {
         const expected = performance.now() + 50;
@@ -433,6 +665,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
       if (state.closed) return;
       state.closed = true;
       state.profiler.stop();
+      state.nats?.stop();
     },
 
     routes: registerRoutes,

@@ -62,6 +62,11 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   header.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails ? "true" : "false"};`);
   header.push(`const __TRACE = ${cfg.enableTraceHeaders ? "true" : "false"};`);
   header.push(`const __ACCESS_LOG = ${cfg.enableAccessLog ? "true" : "false"};`);
+  // Lifecycle-stage instrumentation (debugbar waterfall rows): a module
+  // constant, so when no `debugbar()` is kept for this build the `__TRACE_DEBUG
+  // ? runTimed(...) : runHooks(...)` guards const-fold to the bare calls —
+  // zero closures per request on the production needsFull path.
+  header.push(`const __TRACE_DEBUG = ${state.traceDebug};`);
   // Dev error overlay: enabled outside production (the marker is written by
   // `ignex dev` on a failed compile). The fs probe inside __fallback is
   // skipped entirely in production artifacts (const-folded to false).

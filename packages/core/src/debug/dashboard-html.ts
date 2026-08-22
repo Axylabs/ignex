@@ -30,7 +30,10 @@ export const DEBUGBAR_DASHBOARD_HTML = `<!doctype html>
         <button data-view="errors">Errors</button>
         <button data-view="jobs">Jobs</button>
         <button data-view="routes">Routes</button>
+        <button data-view="events">Events</button>
+        <button data-view="clients">Clients</button>
         <button data-view="system">System</button>
+        <button data-view="ai">AI</button>
         <button data-view="kt">KT</button>
       </nav>
       <div class="topbar-actions">
@@ -45,7 +48,7 @@ export const DEBUGBAR_DASHBOARD_HTML = `<!doctype html>
       <span id="status-native">native —</span>
       <span id="status-buffer"></span>
       <span class="grow"></span>
-      <span>1–6 views · / search · r refresh · t theme</span>
+      <span>1–9 views · / search · r refresh · t theme · MCP: debugbar /api/ai/summary</span>
     </footer>
 
     <div class="toast" id="toast"></div>

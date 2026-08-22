@@ -33,6 +33,12 @@ export interface CodegenState {
    */
   appConfigHasHooks: boolean;
   appConfigAbs: string | undefined;
+  /**
+   * Whether a `debugbar()` is kept for this build (baked into the
+   * `__TRACE_DEBUG` module constant). When false, the lifecycle-stage
+   * instrumentation is const-folded out of the artifact.
+   */
+  traceDebug: boolean;
 
   // Inlined handler bodies (self-contained modules emitted inline).
   inlineHandlers: Map<string, { body: string; isAsync: boolean; param: string }>;
@@ -61,6 +67,7 @@ export const createCodegenState = (cfg: CodegenConfig, helpers: Emitter): Codege
   hasAppConfig: false,
   appConfigHasHooks: false,
   appConfigAbs: undefined,
+  traceDebug: false,
   inlineHandlers: new Map(),
   wsHandlers: [],
   routeEntries: new Map(),

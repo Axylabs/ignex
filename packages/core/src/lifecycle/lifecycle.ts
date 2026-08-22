@@ -40,11 +40,15 @@ import { buildPostStages, buildPreStages, runLifecycle } from "./run";
 export {
   buildPostStages,
   buildPreStages,
+  debugStageEnd,
+  lifecycleTracing,
   POST_HANDLER_STAGES,
   PRE_HANDLER_STAGES,
+  PRE_PARSE_STAGES,
   type RunHooksResult,
   runHooks,
   runLifecycle,
+  runTimed,
 } from "./run";
 
 /**

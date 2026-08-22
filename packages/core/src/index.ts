@@ -160,14 +160,17 @@ export {
   debugQuery,
   debugSpan,
 } from "./debug/api";
+// ── debug (developer dashboard primitives) ──────────────────────
+export { ClientRegistry, type PublishedClient } from "./debug/clients";
+export { NatsEventTracker } from "./debug/nats-tracker";
 export { TraceStore } from "./debug/store";
 export { SystemProfiler } from "./debug/system";
 export {
   currentTrace,
   isTracingEnabled,
 } from "./debug/tracer";
-// ── debug (developer dashboard primitives) ──────────────────────
 export type {
+  AiDebugSummary,
   DebugApi,
   DebugSpanHandle,
   RequestTrace,
@@ -245,10 +248,14 @@ export {
   buildPostStages,
   buildPreStages,
   createApp,
+  debugStageEnd,
+  lifecycleTracing,
   POST_HANDLER_STAGES,
   PRE_HANDLER_STAGES,
+  PRE_PARSE_STAGES,
   runHooks,
   runLifecycle,
+  runTimed,
 } from "./lifecycle/lifecycle";
 export type { IgnexPlugin, PluginContext } from "./lifecycle/plugin";
 export {

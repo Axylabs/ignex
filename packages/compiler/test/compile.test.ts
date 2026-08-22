@@ -146,6 +146,25 @@ describe("compile (end-to-end)", () => {
     expect(result.code).not.toContain("__runHooks");
   });
 
+  it("emits lifecycle-stage instrumentation (waterfall rows) for full-context routes", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+
+    // The handler call and every hook stage are wrapped in `runTimed` so the
+    // debugbar waterfall gets rows for the handler / beforeHandle / afterHandle
+    // / mapResponse / observe stages, and the request stage (which creates the
+    // trace) records its row via `debugStageEnd`.
+    expect(result.code).toContain('runTimed("handler", "lifecycle"');
+    expect(result.code).toContain('runTimed("beforeHandle", "lifecycle"');
+    expect(result.code).toContain('runTimed("afterHandle", "lifecycle"');
+    expect(result.code).toContain('debugStageEnd("request")');
+    expect(result.code).toMatch(/import \{[^}]*\brunTimed\b[^}]*\} from "@ignex\/core"/);
+    expect(result.code).toMatch(/import \{[^}]*\bdebugStageEnd\b[^}]*\} from "@ignex\/core"/);
+  });
+
   it("runs the full post-handler lifecycle (mapResponse + afterResponse) when an app config is present", async () => {
     const layout = materializeFixture("basic");
     const appConfig = fixturePath("basic", "app.config.ts");

@@ -13,6 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { flatbuffersPlatform } from "./flatbuffers";
 import { loadSdkInputs } from "./load";
 import { openapiPlatform } from "./openapi";
 import type { SdkOptions, SdkPackage, SdkPlatform, SdkPlatformId, SdkResult } from "./types";
@@ -22,13 +23,14 @@ import { typescriptPlatform } from "./typescript";
 export const sdkPlatforms: Readonly<Record<string, SdkPlatform>> = {
   typescript: typescriptPlatform,
   openapi: openapiPlatform,
+  flatbuffers: flatbuffersPlatform,
 };
 
 /** Default platforms when `options.platforms` is omitted. */
 export const DEFAULT_SDK_PLATFORMS: readonly SdkPlatformId[] = ["typescript"];
 
 const isSdkPlatformId = (value: unknown): value is SdkPlatformId =>
-  value === "typescript" || value === "openapi";
+  value === "typescript" || value === "openapi" || value === "flatbuffers";
 
 /** Resolve the platform ids for an options object, validating unknowns. */
 const resolvePlatformIds = (options: SdkOptions): readonly SdkPlatformId[] => {

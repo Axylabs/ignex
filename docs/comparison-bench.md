@@ -51,6 +51,10 @@ with `HTTP_NO_SHAPE=1` for pure-throughput runs).
   `routes`, guarded lifecycle, and the compiled reply path (`ctx.json` → one
   `TextEncoder` pass + exact `content-length`). This is the framework's
   flagship path and is part of the **default** run alongside bun/elysia/ignus.
+- **`bench/compare/servers/ignus-native-server.ts`** — the route-wire v3
+  native stack: `createNativeRoute` (castrum `castrum_route_*` C-ABI) running
+  each frame in ONE native call. Exercised by the contract gate
+  (`bench/compare/verify-contract.ts`), not the default run.
 
 ## Running
 

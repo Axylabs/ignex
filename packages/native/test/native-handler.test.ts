@@ -139,9 +139,9 @@ describe("createNativeIngressRouter native route kind", () => {
     if (!router) return;
 
     const table = router.routes["/api/native"];
-    expect(typeof table?.["GET"]).toBe("function");
-    expect(typeof table?.["HEAD"]).toBe("function");
-    expect(table?.["POST"]).toBeUndefined();
+    expect(typeof table?.GET).toBe("function");
+    expect(typeof table?.HEAD).toBe("function");
+    expect(table?.POST).toBeUndefined();
 
     const res = table?.GET?.(new Request("http://x/api/native?q=1&r=2"));
     expect(res).toBeInstanceOf(Promise);

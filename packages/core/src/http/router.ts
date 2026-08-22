@@ -14,7 +14,8 @@
  * get — without a build step.
  */
 
-import { runHooks } from "../lifecycle/lifecycle";
+import { debugStageEnd } from "../debug/tracer";
+import { runHooks, runTimed } from "../lifecycle/lifecycle";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, MaybePromise } from "../types";
 import type { ContextOptions, IgnexContext, IgnexServer } from "./context";
@@ -161,7 +162,7 @@ export const createRouter = (): IgnexRouter => {
       target = createContext(new Request("http://ignex.local/"), EMPTY_PARAMS, ctxOptions ?? {});
     }
     try {
-      const r = await runHooks(s.error, target, err);
+      const r = await runTimed("error", "lifecycle", () => runHooks(s.error, target, err));
       if (r.response) return applySet(r.response, r.ctx?.set ?? target.set);
     } catch {
       // An error-stage hook that throws must not mask the original error.
@@ -182,25 +183,29 @@ export const createRouter = (): IgnexRouter => {
     // interpreted runLifecycle): the handler and hooks never run.
     if (req.signal.aborted) return new Response(null, { status: 200 });
 
-    // start → request → parse → transform (before validation).
-    const pre = await runPreStage(s.preParse, ctx);
+    // start → request → parse → transform (before validation). The request
+    // stage is what creates the trace (the debugbar plugin's onRequest runs
+    // inside it), so its waterfall row is recorded once the chain returns.
+    const pre = await runPreStage(s.preParse, ctx, "request");
+    debugStageEnd("request");
     if (pre.halt) return pre.halt;
     ctx = pre.ctx;
 
     // Runtime schema validation (no-op when the route has no schema).
     if (reg.schema) await validateSchema(reg.schema, ctx, req);
 
-    const before = await runPreStage(s.beforeHandle, ctx);
+    const before = await runPreStage(s.beforeHandle, ctx, "beforeHandle");
     if (before.halt) return before.halt;
     ctx = before.ctx;
 
-    const result = await reg.handler(ctx);
+    const __raw = runTimed("handler", "lifecycle", () => reg.handler(ctx));
+    const result = __raw instanceof Promise ? await __raw : __raw;
     let response = finalizeResponse(result, ctx, undefined, jsonReply);
 
     // afterHandle → mapResponse (may replace ctx and/or the response).
-    ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response));
-    ({ ctx, response } = await runPostStage(s.mapResponse, ctx, response));
-    await runObserveStage(s.afterResponse, ctx, response);
+    ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response, "afterHandle"));
+    ({ ctx, response } = await runPostStage(s.mapResponse, ctx, response, "mapResponse"));
+    await runObserveStage(s.afterResponse, ctx, response, "afterResponse");
 
     // Single outer applySet (headers/status/cookies exactly once).
     return applySet(response, ctx.set);
@@ -255,7 +260,8 @@ export const createRouter = (): IgnexRouter => {
 
     const s = ensureBound();
     // Run the full pre-handler chain so plugins/hooks apply to preflight too.
-    const pre = await runPreStage(s.pre, ctx);
+    const pre = await runPreStage(s.pre, ctx, "request");
+    debugStageEnd("request");
     const response = pre.halt ?? applySet(new Response(null, { status: 204 }), pre.ctx.set);
 
     const headers = new Headers(response.headers);
@@ -312,13 +318,19 @@ export const createRouter = (): IgnexRouter => {
     const ctx = createContext(req, EMPTY_PARAMS, ctxOptions ?? {});
     ctx.server = server ?? null;
 
-    const pre = await runPreStage(s.pre, ctx);
+    const pre = await runPreStage(s.pre, ctx, "request");
+    debugStageEnd("request");
     if (pre.halt) return pre.halt;
 
     // The fallback path threads the response through the post stages but keeps
     // the pre-stage ctx for the final applySet (matches the compiled __fallback).
-    const post = await runPostStage([...s.afterHandle, ...s.mapResponse], pre.ctx, response);
-    await runObserveStage(s.afterResponse, pre.ctx, post.response);
+    const post = await runPostStage(
+      [...s.afterHandle, ...s.mapResponse],
+      pre.ctx,
+      response,
+      "response",
+    );
+    await runObserveStage(s.afterResponse, pre.ctx, post.response, "afterResponse");
     return applySet(post.response, pre.ctx.set);
   };
 

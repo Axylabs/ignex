@@ -76,5 +76,8 @@ export const resolveAppConfig = (
     hasLifecycle,
     hasServer: exportNames.has("server"),
     hasActivePlugins,
+    // A kept `debugbar()` enables the lifecycle-stage instrumentation at
+    // runtime; codegen folds it out entirely when none is kept.
+    hasEnabledDebugbar: devOnly.kept > 0,
   };
 };

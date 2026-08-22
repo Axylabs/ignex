@@ -87,7 +87,7 @@ const parseSdkArgs = (args: string[]): SdkCommandArgs => {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((id) => (id === "all" ? "typescript,openapi" : id))
+    .map((id) => (id === "all" ? "typescript,openapi,flatbuffers" : id))
     .join(",")
     .split(",")
     .map((s) => s.trim())

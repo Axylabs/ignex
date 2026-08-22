@@ -15,6 +15,7 @@
     "verify:full": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test:coverage && bun run jsdoc:check:strict && bun run build && bun run smoke && bun run smoke:fallback && bun run check:cache-versions",
     "jsdoc:check": "bun scripts/check-jsdoc.ts",
     "jsdoc:check:strict": "bun scripts/check-jsdoc.ts --strict",
+    "gen:ai-map": "bun scripts/gen-ai-map.ts",
     "lint": "oxlint . && biome check .",
     "lint:fix": "oxlint --fix . && biome check --write .",
     "test": "vitest run",

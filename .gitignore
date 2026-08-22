@@ -54,3 +54,4 @@ bench/results/server
 .npm-tmp-cache/
 bench/results/server
 bench/results/compare
+.bun-tmp

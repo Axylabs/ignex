@@ -187,6 +187,10 @@ const readSdk = async (paths: readonly string[]): Promise<KnowledgeSdk | null> =
         version: pkg.version ?? "0.0.0",
         location: candidate,
         files: Array.isArray(pkg.files) ? pkg.files.slice(0, 12) : [],
+        // Enriched by the debugbar plugin with real git-tag state (see
+        // `serveSdks` / the ClientRegistry) — a raw probe reports unknown.
+        gitTags: [],
+        published: "unknown",
       };
     } catch {
       // skip
@@ -249,6 +253,7 @@ export const buildAppKnowledge = async (
 };
 
 /** Render the knowledge snapshot as Markdown for the KT page. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one linear markdown section per feature — branchy by nature
 export const formatKnowledgeMarkdown = (knowledge: AppKnowledge): string => {
   const lines: string[] = [];
   lines.push(`# ${knowledge.serviceName} — how this app works`);
@@ -327,6 +332,12 @@ export const formatKnowledgeMarkdown = (knowledge: AppKnowledge): string => {
     );
     if (knowledge.sdk.files.length > 0) {
       lines.push(`- Files: ${knowledge.sdk.files.map((f) => `\`${f}\``).join(", ")}`);
+    }
+    if (knowledge.sdk.gitTags.length > 0) {
+      lines.push(
+        `- Git tags: ${knowledge.sdk.gitTags.map((t) => `\`${t}\``).join(", ")}` +
+          ` (${knowledge.sdk.published === "tagged" ? "tagged ✓" : "local only"})`,
+      );
     }
     lines.push("- Generated with `ignex sdk`; frontend teams install it and get typed endpoints.");
   } else {

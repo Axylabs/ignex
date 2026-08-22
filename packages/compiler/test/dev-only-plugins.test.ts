@@ -36,27 +36,27 @@ const analyze = (content: string, isProduction: boolean) => {
 describe("analyzeDevOnlyPlugins", () => {
   it("eliminates debugbar({ enabled: false }) in any build", () => {
     const r = analyze(configSource("debugbar", "debugbar({ enabled: false })"), false);
-    expect(r).toEqual({ eliminated: 1, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
   it("keeps debugbar({ enabled: true }) even in a production build", () => {
     const r = analyze(configSource("debugbar", "debugbar({ enabled: true })"), true);
-    expect(r).toEqual({ eliminated: 0, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 0, kept: 1, totalElements: 1 });
   });
 
   it("eliminates the default debugbar() in a production build", () => {
     const r = analyze(configSource("debugbar", "debugbar()"), true);
-    expect(r).toEqual({ eliminated: 1, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
   it("keeps the default debugbar() in a dev build", () => {
     const r = analyze(configSource("debugbar", "debugbar()"), false);
-    expect(r).toEqual({ eliminated: 0, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 0, kept: 1, totalElements: 1 });
   });
 
   it("eliminates the default debugbar() with options but no enabled key in prod", () => {
     const r = analyze(configSource("debugbar", "debugbar({ path: '/__dbg' })"), true);
-    expect(r).toEqual({ eliminated: 1, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
   it("keeps debugbar with a non-literal enabled expression (conservative)", () => {
@@ -64,23 +64,45 @@ describe("analyzeDevOnlyPlugins", () => {
       configSource("debugbar", "debugbar({ enabled: process.env.X === '1' })"),
       true,
     );
-    expect(r).toEqual({ eliminated: 0, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 0, kept: 1, totalElements: 1 });
   });
 
   it("only eliminates the debugbar elements when mixed with real plugins", () => {
     const r = analyze(configSource("compression, debugbar", "compression(), debugbar()"), true);
-    expect(r).toEqual({ eliminated: 1, totalElements: 2 });
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 2 });
   });
 
   it("does nothing without a debugbar import", () => {
     const r = analyze(configSource("compression", "compression()"), true);
-    expect(r).toEqual({ eliminated: 0, totalElements: 0 });
+    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 0 });
   });
 
   it("is conservative for aliased imports (no elimination)", () => {
     const src = `import { debugbar as db } from "@ignex/core";\nexport const plugins = [db()];\n`;
     const r = analyze(src, true);
-    expect(r).toEqual({ eliminated: 0, totalElements: 0 });
+    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 0 });
+  });
+
+  it("keeps debugbar hidden inside spread conditionals (__TRACE_DEBUG signal)", () => {
+    const src = `import { debugbar } from "@ignex/core";\nexport const plugins = [...(env.DEBUG ? [debugbar({ enabled: true })] : [])];\n`;
+    const sm = new SourceManager();
+    const file = sm.fromSource("/tmp/app.config.ts", "./src/app.config.ts", src);
+    // Even in a production build an explicit enabled:true is never eliminated —
+    // the spread must not hide it from the instrumentation decision.
+    const dev = analyzeDevOnlyPlugins(file, false);
+    expect(dev.kept).toBe(1);
+    const prod = analyzeDevOnlyPlugins(file, true);
+    expect(prod.kept).toBe(1);
+    expect(prod.eliminated).toBe(0);
+  });
+
+  it("still folds a default debugbar() inside a spread in production builds", () => {
+    const src = `import { debugbar } from "@ignex/core";\nexport const plugins = [...(env.DEBUG ? [debugbar()] : [])];\n`;
+    const sm = new SourceManager();
+    const file = sm.fromSource("/tmp/app.config.ts", "./src/app.config.ts", src);
+    const prod = analyzeDevOnlyPlugins(file, true);
+    expect(prod.kept).toBe(0);
+    expect(prod.eliminated).toBe(0); // top-level elimination stays conservative
   });
 
   it("isProductionBuild honors compile + NODE_ENV and IGNEX_DEBUG overrides", () => {
@@ -146,6 +168,29 @@ describe("production build keeps AOT optimizations", () => {
     expect(result.errors).toHaveLength(0);
     // The debugbar could be enabled → the route needs the full context.
     expect(result.code).toContain("__ctxOpts_");
+  });
+
+  it("bakes __TRACE_DEBUG from whether a debugbar is kept for the build", async () => {
+    // Hooks-only config (no debugbar): instrumentation const-folds away.
+    const hooks = await build(materializeFixture("basic"), fixturePath("basic", "app.config.ts"));
+    expect(hooks.code).toContain("const __TRACE_DEBUG = false");
+
+    // debugbar fixture in a dev build: kept → stage instrumentation active.
+    delete process.env.NODE_ENV;
+    const dev = await build(
+      materializeFixture("debugbar"),
+      fixturePath("debugbar", "app.config.ts"),
+    );
+    expect(dev.code).toContain("const __TRACE_DEBUG = true");
+
+    // debugbar fixture in a production build: the default debugbar() is
+    // provably disabled → folded out (zero closures on the hot path).
+    process.env.NODE_ENV = "production";
+    const prod = await build(
+      materializeFixture("debugbar"),
+      fixturePath("debugbar", "app.config.ts"),
+    );
+    expect(prod.code).toContain("const __TRACE_DEBUG = false");
   });
 
   it("hoists regardless of build env when debugbar({ enabled: false })", async () => {

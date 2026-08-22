@@ -100,6 +100,28 @@ describe("Trace", () => {
     expect(leak?.error).toContain("left open");
   });
 
+  it("recordStage is idempotent; finalize never flags the root or stage rows", async () => {
+    const ctx = createContext(req("/"), {}, {});
+    const trace = beginTrace(ctx, false);
+    trace.recordStage("request");
+    trace.recordStage("request"); // idempotent — one row only
+    const _handler = trace.start("handler", "lifecycle"); // still open at finalize
+    await sleep(1);
+    const json = await trace.finalize({ status: 200, responseHeaders: null, captureBody: false });
+
+    // The root is the request itself — it must never show "span left open".
+    expect(json.spans.find((s) => s.id === 0)?.error).toBeNull();
+    // Framework stage rows close without the leak flag (the debugbar finalizes
+    // inside the afterHandle stage while framework spans are still open).
+    const rows = json.spans.filter((s) => s.kind === "lifecycle");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.name).toBe("request");
+    expect(rows[0]?.startMs).toBe(0);
+    const handler = json.spans.find((s) => s.name === "handler");
+    expect(handler?.open).toBe(false);
+    expect(handler?.error).toBeNull();
+  });
+
   it("request-level errors carry a stack and mark the trace", async () => {
     const ctx = createContext(req("/"), {}, {});
     const trace = beginTrace(ctx, false);
@@ -269,11 +291,35 @@ describe("debugbar plugin (AOT-style interception)", () => {
     // Detail includes the span tree.
     const detailRes = await run(app, `/__debugbar/api/requests/${rows[0].id}`);
     const detail = (await detailRes.json()) as {
-      spans: Array<{ name: string; kind: string }>;
+      spans: Array<{
+        id: number;
+        name: string;
+        kind: string;
+        startMs: number;
+        error: string | null;
+      }>;
       stages: string[];
     };
     expect(detail.spans.some((s) => s.name === "do work")).toBe(true);
     expect(detail.stages).toContain("request");
+
+    // The waterfall gets automatic lifecycle stage rows: the request stage,
+    // the handler (which wraps the app's own spans), and the post stages — so
+    // a request without explicit ctx.debug calls still shows where time went.
+    const stageNames = detail.spans.filter((s) => s.kind === "lifecycle").map((s) => s.name);
+    expect(stageNames).toContain("request");
+    expect(stageNames).toContain("handler");
+    expect(stageNames).toContain("afterHandle");
+    const handler = detail.spans.find((s) => s.name === "handler");
+    expect(handler?.startMs).toBeGreaterThanOrEqual(0);
+    // App spans nest inside the handler row.
+    const work = detail.spans.find((s) => s.name === "do work");
+    expect(work?.id).not.toBe(handler?.id);
+    // The request-stage row starts at the trace start (it is what created the
+    // trace), and no span is falsely flagged as leaked.
+    const requestStage = detail.spans.find((s) => s.name === "request");
+    expect(requestStage?.startMs).toBe(0);
+    for (const s of detail.spans) expect(s.error).toBeNull();
 
     // Meta, HTML shell and app.js are served.
     const meta = await run(app, "/__debugbar/api/meta");
@@ -540,6 +586,20 @@ describe("debugbar plugin (interpreted router)", () => {
     expect(rows.length).toBe(2);
     const order = rows.find((r) => r.path === "/orders");
     expect(order?.dbCount).toBe(1);
+
+    // The router path records lifecycle stage rows too (request, handler,
+    // afterHandle) — the db query nests inside the handler row.
+    const detail = (await (await run(app, `/__debugbar/api/requests/${order?.id}`)).json()) as {
+      spans: Array<{ id: number; name: string; kind: string }>;
+    };
+    const stageNames = detail.spans.filter((s) => s.kind === "lifecycle").map((s) => s.name);
+    expect(stageNames).toContain("request");
+    expect(stageNames).toContain("handler");
+    expect(stageNames).toContain("afterHandle");
+    const handler = detail.spans.find((s) => s.name === "handler");
+    const query = detail.spans.find((s) => s.name === "INSERT INTO orders (payload) VALUES (?)");
+    expect(handler?.id).toBeDefined();
+    expect(query?.id).not.toBe(handler?.id);
 
     // Dashboard served through the router route.
     const dash = await run(app, "/__debugbar/");

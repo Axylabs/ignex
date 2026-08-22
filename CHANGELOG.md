@@ -22,8 +22,34 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-
-
+- **Debugbar: NATS event tracking (Events panel)** — a zero-dependency NATS
+  core-protocol client (Bun TCP; INFO/CONNECT/PING/PONG/PUB/SUB/MSG, no npm
+  package, JetStream-free) plus a bounded event ring buffer. Auto-enabled by
+  `$NATS_URL` or `debugbar({ nats })`: subscribes to subjects (default
+  `events.>`), records every outbound publish and inbound message with
+  truncated payloads, and exposes `GET /api/events`,
+  `POST /api/events/publish` (probe events) and `POST /api/events/clear`.
+  Failures become error events; reconnect backs off — a broken server never
+  crashes the app.
+- **Debugbar: published-clients panel** — the Clients view probes
+  `sdkPaths` + `clientPaths` (package.json / sdk.json / directories) and
+  combines local package state with git tags (`git for-each-ref`, cached,
+  `sdk-v*` prefix): name/version/location/files + **tagged ✓ vs local-only**.
+  The KT page and `GET /api/sdks` now include the tag state.
+- **Debugbar: AI debugging via MCP** — `@ignex/mcp` gained nine debugger
+  tools (`debug-summary`, `debug-requests`, `debug-request`, `debug-replay`,
+  `debug-events`, `debug-event-publish`, `debug-system`, `debug-clients`,
+  `debug-kt`) driven by `IGNEX_DEBUGBAR_URL`/`IGNEX_DEBUGBAR_TOKEN`, plus a
+  token-efficient `GET /api/ai/summary` snapshot (errors, slow traces, event
+  stats, clients). The dashboard gained Events / Clients / AI views.
+- **SDK: FlatBuffers frontend-client platform** — `ignex sdk --platform
+  flatbuffers` emits an installable npm package: a real `schema.fbs` (wire
+  envelope + route inventory), a typed per-route client sending
+  `application/x-flatbuffers` envelopes on the official `flatbuffers` runtime
+  (JSON fallback, GET/HEAD params in the URL), and `kind: "client"` metadata
+  so the debugbar tracks it. Registered in `--platform all` for the CLI and
+  `scripts/generate-sdk.ts`; publish/push/release flows are shared with the
+  other SDK platforms.
 - **Debugbar waterfall: automatic lifecycle-stage rows** — every request is
   now traced through the framework, not just the app's explicit `ctx.debug`
   spans: the `request`, `beforeHandle`, `handler`, `afterHandle`,

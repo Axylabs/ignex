@@ -28,7 +28,7 @@ export const HELPERS: Record<string, HelperDef> = {
   __finalize: { deps: ["__withBody"], core: [] },
   __handleError: {
     deps: ["__applySet"],
-    core: ["errorToResponse", "runHooks"],
+    core: ["errorToResponse", "runHooks", "runTimed"],
   },
   __schemaFor: { deps: [], core: [] },
   __validatePart: { deps: [], core: ["validateAsync"] },
@@ -42,12 +42,12 @@ export const HELPERS: Record<string, HelperDef> = {
   __head: { deps: ["__wrap"], core: [] },
   __optionsHandler: {
     deps: ["__wrap", "__allowFor", "__applySet"],
-    core: ["createContext", "runHooks"],
+    core: ["createContext", "runHooks", "debugStageEnd"],
   },
   __allowFor: { deps: [], core: [] },
   __fallback: {
     deps: ["__wrap", "__optionsHandler", "__allowFor", "__applySet"],
-    core: ["createContext", "runHooks", "applySet"],
+    core: ["createContext", "runHooks", "runTimed", "debugStageEnd", "applySet"],
   },
 };
 
@@ -136,7 +136,7 @@ export const HELPER_SOURCES: Record<string, string> = {
 };`,
   __handleError: `async function __handleError(err, ctx) {
   try {
-    const __r = runHooks(__lc.error, ctx, err);
+    const __r = __TRACE_DEBUG ? runTimed("error", "lifecycle", () => runHooks(__lc.error, ctx, err)) : runHooks(__lc.error, ctx, err);
     const r = __r instanceof Promise ? await __r : __r;
     if (r.response) return __applySet(r.response, r.ctx?.set ?? ctx?.set);
   } catch {
@@ -245,6 +245,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   try {
     const __r = runHooks(__preStages, ctx);
     const pre = __r instanceof Promise ? await __r : __r;
+    if (__TRACE_DEBUG) debugStageEnd("request");
     response = pre.response ?? new Response(null, { status: 204 });
     response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
   } catch {
@@ -318,23 +319,24 @@ export const HELPER_SOURCES: Record<string, string> = {
     try {
       const __r1 = runHooks(__preStages, ctx);
       const pre = __r1 instanceof Promise ? await __r1 : __r1;
+      if (__TRACE_DEBUG) debugStageEnd("request");
       if (pre.response) {
         // A pre-stage hook (e.g. the openapi() plugin serving its spec/UI
         // endpoints, which aren't in the compiled route table) short-circuited:
         // still run the response pipeline (CORS/security/compression) over the
         // intercepted response so it behaves like a real matched route.
-        const __r2 = runHooks(__postStages, pre.ctx, pre.response);
+        const __r2 = __TRACE_DEBUG ? runTimed("response", "lifecycle", () => runHooks(__postStages, pre.ctx, pre.response)) : runHooks(__postStages, pre.ctx, pre.response);
         const __post = __r2 instanceof Promise ? await __r2 : __r2;
         const __intercepted = __post.response ?? pre.response;
-        const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted);
+        const __r3 = __TRACE_DEBUG ? runTimed("afterResponse", "lifecycle", () => runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted)) : runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted);
         if (__r3 instanceof Promise) await __r3;
         return __applySet(__intercepted, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
       }
 
-      const __r2 = runHooks(__postStages, pre.ctx, response);
+      const __r2 = __TRACE_DEBUG ? runTimed("response", "lifecycle", () => runHooks(__postStages, pre.ctx, response)) : runHooks(__postStages, pre.ctx, response);
       const post = __r2 instanceof Promise ? await __r2 : __r2;
       response = post.response ?? response;
-      const __r3 = runHooks(__lc.afterResponse ?? [], pre.ctx, response);
+      const __r3 = __TRACE_DEBUG ? runTimed("afterResponse", "lifecycle", () => runHooks(__lc.afterResponse ?? [], pre.ctx, response)) : runHooks(__lc.afterResponse ?? [], pre.ctx, response);
       if (__r3 instanceof Promise) await __r3;
       response = __applySet(response, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
     } catch {

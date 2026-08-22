@@ -55,6 +55,15 @@ describe("ignex MCP server (protocol)", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "build",
+      "debug-clients",
+      "debug-event-publish",
+      "debug-events",
+      "debug-kt",
+      "debug-replay",
+      "debug-request",
+      "debug-requests",
+      "debug-summary",
+      "debug-system",
       "dev",
       "devStop",
       "doctor",

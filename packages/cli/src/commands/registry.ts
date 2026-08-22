@@ -314,7 +314,7 @@ export const commands: readonly Command[] = [
     aliases: ["generate-sdk", "sdk:generate"],
     group: "Deploy",
     description: "Generate + distribute the app SDK (typed client) for frontend teams",
-    options: `  --platform <ts|openapi|all>    Platform(s) to generate (default: typescript; comma-separated or "all")
+    options: `  --platform <ts|openapi|flatbuffers|all>    Platform(s) to generate (default: typescript; comma-separated or "all")
   --name <name>                  npm package name (default: <serviceName>-sdk, e.g. @acme/api-sdk)
   --scope <scope>                npm scope for the default name (e.g. @acme)
   --version <semver>             SDK version (default: nearest package.json version)

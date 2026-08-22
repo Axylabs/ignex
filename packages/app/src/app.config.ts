@@ -32,8 +32,18 @@ export const plugins: IgnexPlugin[] = [
   // app runs with DEBUG=true (see src/config/env.ts / packages/app/.env).
   // `enabled: true` makes DEBUG authoritative — the dashboard comes up even
   // when the shell exports NODE_ENV=production, which would otherwise
-  // self-disable the plugin's debug-mode default.
-  ...(env.DEBUG ? [debugbar({ enabled: true, serviceName: "ignex-app" })] : []),
+  // self-disable the plugin's debug-mode default. `sdkPaths`/`clientPaths`
+  // point the Clients panel at the packages `ignex sdk` generates.
+  ...(env.DEBUG
+    ? [
+        debugbar({
+          enabled: true,
+          serviceName: "ignex-app",
+          sdkPaths: ["dist/sdk/typescript/package.json", "dist/sdk/openapi/package.json"],
+          clientPaths: ["dist/sdk/flatbuffers/package.json"],
+        }),
+      ]
+    : []),
   // Lazy sessions: `createIfMissing: "lazy"` defers session creation until a
   // handler actually reads it (via `getSession`), so requests that never use
   // a session (health checks, static routes, most APIs) do ZERO session work —

@@ -127,7 +127,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "/") { e.preventDefault(); var s = $("search"); if (s) s.focus(); return; }
   if (e.key === "r" || e.key === "R") { render(); return; }
   if (e.key === "t" || e.key === "T") { toggleTheme(); return; }
-  var views = ["requests", "errors", "jobs", "routes", "system", "kt"];
+  var views = ["requests", "errors", "jobs", "routes", "events", "clients", "system", "ai", "kt"];
   var idx = views.indexOf(e.key);
   if (idx >= 0) setView(views[idx]);
 });
@@ -135,7 +135,7 @@ function scheduleRefresh() {
   if (state.timer) clearInterval(state.timer);
   if (state.paused) return;
   state.timer = setInterval(function () {
-    if (state.view === "requests" || state.view === "errors" || state.view === "system") render();
+    if (state.view === "requests" || state.view === "errors" || state.view === "system" || state.view === "events" || state.view === "ai") render();
   }, REFRESH_MS);
 }
 
@@ -250,9 +250,11 @@ function renderDetail(id) {
         html.push(panel("Error", '<pre class="stack">' + esc(t.error) + (t.errorStack ? "\\n\\n" + esc(t.errorStack) : "") + "</pre>", '<button class="ghost mini" data-copy="' + esc(t.error + (t.errorStack ? "\\n\\n" + t.errorStack : "")) + '">copy</button>'));
       }
       if (t.stages && t.stages.length) html.push(panel("Lifecycle stages", '<div>' + t.stages.map(function (s) { return '<span class="chip">' + esc(s) + "</span>"; }).join("") + "</div>"));
+      html.push(renderBreakdown(t, "Time breakdown"));
       html.push(renderSpanTree(t));
       html.push(renderKvs("Request", requestKvs(t), t.request.headers));
     } else if (state.detailTab === "waterfall") {
+      html.push(renderBreakdown(t, "Time breakdown"));
       html.push(renderWaterfall(t, total));
     } else if (state.detailTab === "queries") {
       html.push(renderQueries(t));
@@ -286,10 +288,101 @@ function renderSpanTree(t) {
       var kid = kids[k];
       var cls = pid === 0 && depth === 0 ? "node root" : "node";
       html += '<div class="' + cls + '"><span class="' + durClass(kid.durationMs) + '">' + fmtMs(kid.durationMs) + "</span> · <b>" + esc(kid.name) + '</b> <span class="pill kind" style="--kc:' + kindVar(kid.kind) + '">' + kid.kind + "</span>" + (kid.error ? ' <span class="pill status err">' + esc(kid.error) + "</span>" : "") + "</div>";
+      var meta = [];
+      if (kid.origin) meta.push('<span class="faint">@ ' + esc(kid.origin) + "</span>");
+      if (kid.attrs) {
+        for (var mk in kid.attrs) {
+          if (mk === "params" || mk === "error" || mk === "stack") continue;
+          meta.push('<span class="faint">' + esc(mk) + "=" + esc(attrValue(kid.attrs[mk])) + "</span>");
+        }
+      }
+      if (meta.length) html += '<div class="tree-meta">' + meta.join(" · ") + "</div>";
       walk(kid.id, depth + 1);
     }
   })(0, 0);
   return html + "</div></div>";
+}
+function attrValue(v) {
+  if (v == null) return "null";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+/* ── waterfall: time breakdown ────────────────────────────── */
+function kindTotals(t) {
+  var by = {};
+  var total = Math.max(t.durationMs, 0.001);
+  var ints = [];
+  for (var i = 0; i < t.spans.length; i++) {
+    var s = t.spans[i];
+    if (s.id === 0) continue; // the root IS the request — it would hide every gap
+    by[s.kind] = by[s.kind] || { ms: 0, count: 0 };
+    by[s.kind].ms += s.durationMs;
+    by[s.kind].count += 1;
+    ints.push([s.startMs, s.startMs + Math.max(s.durationMs, 0)]);
+  }
+  // Covered time = union of span intervals; anything left is unaccounted
+  // (event-loop waits, I/O not traced, gaps between stages).
+  ints.sort(function (a, b) { return a[0] - b[0]; });
+  var covered = 0, cur = 0;
+  for (var j = 0; j < ints.length; j++) {
+    if (ints[j][1] <= cur) continue;
+    var start = ints[j][0] > cur ? ints[j][0] : cur;
+    covered += ints[j][1] - start;
+    if (ints[j][1] > cur) cur = ints[j][1];
+  }
+  return { by: by, unaccounted: Math.max(total - covered, 0), total: total };
+}
+function renderBreakdown(t, title) {
+  var b = kindTotals(t);
+  var html = '<div class="panel"><div class="panel-head"><h2>' + title + '</h2><span class="hint">where the ' + fmtMs(b.total) + " went</span></div>";
+  var keys = Object.keys(b.by).sort(function (a, z) { return b.by[z].ms - b.by[a].ms; });
+  var pctOf = function (ms) { return Math.max((ms / b.total) * 100, 0.3); };
+  html += '<div class="stack">';
+  for (var k = 0; k < keys.length; k++) {
+    var kind = keys[k];
+    var st = b.by[kind];
+    html += '<div class="seg" style="width:' + pctOf(st.ms).toFixed(2) + "%;background:" + kindVar(kind) + '" title="' + esc(kind) + " " + st.ms.toFixed(2) + ' ms"></div>';
+  }
+  if (b.unaccounted > 0.05) {
+    html += '<div class="seg unacc" style="width:' + pctOf(b.unaccounted).toFixed(2) + '%" title="unaccounted ' + b.unaccounted.toFixed(2) + ' ms"></div>';
+  }
+  html += "</div>";
+  var rows = [];
+  for (var rk in b.by) rows.push({ name: rk, ms: b.by[rk].ms, count: b.by[rk].count });
+  rows.sort(function (a, z) { return z.ms - a.ms; });
+  if (b.unaccounted > 0.05) rows.push({ name: "unaccounted", ms: b.unaccounted, count: 0 });
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var pct = ((row.ms / b.total) * 100).toFixed(1);
+    var color = row.name === "unaccounted" ? "var(--faint)" : kindVar(row.name);
+    html += '<div class="bd-row"><span class="dot" style="background:' + color + '"></span><span class="name">' + esc(row.name) + '</span><span class="count">' + (row.count ? row.count + "×" : "gap") + '</span><span class="ms ' + durClass(row.ms) + '">' + fmtMs(row.ms) + '</span><span class="pct">' + pct + "%</span></div>";
+  }
+  return html + "</div>";
+}
+
+/* ── waterfall rows ───────────────────────────────────────── */
+function spanDetail(s) {
+  var out = ['<div class="kvs">'];
+  out.push('<div><span class="k">span</span><span class="v">' + esc(s.name) + "</span></div>");
+  out.push('<div><span class="k">kind</span><span class="v">' + esc(s.kind) + "</span></div>");
+  out.push('<div><span class="k">start</span><span class="v">' + s.startMs.toFixed(2) + " ms</span></div>");
+  out.push('<div><span class="k">duration</span><span class="v ' + durClass(s.durationMs) + '">' + fmtMs(s.durationMs) + "</span></div>");
+  if (s.open) out.push('<div><span class="k">state</span><span class="v">left open</span></div>');
+  if (s.error) out.push('<div><span class="k">error</span><span class="v" style="color:var(--err)">' + esc(s.error) + "</span></div>");
+  if (s.origin) out.push('<div><span class="k">origin</span><span class="v">' + esc(s.origin) + "</span></div>");
+  if (s.attrs) {
+    for (var key in s.attrs) {
+      var val = s.attrs[key];
+      if (val === null || typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+        out.push('<div><span class="k">' + esc(key) + '</span><span class="v">' + esc(val) + "</span></div>");
+      } else {
+        out.push('<div><span class="k">' + esc(key) + '</span><span class="v"><pre class="mini">' + esc(JSON.stringify(val, null, 2)) + "</pre></span></div>");
+      }
+    }
+  }
+  out.push("</div>");
+  return out.join("");
 }
 function renderWaterfall(t, total) {
   var html = '<div class="panel"><div class="panel-head"><h2>Waterfall</h2></div>';
@@ -299,13 +392,24 @@ function renderWaterfall(t, total) {
   html += "</div>";
   html += '<div class="wf-ruler"><span>0 ms</span><span>' + Math.round(total / 2) + " ms</span><span>" + Math.round(total) + " ms</span></div><div class=\\"wf\\">";
   var rows = t.spans.slice().sort(function (a, b) { return a.startMs - b.startMs; });
+  var prevEnd = 0;
   for (var i = 0; i < rows.length; i++) {
     var s = rows[i];
+    if (s.id === 0) continue; // the root row is redundant — the ruler shows the total
+    var end = s.startMs + s.durationMs;
+    if (s.startMs > prevEnd + 0.05) {
+      // Unaccounted idle time between the previous span and this one.
+      var gLeft = (prevEnd / total) * 100;
+      var gWidth = Math.max(((s.startMs - prevEnd) / total) * 100, 0.2);
+      html += '<div class="wf-row wf-gap" title="idle / unaccounted ' + (s.startMs - prevEnd).toFixed(2) + ' ms"><div class="wf-label"><span class="faint">…idle</span></div><div class="wf-track"><div class="wf-bar gap" style="left:' + gLeft.toFixed(2) + "%;width:" + gWidth.toFixed(2) + '"></div></div></div>';
+    }
     var left = (s.startMs / total) * 100;
     var width = Math.max((s.durationMs / total) * 100, 0.35);
     var label = (s.open ? "⏳ " : s.error ? "✕ " : "") + esc(s.name);
     var hint = s.kind + " · start " + s.startMs.toFixed(1) + "ms · dur " + s.durationMs.toFixed(2) + "ms" + (s.error ? " · " + esc(s.error) : "");
-    html += '<div class="wf-row" title="' + hint + '"><div class="wf-label">' + label + '</div><div class="wf-track"><div class="wf-bar" style="left:' + left.toFixed(2) + "%;width:" + width.toFixed(2) + "%;background:" + kindVar(s.kind) + '"></div></div></div>';
+    html += '<details class="wf-item"><summary class="wf-row" title="' + hint + '"><div class="wf-label"><span class="pill kind" style="--kc:' + kindVar(s.kind) + '">' + s.kind + "</span> " + label + '</div><div class="wf-track"><div class="wf-bar" style="left:' + left.toFixed(2) + "%;width:" + width.toFixed(2) + "%;background:" + kindVar(s.kind) + '"></div></div></summary>';
+    html += '<div class="wf-detail">' + spanDetail(s) + "</div></details>";
+    if (end > prevEnd) prevEnd = end;
   }
   return html + "</div></div>";
 }
@@ -401,6 +505,159 @@ function renderRoutes() {
     renderRows("");
     var search = $("search");
     if (search) search.addEventListener("input", function () { renderRows(search.value); });
+  }).catch(apiError);
+}
+
+/* ── events (NATS) ────────────────────────────────────────── */
+function dirPill(d) { return d === "out" ? '<span class="pill kind" style="--kc:var(--k-http)">out</span>' : '<span class="pill kind" style="--kc:var(--k-cache)">in</span>'; }
+function renderEvents() {
+  api("/events?limit=250").then(function (res) {
+    if (!res.enabled) {
+      $("view").innerHTML = '<div class="panel"><div class="empty"><div class="big">📡</div>NATS events not configured.<div class="hint">Set NATS_URL (or pass debugbar({ nats: { url } })) to track event-queue traffic, subscribe to subjects and publish probe events.</div></div></div>';
+      return;
+    }
+    var st = res.stats;
+    var html = [];
+    html.push('<div class="stats">');
+    html.push(statCard(fmtNum(st.total), "events (window)", st.connected ? "connected · " + esc(st.url) : esc(st.status), st.connected ? "" : "warn"));
+    html.push(statCard(fmtNum(st.out), "published", "outbound"));
+    html.push(statCard(fmtNum(st.in), "received", "inbound"));
+    html.push(statCard(fmtNum(st.errors), "errors", null, st.errors ? "err" : ""));
+    html.push(statCard(fmtNum(st.bytes), "bytes", "payload size"));
+    html.push("</div>");
+    html.push('<div class="panel"><div class="panel-head"><h2>Publish probe event</h2></div><div class="publish-composer">');
+    html.push('<input id="ev-subject" class="search mono" type="text" placeholder="subject, e.g. orders.created" spellcheck="false" />');
+    html.push('<textarea id="ev-payload" class="search mono" rows="3" placeholder=\\'payload JSON, e.g. {"orderId":"ord_1"} — or leave empty\\'>{"orderId":"ord_1"}</textarea>');
+    html.push('<button class="primary mini" id="ev-send">▶ publish</button>');
+    html.push('<span class="muted hint" id="ev-result"></span>');
+    html.push("</div></div>");
+    html.push('<div class="panel"><div class="toolbar"><input class="search" id="search" type="text" placeholder="filter subject…" /><span class="grow"></span><button class="ghost mini" data-refresh>↻ refresh</button><button class="ghost mini" id="ev-clear">✕ clear buffer</button></div></div>');
+    html.push('<div class="panel"><table><thead><tr><th>When</th><th>Dir</th><th>Subject</th><th>Size</th><th>Payload</th><th>Error</th></tr></thead><tbody id="events-body">');
+    html.push("</tbody></table></div>");
+    $("view").innerHTML = html.join("");
+    var rows = res.recent || [];
+    var renderRows = function (q) {
+      var body = $("events-body");
+      if (!body) return;
+      var ql = (q || "").toLowerCase();
+      var out = "";
+      var count = 0;
+      for (var i = 0; i < rows.length; i++) {
+        var ev = rows[i];
+        if (ql && ev.subject.toLowerCase().indexOf(ql) === -1) continue;
+        count++;
+        out += "<tr>";
+        out += '<td class="muted" title="' + esc(timeHM(ev.ts)) + '">' + esc(timeAgo(ev.ts)) + "</td>";
+        out += "<td>" + dirPill(ev.direction) + "</td>";
+        out += '<td class="mono">' + esc(ev.subject) + "</td>";
+        out += '<td class="mono muted">' + ev.size + " B</td>";
+        out += '<td class="mono muted">' + esc(ev.payload || "") + "</td>";
+        out += '<td class="muted">' + (ev.error ? '<span class="pill status err">' + esc(ev.error) + "</span>" : "—") + "</td>";
+        out += "</tr>";
+      }
+      if (count === 0) out = '<tr><td colspan="6"><div class="empty">No events match.</div></td></tr>';
+      body.innerHTML = out;
+    };
+    renderRows("");
+    var search = $("search");
+    if (search) search.addEventListener("input", function () { renderRows(search.value); });
+    var send = $("ev-send");
+    if (send) send.addEventListener("click", function () {
+      var subject = $("ev-subject").value.trim();
+      if (!subject) { $("ev-result").textContent = "subject required"; return; }
+      var payload = $("ev-payload").value.trim();
+      var parsed = null;
+      if (payload) { try { parsed = JSON.parse(payload); } catch (e) { $("ev-result").textContent = "payload is not valid JSON"; return; } }
+      $("ev-result").textContent = "publishing…";
+      fetch(withToken(BASE + "/api/events/publish"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject: subject, payload: parsed === null ? {} : parsed }),
+      }).then(function (r) { return r.json(); }).then(function (res2) {
+        $("ev-result").textContent = res2.ok ? "✔ published" : "✖ " + (res2.error || "failed");
+        renderEvents();
+      }).catch(function (e) { $("ev-result").textContent = "✖ " + e.message; });
+    });
+    var clearBtn = $("ev-clear");
+    if (clearBtn) clearBtn.addEventListener("click", function () {
+      fetch(withToken(BASE + "/api/events/clear"), { method: "POST" }).then(function () { toast("event buffer cleared"); renderEvents(); });
+    });
+  }).catch(apiError);
+}
+
+/* ── clients (published SDK + frontend clients) ──────────── */
+function renderClients() {
+  api("/clients").then(function (res) {
+    var html = [];
+    html.push('<div class="stats">');
+    html.push(statCard(fmtNum(res.count), "published clients", res.gitError ? "git unavailable" : "local + git tags", res.gitError ? "warn" : ""));
+    html.push("</div>");
+    var rows = res.clients || [];
+    if (rows.length === 0) {
+      html.push('<div class="panel"><div class="empty"><div class="big">📦</div>No published clients detected.<div class="hint">Run <code>ignex sdk</code> (or <code>ignex sdk --platform all</code>) and point debugbar({ sdkPaths, clientPaths }) at the generated packages.</div></div></div>');
+    }
+    for (var i = 0; i < rows.length; i++) {
+      var c = rows[i];
+      var badge = c.kind === "sdk" ? '<span class="pill method get">SDK</span>' : '<span class="pill method post">CLIENT</span>';
+      var pub = c.published === "tagged" ? '<span class="pill status ok">tagged ✓</span>' : '<span class="pill status warn">local only</span>';
+      html.push('<div class="panel client-card"><div class="client-head">' + badge);
+      html.push('<span class="mono"><b>' + esc(c.name) + "</b>@" + esc(c.version) + "</span>");
+      html.push('<span class="pill kind" style="--kc:var(--k-lifecycle)">' + esc(c.platform || c.kind) + "</span>");
+      html.push(pub);
+      html.push('<span class="spacer"></span><button class="ghost mini" data-copy="' + esc(c.name + "@" + c.version) + '">copy</button></div>');
+      html.push('<div class="client-meta"><div><span class="k">location</span><span class="v mono">' + esc(c.location) + "</span></div>");
+      html.push('<div><span class="k">latest tag</span><span class="v mono">' + esc(c.latestTag || "—") + "</span></div></div>");
+      if (c.gitTags && c.gitTags.length) {
+        html.push('<div class="client-tags">' + c.gitTags.map(function (t) { return '<span class="chip">' + esc(t) + "</span>"; }).join("") + "</div>");
+      }
+      if (c.files && c.files.length) {
+        html.push('<div class="client-files">' + c.files.map(function (f) { return '<code>' + esc(f) + "</code>"; }).join(" ") + "</div>");
+      }
+      html.push("</div>");
+    }
+    $("view").innerHTML = html.join("");
+  }).catch(apiError);
+}
+
+/* ── AI connect ──────────────────────────────────────────── */
+function renderAi() {
+  api("/ai/summary").then(function (s) {
+    var html = [];
+    html.push('<div class="stats">');
+    html.push(statCard(fmtNum(s.traces.total), "traces", "ring buffer"));
+    html.push(statCard(fmtNum(s.traces.errors), "errors", null, s.traces.errors ? "err" : ""));
+    html.push(statCard(fmtNum(s.traces.p95DurationMs), "p95 ms", "duration"));
+    html.push(statCard(fmtNum(s.events.total), "events", s.events.enabled ? (s.events.connected ? "connected" : "offline") : "n/a", s.events.errors ? "err" : ""));
+    html.push(statCard(fmtNum(s.clients.length), "clients", "published"));
+    html.push(statCard(fmtNum(s.routes), "routes", "known"));
+    html.push("</div>");
+    if (s.traces.recentErrors && s.traces.recentErrors.length) {
+      html.push('<div class="panel"><div class="panel-head"><h2>Recent errors (drill-down target)</h2></div><table><thead><tr><th>When</th><th>Method</th><th>Path</th><th>Status</th><th>Error</th></tr></thead><tbody>');
+      for (var i = 0; i < s.traces.recentErrors.length; i++) {
+        var e = s.traces.recentErrors[i];
+        html.push('<tr data-id="' + esc(e.id) + '"><td class="muted">' + esc(timeAgo(e.ts)) + "</td><td>" + methodPill(e.method) + '</td><td class="mono">' + esc(e.path) + "</td><td>" + statusPill(e.status) + '</td><td class="muted">' + esc(e.error) + "</td></tr>");
+      }
+      html.push("</tbody></table></div>");
+    }
+    var base = BASE.replace(/\\/$/, "");
+    var mcp = {
+      mcpServers: {
+        "ignex-debug": {
+          command: "bunx",
+          args: ["@ignex/mcp"],
+          env: {
+            IGNEX_DEBUGBAR_URL: window.location.origin + base,
+            IGNEX_DEBUGBAR_TOKEN: TOKEN
+          }
+        }
+      }
+    };
+    html.push('<div class="panel"><div class="panel-head"><h2>Connect an AI agent (MCP)</h2><button class="ghost mini" data-copy="' + esc(JSON.stringify(mcp, null, 2)) + '">copy config</button></div>');
+    html.push('<p class="hint">Point any MCP client (Claude Desktop, Cursor, VS Code) at the <code>@ignex/mcp</code> server with these env vars. The agent can then read this summary, list/read/replay requests, inspect NATS events and publish probes — no context dump needed.</p>');
+    html.push('<pre class="replay">' + esc(JSON.stringify(mcp, null, 2)) + "</pre>");
+    html.push('<div class="client-tags"><span class="chip">debug-summary</span><span class="chip">debug-requests</span><span class="chip">debug-request</span><span class="chip">debug-replay</span><span class="chip">debug-events</span><span class="chip">debug-event-publish</span><span class="chip">debug-system</span><span class="chip">debug-kt</span></div>');
+    html.push("</div>");
+    $("view").innerHTML = html.join("");
   }).catch(apiError);
 }
 
@@ -519,7 +776,10 @@ function render() {
   else if (state.view === "detail") renderDetail(state.detailId);
   else if (state.view === "jobs") renderJobs();
   else if (state.view === "routes") renderRoutes();
+  else if (state.view === "events") renderEvents();
+  else if (state.view === "clients") renderClients();
   else if (state.view === "system") renderSystem();
+  else if (state.view === "ai") renderAi();
   else if (state.view === "kt") renderKt();
 }
 

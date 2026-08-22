@@ -14,7 +14,7 @@
  */
 
 /** Built-in SDK platform identifiers. */
-export type SdkPlatformId = "typescript" | "openapi";
+export type SdkPlatformId = "typescript" | "openapi" | "flatbuffers";
 
 /** A single generated file, relative to its package directory. */
 export interface SdkFile {

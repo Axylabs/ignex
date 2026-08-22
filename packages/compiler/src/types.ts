@@ -34,6 +34,15 @@ export interface AppConfigInfo {
    * lifecycle is cleaned separately by codegen.
    */
   readonly hasActivePlugins: boolean;
+  /**
+   * True when a `debugbar()` element is registered and NOT provably disabled
+   * for this build. Codegen bakes this into a `__TRACE_DEBUG` module constant
+   * so the lifecycle-stage instrumentation (`runTimed` / `debugStageEnd`) is
+   * const-folded out of production artifacts — a disabled/absent debugbar
+   * costs zero closures per request. Conservatively false for aliased
+   * imports (the plugin still runs; only the automatic stage rows are off).
+   */
+  readonly hasEnabledDebugbar: boolean;
 }
 
 /**

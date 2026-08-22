@@ -12,7 +12,7 @@
 
 import { parseQueryFromURL } from "../data/query";
 import { validateAsync } from "../data/schema";
-import { runHooks } from "../lifecycle/lifecycle";
+import { runHooks, runTimed } from "../lifecycle/lifecycle";
 import type { AnySchema, HookContainer } from "../types";
 import type { IgnexContext } from "./context";
 import { parseCookieString } from "./cookies";
@@ -52,14 +52,17 @@ export const validateSchema = async (
 
 /**
  * Run pre-handler hooks: halt with the applied response, or advance the ctx.
- * Shared by the route pipeline and the 404/405/OPTIONS fallback.
+ * Shared by the route pipeline and the 404/405/OPTIONS fallback. When a trace
+ * is active, the stage is recorded as a `lifecycle` span named `label`.
  */
 export const runPreStage = async (
   hooks: readonly HookContainer[],
   ctx: IgnexContext,
+  label = "hooks",
 ): Promise<{ halt: Response | undefined; ctx: IgnexContext }> => {
   if (hooks.length === 0) return { halt: undefined, ctx };
-  const r = await runHooks(hooks, ctx);
+  const __r = runTimed(label, "lifecycle", () => runHooks(hooks, ctx));
+  const r = __r instanceof Promise ? await __r : __r;
   if (r.response) return { halt: applySet(r.response, r.ctx.set), ctx: r.ctx };
   return { halt: undefined, ctx: r.ctx };
 };
@@ -72,9 +75,11 @@ export const runPostStage = async (
   hooks: readonly HookContainer[],
   ctx: IgnexContext,
   response: Response,
+  label = "hooks",
 ): Promise<{ ctx: IgnexContext; response: Response }> => {
   if (hooks.length === 0) return { ctx, response };
-  const r = await runHooks(hooks, ctx, response);
+  const __r = runTimed(label, "lifecycle", () => runHooks(hooks, ctx, response));
+  const r = __r instanceof Promise ? await __r : __r;
   return { ctx: r.ctx ?? ctx, response: r.response ?? response };
 };
 
@@ -87,7 +92,8 @@ export const runObserveStage = async (
 ): Promise<void> => {
   if (hooks.length === 0) return;
   try {
-    await runHooks(hooks, ctx, response);
+    const __r = runTimed(label, "lifecycle", () => runHooks(hooks, ctx, response));
+    if (__r instanceof Promise) await __r;
   } catch (err) {
     console.error(`[ignex] ${label} hook error:`, err);
   }

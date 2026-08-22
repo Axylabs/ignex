@@ -264,15 +264,22 @@ options, and diagnostic-code reference.
 
 ### Developer experience & automations
 
-- **`ignex sdk`** — generates a standalone, installable SDK from the compiled
+- **`ignex sdk`** — generates standalone, installable SDKs from the compiled
   artifacts (`manifest.json` + `openapi.json`): a self-contained zero-dependency
-  typed client for frontend teams, plus optional distribution as a git tag
-  (`sdk-v<version>`), npm publish (private registry supported), and GitHub
-  release with the tarball. See [docs/sdk.md](docs/sdk.md).
+  typed client, an OpenAPI-spec package, and a **FlatBuffers frontend client**
+  (binary `application/x-flatbuffers` envelopes on the official `flatbuffers`
+  runtime, with a real `.fbs` schema + route inventory). Every platform packs,
+  git-tags (`sdk-v<version>`), npm-publishes (private registry supported), and
+  GitHub-releases the same way — and the debugbar **Clients** panel tracks what
+  was shipped (local version + git tags). See [docs/sdk.md](docs/sdk.md).
 - **`@ignex/mcp`** — a Model Context Protocol server exposing `build`, `route`,
-  `info`, `doctor`, `openapi`, and `dev` as agent tools over stdio. Launch it with
-  `ignex mcp` and point an MCP client (Claude, Copilot, Codex, …) at it to scaffold,
-  compile, and inspect projects without hand-running commands.
+  `info`, `doctor`, `openapi`, `dev`, and the **debugger tools**
+  (`debug-summary`, `debug-requests`, `debug-request`, `debug-replay`,
+  `debug-events`, `debug-event-publish`, `debug-system`, `debug-clients`,
+  `debug-kt`) as agent tools over stdio. Point an MCP client (Claude, Copilot,
+  Codex, …) at it with `IGNEX_DEBUGBAR_URL` set to debug a **running** app:
+  read the compact issue summary, drill into request traces, replay failures,
+  and inspect/publish NATS events — token-efficient, no context dumps.
 - **`ignex create`** now scaffolds the production optimization profile
   (`optimizationLevel: 3`, precompiled validators/serializers, all artifact
   generation, context specialization) so new projects start from the tuned defaults.
@@ -335,6 +342,10 @@ bun run test            # full vitest suite (all packages)
   (`ignex sdk`) for frontend teams.
 - [docs/debugbar.md](docs/debugbar.md) — the developer dashboard: request
   waterfalls, DB timing, errors + replay, system profile, SDK list, KT docs.
+- **AI-agent scaffolding** — [AGENTS.md](AGENTS.md) (agent how-to),
+  [RULES.md](RULES.md) (coding rules), `.agents/skills/` (task runbooks),
+  [docs/ai/LOCAL_DEV.md](docs/ai/LOCAL_DEV.md) (`bun link` across core repos),
+  [docs/ai/TREE.md](docs/ai/TREE.md) (auto-generated map, `bun run gen:ai-map`).
 - [CONTRIBUTING.md](CONTRIBUTING.md) — setup, quality gates, commit conventions.
 - [SECURITY.md](SECURITY.md) — how to report vulnerabilities.
 - Per-package READMEs: `packages/core`, `packages/native`, `packages/cli`,
