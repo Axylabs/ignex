@@ -539,11 +539,14 @@ export function appConfigTemplate(
 import { logRequests, markResponse } from "./middleware/log-requests.js";
 `
     : "";
+  // Import under an alias: the exported `plugins` const below must never
+  // shadow the import (regression: `export const plugins = [...plugins]`
+  // referenced the TDZ binding and crashed with ReferenceError at boot).
   const pluginsImport = hasPlugins
-    ? `import { plugins } from "./plugins/index.js";
+    ? `import { plugins as appPlugins } from "./plugins/index.js";
 `
     : "";
-  const pluginsSpread = hasPlugins ? "  ...plugins,\n" : "";
+  const pluginsSpread = hasPlugins ? "  ...appPlugins,\n" : "";
   const middlewareSpread = middleware ? "  ...middleware,\n" : "";
   const lifecycle = middleware
     ? `
@@ -554,13 +557,18 @@ export const lifecycle = {
     : "";
 
   // The selected `--features` plugins (cors/rateLimit/security/compression/
-  // logger) come from ./plugins/index.js (spread below); session + openapi are
-  // the baseline every scaffold gets.
-  return `${middlewareImports}${pluginsImport}import { openapi, session } from "@ignex/core";
+  // logger) come from ./plugins/index.js (spread as appPlugins below); debugbar
+  // + session + openapi are the baseline every scaffold gets.
+  return `${middlewareImports}${pluginsImport}import { debugbar, openapi, session } from "@ignex/core";
 import { env } from "./config/env.js";
 
 export const plugins = [
-${pluginsSpread}${middlewareSpread}  session({ secret: env.SESSION_SECRET || "dev-secret-change-me", createIfMissing: true }),
+${pluginsSpread}${middlewareSpread}  // Developer dashboard (request waterfall, errors + replay, system profile,
+  // SDK list, KT docs) at '/__debugbar'. Enabled by default in debug mode;
+  // when disabled (production) the plugin marks itself dev-only and the
+  // compiled server drops it from the lifecycle — zero per-request cost.
+  debugbar(),
+  session({ secret: env.SESSION_SECRET || "dev-secret-change-me", createIfMissing: true }),
   // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
   // In AOT builds the plugin serves the compiler-generated openapi.json.
   openapi()

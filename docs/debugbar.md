@@ -71,6 +71,12 @@ export const plugins = [
 "production"`, or `IGNEX_DEBUG=1`), and **off in production** — where its only
 per-request cost is a single boolean check.
 
+**New scaffolds ship it by default**: `ignex create` writes a baseline
+`debugbar()` into every generated `src/app.config.ts` (alongside `session()`
+and `openapi()`). Because the plugin self-disables in production and marks
+itself dev-only, the compiled server drops it from the lifecycle at boot — a
+default-mode `debugbar()` in your config costs nothing in production.
+
 The dashboard is served at `http://localhost:<port>/__debugbar/` (the bare
 mount redirects there). When the debugbar is active, its URL is **logged to
 the console at boot**:

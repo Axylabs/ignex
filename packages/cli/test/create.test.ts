@@ -42,6 +42,39 @@ describe("ignex create --root", () => {
     }
   });
 
+  it("scaffolds plugin features without a self-shadowing app.config (TDZ regression)", async () => {
+    const base = tmpParent();
+    try {
+      await runCreate([
+        "demo",
+        "--root",
+        base,
+        "--features",
+        "cors,rateLimit,security,compression,logger,openapi",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+
+      const target = join(base, "demo");
+      // The selected plugin features generate src/plugins/index.ts + the
+      // plugins array in src/app.config.ts.
+      expect(existsSync(join(target, "src/plugins/index.ts"))).toBe(true);
+      const config = readFileSync(join(target, "src/app.config.ts"), "utf8");
+      // Regression: `export const plugins = [...plugins]` shadowed the import
+      // and crashed at boot with "Cannot access 'plugins' before
+      // initialization". The import must be aliased and the export never
+      // spread itself.
+      expect(config).toContain('import { plugins as appPlugins } from "./plugins/index.js";');
+      expect(config).toContain("  ...appPlugins,");
+      expect(config).not.toContain("...plugins,");
+      // The debugbar dev dashboard is baseline for every scaffold.
+      expect(config).toContain("debugbar()");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("scaffolds the validated env config and .env.example for every project", async () => {
     const base = tmpParent();
     try {
@@ -60,6 +93,13 @@ describe("ignex create --root", () => {
       const envSource = readFileSync(join(target, "src/config/env.ts"), "utf8");
       expect(envSource).toContain('import { Type, defineEnv } from "@ignex/core/env";');
       expect(envSource).toContain("export const env = defineEnv(envSchema);");
+
+      // Even with no features, the baseline app.config ships the debugbar
+      // dashboard (dev mode) + session + openapi plugins.
+      const config = readFileSync(join(target, "src/app.config.ts"), "utf8");
+      expect(config).toContain("debugbar()");
+      expect(config).toContain("openapi()");
+      expect(config).toContain("session({");
 
       const example = readFileSync(join(target, ".env.example"), "utf8");
       expect(example).toContain("PORT=3000");

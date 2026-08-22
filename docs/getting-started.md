@@ -25,7 +25,7 @@ bun run dev
 What you get:
 
 - `src/routes/` — file-system routes (`index.get.ts` → `GET /`, `products/[id].get.ts` → `GET /products/:id`)
-- `src/app.config.ts` — plugins (cors, security, compression, session), lifecycle, server port
+- `src/app.config.ts` — plugins (debugbar, session, openapi, plus any selected features), lifecycle, server port
 - `src/config/env.ts` — validated environment config (a TypeBox schema + `defineEnv`) and `.env.example` derived from it
 - `src/lib/auth.ts` + auth routes (register / login / me) when you pass `--features auth`
 - `ignex.config.mjs` — compiler profile (optimization level, artifact toggles)

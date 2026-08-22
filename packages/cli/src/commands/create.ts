@@ -154,7 +154,6 @@ interface PlannedFile {
 /** The full scaffold file plan — base files plus feature-conditional ones. */
 const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
   const features = opts.features;
-  const APP_CONFIG_FEATURES = ["sessions", "auth", "middleware", "openapi"] as const;
 
   return [
     // Base files (always written).
@@ -249,8 +248,10 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
       content: () => sessionRouteTemplate(),
     },
     {
+      // Every scaffold gets the baseline app config (debugbar + session +
+      // openapi plugins, validated env wiring, HTTPS server); feature
+      // selections additionally populate the middleware/plugin arrays.
       path: "src/app.config.ts",
-      when: (f) => APP_CONFIG_FEATURES.some((n) => f.has(n)) || hasPluginFeatures(f),
       content: () =>
         appConfigTemplate({
           middleware: features.has("middleware"),

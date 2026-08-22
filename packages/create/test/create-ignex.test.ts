@@ -5,7 +5,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,12 +28,21 @@ describe("create-ignex shim", () => {
 
     const result = spawnSync(
       "bun",
-      [BIN, "demo", "--features", "openapi", "--yes", "--no-install", "--no-git"],
+      // `cors` selects the plugins feature path (src/plugins/index.ts +
+      // app.config plugins array) — the TDZ regression lived there.
+      [BIN, "demo", "--features", "openapi,cors", "--yes", "--no-install", "--no-git"],
       { cwd, encoding: "utf8" },
     );
 
     expect(result.status).toBe(0);
     expect(existsSync(join(cwd, "demo", "package.json"))).toBe(true);
     expect(existsSync(join(cwd, "demo", "src/routes/index.get.ts"))).toBe(true);
+    expect(existsSync(join(cwd, "demo", "src/plugins/index.ts"))).toBe(true);
+    // The plugins import must be aliased — never `export const plugins = [...plugins]`.
+    const config = readFileSync(join(cwd, "demo", "src/app.config.ts"), "utf8");
+    expect(config).toContain('import { plugins as appPlugins } from "./plugins/index.js";');
+    expect(config).not.toContain("...plugins,");
+    // The debugbar dev dashboard ships in every scaffold.
+    expect(config).toContain("debugbar()");
   });
 });

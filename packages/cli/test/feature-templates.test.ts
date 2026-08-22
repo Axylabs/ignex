@@ -30,16 +30,23 @@ test("index/health routes use a named export and a ctx-taking handler", () => {
 
 test("app.config wires the openapi() and session() baseline + selected plugins", () => {
   const code = appConfigTemplate({ plugins: true });
-  // Selected `--features` plugins come from ./plugins/index.js (spread).
-  expect(code).toContain('import { plugins } from "./plugins/index.js";');
-  expect(code).toContain("  ...plugins,");
-  // Baseline: openapi() docs plugin always present.
+  // Selected `--features` plugins come from ./plugins/index.js, imported under
+  // an alias so the exported `plugins` const never shadows the import.
+  expect(code).toContain('import { plugins as appPlugins } from "./plugins/index.js";');
+  expect(code).toContain("  ...appPlugins,");
+  // Regression: a self-shadowing `export const plugins = [...plugins]` crashes
+  // at boot with "Cannot access 'plugins' before initialization" (TDZ).
+  expect(code).not.toContain("...plugins,");
+  expect(code).not.toMatch(/import \{\s*plugins\s*\} from "\.\/plugins\/index\.js"/);
+  // Baseline: debugbar() dev dashboard + openapi() docs plugin always present.
+  expect(code).toContain("debugbar()");
   expect(code).toContain("openapi()");
   expect(code).not.toContain("generateOpenAPI(");
 
   // Without a plugins file (no plugin features), the app config stays valid.
   const bare = appConfigTemplate();
   expect(bare).not.toContain("./plugins/index.js");
+  expect(bare).toContain("debugbar()");
   expect(bare).toContain("openapi()");
   expect(bare).toContain("session({");
 });
