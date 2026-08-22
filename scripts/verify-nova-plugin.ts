@@ -1,41 +1,47 @@
 /**
- * Verify the `novaPlugin` end-to-end against the REAL `@ignex/nova` package
- * under plain Bun — where `bun:ffi` is available (vitest workers do not expose
- * it, so the unit tests in `packages/core/test/nova-plugin.test.ts` inject a
- * fake loader instead).
+ * Verify the `novaPlugin` end-to-end against the REAL `@ignex/nova` workspace
+ * package under plain Bun — where `bun:ffi` and the nova addon are available
+ * (vitest workers do not expose `bun:ffi`, so the unit tests in
+ * `packages/core/test/nova-plugin.test.ts` inject a fake loader instead).
  *
- * Boots a `createApp` with `novaPlugin`, opens a real WebSocket client, sends a
- * typed event, and asserts the server receives it and can target a reply.
+ * Boots a `createApp` with `novaPlugin`, connects a real `@ignex/nova/client`
+ * (binary FlatBuffer frames via the pure-JS encoder — no addon needed on the
+ * client side), sends a typed `quote` event that the built-in registry allows
+ * inbound, and asserts the server receives it and broadcasts a `trade` back.
  * Exits 0 on success, 1 on any failure.
  *
  * Usage:
  *   bun scripts/verify-nova-plugin.ts
  */
+
 import { createApp, novaAuthFromHook, novaPlugin } from "@ignex/core";
+import { createClient } from "@ignex/nova/client";
 
 const PORT = 4012;
 
+// Keep a direct handle on the plugin so the running server can be reached
+// after init() (the app itself does not expose its plugin instances).
+const nova = novaPlugin({
+  port: PORT,
+  path: "/ws",
+  inbound: ["quote"],
+  // Simple test identity: any request carrying ?token=t1 passes as u-1.
+  authenticate: novaAuthFromHook((async (ctx: {
+    req?: Request;
+    state?: Record<string, unknown>;
+  }) => {
+    const url = ctx.req?.url ?? "";
+    if (new URL(url).searchParams.get("token") === "t1") {
+      ctx.state = {
+        user: { sub: "u-1", groups: ["testers"] },
+      };
+    }
+    return undefined;
+  }) as never),
+});
+
 const app = createApp({
-  plugins: [
-    novaPlugin({
-      port: PORT,
-      path: "/ws",
-      inbound: ["chat"],
-      // Simple test identity: any request carrying ?token=t1 passes as u-1.
-      authenticate: novaAuthFromHook((async (ctx: {
-        req?: Request;
-        state?: Record<string, unknown>;
-      }) => {
-        const url = ctx.req?.url ?? "";
-        if (new URL(url).searchParams.get("token") === "t1") {
-          ctx.state = {
-            user: { sub: "u-1", groups: ["testers"] },
-          };
-        }
-        return undefined;
-      }) as never),
-    }),
-  ],
+  plugins: [nova],
   handler: () => new Response("ok"),
 });
 
@@ -44,35 +50,63 @@ const fail = (message: string): never => {
   process.exit(1);
 };
 
+const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+  Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), ms),
+    ),
+  ]);
+
 try {
   await app.init();
+  const server = nova.server;
+  if (!server) fail("novaPlugin did not expose a server after init");
+  // The plugin's `server` is the real nova IgnServer; `on` registers an
+  // inbound handler for the client's allowed event.
+  const real = server as unknown as {
+    on(name: string, handler: (payload: unknown) => void): void;
+    publish(name: string, payload: unknown): void;
+  };
   console.log(`[verify-nova] nova server up on ws://localhost:${PORT}/ws`);
 
-  // Connect with a bearer token in the query so the auth bridge maps the
-  // claims to a client (nova's authenticate receives the upgrade Request).
-  const ws = new WebSocket(`ws://localhost:${PORT}/ws?token=t1`);
-
-  const opened = await new Promise<boolean>((resolve) => {
-    ws.onopen = () => resolve(true);
-    ws.onerror = () => resolve(false);
-    setTimeout(() => resolve(false), 3000);
+  // Echo a broadcast `trade` back whenever a `quote` arrives — this proves the
+  // server decoded the binary inbound frame and routed it to the handler.
+  real.on("quote", () => {
+    real.publish("trade", {
+      symbol: "AAPL",
+      price: 180.5,
+      volume: 10,
+      side: "buy",
+      ts: Date.now(),
+    });
   });
-  if (!opened) fail("client did not connect");
 
-  // The built-in registry's `chat` event is inbound-allowed; echo a message.
-  const reply = new Promise<string>((resolve) => {
-    ws.onmessage = (e) => resolve(typeof e.data === "string" ? e.data : String(e.data));
-    setTimeout(() => resolve("__timeout__"), 3000);
+  const client = createClient(`ws://localhost:${PORT}/ws?token=t1`);
+  const receivedTrade = new Promise<void>((resolve) => {
+    client.on("trade", () => resolve());
   });
-  ws.send(
-    JSON.stringify({ event: "chat", payload: { room: "lobby", text: "hi", ts: Date.now() } }),
-  );
+  const opened = new Promise<void>((resolve, reject) => {
+    client.onStatus((status) => {
+      if (status === "connected") resolve();
+      if (status === "disconnected" || status === "closed") reject(new Error(`client ${status}`));
+    });
+  });
+  client.connect();
+  await withTimeout(opened, 5000, "client connect");
 
-  const data = await reply;
-  if (data === "__timeout__") fail("no reply received (server did not process the typed frame)");
+  client.send("quote", {
+    symbol: "AAPL",
+    bid: 180.1,
+    ask: 180.2,
+    bidSize: 100,
+    askSize: 200,
+    ts: Date.now(),
+  });
 
-  console.log("[verify-nova] received reply:", data.slice(0, 80));
-  ws.close();
+  await withTimeout(receivedTrade, 5000, "server echo trade");
+  console.log("[verify-nova] received the server's broadcast trade — OK");
+  client.close();
 
   await app.stop({ stopDeadlineMs: 2000 });
   console.log("[verify-nova] OK — real @ignex/nova integration verified.");

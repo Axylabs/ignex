@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ignex-nova · FlatBuffer over Bun WebSocket</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 760px; padding: 0 1rem; color: #1a1a1a; }
+      h1 { font-size: 1.4rem; }
+      #status { color: #2563eb; font-weight: 600; }
+      section { border-top: 1px solid #e5e7eb; padding: 0.6rem 0; }
+      section h2 { font-size: 0.8rem; text-transform: uppercase; color: #6b7280; margin: 0 0 0.25rem; }
+      #quotes, #trades, #portfolio { font-variant-numeric: tabular-nums; font-size: 1.05rem; }
+    </style>
+  </head>
+  <body>
+    <h1>ignex-nova · typed pub/sub over FlatBuffer + Rust FFI</h1>
+    <p id="status">connecting…</p>
+
+    <section>
+      <h2>Quotes</h2>
+      <div id="quotes">—</div>
+    </section>
+    <section>
+      <h2>Trades</h2>
+      <div id="trades">—</div>
+    </section>
+    <section>
+      <h2>Portfolio</h2>
+      <div id="portfolio">—</div>
+    </section>
+
+    <script type="module" src="/dist/main.js"></script>
+  </body>
+</html>

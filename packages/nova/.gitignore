@@ -1,0 +1,49 @@
+# dependencies (bun install)
+node_modules
+
+# output
+out
+dist
+*.tgz
+
+# staged native addons (built by `bun run prebuild` / prepack / CI)
+prebuilds/
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+
+# Rust
+rust/target/
+Cargo.lock
+
+# Generated artifacts (rebuilt by `bun run generate`)
+generated/
+
+# Client bundle
+client-dist/
+
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+.npmrc

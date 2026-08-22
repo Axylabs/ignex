@@ -70,6 +70,11 @@ export interface NovaPluginOptions {
   idleTimeout?: number;
   /** Enable the events layer (typed `on`/`emit`/`emitToUser` + presence). */
   events?: Record<string, unknown>;
+  /**
+   * Optional generated bindings (from `generateBindings`) — lets the server
+   * carry app-defined schemas instead of the built-in registry.
+   */
+  bindings?: unknown;
   /** Optional NATS bridge options (horizontal scaling / cluster sync). */
   nats?: Record<string, unknown>;
   /** Maximum concurrent WS clients (reject 503 beyond). */
@@ -167,6 +172,7 @@ export const novaPlugin = (
       return server;
     },
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: a mechanical options-forwarding block
     async init() {
       let nova: { createServer(options: unknown): unknown };
       try {
@@ -186,6 +192,7 @@ export const novaPlugin = (
         ...(options.tls ? { tls: options.tls } : {}),
         ...(options.idleTimeout !== undefined ? { idleTimeout: options.idleTimeout } : {}),
         ...(options.events ? { events: options.events } : {}),
+        ...(options.bindings ? { bindings: options.bindings } : {}),
         ...(options.nats ? { nats: options.nats } : {}),
         ...(options.maxConnections !== undefined ? { maxConnections: options.maxConnections } : {}),
         ...(options.maxMessageSize !== undefined ? { maxMessageSize: options.maxMessageSize } : {}),

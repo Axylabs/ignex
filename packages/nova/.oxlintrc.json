@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-var": "error",
+    "prefer-const": "error",
+    "no-param-reassign": ["error", { "props": false }],
+    "prefer-arrow-callback": "error",
+    "prefer-function-type": "error",
+    "no-else-return": "error",
+    "consistent-return": "error",
+    "no-constant-condition": "error",
+    "no-loop-func": "error",
+    "no-nested-ternary": "error",
+    "no-unsafe-optional-chaining": "off"
+  },
+  "ignorePatterns": ["node_modules", "dist", "client-dist", "rust", "src/generated"]
+}

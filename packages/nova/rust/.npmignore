@@ -1,0 +1,7 @@
+# Keep the Rust build tree out of the npm tarball.
+# The package ships the Rust SOURCE (so consumers can rebuild the cdylib) but
+# never the compiled `target/` output — that is platform-specific and huge.
+# Prebuilt addons go in the top-level `prebuilds/` dir (see scripts/build-prebuild.ts).
+target/
+Cargo.lock
+examples/

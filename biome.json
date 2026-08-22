@@ -1,6 +1,12 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "files": {
     "includes": [
       "**",
@@ -14,7 +20,10 @@
       "!**/context.py",
       "!**/views/**/*.html",
       "!**/test/fixtures/client-types",
-      "!bench/results"
+      "!bench/results",
+      "!**/client-dist",
+      "!packages/nova/rust",
+      "!packages/nova/prebuilds"
     ]
   },
   "linter": {
@@ -25,7 +34,9 @@
         "noExplicitAny": "off",
         "noConsole": {
           "level": "warn",
-          "options": { "allow": ["log", "warn", "error", "info"] }
+          "options": {
+            "allow": ["log", "warn", "error", "info"]
+          }
         },
         "noAssignInExpressions": "error",
         "useIterableCallbackReturn": "warn"
@@ -50,7 +61,9 @@
         "noUselessStringConcat": "error",
         "noExcessiveCognitiveComplexity": {
           "level": "error",
-          "options": { "maxAllowedComplexity": 25 }
+          "options": {
+            "maxAllowedComplexity": 25
+          }
         }
       }
     }

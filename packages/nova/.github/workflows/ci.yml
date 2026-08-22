@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      # Keep `flatc` and the `flatbuffers` crate/npm versions aligned (README).
+      - name: Install flatbuffers compiler
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y flatbuffers-compiler
+          else
+            brew install flatbuffers
+          fi
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.toml') }}
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate (TypeBox → .fbs → flatc → glue)
+        run: bun run generate
+
+      - name: Build Rust cdylib
+        run: cargo build --release --manifest-path rust/Cargo.toml
+
+      - name: Typecheck
+        run: bunx tsc --noEmit -p tsconfig.json
+
+      - name: Lint (oxlint — FP discipline rules)
+        run: bunx oxlint
+
+      - name: Test
+        run: bun test
+
+      - name: Benchmark (serialize)
+        run: bun run bench:serialize
+
+      - name: Bundle browser demo
+        run: bun run build:client

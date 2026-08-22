@@ -28,6 +28,16 @@ export default defineConfig({
       "@ignex/native": alias("packages/native/src/index.ts"),
       "@ignex/mcp": alias("packages/mcp/src/index.ts"),
       "@ignex/test-utils": alias("packages/test-utils/src/index.ts"),
+      // Nova is a workspace package; subpaths resolve through its exports map
+      // (public/*.ts) — explicit aliases keep vitest deterministic.
+      "@ignex/nova/server": alias("packages/nova/public/server.ts"),
+      "@ignex/nova/client": alias("packages/nova/public/client.ts"),
+      "@ignex/nova/nats": alias("packages/nova/public/nats.ts"),
+      "@ignex/nova/events": alias("packages/nova/public/events.ts"),
+      "@ignex/nova/bindings": alias("packages/nova/public/bindings.ts"),
+      "@ignex/nova/generate": alias("packages/nova/public/generate.ts"),
+      "@ignex/nova/internal": alias("packages/nova/public/internal.ts"),
+      "@ignex/nova": alias("packages/nova/index.ts"),
       // Schema fixtures are materialized into /tmp (outside any package), so a
       // bare `typebox` import can't resolve via node_modules — alias it to a
       // real install (the compiler's copy). Subpath first (`typebox/value`),

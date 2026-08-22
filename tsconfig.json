@@ -27,8 +27,6 @@
       "@ignex/native": ["./packages/native/src/index.ts"],
       "@ignex/test-utils": ["./packages/test-utils/src/index.ts"],
       "castrum": ["./packages/native/src/vendor/castrum.d.ts"],
-      "@ignex/nova/server": ["./packages/core/src/vendor/nova.d.ts"],
-      "@ignex/nova/events": ["./packages/core/src/vendor/nova.d.ts"],
       "nodemailer": ["./packages/core/src/vendor/nodemailer.d.ts"],
       "ioredis": ["./packages/core/src/vendor/ioredis.d.ts"]
     },
@@ -41,5 +39,11 @@
     "packages/app/test",
     "scripts"
   ],
-  "exclude": ["node_modules", "**/dist", "packages/app/dist", "packages/cli"]
+  "exclude": [
+    "node_modules",
+    "**/dist",
+    "packages/app/dist",
+    "packages/cli",
+    "packages/nova/src/generated"
+  ]
 }
