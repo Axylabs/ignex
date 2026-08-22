@@ -394,6 +394,7 @@ export {
   authorize,
   can,
   canAll,
+  composeGuards,
   createRbac,
   getPermissions,
   getRoles,
