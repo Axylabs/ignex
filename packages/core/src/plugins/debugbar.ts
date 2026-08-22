@@ -24,8 +24,13 @@
  * (debug off) cost is a single boolean check per request.
  */
 
+import { isNativeAvailable } from "@ignex/native";
 import { createDebugApi } from "../debug/api";
-import { DEBUGBAR_DASHBOARD_HTML, DEBUGBAR_DASHBOARD_JS } from "../debug/dashboard";
+import {
+  DEBUGBAR_DASHBOARD_CSS,
+  DEBUGBAR_DASHBOARD_HTML,
+  DEBUGBAR_DASHBOARD_JS,
+} from "../debug/dashboard";
 import { buildAppKnowledge, formatKnowledgeMarkdown } from "../debug/kt";
 import { renderMarkdownHtml } from "../debug/markdown";
 import { replayRequest, serverBaseUrl } from "../debug/replay";
@@ -203,6 +208,12 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
       );
       return html(js, 200);
     }
+    if (rest === "/app.css") {
+      return new Response(DEBUGBAR_DASHBOARD_CSS, {
+        status: 200,
+        headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
     if (rest.startsWith("/api/")) {
       if (!authorized(state, ctx)) return json({ error: "forbidden" }, 403);
       return serveApi(rest.slice(5), ctx);
@@ -282,18 +293,28 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
       environment: process.env.NODE_ENV ?? "development",
       debugMode: state.enabled,
       path: state.path,
+      nativeAvailable: isNativeAvailable(),
+      bufferSize: state.store.size,
     });
 
   const serveRequests = (ctx: IgnexContext): Response => {
     const url = ctx.url;
     const limit = Number(url.searchParams.get("limit") ?? 100);
+    const q = url.searchParams.get("q") ?? undefined;
+    const method = url.searchParams.get("method") ?? undefined;
+    const status = url.searchParams.get("status") ?? undefined;
     const errorOnly = url.searchParams.get("error") === "1";
-    return json(
-      state.store.summaries({
-        errorOnly,
-        limit: Number.isFinite(limit) ? limit : 100,
-      }),
-    );
+    const options: {
+      errorOnly?: boolean;
+      q?: string;
+      method?: string;
+      status?: string;
+      limit?: number;
+    } = { errorOnly, limit: Number.isFinite(limit) ? limit : 100 };
+    if (q !== undefined) options.q = q;
+    if (method !== undefined) options.method = method;
+    if (status !== undefined) options.status = status;
+    return json(state.store.summaries(options));
   };
 
   const serveSystem = (): Response => {
@@ -344,6 +365,14 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     router.get(path, () => new Response(null, { status: 302, headers: { location: `${path}/` } }));
     router.get(`${path}/`, () => html(DEBUGBAR_DASHBOARD_HTML.replaceAll("__BASE__", path)));
     router.get(`${path}/app.js`, () => html(DEBUGBAR_DASHBOARD_JS));
+    router.get(
+      `${path}/app.css`,
+      () =>
+        new Response(DEBUGBAR_DASHBOARD_CSS, {
+          status: 200,
+          headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-store" },
+        }),
+    );
     router.get(`${path}/api/meta`, (ctx) => serveApi("meta", ctx));
     router.get(`${path}/api/requests`, (ctx) => serveApi("requests", ctx));
     router.get(`${path}/api/requests/clear`, (ctx) => serveApi("requests/clear", ctx));

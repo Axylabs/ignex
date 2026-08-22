@@ -282,14 +282,70 @@ describe("debugbar plugin (AOT-style interception)", () => {
     );
     const html = await run(app, "/__debugbar/");
     expect(html.headers.get("content-type")).toContain("text/html");
-    expect(await html.text()).toContain("IgnEx Debugbar");
+    const htmlText = await html.text();
+    expect(htmlText).toContain("IgnEx Debugbar");
+    // The shell links the stylesheet; the app and stylesheet are served.
+    expect(htmlText).toContain("/app.css");
     const js = await run(app, "/__debugbar/app.js");
     expect(await js.text()).toContain("waterfall");
+    const css = await run(app, "/__debugbar/app.css");
+    expect(css.headers.get("content-type")).toContain("text/css");
+    expect(await css.text()).toContain("--bg");
 
     // Bare mount path redirects to the trailing slash.
     const redir = await run(app, "/__debugbar", { redirect: "manual" });
     expect(redir.status).toBe(307);
     expect(redir.headers.get("location")).toBe("/__debugbar/");
+  });
+
+  it("supports q/method/status request filters and exposes meta fields", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true })],
+      handler: async (ctx) => {
+        if (ctx.method === "GET" && ctx.url.pathname === "/health") {
+          return ctx.json({ ok: true });
+        }
+        if (ctx.method === "POST") {
+          return ctx.json({ created: true });
+        }
+        return ctx.json({ nope: 404 }, { status: 404 });
+      },
+    });
+    server = loopingServer(app);
+
+    await run(app, "/health");
+    await run(app, "/orders", { method: "POST" });
+    await run(app, "/missing");
+    const list = async (
+      qs: string,
+    ): Promise<Array<{ method: string; path: string; status: number }>> =>
+      (await (await run(app, `/__debugbar/api/requests${qs}`)).json()) as Array<{
+        method: string;
+        path: string;
+        status: number;
+      }>;
+
+    // q filters on method+path+error.
+    const byQ = await list("?q=orders");
+    expect(byQ.length).toBe(1);
+    expect(byQ[0]?.method).toBe("POST");
+
+    // method filter is exact.
+    const byMethod = await list("?method=GET");
+    expect(byMethod.every((r) => r.method === "GET")).toBe(true);
+
+    // status family filter.
+    const byStatus = await list("?status=4xx");
+    expect(byStatus.every((r) => Math.floor(r.status / 100) === 4)).toBe(true);
+    expect(byStatus.length).toBe(1);
+
+    // Meta exposes native availability + buffer size.
+    const meta = (await (await run(app, "/__debugbar/api/meta")).json()) as {
+      nativeAvailable: boolean;
+      bufferSize: number;
+    };
+    expect(typeof meta.nativeAvailable).toBe("boolean");
+    expect(meta.bufferSize).toBe(3);
   });
 
   it("captures request bodies and replays the request through the server", async () => {

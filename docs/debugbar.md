@@ -6,6 +6,35 @@
 > ships its own knowledge-transfer docs so every developer — new or seasoned —
 > understands how the app works without a hand-off document.
 
+## UI tour
+
+The dashboard is a dependency-free, tokenized dark UI (light theme via the
+`◐` button or the `t` key, persisted in `localStorage`):
+
+- **Top bar** — service identity (`name@version · environment`), view tabs
+  (Requests / Errors / Jobs / Routes / System / KT), a live-tail dot
+  (amber when paused) and the theme toggle.
+- **Status bar** — native-addon availability, the trace ring-buffer size, and
+  the keyboard cheat-sheet.
+- **Keyboard shortcuts** — `1`–`6` switch views, `/` focuses the search box,
+  `r` refreshes the current view, `t` toggles the theme, `Esc` clears/blurs.
+- **Requests** — stat cards (window count, errors, 4xx, 5xx, avg ms), a filter
+  toolbar (search, method, status family — applied **server-side** via the
+  `/api/requests` `q`/`method`/`status` params), and rows with color-coded
+  method pills, status badges, inline duration bars and relative timestamps.
+- **Request detail** — a summary strip (method pill, path, status, request id,
+  ip, time, *copy curl*, *replay*) plus tabbed panels: **Overview** (stats,
+  lifecycle stages, span tree), **Waterfall** (timeline ruler, colored bars,
+  hover tooltips), **Queries**, **Headers** (redacted), **Body** (pretty JSON,
+  copy), **Error** (stack, copy) and **Replay** (inline result).
+- **Jobs** — status cards (queued/running/completed/failed) + recent-jobs table.
+- **Routes** — searchable inventory with method pills, source files and
+  copy-path buttons.
+- **System** — live gradient-filled charts for CPU / RSS / heap / event-loop
+  delay with current/min/max labels, plus request totals and avg req/s.
+- **KT** — server-rendered markdown (`Bun.markdown` + a sanitizer) with a
+  client-side renderer fallback.
+
 ## What you get
 
 | Feature | What it does |

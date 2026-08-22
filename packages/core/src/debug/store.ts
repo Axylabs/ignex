@@ -57,14 +57,32 @@ export class TraceStore {
     return [...this.traces].reverse();
   }
 
-  /** Compact rows (newest first) with an optional filter. */
-  summaries(options: { errorOnly?: boolean; limit?: number } = {}): TraceSummary[] {
+  /** Compact rows (newest first) with optional filters. */
+  summaries(
+    options: {
+      errorOnly?: boolean;
+      limit?: number;
+      /** Case-insensitive substring over `method + path + error`. */
+      q?: string;
+      /** Exact HTTP method (e.g. "GET"). */
+      method?: string;
+      /** Status family ("2xx" | "3xx" | "4xx" | "5xx"). */
+      status?: string;
+    } = {},
+  ): TraceSummary[] {
     const limit = options.limit ?? 100;
+    const q = options.q?.trim().toLowerCase();
     const rows: TraceSummary[] = [];
     for (let i = this.traces.length - 1; i >= 0 && rows.length < limit; i--) {
       const t = this.traces[i];
       if (t === undefined) continue;
       if (options.errorOnly && !t.error) continue;
+      if (options.method && t.method.toUpperCase() !== options.method.toUpperCase()) continue;
+      if (options.status) {
+        const family = `${Math.floor(t.status / 100)}xx`;
+        if (family !== options.status) continue;
+      }
+      if (q && `${t.method} ${t.path} ${t.error ?? ""}`.toLowerCase().indexOf(q) === -1) continue;
       rows.push({
         id: t.id,
         ts: t.ts,
