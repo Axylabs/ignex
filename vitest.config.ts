@@ -21,6 +21,7 @@ export default defineConfig({
       "@ignex/core/content": alias("packages/core/src/content/index.ts"),
       "@ignex/core/openapi": alias("packages/core/src/openapi.ts"),
       "@ignex/core/config": alias("packages/core/src/platform/config.ts"),
+      "@ignex/core/debug": alias("packages/core/src/debug/index.ts"),
       "@ignex/core/env": alias("packages/core/src/platform/env-config.ts"),
       "@ignex/core/*": alias("packages/core/src/*"),
       "@ignex/core": alias("packages/core/src/index.ts"),
@@ -28,19 +29,6 @@ export default defineConfig({
       "@ignex/native": alias("packages/native/src/index.ts"),
       "@ignex/mcp": alias("packages/mcp/src/index.ts"),
       "@ignex/test-utils": alias("packages/test-utils/src/index.ts"),
-      // Mongo toolkit (source-only workspace package).
-      "@ignex/ninox/utils": alias("packages/mongo/src/utils/index.ts"),
-      "@ignex/ninox": alias("packages/mongo/src/index.ts"),
-      // Nova is a workspace package; subpaths resolve through its exports map
-      // (public/*.ts) — explicit aliases keep vitest deterministic.
-      "@ignex/nova/server": alias("packages/nova/public/server.ts"),
-      "@ignex/nova/client": alias("packages/nova/public/client.ts"),
-      "@ignex/nova/nats": alias("packages/nova/public/nats.ts"),
-      "@ignex/nova/events": alias("packages/nova/public/events.ts"),
-      "@ignex/nova/bindings": alias("packages/nova/public/bindings.ts"),
-      "@ignex/nova/generate": alias("packages/nova/public/generate.ts"),
-      "@ignex/nova/internal": alias("packages/nova/public/internal.ts"),
-      "@ignex/nova": alias("packages/nova/index.ts"),
       // Schema fixtures are materialized into /tmp (outside any package), so a
       // bare `typebox` import can't resolve via node_modules — alias it to a
       // real install (the compiler's copy). Subpath first (`typebox/value`),
@@ -52,9 +40,6 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/test/**/*.test.ts"],
-    // Nova's suite runs under `bun test` (bun:test — needs bun:ffi); mongo's
-    // lives in `tests/` (own runner). Keep them out of vitest's gate.
-    exclude: ["packages/nova/test/**"],
     environment: "node",
     testTimeout: 30_000,
     coverage: {

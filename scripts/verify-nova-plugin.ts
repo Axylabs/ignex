@@ -1,8 +1,10 @@
 /**
- * Verify the `novaPlugin` end-to-end against the REAL `@ignex/nova` workspace
- * package under plain Bun — where `bun:ffi` and the nova addon are available
+ * Verify the `novaPlugin` end-to-end against the REAL `@ignex/nova` package
+ * under plain Bun — where `bun:ffi` and the nova addon are available
  * (vitest workers do not expose `bun:ffi`, so the unit tests in
  * `packages/core/test/nova-plugin.test.ts` inject a fake loader instead).
+ * `@ignex/nova` resolves through the root `overrides` file: link to the
+ * standalone ignex-nova repo (registry semver is the manifest default).
  *
  * Boots a `createApp` with `novaPlugin`, connects a real `@ignex/nova/client`
  * (binary FlatBuffer frames via the pure-JS encoder — no addon needed on the

@@ -13,7 +13,7 @@
   "dependencies": {
     "@ignex/core": "workspace:*",
     "@ignex/cli": "workspace:*",
-    "@ignex/ninox": "workspace:*",
+    "@ignex/ninox": "^0.1.3",
     "mongodb": "^7.5.0",
     "typebox": "^1.3.15"
   },

@@ -21,6 +21,7 @@ export default defineConfig({
       "@ignex/core/content": alias("../core/src/content/index.ts"),
       "@ignex/core/openapi": alias("../core/src/openapi.ts"),
       "@ignex/core/config": alias("../core/src/platform/config.ts"),
+      "@ignex/core/debug": alias("../core/src/debug/index.ts"),
       "@ignex/core/*": alias("../core/src/*"),
       "@ignex/core": alias("../core/src/index.ts"),
       "@ignex/test-utils": alias("../test-utils/src/index.ts"),

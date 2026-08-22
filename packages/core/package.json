@@ -42,7 +42,7 @@
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "@ignex/nova": "workspace:*"
+    "@ignex/nova": "^0.1.1"
   },
   "peerDependenciesMeta": {
     "@ignex/nova": {

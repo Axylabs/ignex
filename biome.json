@@ -21,9 +21,7 @@
       "!**/views/**/*.html",
       "!**/test/fixtures/client-types",
       "!bench/results",
-      "!**/client-dist",
-      "!packages/nova/rust",
-      "!packages/nova/prebuilds"
+      "!**/client-dist"
     ]
   },
   "linter": {

@@ -6,8 +6,46 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **`@ignex/nova` and `@ignex/ninox` are no longer workspace packages** —
+  `packages/nova` and `packages/mongo` were removed from this monorepo. Both
+  projects were synced back to their standalone repos first (strict-typing
+  fixes, test gating, the ninox debugbar `traceDbOp` hook, generator
+  `@ts-nocheck` emission — see the `sync:` commits in `ignex-nova` /
+  `ignex-mongodb`), so no work was lost. ignus now consumes them as external
+  packages: registry semver ranges in manifests, with local `file:` overrides
+  (root `package.json` → `overrides`) pointing at the standalone repos for
+  development. The `mongo`/`nova` CI jobs moved to the standalone repos' own
+  workflows; the novaPlugin end-to-end bridge check (`verify:nova`) now runs
+  against the external `@ignex/nova` via the `file:` link.
+
 ### Added
 
+
+
+- **Debugbar waterfall: automatic lifecycle-stage rows** — every request is
+  now traced through the framework, not just the app's explicit `ctx.debug`
+  spans: the `request`, `beforeHandle`, `handler`, `afterHandle`,
+  `mapResponse`, `afterResponse` and `trace` stages each become waterfall
+  rows (recorded in the interpreted pipeline, the router path and the
+  compiler-generated server via shared `runTimed`/`debugStageEnd` runtime
+  helpers). A request with zero manual instrumentation now shows exactly
+  where its time went.
+- **Debugbar time breakdown + idle gaps** — the Overview and Waterfall tabs
+  show a per-kind breakdown (stacked bar + db/cache/http/render/auth/
+  lifecycle/custom rows with ms and % of total, plus **unaccounted** time),
+  and the waterfall draws hatched idle-gap segments between spans so
+  event-loop waits are visible.
+- **Debugbar expandable span rows** — clicking any waterfall bar unfolds the
+  span's details (kind, start/duration, attrs such as query text or target
+  URL, origin stack frame, error); the span tree shows attrs inline too.
+- **Ninox DB ops in the debugbar** — every `@ignex/ninox` (Mongo) operation
+  (CRUD, pagination, aggregation) is now recorded as a `db` span in the
+  current request's trace when running inside ignex with the debugbar on
+  (`traceDbOp` bridges into the ALS-propagated `debugQuery` helper via a
+  lazy, cached optional import — zero dependency on `@ignex/core`, so
+  standalone ORM usage and production apps pay nothing).
 - **Bun-first scheduler** — `createScheduler` now ticks through `Bun.cron`
   (standard 5-field expressions + `@named` schedules, validated by
   `Bun.cron.parse` at registration, zero lockfile deps, built-in
@@ -43,6 +81,9 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `ScheduledJob.stop()`/`running` semantics unchanged.
 - Debugbar dashboard split into shell / stylesheet / app modules
   (`debug/dashboard-*.ts`).
+- The lifecycle pipeline (interpreted, router and compiled) wraps every stage
+  in shared `runTimed`/`debugStageEnd` instrumentation; the flat no-trace hot
+  path is unchanged.
 - `compiledPathFor` memoizes path→regex compilation on the interpreted
   router's hot path (route paths are a finite registration-time set).
 - `docs/bun-internals.md` gained Bun 1.4 rows (Bun.cron, Bun.markdown,
@@ -56,6 +97,13 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 - `packages/core/src/vendor/nova.d.ts` ambient stub + its tsconfig `paths`
   entries.
 - `@ignex/nova` / `@ignex/ninox` registry/`file:` deps (now `workspace:*`).
+
+### Fixed
+
+- Debugbar waterfall no longer shows a bogus "✕ … span left open" on the
+  root span of every request (the root is the request itself), and framework
+  stage rows are closed without the leak flag when the debugbar finalizes the
+  trace inside the afterHandle stage.
 
 ## [0.1.7] — 2026-08
 

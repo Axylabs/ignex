@@ -27,19 +27,23 @@ cutting a release. Every package is versioned independently
    public export must carry JSDoc (see [adding-a-feature.md §G](adding-a-feature.md)).
    Coverage thresholds are enforced in CI.
 
-## Publishing the workspace packages
+## Publishing the external standalone packages
 
-`@ignex/nova` (`packages/nova`) and `@ignex/ninox` (`packages/mongo`) are
-published from the monorepo with their own version numbers:
+`@ignex/nova` and `@ignex/ninox` are published from their **own repos**
+(`ignex-nova`, `ignex-mongodb`), not from this monorepo:
 
 - **Nova** — source-published (`files: index.ts public src rust prebuilds docs`);
-  bump > 0.1.1 before publishing so the `events`/`bindings`/`generate` subpaths
-  land in the registry (the notifier + CLI template import
-  `@ignex/nova/events`). The Rust addon must be built and staged into
-  `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
-- **Ninox** — source-only in the monorepo; the registry package previously
-  shipped `dist/`. Keep the `@ignex/ninox` name and the `check:api` gate
-  (API.md ↔ barrel). Run `bun run prepublishOnly` from `packages/mongo`.
+  keep the `events`/`bindings`/`generate` subpaths stable (the notifier + CLI
+  template import `@ignex/nova/events`). The Rust addon must be built and
+  staged into `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
+- **Ninox** — ships `dist/` (tsup); keep the `@ignex/ninox` name and the
+  `check:api` gate (API.md ↔ barrel). Run `bun run prepublishOnly` from
+  `ignex-mongodb`.
+
+This monorepo consumes them through registry semver ranges; the root
+`overrides` block points them at local `file:` links for development. When a
+new version is published, update the semver ranges here (and drop or refresh
+the `file:` overrides as needed).
 3. **Regenerate stale artifacts** (if they are committed):
    - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored now).
    - `project.txt` / package `project.txt` — `python3 context.py`.

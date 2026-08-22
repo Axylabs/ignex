@@ -39,11 +39,5 @@
     "packages/app/test",
     "scripts"
   ],
-  "exclude": [
-    "node_modules",
-    "**/dist",
-    "packages/app/dist",
-    "packages/cli",
-    "packages/nova/src/generated"
-  ]
+  "exclude": ["node_modules", "**/dist", "packages/app/dist", "packages/cli"]
 }
