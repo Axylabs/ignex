@@ -57,7 +57,7 @@ export interface RbacOptions extends SubjectResolver {
  * - user lacks a guard → 403 (forbidden)
  * - `{}` (no guards)   → require an authenticated user only
  */
-export const withGuards = <H extends (ctx: IgnexContext) => MaybePromise<unknown>>(
+export const withGuards = <H extends (...args: never[]) => MaybePromise<unknown>>(
   handler: H,
   guards: RouteGuards = {},
 ): H => {
@@ -65,9 +65,9 @@ export const withGuards = <H extends (ctx: IgnexContext) => MaybePromise<unknown
   const wrapped = async (ctx: IgnexContext): Promise<unknown> => {
     const result = await runGuards(ctx);
     if (!result.ok) return result.response;
-    return (handler as (c: IgnexContext) => MaybePromise<unknown>)(ctx);
+    return (handler as unknown as (c: IgnexContext) => MaybePromise<unknown>)(ctx);
   };
-  return wrapped as H;
+  return wrapped as unknown as H;
 };
 
 /**
