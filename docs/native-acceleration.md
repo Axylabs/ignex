@@ -374,6 +374,29 @@ rate-limit → terminal 429 and CORS preflight → 204/403 end-to-end):
   contract and risks streaming uploads — for a saving of only the extra FFI
   crossing. Non-goal; the per-route native derive pattern is the stable choice.
 
+## 2026-08-22 — interpreted-router hot path + format-validator decision
+
+Two measured-gate decisions from the castrum survey (`/home/adeel/poc/bun-rust-runtime-bench`):
+
+1. **Memoized path compilation (wired).** The interpreted router recompiled a
+   RegExp + keys array on EVERY request (`matchDynamic` → `pathToRegex`).
+   Route paths are a finite registration-time set, so `compiledPathFor`
+   (`http/router-utils.ts`) caches compiled paths (bounded FIFO, 512 entries)
+   and the router uses it — pure JS, zero risk, removes per-request regex
+   compile from the interpreted hot path.
+2. **Native `format` validators as Ajv formats (deferred).** castrum's
+   `validateEmail/Uuid/Ipv4/Ipv6` are ~2.9× faster than the pure-JS
+   ajv-formats implementations, but their accept/reject sets are not proven
+   byte-identical to ajv-formats (RFC grammar drift), and `data/schema.ts`'s
+   native fast-gate already excludes `format` schemas. Per the parity rule,
+   the swap is deferred until a parity corpus proves identical accept/reject
+   behavior — until then, `format` validation stays on ajv-formats.
+
+Deferred from this pass (need castrum-side work + measured gates, tracked in
+the castrum repo): pooled `*Into` variants in core hot loops, the 15 unwrapped
+`*BatchPacked` entry points, `FormParser`, and a fast object→native transport
+for parsed-body schema validation (the `derive` API is the natural fit).
+
 ## Adding a function
 
 Follow `docs/adding-a-feature.md` section D: implement the fallback, export

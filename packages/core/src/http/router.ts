@@ -23,7 +23,7 @@ import { finalizeResponse, jsonReply } from "./finalize";
 import { applySet } from "./headers";
 import type { RouteDetail, RouteSchemas } from "./route";
 import { runObserveStage, runPostStage, runPreStage, validateSchema } from "./route-stages";
-import { extractParams, extractServer, pathToRegex } from "./router-utils";
+import { compiledPathFor, extractParams, extractServer, pathToRegex } from "./router-utils";
 
 const EMPTY_PARAMS = Object.freeze({});
 
@@ -343,7 +343,9 @@ export const createRouter = (): IgnexRouter => {
     reg: RouteRegistration,
     pathname: string,
   ): Record<string, string> | undefined => {
-    const { re, keys } = pathToRegex(reg.path);
+    // Memoized: route paths are a finite registration-time set — recompiling
+    // the regex per request was pure waste on the interpreted hot path.
+    const { re, keys } = compiledPathFor(reg.path);
     const m = re.exec(pathname);
     if (!m) return undefined;
     return Object.fromEntries(keys.map((k, i) => [k, safeDecode(m[i + 1] ?? "")]));

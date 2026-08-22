@@ -8,8 +8,10 @@
  * resolve Bun's handler arguments (`(req, params?, server?)`) via duck-typing,
  * mirroring the compiled `__extractParams`/`__extractServer`.
  *
- * Kept as pure functions (no closure/global state) so they are trivially
- * unit-testable and reusable by any JS dispatcher.
+ * `pathToRegex` is a pure function; `compiledPathFor` wraps it with a bounded
+ * memo cache — the interpreted router used to recompile the regex on EVERY
+ * request, while route paths are a finite registration-time set, so caching
+ * is a pure win on the hot path.
  */
 
 import type { IgnexServer } from "./context";
@@ -51,6 +53,28 @@ export const pathToRegex = (path: string): CompiledPath => {
     })
     .join("/");
   return { re: new RegExp(`^${source}$`), keys };
+};
+
+/** Bounded memo cache for compiled paths (route paths are a finite set). */
+const compiledPathCache = new Map<string, CompiledPath>();
+const MAX_CACHED_PATHS = 512;
+
+/**
+ * Memoized {@link pathToRegex}. Route paths are registered once per app, so
+ * the compiled result is stable — recompiling per request was pure waste.
+ * Bounded to `MAX_CACHED_PATHS` entries (FIFO eviction) so an app that
+ * generates paths at runtime can never grow the cache without bound.
+ */
+export const compiledPathFor = (path: string): CompiledPath => {
+  const hit = compiledPathCache.get(path);
+  if (hit !== undefined) return hit;
+  const compiled = pathToRegex(path);
+  if (compiledPathCache.size >= MAX_CACHED_PATHS) {
+    const oldest = compiledPathCache.keys().next().value;
+    if (oldest !== undefined) compiledPathCache.delete(oldest);
+  }
+  compiledPathCache.set(path, compiled);
+  return compiled;
 };
 
 /** True when `x` looks like a Bun server object (duck-typed). */

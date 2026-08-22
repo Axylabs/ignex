@@ -4,7 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { extractParams, extractServer, pathToRegex } from "../src/http/router-utils";
+import {
+  compiledPathFor,
+  extractParams,
+  extractServer,
+  pathToRegex,
+} from "../src/http/router-utils";
 
 const serverLike = { requestIP: () => ({ address: "127.0.0.1" }), stop: () => {}, fetch: () => {} };
 
@@ -82,5 +87,25 @@ describe("extractServer", () => {
     expect(extractServer({ id: "1" }, undefined)).toBeUndefined();
     expect(extractServer(undefined, "bun")).toBeUndefined();
     expect(extractServer()).toBeUndefined();
+  });
+});
+
+describe("compiledPathFor", () => {
+  it("returns the same compiled instance for a repeated path", () => {
+    const a = compiledPathFor("/api/users/:id");
+    const b = compiledPathFor("/api/users/:id");
+    expect(a).toBe(b); // cached — no per-request recompile
+  });
+
+  it("matches identically to pathToRegex", () => {
+    const compiled = compiledPathFor("/files/*");
+    const plain = pathToRegex("/files/*");
+    expect(compiled.keys).toEqual(plain.keys);
+    expect(compiled.re.source).toBe(plain.re.source);
+    expect(compiled.re.exec("/files/a/b")?.[1]).toBe("a/b");
+  });
+
+  it("distinguishes distinct paths", () => {
+    expect(compiledPathFor("/a/:x")).not.toBe(compiledPathFor("/b/:y"));
   });
 });
