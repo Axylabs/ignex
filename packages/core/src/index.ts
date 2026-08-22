@@ -15,7 +15,14 @@
  *
  * Consumers import everything from `@ignex/core` (or `@ignex/core/http` for the
  * route DSL) — the folder layout is an internal implementation detail.
+ *
+ * @remarks `/// <reference lib="dom" />` — the framework targets the web
+ * platform request model (Request/Response/BodyInit/HeadersInit) implemented
+ * by Bun; pulling in the DOM lib from the package entry keeps every consumer's
+ * `tsc` compiling against the types this source actually uses, without the
+ * consumer having to add `"lib": ["DOM"]` to their own tsconfig.
  */
+/// <reference lib="dom" />
 
 // ── unified execution API (@ignex/native) ────────────────────────
 // The single runtime-switch facade: `backend.*` binds every primitive to its

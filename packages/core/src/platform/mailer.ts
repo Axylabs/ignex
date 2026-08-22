@@ -111,8 +111,11 @@ export const createMailer = (options: MailerOptions = {}): Mailer => {
       async send(message): Promise<MailSendResult> {
         // Lazily load nodemailer so the log driver never needs it. The package
         // is an optional peer (the SMTP driver is opt-in); typed loosely so
-        // core compiles without it installed.
-        const nodemailer = (await import("nodemailer")) as {
+        // core compiles without it installed. The specifier rides a variable so
+        // tsc does NOT try to resolve the module at typecheck time — a literal
+        // `import("nodemailer")` would break consumers that don't install it.
+        const nodemailerSpecifier = "nodemailer";
+        const nodemailer = (await import(nodemailerSpecifier)) as {
           createTransport(options: unknown): {
             sendMail(
               message: Record<string, unknown>,

@@ -11,7 +11,12 @@
  * the selection table (`selection.ts` — the single source of truth for which
  * impl wins). The flat named exports below remain the parity-testable surface
  * (each still consults the same table).
+ *
+ * @remarks `/// <reference lib="dom" />` — this package's HTTP surfaces use
+ * web-platform types (BodyInit); the reference keeps consumer `tsc` programs
+ * compiling without them adding `"lib": ["DOM"]` (see @ignex/core index.ts).
  */
+/// <reference lib="dom" />
 
 export {
   aeadDecrypt,

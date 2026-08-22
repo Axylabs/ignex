@@ -81,7 +81,10 @@ export const createRedisStore = (options: RedisStoreOptions = {}): Store => {
         Redis = options.client;
       } else {
         try {
-          const mod = (await import("ioredis")) as {
+          // Variable specifier keeps tsc from resolving the optional peer at
+          // typecheck time (see mailer.ts for the same pattern).
+          const ioredisSpecifier = "ioredis";
+          const mod = (await import(ioredisSpecifier)) as {
             default: { new (urlOrOptions?: string | Record<string, unknown>): RedisLike };
           };
           Redis = mod.default;
