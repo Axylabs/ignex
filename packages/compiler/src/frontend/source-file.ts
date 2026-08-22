@@ -43,6 +43,8 @@ export interface SourceFile {
   readonly handlerExportName?: string;
   readonly schemaExport: boolean;
   readonly configExport: boolean;
+  /** Default export is a wrapper call (may attach route-local hooks). */
+  readonly wrappedHandler: boolean;
   /** Extracted route handler (default or named export), if any. */
   readonly handler: ExtractedHandler | null;
   /** Route-level `config` export, if present. */

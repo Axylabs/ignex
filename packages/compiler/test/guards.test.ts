@@ -42,8 +42,13 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     expect(result.code).toContain("requireAuthenticated");
 
     // Guard consts are wired into the route hook var (pre-execution chain).
-    // At least one route array references guard hooks.
-    expect(result.code).toMatch(/\[__guard__h\d+_\d+/);
+    // The array also spreads the wrapper-attached runtime config first
+    // (`handler.config.before`) — the boilerplate mechanism.
+    expect(result.code).toMatch(/__guard__h\d+_\d+/);
+    expect(result.code).toContain("...(handler__h2?.config?.before ?? [])");
+    expect(result.code).toContain("...(handler__h2?.config?.after ?? [])");
+    // The route-after stage (route-local after hooks) is emitted in the core fn.
+    expect(result.code).toContain('runTimed("route.after"');
 
     // The guard symbols are imported from `@ignex/core`.
     const coreImport = result.code.match(/import \{([\s\S]*?)\} from "@ignex\/core";/)?.[1];

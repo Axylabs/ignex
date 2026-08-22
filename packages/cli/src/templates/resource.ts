@@ -64,7 +64,11 @@ const guardsPrelude = (
     config.push('export const config = { hooks: ["require-auth"] };');
   }
   if (opts.rbac) {
-    imports.push('import { withGuards } from "@ignex/core";');
+    // The guard template is app boilerplate (src/lib/guards.ts) — generated
+    // by `ignex resource --rbac` — so users own and can extend the business
+    // rules. The compiler still statically resolves the `withGuards` wrapper
+    // (the RBAC optimization) regardless of which module it comes from.
+    imports.push('import { withGuards } from "../../../lib/guards.js";');
   }
   const wrap = opts.rbac
     ? (expr: string): string => `withGuards(${expr}, { permissions: ["${plural}:${action}"] })`
@@ -222,3 +226,55 @@ bunx ignex db:sync
 };
 
 export type { ModelField };
+
+/**
+ * The RBAC guard boilerplate (`src/lib/guards.ts`) — the APP-owned
+ * `withGuards` template. Route files wrap handlers with it; the wrapper
+ * attaches the route-local `before` chain onto `handler.config`, which the
+ * interpreted router and the AOT compiler both read. Users extend this file
+ * with their own business guards freely (it is never regenerated once
+ * present).
+ */
+export const guardsTemplate = (): string => `/**
+ * Route guard boilerplate — the app-owned \`withGuards\` template.
+ *
+ * Wraps a route handler and attaches a route-local \`before\` chain
+ * (\`handler.config.before\`), which the AOT compiler and the interpreted
+ * router both run right before the handler. Extend this file with your own
+ * business guards (rate limits, tenancy checks, feature flags, ...) — the
+ * framework primitives (\`requireAuthenticated\`, \`can\`, \`canAll\`,
+ * \`hasRole\`) compose like any hook: return \`{ ok: false, response }\`
+ * to halt, or \`{ ok: true, ctx }\` to continue.
+ */
+import { can, canAll, hasRole, requireAuthenticated } from "@ignex/core";
+import type { HookFn } from "@ignex/core";
+
+/** Guard requirements for a route (role/permission groups, any-of by default). */
+export interface RouteGuards {
+  roles?: string[];
+  permissions?: string[];
+  /** Require ALL listed permissions instead of any. */
+  all?: boolean;
+  /** Require an authenticated user only (default when no roles/permissions). */
+  authenticated?: boolean;
+}
+
+/**
+ * Wrap a route handler with guards. Returns the handler with the guards
+ * attached to \`handler.config.before\` — the route-local hook chain — so
+ * the guard runs in BOTH the compiled pipeline and the interpreted router.
+ */
+export const withGuards = <H extends (...args: never[]) => unknown>(
+  handler: H,
+  guards: RouteGuards = {},
+): H => {
+  const before: HookFn[] = [];
+  if (guards.authenticated !== false) before.push(requireAuthenticated);
+  if (guards.roles?.length) before.push(hasRole(...guards.roles));
+  if (guards.permissions?.length) {
+    before.push(guards.all ? canAll(...guards.permissions) : can(...guards.permissions));
+  }
+  (handler as unknown as { config?: { before: HookFn[] } }).config = { before };
+  return handler;
+};
+`;

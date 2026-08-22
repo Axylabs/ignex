@@ -17,6 +17,8 @@ export interface ParseResult {
   readonly handlerExportName?: string;
   readonly schemaExport: boolean;
   readonly configExport: boolean;
+  /** Default export is a wrapper call (may attach route-local hooks). */
+  readonly wrappedHandler: boolean;
   readonly handler: ExtractedHandler | null;
   readonly config?: Record<string, unknown>;
   /** RBAC guards from a `withGuards(handler, guards)` route wrapper. */

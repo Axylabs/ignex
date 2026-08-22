@@ -21,12 +21,46 @@
  */
 
 import type { Static, TSchema } from "typebox";
+import type { HookFn } from "../lifecycle/hooks";
 import type { AnySchema, MaybePromise, StandardSchemaV1 } from "../types";
 import type { LazyBody } from "./body";
 import type { IgnexContext } from "./context";
 
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
+
+/**
+ * A route-local AFTER hook: runs once the handler produced a `Response`, with
+ * the final ctx. May replace the response (`Response` or `{ response }`),
+ * replace the ctx (`{ ctx }`), halt with `{ ok: false, response }`, or return
+ * `undefined` to pass through untouched (the common case for logging/audit).
+ */
+export type AfterHookFn = (
+  ctx: IgnexContext,
+  response: Response,
+) => MaybePromise<
+  | Response
+  | { ok: false; response: Response }
+  | { ctx?: IgnexContext; response?: Response }
+  | undefined
+>;
+
+/**
+ * Route-local hook chain — the general per-route guard/middleware mechanism.
+ * `before` hooks run in order right before the handler (each may halt with a
+ * `Response`, e.g. 401/403); `after` hooks run right after the handler with
+ * the response, before the global afterHandle stage.
+ *
+ * Attach via a route file's `export const config = { before, after }` or by
+ * attaching `handler.config` (the app's own guard templates do the latter).
+ * Entries are plain functions; the runtime normalizes them like any hook.
+ */
+export interface RouteLocalHooks {
+  /** Run in order before the handler. `HookFn` = `(ctx) => {ok,ctx}|{ok:false,response}`. */
+  before?: readonly HookFn[];
+  /** Run in order after the handler, threading ctx + response. */
+  after?: readonly AfterHookFn[];
+}
 
 /**
  * OpenAPI operation decoration, mirroring Elysia's `DocumentDecoration`

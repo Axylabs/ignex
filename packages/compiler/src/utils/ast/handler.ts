@@ -21,14 +21,19 @@ import { nodeEnd, nodeStart, walk, walkUntil } from "./walk";
 
 export type { ExtractedHandler };
 
-const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
+export const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
+/** Alias for scanner consumers (a default-export call whose callee is an HTTP
+ * helper is a bare route; any OTHER call is a user wrapper). */
+export const HTTP_HELPER_CALLS = HTTP_WRAPPERS;
 
 /**
  * Higher-order route-handler wrappers the compiler recognizes. `withGuards`
- * keeps the route in the graph and carries RBAC guards that codegen emits
- * into the route's pre-execution hook chain.
+ * is the CONVENTIONAL boilerplate wrapper name (the app's own template keeps
+ * this name — the compiler optimization resolves its guards at build time).
+ * Any OTHER wrapper call is still treated as hook-capable (never hoisted,
+ * runtime config read) via the generic `wrappedHandler` flag.
  */
-const HANDLER_WRAPPERS = new Set(["withGuards"]);
+export const HANDLER_WRAPPERS = new Set(["withGuards"]);
 
 /** True when `node` is a recognized route-handler wrapper call. */
 const isHandlerWrapperCall = (node: Node): boolean =>

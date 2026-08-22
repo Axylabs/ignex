@@ -6,22 +6,10 @@
  * so guards and handlers share one source of truth. It runs AFTER the auth
  * module in onion order (register `authModule().plugin()` first).
  *
- * `withGuards(handler, guards)` is the per-route ergonomic: a higher-order
- * handler that runs the guard chain (pre-execution) before the inner handler,
- * so it works in BOTH the interpreted runtime and the AOT compiler:
- *
- * ```ts
- * import { withGuards } from "@ignex/core";
- * import { post } from "@ignex/core/http";
- *
- * export default withGuards(post(createProduct, schema), {
- *   roles: ["admin"],
- *   permissions: ["products:write"],   // any-of within each group
- * });
- * ```
- *
- * Guards map onto the existing `HookFn` engine (401 unauthenticated / 403
- * forbidden) and compose with `config.hooks` / the hook lifecycle.
+ * The per-route authorization boilerplate lives in the APP (a `withGuards`
+ * template built on the generic primitives here). Routes chain arbitrary
+ * before/after hooks via `config`; the compiler resolves the conventional
+ * `withGuards` wrapper statically and emits its guards at build time.
  */
 import type { IgnexContext } from "../http/context";
 import type { IgnexPlugin } from "../lifecycle/plugin";
@@ -38,7 +26,6 @@ import {
   requireAuthenticated,
   type SubjectResolver,
 } from "../security/rbac";
-import type { MaybePromise } from "../types";
 
 export type { AuthMode } from "../security/auth-module";
 
@@ -49,26 +36,16 @@ export interface RbacOptions extends SubjectResolver {
 }
 
 /**
- * Wrap a route handler so the guard chain runs before it. Returns a handler
- * compatible with the route DSL (`get`/`post`/…) and the AOT compiler; the
- * inner handler's inferred schema/return types are preserved.
- *
- * - no user            → 401 (unauthenticated)
- * - user lacks a guard → 403 (forbidden)
- * - `{}` (no guards)   → require an authenticated user only
+ * NOTE: the per-route guard composition (`withGuards` and friends) is the
+ * APP's boilerplate, not a framework export. The framework provides the
+ * general per-route `before`/`after` hook chain (route `config` / wrapped
+ * handler `.config` — compiled into the route pipeline) plus the generic
+ * authz primitives (`requireAuthenticated`, `can`, `canAll`, `hasRole`,
+ * `composeGuards`, `guardChain`) that an app template composes. The compiler
+ * statically resolves the conventional `withGuards` wrapper name and emits
+ * its guards at build time (the RBAC optimization); custom wrapper names are
+ * honored generically (never hoisted, runtime hook chain read).
  */
-export const withGuards = <H extends (...args: never[]) => MaybePromise<unknown>>(
-  handler: H,
-  guards: RouteGuards = {},
-): H => {
-  const runGuards = composeGuards(...guardChain(guards));
-  const wrapped = async (ctx: IgnexContext): Promise<unknown> => {
-    const result = await runGuards(ctx);
-    if (!result.ok) return result.response;
-    return (handler as unknown as (c: IgnexContext) => MaybePromise<unknown>)(ctx);
-  };
-  return wrapped as unknown as H;
-};
 
 /**
  * Create the RBAC plugin. `onRequest` normalizes the authenticated user's

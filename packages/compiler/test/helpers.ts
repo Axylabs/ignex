@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +28,14 @@ export const materializeFixture = (name: string): FixtureLayout => {
   const routesDir = join(outDir, "routes");
   mkdirSync(routesDir, { recursive: true });
   cpSync(join(fixturesDir, name), routesDir, { recursive: true });
+
+  // A shared NON-route `lib/` (app boilerplate such as the withGuards guard
+  // template) is copied next to `routes/` — route files import it via
+  // `../../lib/...`, and the compiler never scans it as route modules.
+  const libDir = join(fixturesDir, "lib");
+  if (existsSync(libDir)) {
+    cpSync(libDir, join(outDir, "lib"), { recursive: true });
+  }
 
   try {
     const nm = join(outDir, "node_modules");

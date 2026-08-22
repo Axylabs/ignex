@@ -243,6 +243,8 @@ export const lowerRoute = (
 
       ...(constantResponse !== undefined ? { constantResponse } : {}),
       ...(cache !== undefined ? { cache } : {}),
+      configExport: mod.configExport ?? false,
+      wrappedHandler: mod.wrappedHandler ?? false,
       ...(mod.config !== undefined ? { config: mod.config } : {}),
       ...(mod.guards !== undefined ? { guards: mod.guards } : {}),
       ...(mod.handlerExportName !== undefined ? { handlerExportName: mod.handlerExportName } : {}),

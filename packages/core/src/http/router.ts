@@ -22,7 +22,7 @@ import type { ContextOptions, IgnexContext, IgnexServer } from "./context";
 import { createContext } from "./context";
 import { finalizeResponse, jsonReply } from "./finalize";
 import { applySet } from "./headers";
-import type { RouteDetail, RouteSchemas } from "./route";
+import type { RouteDetail, RouteLocalHooks, RouteSchemas } from "./route";
 import { runObserveStage, runPostStage, runPreStage, validateSchema } from "./route-stages";
 import { compiledPathFor, extractParams, extractServer, pathToRegex } from "./router-utils";
 
@@ -43,6 +43,8 @@ export interface RouteRegistration {
   readonly schema?: RouteSchemas;
   /** OpenAPI decoration (summary/tags/hide/…); not used for validation. */
   readonly detail?: RouteDetail;
+  /** Route-local before/after hook chain (the general guard mechanism). */
+  readonly config?: RouteLocalHooks;
 }
 
 /** Lifecycle + context wiring injected by `createApp` at bind time. */
@@ -75,15 +77,55 @@ interface AllowedEntry {
 
 /** The interpreted router returned by {@link createRouter}. */
 export interface IgnexRouter {
-  get(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  post(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  put(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  patch(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  delete(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  options(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
-  head(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
+  get(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  post(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  put(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  patch(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  delete(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  options(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
+  head(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
   /** Register `handler` for every standard method on `path`. */
-  all(path: string, handler: RouteRegistration["handler"], schema?: RouteSchemas): IgnexRouter;
+  all(
+    path: string,
+    handler: RouteRegistration["handler"],
+    schema?: RouteSchemas,
+    config?: RouteLocalHooks,
+  ): IgnexRouter;
   /** Generic registration (or pass a `RouteRegistration`). */
   route(
     method: RouterMethod | RouteRegistration,
@@ -198,9 +240,33 @@ export const createRouter = (): IgnexRouter => {
     if (before.halt) return before.halt;
     ctx = before.ctx;
 
+    // Route-local before chain (the general guard mechanism): runs closest to
+    // the handler, after the global beforeHandle stage.
+    const localBefore = reg.config?.before ?? [];
+    if (localBefore.length > 0) {
+      const local = await runPreStage(
+        localBefore.map((fn) => (typeof fn === "function" ? { fn } : fn)),
+        ctx,
+        "route.before",
+      );
+      if (local.halt) return local.halt;
+      ctx = local.ctx;
+    }
+
     const __raw = runTimed("handler", "lifecycle", () => reg.handler(ctx));
     const result = __raw instanceof Promise ? await __raw : __raw;
     let response = finalizeResponse(result, ctx, undefined, jsonReply);
+
+    // Route-local after chain: may replace ctx and/or the response.
+    const localAfter = reg.config?.after ?? [];
+    if (localAfter.length > 0) {
+      ({ ctx, response } = await runPostStage(
+        localAfter.map((fn) => (typeof fn === "function" ? { fn } : fn)),
+        ctx,
+        response,
+        "route.after",
+      ));
+    }
 
     // afterHandle → mapResponse (may replace ctx and/or the response).
     ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response, "afterHandle"));
@@ -415,10 +481,12 @@ export const createRouter = (): IgnexRouter => {
     path: string,
     handler: RouteRegistration["handler"],
     schema?: RouteSchemas,
+    config?: RouteLocalHooks,
   ): IgnexRouter => {
-    // exactOptionalPropertyTypes: only include `schema`/`detail` when defined.
-    // `detail` is split out of the schema object into its own registration
-    // slot (it decorates the operation, it is not a validated schema part).
+    // exactOptionalPropertyTypes: only include `schema`/`detail`/`config` when
+    // defined. `detail` is split out of the schema object into its own
+    // registration slot (it decorates the operation, it is not a validated
+    // schema part).
     const { detail, ...schemaParts } = schema ?? {};
     const hasSchema = Object.keys(schemaParts).length > 0;
     const reg: RouteRegistration = {
@@ -427,6 +495,7 @@ export const createRouter = (): IgnexRouter => {
       handler,
       ...(hasSchema ? { schema: schemaParts as RouteSchemas } : {}),
       ...(detail !== undefined ? { detail } : {}),
+      ...(config !== undefined ? { config } : {}),
     };
     registrations.push(reg);
     // Keep the 405 allow-lists current at registration time so `dispatch` /
@@ -436,16 +505,16 @@ export const createRouter = (): IgnexRouter => {
   };
 
   const router: IgnexRouter = {
-    get: (path, handler, schema) => register("GET", path, handler, schema),
-    post: (path, handler, schema) => register("POST", path, handler, schema),
-    put: (path, handler, schema) => register("PUT", path, handler, schema),
-    patch: (path, handler, schema) => register("PATCH", path, handler, schema),
-    delete: (path, handler, schema) => register("DELETE", path, handler, schema),
-    options: (path, handler, schema) => register("OPTIONS", path, handler, schema),
-    head: (path, handler, schema) => register("HEAD", path, handler, schema),
-    all: (path, handler, schema) => {
+    get: (path, handler, schema, config) => register("GET", path, handler, schema, config),
+    post: (path, handler, schema, config) => register("POST", path, handler, schema, config),
+    put: (path, handler, schema, config) => register("PUT", path, handler, schema, config),
+    patch: (path, handler, schema, config) => register("PATCH", path, handler, schema, config),
+    delete: (path, handler, schema, config) => register("DELETE", path, handler, schema, config),
+    options: (path, handler, schema, config) => register("OPTIONS", path, handler, schema, config),
+    head: (path, handler, schema, config) => register("HEAD", path, handler, schema, config),
+    all: (path, handler, schema, config) => {
       for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const) {
-        register(m, path, handler, schema);
+        register(m, path, handler, schema, config);
       }
       return router;
     },

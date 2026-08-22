@@ -20,6 +20,8 @@ export interface CoreFnInput {
   readonly compact: boolean;
   /** True when the route registers per-route hooks (emits the route-hook stage). */
   readonly hasRouteHooks: boolean;
+  /** True when the route carries a route-local AFTER chain (emits the stage). */
+  readonly hasRouteAfter: boolean;
   /**
    * Fully-synchronous route (compact AND a statically-resolved non-`async`
    * handler): emit a NON-async core fn with no `await` on the handler call —
@@ -33,6 +35,8 @@ export interface CoreFnInput {
   readonly resumeName: string;
   readonly serializersVar: string;
   readonly routeHookVar: string;
+  /** Route-local AFTER chain array literal (module config + handler config). */
+  readonly routeAfterVar: string;
   readonly serviceName: string;
   readonly routeReply: string;
 }
@@ -46,9 +50,11 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     needsFull,
     compact,
     hasRouteHooks,
+    hasRouteAfter,
     sync,
     serializersVar,
     routeHookVar,
+    routeAfterVar,
     serviceName,
     routeReply,
   } = input;
@@ -105,6 +111,17 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     ${
       needsFull
         ? `
+    ${
+      hasRouteAfter
+        ? `if (${routeAfterVar}.length > 0) {
+      const __rA = __TRACE_DEBUG ? runTimed("route.after", "lifecycle", () => runHooks(${routeAfterVar}, ctx, response)) : runHooks(${routeAfterVar}, ctx, response);
+      const afterLocal = __rA instanceof Promise ? await __rA : __rA;
+      ctx = afterLocal.ctx ?? ctx;
+      response = afterLocal.response ?? response;
+    }
+`
+        : ""
+    }
     if (__hasAfterHandle) {
       const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response);
       const after = __r1 instanceof Promise ? await __r1 : __r1;
@@ -161,8 +178,10 @@ const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
     pre,
     callExpr,
     hasRouteHooks,
+    hasRouteAfter,
     serializersVar,
     routeHookVar,
+    routeAfterVar,
     serviceName,
     routeReply,
     resumeName,
@@ -194,27 +213,39 @@ const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
     const __result0 = __TRACE_DEBUG ? runTimed("handler", "lifecycle", () => ${callExpr}) : ${callExpr};
     if (__result0 instanceof Promise) return ${resumeName}(ctx, undefined, 4, __result0);
     let response = __finalize(__result0, ctx, ${serializersVar}, ${routeReply});
+    ${
+      hasRouteAfter
+        ? `if (${routeAfterVar}.length > 0) {
+      const __rA = __TRACE_DEBUG ? runTimed("route.after", "lifecycle", () => runHooks(${routeAfterVar}, ctx, response)) : runHooks(${routeAfterVar}, ctx, response);
+      if (__rA instanceof Promise) return ${resumeName}(ctx, response, 5, __rA);
+      const afterLocal = __rA;
+      ctx = afterLocal.ctx ?? ctx;
+      response = afterLocal.response ?? response;
+    }
+`
+        : ""
+    }
     if (__hasAfterHandle) {
       const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response);
-      if (__r1 instanceof Promise) return ${resumeName}(ctx, response, 5, __r1);
+      if (__r1 instanceof Promise) return ${resumeName}(ctx, response, 6, __r1);
       const after = __r1;
       ctx = after.ctx ?? ctx;
       response = after.response ?? response;
     }
     if (__hasMapResponse) {
       const __r2 = __TRACE_DEBUG ? runTimed("mapResponse", "lifecycle", () => runHooks(__lc.mapResponse, ctx, response)) : runHooks(__lc.mapResponse, ctx, response);
-      if (__r2 instanceof Promise) return ${resumeName}(ctx, response, 6, __r2);
+      if (__r2 instanceof Promise) return ${resumeName}(ctx, response, 7, __r2);
       const mapped = __r2;
       ctx = mapped.ctx ?? ctx;
       response = mapped.response ?? response;
     }
     if (__hasAfterResponse) {
       const __r = __TRACE_DEBUG ? runTimed("afterResponse", "lifecycle", () => runHooks(__lc.afterResponse, ctx, response)) : runHooks(__lc.afterResponse, ctx, response);
-      if (__r instanceof Promise) return ${resumeName}(ctx, response, 7, __r);
+      if (__r instanceof Promise) return ${resumeName}(ctx, response, 8, __r);
     }
     if (__hasTrace) {
       const __r = __TRACE_DEBUG ? runTimed("trace", "lifecycle", () => runHooks(__lc.trace, ctx, response)) : runHooks(__lc.trace, ctx, response);
-      if (__r instanceof Promise) return ${resumeName}(ctx, response, 8, __r);
+      if (__r instanceof Promise) return ${resumeName}(ctx, response, 9, __r);
     }
     if (__ACCESS_LOG) {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
@@ -260,22 +291,33 @@ const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
       const __result0 = stage === 4 ? await value : (__TRACE_DEBUG ? runTimed("handler", "lifecycle", () => ${callExpr}) : ${callExpr});
       response = __finalize(__result0, ctx, ${serializersVar}, ${routeReply});
     }
-    if (stage <= 5 && __hasAfterHandle) {
-      const __r1 = stage === 5 ? await value : await (__TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response));
+    ${
+      hasRouteAfter
+        ? `if (stage <= 5 && ${routeAfterVar}.length > 0) {
+      const __rA = stage === 5 ? await value : await (__TRACE_DEBUG ? runTimed("route.after", "lifecycle", () => runHooks(${routeAfterVar}, ctx, response)) : runHooks(${routeAfterVar}, ctx, response));
+      const afterLocal = __rA;
+      ctx = afterLocal.ctx ?? ctx;
+      response = afterLocal.response ?? response;
+    }
+`
+        : ""
+    }
+    if (stage <= 6 && __hasAfterHandle) {
+      const __r1 = stage === 6 ? await value : await (__TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response));
       const after = __r1;
       ctx = after.ctx ?? ctx;
       response = after.response ?? response;
     }
-    if (stage <= 6 && __hasMapResponse) {
-      const __r2 = stage === 6 ? await value : await (__TRACE_DEBUG ? runTimed("mapResponse", "lifecycle", () => runHooks(__lc.mapResponse, ctx, response)) : runHooks(__lc.mapResponse, ctx, response));
+    if (stage <= 7 && __hasMapResponse) {
+      const __r2 = stage === 7 ? await value : await (__TRACE_DEBUG ? runTimed("mapResponse", "lifecycle", () => runHooks(__lc.mapResponse, ctx, response)) : runHooks(__lc.mapResponse, ctx, response));
       const mapped = __r2;
       ctx = mapped.ctx ?? ctx;
       response = mapped.response ?? response;
     }
-    if (stage <= 7 && __hasAfterResponse) {
+    if (stage <= 8 && __hasAfterResponse) {
       await (__TRACE_DEBUG ? runTimed("afterResponse", "lifecycle", () => runHooks(__lc.afterResponse, ctx, response)) : runHooks(__lc.afterResponse, ctx, response));
     }
-    if (stage <= 8 && __hasTrace) {
+    if (stage <= 9 && __hasTrace) {
       await (__TRACE_DEBUG ? runTimed("trace", "lifecycle", () => runHooks(__lc.trace, ctx, response)) : runHooks(__lc.trace, ctx, response));
     }
     if (__ACCESS_LOG) {

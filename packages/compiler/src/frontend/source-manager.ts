@@ -87,6 +87,7 @@ export class SourceManager {
       hasHandlerExport: parsed.hasHandlerExport,
       schemaExport: parsed.schemaExport,
       configExport: parsed.configExport,
+      wrappedHandler: parsed.wrappedHandler,
       handler: parsed.handler,
 
       ...(parsed.handlerExportName !== undefined

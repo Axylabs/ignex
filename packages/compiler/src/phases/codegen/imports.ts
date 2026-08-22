@@ -16,6 +16,7 @@ import {
   validatorImportName,
   wsHandlerImportName,
 } from "./identifiers";
+import { configImportName } from "./routes/reply";
 import type { CodegenState } from "./state";
 
 /** Resolve the app-config path to an absolute path, or `undefined` when unset. */
@@ -59,6 +60,15 @@ const emitHandlerImport = (
   if (route.analysis.hasValidation) {
     state.imports.add(
       `import * as schema_${route.codegen.handlerRef} from ${JSON.stringify(toImportPath(mod.path, opts))};`,
+    );
+  }
+  // The route's `config` export carries the runtime before/after chains when
+  // present (the compiler reads `cfg?.before/after` at module scope). Only
+  // emitted for modules that actually export `config` — an ESM named import
+  // of a missing export would fail at load, so this is strictly flag-gated.
+  if (route.analysis.configExport) {
+    state.imports.add(
+      `import { config as ${configImportName(route)} } from ${JSON.stringify(toImportPath(mod.path, opts))};`,
     );
   }
 };

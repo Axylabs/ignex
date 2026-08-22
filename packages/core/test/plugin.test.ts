@@ -121,3 +121,103 @@ describe("pluginContextToLifecycle", () => {
     expect(lc.request).toBeUndefined();
   });
 });
+
+describe("pattern-scoped global middleware", () => {
+  it("scopes onRequest to matching pathnames (prefix wildcard)", async () => {
+    const hits: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "admin-only",
+          pattern: "/api/admin/*",
+          onRequest(ctx) {
+            hits.push(ctx.url.pathname);
+            return ctx;
+          },
+        },
+      ],
+      handler: async () => new Response("ok"),
+    });
+
+    const res = await app.handler(req());
+    expect(res.status).toBe(200);
+
+    const outside = await app.handler(new Request("http://localhost:3000/api/public/x"));
+    expect(outside.status).toBe(200);
+
+    const inside = await app.handler(new Request("http://localhost:3000/api/admin/users"));
+    expect(inside.status).toBe(200);
+
+    // The base path itself matches a trailing-wildcard pattern too.
+    const base = await app.handler(new Request("http://localhost:3000/api/admin"));
+    expect(base.status).toBe(200);
+
+    expect(hits).toEqual(["/api/admin/users", "/api/admin"]);
+  });
+
+  it("supports exact string, RegExp, and predicate patterns", async () => {
+    const hits: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "exact",
+          pattern: "/health",
+          onRequest: (ctx) => {
+            hits.push("exact");
+            return ctx;
+          },
+        },
+        {
+          name: "re",
+          pattern: /^\/api\//,
+          onRequest: (ctx) => {
+            hits.push("re");
+            return ctx;
+          },
+        },
+        {
+          name: "pred",
+          pattern: (pathname) => pathname.startsWith("/v2"),
+          onRequest: (ctx) => {
+            hits.push("pred");
+            return ctx;
+          },
+        },
+      ],
+      handler: async () => new Response("ok"),
+    });
+
+    await app.handler(new Request("http://localhost:3000/health"));
+    await app.handler(new Request("http://localhost:3000/api/things"));
+    await app.handler(new Request("http://localhost:3000/v2/items"));
+    await app.handler(new Request("http://localhost:3000/other"));
+
+    expect(hits).toEqual(["exact", "re", "pred"]);
+  });
+
+  it("scopes onResponse by pattern too", async () => {
+    const tags: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "version",
+          pattern: "/api/*",
+          async onResponse(_ctx, response) {
+            const headers = new Headers(response.headers);
+            headers.set("x-api-version", "1");
+            tags.push("scoped");
+            return new Response(response.body, { status: response.status, headers });
+          },
+        },
+      ],
+      handler: async () => new Response("ok"),
+    });
+
+    const api = await app.handler(new Request("http://localhost:3000/api/x"));
+    expect(api.headers.get("x-api-version")).toBe("1");
+
+    const other = await app.handler(new Request("http://localhost:3000/other"));
+    expect(other.headers.get("x-api-version")).toBeNull();
+    expect(tags).toEqual(["scoped"]);
+  });
+});

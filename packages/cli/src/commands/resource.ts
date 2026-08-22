@@ -26,7 +26,11 @@ import {
   parseModelFields,
   pluralize,
 } from "../templates/model.js";
-import { resourceReadmeTemplate, resourceRouteTemplates } from "../templates/resource.js";
+import {
+  guardsTemplate,
+  resourceReadmeTemplate,
+  resourceRouteTemplates,
+} from "../templates/resource.js";
 import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
@@ -249,6 +253,11 @@ export async function runResource(args: string[]): Promise<void> {
     force: Boolean(values.force),
   });
 
+  // 2b. The RBAC guard boilerplate (`src/lib/guards.ts`) — generated once,
+  // never overwritten: it is the app's own guard template (withGuards lives
+  // here, not in the framework) and users extend it with business rules.
+  await writeGuardsBoilerplate(root);
+
   // 3. The DB bootstrap. Once src/db.ts exists it is NEVER regenerated (that
   // would drop other collections) — new resources are merged in instead.
   if (!(await writeScaffold(dbPath, dbTemplate(name)))) {
@@ -287,5 +296,15 @@ async function ensureDrizzleDeps(root: string): Promise<void> {
     success(`Added ${added.join(", ")} to package.json dependencies.`);
   } catch {
     info("Add manually: bun add drizzle-orm drizzle-kit");
+  }
+}
+
+/** Write the app's guard boilerplate (src/lib/guards.ts) once, never overwrite. */
+async function writeGuardsBoilerplate(root: string): Promise<void> {
+  const guardsPath = join(root, "src", "lib", "guards.ts");
+  if (await writeScaffold(guardsPath, guardsTemplate(), { force: false })) {
+    info(
+      `Wrote guard boilerplate ${relative(process.cwd(), guardsPath)} (edit it to add your guards).`,
+    );
   }
 }

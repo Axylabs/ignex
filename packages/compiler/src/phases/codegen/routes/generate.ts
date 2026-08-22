@@ -22,7 +22,12 @@ import { emitConstantRoute } from "./constant";
 import { buildFullContextPrelude, buildSpecializedContext } from "./context";
 import { assembleCoreFn } from "./handler";
 import { emitNativeRouteVar, emitNativeValidationPrelude, nativeRouteEligible } from "./native";
-import { buildRouteHookVar, buildSerializersVar } from "./reply";
+import {
+  buildRouteAfterVar,
+  buildRouteBeforeVar,
+  buildSerializersVar,
+  routeHasLocalHooks,
+} from "./reply";
 import { emitWsRoute } from "./ws";
 
 /**
@@ -65,7 +70,7 @@ export const generateRouteCode = (
     return;
   }
 
-  const hasHooks = route.analysis.hooks.length > 0 || guardHookEmissions(route).length > 0;
+  const hasHooks = routeHasLocalHooks(route);
 
   // Emit the RBAC guard hooks (`hasRole(...)` / `can(...)` / `canAll(...)` /
   // `requireAuthenticated`) as module-level consts referenced from the route's
@@ -160,7 +165,8 @@ export const generateRouteCode = (
   }
 
   const serializersVar = buildSerializersVar(route);
-  const routeHookVar = buildRouteHookVar(route);
+  const routeHookVar = buildRouteBeforeVar(route);
+  const routeAfterVar = buildRouteAfterVar(route);
 
   const coreFn = assembleCoreFn({
     coreName,
@@ -169,10 +175,12 @@ export const generateRouteCode = (
     needsFull,
     compact,
     hasRouteHooks: hasHooks,
+    hasRouteAfter: route.analysis.configExport || route.analysis.wrappedHandler,
     sync: routeIsSync,
     resumeName,
     serializersVar,
     routeHookVar,
+    routeAfterVar,
     serviceName: cfg.serviceName,
     routeReply: routeReplyFn(route),
   });

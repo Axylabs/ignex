@@ -15,7 +15,7 @@ import {
   type Program,
   type VariableDeclarator,
 } from "../ast-types";
-import { isHandlerInitNode } from "../handler";
+import { HTTP_HELPER_CALLS, isHandlerInitNode } from "../handler";
 import { walk, walkSome } from "../walk";
 
 /** Whether a schema argument is "real" (not a string literal placeholder). */
@@ -93,6 +93,8 @@ interface ExportFlags {
   hasHandlerExport: boolean;
   schemaExport: boolean;
   configExport: boolean;
+  /** Default export is a wrapper call (may attach route-local hooks). */
+  wrappedHandler: boolean;
 }
 
 /** Apply a default export's contribution to the classification flags. */
@@ -107,6 +109,10 @@ const applyDefaultExport = (
   // Schema-first HTTP: `export default get(handler, { … })`.
   if (decl?.type === "CallExpression" && isHandlerInitNode(decl)) {
     if (isSchemaArg(decl.arguments?.[1])) flags.schemaExport = true;
+    // A wrapper call (`withGuards(...)`, not an HTTP helper) may attach
+    // route-local hooks at runtime — record it for codegen + hoist gating.
+    const callee = decl.callee?.type === "Identifier" ? decl.callee.name : "";
+    if (!HTTP_HELPER_CALLS.has(callee)) flags.wrappedHandler = true;
   }
 };
 
@@ -159,6 +165,7 @@ export const scanExportFlags = (ast: Program): ExportFlags => {
     hasHandlerExport: false,
     schemaExport: false,
     configExport: false,
+    wrappedHandler: false,
   };
 
   const done = (): boolean =>

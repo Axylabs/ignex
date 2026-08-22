@@ -180,6 +180,7 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
     hasHandlerExport: flags.hasHandlerExport,
     schemaExport: flags.schemaExport,
     configExport: flags.configExport,
+    wrappedHandler: flags.wrappedHandler,
     handler: extractHandlerExport(source, ast),
 
     ...(guards !== undefined ? { guards } : {}),
@@ -197,5 +198,6 @@ const emptyParseResult = (): ParseResult => ({
   hasHandlerExport: false,
   schemaExport: false,
   configExport: false,
+  wrappedHandler: false,
   handler: null,
 });

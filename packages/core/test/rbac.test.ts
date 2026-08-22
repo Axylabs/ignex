@@ -15,9 +15,11 @@ import {
   getRoles,
   hasRole,
   permissionMatches,
+  requireAuthenticated,
+  runHooks,
   setUser,
-  withGuards,
 } from "@ignex/core";
+
 import { generateEd25519Keypair } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
@@ -91,32 +93,125 @@ describe("can / canAll", () => {
   });
 });
 
-describe("withGuards", () => {
-  const handler = (c: ReturnType<typeof ctx>) => c.json({ ok: true });
+describe("guard boilerplate (app template)", () => {
+  // The APP's withGuards template: composes the generic primitives into a
+  // route-local `before` chain attached to `handler.config`. The framework
+  // ships no withGuards — this is the boilerplate users own and extend.
+  const withGuards = <H extends (...args: never[]) => unknown>(
+    handler: H,
+    guards: {
+      roles?: string[];
+      permissions?: string[];
+      all?: boolean;
+      authenticated?: boolean;
+    } = {},
+  ): H => {
+    const before = [];
+    if (guards.authenticated !== false) before.push(requireAuthenticated);
+    if (guards.roles?.length) before.push(hasRole(...guards.roles));
+    if (guards.permissions?.length) {
+      before.push(guards.all ? canAll(...guards.permissions) : can(...guards.permissions));
+    }
+    (handler as unknown as { config?: unknown }).config = { before };
+    return handler;
+  };
+  const runGuards = async (handler: (...args: never[]) => unknown, c: ReturnType<typeof ctx>) => {
+    const before =
+      (handler as unknown as { config?: { before: readonly unknown[] } }).config?.before ?? [];
+    const r = await runHooks(before as never[], c);
+    return r.response ?? handler(c as never);
+  };
 
   it("runs the handler when guards pass", async () => {
-    const guarded = withGuards(handler, { roles: ["admin"], permissions: ["users:read"] });
-    const res = await guarded(authed(["admin"], ["users:read"]));
-    expect(res).toBeInstanceOf(Response);
-    expect((res as Response).status).toBe(200);
+    const guarded = withGuards((c: ReturnType<typeof ctx>) => c.json({ ok: true }), {
+      roles: ["admin"],
+      permissions: ["users:read"],
+    });
+    const res = (await runGuards(guarded, authed(["admin"], ["users:read"]))) as Response;
+    expect(res.status).toBe(200);
   });
 
   it("forbids a user lacking the permission", async () => {
-    const guarded = withGuards(handler, { permissions: ["users:read"] });
-    const res = (await guarded(authed([], ["orders:read"]))) as Response;
+    const guarded = withGuards((c: ReturnType<typeof ctx>) => c.json({ ok: true }), {
+      permissions: ["users:read"],
+    });
+    const res = (await runGuards(guarded, authed([], ["orders:read"]))) as Response;
     expect(res.status).toBe(403);
   });
 
   it("rejects an unauthenticated request with 401", async () => {
-    const guarded = withGuards(handler, { permissions: ["users:read"] });
-    const res = (await guarded(ctx())) as Response;
+    const guarded = withGuards((c: ReturnType<typeof ctx>) => c.json({ ok: true }), {
+      permissions: ["users:read"],
+    });
+    const res = (await runGuards(guarded, ctx())) as Response;
     expect(res.status).toBe(401);
   });
 
   it("with no guards, requires authentication only", async () => {
-    const guarded = withGuards(handler);
-    expect(((await guarded(authed([], []))) as Response).status).toBe(200);
-    expect(((await guarded(ctx())) as Response).status).toBe(401);
+    const guarded = withGuards((c: ReturnType<typeof ctx>) => c.json({ ok: true }));
+    expect(((await runGuards(guarded, authed([], []))) as Response).status).toBe(200);
+    expect(((await runGuards(guarded, ctx())) as Response).status).toBe(401);
+  });
+});
+
+describe("route-local before/after hooks (interpreted router)", () => {
+  it("chains before hooks (guard halt) and after hooks (audit) around the handler", async () => {
+    const seen: string[] = [];
+    const handler = () => {
+      seen.push("handler");
+      return new Response("ok", { status: 200 });
+    };
+    const beforeA = (c: ReturnType<typeof ctx>) => {
+      seen.push("beforeA");
+      return { ok: true as const, ctx: c };
+    };
+    const beforeB = (c: ReturnType<typeof ctx>) => {
+      seen.push("beforeB");
+      return { ok: true as const, ctx: c };
+    };
+    const after = (_c: ReturnType<typeof ctx>, response: Response) => {
+      seen.push(`after:${response.status}`);
+    };
+
+    const router = createRouter().get("/demo", handler, undefined, {
+      before: [beforeA, beforeB],
+      after: [after],
+    });
+    const app = createApp({ router });
+    await app.init();
+    const res = await app.handler(new Request("http://localhost:3000/demo"));
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["beforeA", "beforeB", "handler", "after:200"]);
+  });
+
+  it("a before hook can halt the chain with its own response", async () => {
+    const guard = () => ({ ok: false as const, response: new Response("denied", { status: 403 }) });
+    const router = createRouter().get(
+      "/admin",
+      () => new Response("secret", { status: 200 }),
+      undefined,
+      { before: [guard] },
+    );
+    const app = createApp({ router });
+    await app.init();
+    const res = await app.handler(new Request("http://localhost:3000/admin"));
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("denied");
+  });
+
+  it("an after hook can replace the response", async () => {
+    const after = () => ({ response: new Response("wrapped", { status: 201 }) });
+    const router = createRouter().get(
+      "/x",
+      () => new Response("inner", { status: 200 }),
+      undefined,
+      { after: [after] },
+    );
+    const app = createApp({ router });
+    await app.init();
+    const res = await app.handler(new Request("http://localhost:3000/x"));
+    expect(res.status).toBe(201);
+    expect(await res.text()).toBe("wrapped");
   });
 });
 
@@ -158,10 +253,11 @@ describe("integration — auth module + guarded route (interpreted)", () => {
       rolePermissions: { admin: ["users:read"] },
     });
 
-    const router = createRouter().get(
-      "/admin",
-      withGuards((c) => c.json({ admin: true }), { permissions: ["users:read"] }),
-    );
+    // The app's guard boilerplate: a wrapped handler carrying config.before.
+    const guardBefore = [requireAuthenticated, can("users:read")];
+    const router = createRouter().get("/admin", (c) => c.json({ admin: true }), undefined, {
+      before: guardBefore,
+    });
 
     const app = createApp({ router, plugins: [auth.plugin(), createRbac()] });
     await app.init();

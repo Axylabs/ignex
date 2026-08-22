@@ -52,8 +52,13 @@ export interface RouteIRAnalysis {
   readonly hasValidation: boolean;
   readonly hotnessScore: number;
   readonly hooks: readonly string[];
-  /** RBAC guards (from `withGuards`) emitted into the route hook chain. */
+  /** RBAC guards (from the boilerplate `withGuards` wrapper) emitted into the
+   * route hook chain — the compiler optimization kept at boilerplate level. */
   readonly guards?: RouteGuards;
+  /** The module exports a `config` (may carry `before`/`after` hooks). */
+  readonly configExport: boolean;
+  /** The default export is a wrapper call (may attach `handler.config`). */
+  readonly wrappedHandler: boolean;
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;

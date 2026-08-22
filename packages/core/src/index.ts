@@ -264,9 +264,10 @@ export {
   runLifecycle,
   runTimed,
 } from "./lifecycle/lifecycle";
-export type { IgnexPlugin, PluginContext } from "./lifecycle/plugin";
+export type { IgnexPlugin, PluginContext, RoutePattern } from "./lifecycle/plugin";
 export {
   composePlugins,
+  createPatternMatcher,
   createPluginContext,
   hookToPlugin,
   pluginContextToLifecycle,
@@ -400,7 +401,6 @@ export {
   hasRole,
   permissionMatches,
   requireAuthenticated,
-  withGuards,
 } from "./plugins/rbac";
 export { type SecurityOptions, security } from "./plugins/security";
 export { type SessionPluginOptions, session } from "./plugins/session";

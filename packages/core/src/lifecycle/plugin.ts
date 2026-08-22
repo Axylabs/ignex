@@ -17,10 +17,27 @@ import type { HookFn } from "./hooks";
  *
  * `onRequest`/`onResponse`/`onError` run in onion order around the handler.
  * `init`/`close` manage resources (stores, timers) at app boot/shutdown.
+ *
+ * Global middleware can be scoped to a route PATTERN: set `pattern` and the
+ * plugin's `onRequest`/`onResponse` only run for matching request pathnames —
+ * every other request skips the plugin entirely (zero hook cost beyond the
+ * matcher check). Patterns are compiled once at plugin-conversion time.
  */
 export interface IgnexPlugin {
   readonly name: string;
   readonly version?: string;
+
+  /**
+   * Route-pattern scope for the plugin's global middleware:
+   *  - `string` — a path pattern (`"/api/admin/*"` prefix wildcard, `"/health"`
+   *    exact). `"*"` matches everything (the default when unset).
+   *  - `RegExp` — tested against the request pathname.
+   *  - `(pathname) => boolean` — a custom predicate.
+   *
+   * Only `onRequest`/`onResponse` are scoped; `onError` and lifecycle hooks
+   * are unscoped (errors have no meaningful path contract).
+   */
+  readonly pattern?: string | RegExp | ((pathname: string) => boolean);
 
   /**
    * Dev-only plugin marker: when `true` (the plugin factory determined it is
@@ -198,6 +215,96 @@ const LIFECYCLE_STAGES = [
   "stop",
 ] as const;
 
+interface PatternedPlugin {
+  readonly plugin: IgnexPlugin;
+  readonly match: (pathname: string) => boolean;
+}
+
+/**
+ * Run the onion "way out" phase: every pattern-scoped `onResponse` plugin,
+ * last-registered first. Pattern-scoped plugins are skipped for non-matching
+ * pathnames; matching plugins may replace the response (pass-through when
+ * they return `undefined`). Sync plugins run inline (zero Promise
+ * allocation); the first async plugin seeds the deferred chain for the rest.
+ */
+const runOnResponseChain = (
+  onResponsePlugins: readonly PatternedPlugin[],
+): ((ctx: IgnexContext, response: Response) => unknown) => {
+  return (ctx: IgnexContext, response: Response): unknown => {
+    const pathname = ctx.url.pathname;
+    let current: Response = response;
+    for (let i = 0; i < onResponsePlugins.length; i++) {
+      const entry = onResponsePlugins[i];
+      if (entry === undefined) continue;
+      const { plugin, match } = entry;
+      if (!match(pathname)) continue; // pattern-scoped middleware
+      const result = plugin.onResponse?.(ctx, current);
+      if (!isThenable(result)) {
+        if (result instanceof Response) current = result;
+        continue;
+      }
+      // Async plugin at `i`: use its OWN promise as the chain head (never
+      // re-invoke it), then defer every later plugin off the chain
+      // sequentially. Earlier synchronous plugins already ran and are baked
+      // into `current`. Mirrors the original await-in-loop semantics with
+      // exactly one call per plugin.
+      let chain = result.then((r) => (r instanceof Response ? r : current));
+      for (let j = i + 1; j < onResponsePlugins.length; j++) {
+        const later = onResponsePlugins[j];
+        if (later === undefined) continue;
+        chain = chain.then(async (prev) => {
+          if (!later.match(pathname)) return prev;
+          const r = await later.plugin.onResponse?.(ctx, prev);
+          return r instanceof Response ? r : prev;
+        });
+      }
+      return chain.then((final) => ({ response: final }));
+    }
+    return { response: current };
+  };
+};
+
+/**
+ * A route-pattern scope for global middleware (see {@link IgnexPlugin.pattern}).
+ */
+export type RoutePattern = string | RegExp | ((pathname: string) => boolean);
+
+const escapeRegExpChars = (src: string): string => src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Compile a route pattern into a pathname matcher, ONCE per plugin:
+ *  - `string` — exact (`"/health"`), prefix-wildcard (`"/api/admin/*"`, which
+ *    also matches `/api/admin` itself), or internal wildcard (`"/files/*.ts"`).
+ *    `"*"` matches every pathname.
+ *  - `RegExp` — tested against the pathname (`lastIndex` reset so global/sticky
+ *    flags never corrupt repeated tests).
+ *  - `(pathname) => boolean` — a custom predicate.
+ */
+export const createPatternMatcher = (pattern?: RoutePattern): ((pathname: string) => boolean) => {
+  if (pattern === undefined) return () => true;
+  if (typeof pattern === "function") return pattern;
+  if (pattern instanceof RegExp) {
+    const re = pattern;
+    return (pathname: string) => {
+      re.lastIndex = 0;
+      return re.test(pathname);
+    };
+  }
+  if (pattern === "*") return () => true;
+  if (!pattern.includes("*")) return (pathname: string) => pathname === pattern;
+
+  const body = pattern.replace(/\/\*$/, "");
+  if (body !== pattern) {
+    // Trailing `/*` (or `*`) — prefix scope: the base path AND everything
+    // below it match (`/api/admin`, `/api/admin/x`, `/api/admin/x/y`).
+    const re = new RegExp(`^${escapeRegExpChars(body)}(?:/.*)?$`);
+    return (pathname: string) => re.test(pathname);
+  }
+  // Internal wildcards: each `*` matches any run of non-slash chars.
+  const re = new RegExp(`^${pattern.split("*").map(escapeRegExpChars).join("[^/]*")}$`);
+  return (pathname: string) => re.test(pathname);
+};
+
 /**
  * Convert hooks registered on a {@link PluginContext} (via `addHook`) into
  * lifecycle stage containers. This is what makes legacy callable/`setup`
@@ -236,32 +343,43 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
 
   const request: HookContainer[] = list
     .filter((p) => typeof p.onRequest === "function")
-    .map((p) => ({
-      scope: "global" as const,
-      // Deliberately NOT `async`: a synchronous onRequest (e.g. cors without
-      // an Origin header, which no-ops) returns a plain `{ ctx }` with zero
-      // Promise allocation. Genuinely async hooks are awaited via the thenable
-      // branch, so ordering semantics are unchanged.
-      fn: (ctx: IgnexContext) => {
-        const result = p.onRequest?.(ctx);
-        if (isThenable(result)) {
-          return result.then((r) => {
-            if (r instanceof Response) return { response: r };
-            if (r) return { ctx: r };
-            return { ctx };
-          });
-        }
-        if (result instanceof Response) {
-          return { response: result };
-        }
-        if (result) {
-          return { ctx: result };
-        }
-        return { ctx };
-      },
-    }));
+    .map((p) => {
+      // Pattern-scoped global middleware: the matcher is compiled ONCE; a
+      // non-matching request skips the plugin with a plain `{ ctx }` (the
+      // cheapest possible pass-through).
+      const match = createPatternMatcher(p.pattern);
+      const onRequest = p.onRequest;
+      return {
+        scope: "global" as const,
+        // Deliberately NOT `async`: a synchronous onRequest (e.g. cors without
+        // an Origin header, which no-ops) returns a plain `{ ctx }` with zero
+        // Promise allocation. Genuinely async hooks are awaited via the thenable
+        // branch, so ordering semantics are unchanged.
+        fn: (ctx: IgnexContext) => {
+          if (!match(ctx.url.pathname)) return { ctx };
+          const result = onRequest?.(ctx);
+          if (isThenable(result)) {
+            return result.then((r) => {
+              if (r instanceof Response) return { response: r };
+              if (r) return { ctx: r };
+              return { ctx };
+            });
+          }
+          if (result instanceof Response) {
+            return { response: result };
+          }
+          if (result) {
+            return { ctx: result };
+          }
+          return { ctx };
+        },
+      };
+    });
 
-  const onResponsePlugins = [...list].reverse().filter((p) => typeof p.onResponse === "function");
+  const onResponsePlugins = [...list]
+    .reverse()
+    .filter((p) => typeof p.onResponse === "function")
+    .map((p) => ({ plugin: p, match: createPatternMatcher(p.pattern) }));
 
   // `onResponse` is the onion "way out" phase: the LAST-registered plugin wraps
   // the previous ones' response — identical to `composePlugins`.
@@ -284,32 +402,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
             // async, it and every later plugin are awaited sequentially, seeded
             // with the results already applied by the earlier synchronous
             // plugins — preserving the original in-order semantics exactly.
-            fn: (ctx: IgnexContext, response: Response) => {
-              let current: Response = response;
-              for (let i = 0; i < onResponsePlugins.length; i++) {
-                const result = onResponsePlugins[i]?.onResponse?.(ctx, current);
-                if (!isThenable(result)) {
-                  if (result instanceof Response) current = result;
-                  continue;
-                }
-                // Async plugin at `i`: use its OWN promise as the chain head
-                // (never re-invoke it), then defer every later plugin off the
-                // chain sequentially. Earlier synchronous plugins already ran
-                // and are baked into `current`. This mirrors the original
-                // `await`-in-loop semantics with exactly one call per plugin.
-                let chain = result.then((r) => (r instanceof Response ? r : current));
-                for (let j = i + 1; j < onResponsePlugins.length; j++) {
-                  const plugin = onResponsePlugins[j];
-                  if (plugin === undefined) continue;
-                  chain = chain.then(async (prev) => {
-                    const r = await plugin.onResponse?.(ctx, prev);
-                    return r instanceof Response ? r : prev;
-                  });
-                }
-                return chain.then((final) => ({ response: final }));
-              }
-              return { response: current };
-            },
+            fn: runOnResponseChain(onResponsePlugins),
           },
         ];
 

@@ -56,7 +56,7 @@ const guard =
 
 /**
  * Require an authenticated user (no role/permission check). 401 when absent.
- * The guard used by `withGuards(handler)` with no explicit requirements.
+ * The guard used when a route requires authentication with no role/permission checks.
  */
 export const requireAuthenticated: HookFn = guard(() => true);
 
@@ -102,7 +102,7 @@ const subjectGrants = (
  * Require the authenticated user to hold ANY of the given roles.
  *
  * ```ts
- * export default withGuards(handler, { roles: ["admin"] });
+ * // app template (boilerplate): withGuards(handler, { roles: ["admin"] })
  * // or as a hook: config.hooks = ["require-auth"] then can(...) in a wrapper
  * ```
  */
@@ -129,7 +129,7 @@ export const canAll = (...permissions: string[]): HookFn =>
     ? continueHook
     : guard((user, ctx) => hasAllPermissions(subjectGrants(ctx, user).permissions, permissions));
 
-/** Guard requirements for a route (used by {@link withGuards}). */
+/** Guard requirements for a route (used by `guardChain` / the app's guard template). */
 export interface RouteGuards {
   /** Require ANY of these roles. */
   roles?: string[];

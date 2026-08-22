@@ -16,7 +16,11 @@ import {
   pascalCase,
   pluralize,
 } from "../src/templates/model.js";
-import { resourceRouteTemplate, resourceRouteTemplates } from "../src/templates/resource.js";
+import {
+  guardsTemplate,
+  resourceRouteTemplate,
+  resourceRouteTemplates,
+} from "../src/templates/resource.js";
 
 test("pluralize handles regular, -y, and -s endings", () => {
   expect(pluralize("User")).toBe("users");
@@ -185,15 +189,24 @@ test("generated routes use framework errors + schemas, not hand-rolled helpers",
   expect(update).toContain("UpdateInput<User>");
 });
 
-test("--rbac pre-wires withGuards with <collection>:read|write permissions", () => {
+test("--rbac pre-wires withGuards (app boilerplate) + the guards template", () => {
   const list = resourceRouteTemplate("User", "list", { rbac: true });
-  expect(list).toContain('import { withGuards } from "@ignex/core";');
+  // withGuards is APP boilerplate (src/lib/guards.ts), not a framework export.
+  expect(list).toContain('import { withGuards } from "../../../lib/guards.js";');
   expect(list).toContain("withGuards(get(");
   expect(list).toContain('permissions: ["users:read"]');
 
   const create = resourceRouteTemplate("User", "create", { rbac: true });
   expect(create).toContain("withGuards(post(");
   expect(create).toContain('permissions: ["users:write"]');
+
+  // The generated boilerplate defines the guard template itself.
+  const guards = guardsTemplate();
+  expect(guards).toContain("export const withGuards");
+  expect(guards).toContain(
+    'import { can, canAll, hasRole, requireAuthenticated } from "@ignex/core"',
+  );
+  expect(guards).toContain("handler.config");
 });
 
 test("--auth pre-wires the require-auth named hook", () => {
