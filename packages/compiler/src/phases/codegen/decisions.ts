@@ -33,6 +33,7 @@ export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): s
   // `handler.config`) would be bypassed by a frozen body — never hoist.
   if (route.analysis.configExport) return null;
   if (route.analysis.wrappedHandler) return null;
+  if (route.analysis.localHooks) return null;
   if (route.analysis.hasValidation) return null;
 
   if (route.decisions.validators && Object.keys(route.decisions.validators).length > 0) {

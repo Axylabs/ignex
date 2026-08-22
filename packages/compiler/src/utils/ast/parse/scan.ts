@@ -22,6 +22,22 @@ import { walk, walkSome } from "../walk";
 const isSchemaArg = (arg: Node | null | undefined): boolean =>
   !!arg && arg.type !== "Literal" && arg.type !== "StringLiteral" && arg.type !== "TemplateLiteral";
 
+/** True when a schema object literal declares `before`/`after` keys. */
+const schemaHasLocalHooks = (node: {
+  type: string;
+  properties?: Array<{ type: string; key?: { type: string; name?: string; value?: unknown } }>;
+}): boolean => {
+  for (const prop of node.properties ?? []) {
+    if (prop.type !== "Property") continue;
+    const key = prop.key;
+    if (!key) continue;
+    const name =
+      key.type === "Identifier" ? key.name : key.type === "Literal" ? String(key.value) : undefined;
+    if (name === "before" || name === "after") return true;
+  }
+  return false;
+};
+
 /** True when a named export initializer is a schema-first HTTP wrapper call. */
 const hasSchemaSecondArg = (init: Node | null | undefined): boolean => {
   if (
@@ -95,6 +111,8 @@ interface ExportFlags {
   configExport: boolean;
   /** Default export is a wrapper call (may attach route-local hooks). */
   wrappedHandler: boolean;
+  /** The route schema declares route-local `before`/`after` chains. */
+  localHooks: boolean;
 }
 
 /** Apply a default export's contribution to the classification flags. */
@@ -113,6 +131,12 @@ const applyDefaultExport = (
     // route-local hooks at runtime — record it for codegen + hoist gating.
     const callee = decl.callee?.type === "Identifier" ? decl.callee.name : "";
     if (!HTTP_HELPER_CALLS.has(callee)) flags.wrappedHandler = true;
+    // Route-local before/after declared in the schema object (the
+    // first-class guard array) — drives the compiled hook chain.
+    const schemaArg = decl.arguments?.[1];
+    if (schemaArg?.type === "ObjectExpression" && schemaHasLocalHooks(schemaArg)) {
+      flags.localHooks = true;
+    }
   }
 };
 
@@ -166,6 +190,7 @@ export const scanExportFlags = (ast: Program): ExportFlags => {
     schemaExport: false,
     configExport: false,
     wrappedHandler: false,
+    localHooks: false,
   };
 
   const done = (): boolean =>

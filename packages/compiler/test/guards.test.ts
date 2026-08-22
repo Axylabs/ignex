@@ -40,6 +40,9 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     expect(result.code).toContain('can("users:read")');
     expect(result.code).toContain('canAll("orders:read", "orders:write")');
     expect(result.code).toContain("requireAuthenticated");
+    // The first-class guard-array form: withGuards in `before: [...]` is
+    // statically extracted too (the RBAC optimization for before chains).
+    expect(result.code).toContain('can("invoices:read", "invoices:write")');
 
     // Guard consts are wired into the route hook var (pre-execution chain).
     // The array also spreads the wrapper-attached runtime config first

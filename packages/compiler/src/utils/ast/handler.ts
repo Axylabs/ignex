@@ -42,10 +42,12 @@ const isHandlerWrapperCall = (node: Node): boolean =>
   (HTTP_WRAPPERS.has(node.callee.name) || HANDLER_WRAPPERS.has(node.callee.name));
 
 /**
- * Extract the RBAC guards object from a `withGuards(handler, guards)` init
- * (the second argument, statically evaluated). Returns `{}` for a bare
- * `withGuards(handler)` (meaning "require authentication only"), and
- * `undefined` when the init is not a `withGuards` wrapper.
+ * Extract the RBAC guards object from a `withGuards` call (statically
+ * evaluated). Supports BOTH forms:
+ *   - wrapper form:  `withGuards(handler, guards)`  — guards at argument 1
+ *   - guard factory: `withGuards(guards)`          — guards at argument 0
+ * Returns `{}` for a bare call (require authentication only) and `undefined`
+ * when the init is not a `withGuards` call.
  */
 export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuards | undefined => {
   if (node?.type !== "CallExpression") return undefined;
@@ -53,7 +55,7 @@ export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuard
   if (callee.type !== "Identifier" || callee.name !== "withGuards") {
     return undefined;
   }
-  const guardsArg = node.arguments?.[1];
+  const guardsArg = node.arguments?.[1] ?? node.arguments?.[0];
   if (guardsArg == null) return {};
   const result = evaluateConstantNode(guardsArg);
   if (!result.ok || result.value == null || typeof result.value !== "object") {
@@ -76,20 +78,105 @@ export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuard
  * Extract the RBAC guards from a route module's exported handler init
  * (default export or the first named handler binding).
  */
+/**
+ * Extract guards from the route-local `before` array: `withGuards({...})`
+ * calls declared in the schema's `before: [...]` chain. Each element is a
+ * `withGuards(guardsObj)` call whose guards object is statically evaluated
+ * (literal strings only — `PERMS.X` constants fall back to `{}`, matching
+ * the wrapper form). Guards from ALL before entries are merged (any-of
+ * within each group), preserving the RBAC compiler optimization for the
+ * first-class guard-array form.
+ */
+interface SchemaProp {
+  type?: string;
+  key?: { type?: string; name?: string; value?: unknown };
+  value?: unknown;
+}
+
+/** The property name of an object-literal property node. */
+const propName = (p: SchemaProp): string | undefined => {
+  const key = p.key;
+  if (!key) return undefined;
+  return key.type === "Identifier"
+    ? key.name
+    : key.type === "Literal"
+      ? String(key.value)
+      : undefined;
+};
+
+/** Merge `g` into `acc` (any-of within each group). */
+const mergeGuards = (acc: RouteGuards | undefined, g: RouteGuards): RouteGuards => {
+  if (!acc) return g;
+  return {
+    ...(acc.roles?.length || g.roles?.length
+      ? { roles: [...(acc.roles ?? []), ...(g.roles ?? [])] }
+      : {}),
+    ...(acc.permissions?.length || g.permissions?.length
+      ? { permissions: [...(acc.permissions ?? []), ...(g.permissions ?? [])] }
+      : {}),
+    ...(g.all !== undefined ? { all: g.all } : acc.all !== undefined ? { all: acc.all } : {}),
+    ...(g.authenticated !== undefined
+      ? { authenticated: g.authenticated }
+      : acc.authenticated !== undefined
+        ? { authenticated: acc.authenticated }
+        : {}),
+  };
+};
+
+const extractGuardsFromBefore = (schemaArg: unknown): RouteGuards | undefined => {
+  if (
+    !schemaArg ||
+    typeof schemaArg !== "object" ||
+    (schemaArg as { type?: string }).type !== "ObjectExpression"
+  ) {
+    return undefined;
+  }
+  const props = (schemaArg as { properties?: unknown[] }).properties ?? [];
+  let merged: RouteGuards | undefined;
+  for (const prop of props) {
+    if (!prop || typeof prop !== "object") continue;
+    const p = prop as SchemaProp;
+    if (p.type !== "Property" || propName(p) !== "before") continue;
+    if (!p.value || (p.value as { type?: string }).type !== "ArrayExpression") continue;
+    const elements = (p.value as { elements?: unknown[] }).elements ?? [];
+    for (const el of elements) {
+      const g = extractGuardsFromInit(el as never);
+      if (g) merged = mergeGuards(merged, g);
+    }
+  }
+  return merged;
+};
+
+/** Extract the RBAC guards from a route module's exported handler init
+ * (default export or the first named handler binding), including guards
+ * declared in the schema's `before` array. */
+/** Guards from a handler-init node, including its schema's `before` array. */
+const extractGuardsFromInitWithBefore = (init: unknown): RouteGuards | undefined => {
+  const wrapperGuards = extractGuardsFromInit(init as never);
+  const schemaArg =
+    (init as { type?: string })?.type === "CallExpression"
+      ? (init as { arguments?: unknown[] }).arguments?.[1]
+      : undefined;
+  const beforeGuards = extractGuardsFromBefore(schemaArg);
+  if (!wrapperGuards) return beforeGuards; // first-class guard-array form
+  return mergeGuards(beforeGuards, wrapperGuards);
+};
+
+/** Extract the RBAC guards from a route module's exported handler init
+ * (default export or the first named handler binding), including guards
+ * declared in the schema's `before` array. */
 export const extractRouteGuardsAST = (ast: Program): RouteGuards | undefined => {
   let guards: RouteGuards | undefined;
   walk(ast, (n) => {
     if (guards) return;
     if (n.type === "ExportDefaultDeclaration") {
-      const g = extractGuardsFromInit(n.declaration);
-      if (g) guards = g;
+      guards = extractGuardsFromInitWithBefore(n.declaration);
       return;
     }
     if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
       for (const d of n.declaration.declarations || []) {
         if (d.init && isHandlerInitNode(d.init)) {
-          const g = extractGuardsFromInit(d.init);
-          if (g) guards = g;
+          guards = extractGuardsFromInitWithBefore(d.init);
           return;
         }
       }

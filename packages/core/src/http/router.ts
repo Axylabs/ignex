@@ -486,9 +486,15 @@ export const createRouter = (): IgnexRouter => {
     // exactOptionalPropertyTypes: only include `schema`/`detail`/`config` when
     // defined. `detail` is split out of the schema object into its own
     // registration slot (it decorates the operation, it is not a validated
-    // schema part).
-    const { detail, ...schemaParts } = schema ?? {};
+    // schema part). Route-local `before`/`after` declared in the schema are
+    // hoisted into the registration's `config` (the same chain the compiled
+    // pipeline reads from `handler.config`).
+    const { detail, before, after, ...schemaParts } = schema ?? {};
     const hasSchema = Object.keys(schemaParts).length > 0;
+    const localHooks: RouteLocalHooks | undefined =
+      before?.length || after?.length
+        ? { ...(before?.length ? { before } : {}), ...(after?.length ? { after } : {}) }
+        : undefined;
     const reg: RouteRegistration = {
       method,
       path,
@@ -496,6 +502,7 @@ export const createRouter = (): IgnexRouter => {
       ...(hasSchema ? { schema: schemaParts as RouteSchemas } : {}),
       ...(detail !== undefined ? { detail } : {}),
       ...(config !== undefined ? { config } : {}),
+      ...(localHooks !== undefined ? { config: { ...config, ...localHooks } } : {}),
     };
     registrations.push(reg);
     // Keep the 405 allow-lists current at registration time so `dispatch` /

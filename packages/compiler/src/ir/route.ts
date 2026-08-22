@@ -59,6 +59,8 @@ export interface RouteIRAnalysis {
   readonly configExport: boolean;
   /** The default export is a wrapper call (may attach `handler.config`). */
   readonly wrappedHandler: boolean;
+  /** The route schema declares route-local `before`/`after` chains. */
+  readonly localHooks: boolean;
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
   readonly usage: ContextUsage;

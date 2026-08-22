@@ -45,6 +45,8 @@ export interface SourceFile {
   readonly configExport: boolean;
   /** Default export is a wrapper call (may attach route-local hooks). */
   readonly wrappedHandler: boolean;
+  /** The route schema declares route-local `before`/`after` chains. */
+  readonly localHooks: boolean;
   /** Extracted route handler (default or named export), if any. */
   readonly handler: ExtractedHandler | null;
   /** Route-level `config` export, if present. */

@@ -203,10 +203,11 @@ test("--rbac pre-wires withGuards (app boilerplate) + the guards template", () =
   // The generated boilerplate defines the guard template itself.
   const guards = guardsTemplate();
   expect(guards).toContain("export const withGuards");
-  expect(guards).toContain(
-    'import { can, canAll, hasRole, requireAuthenticated } from "@ignex/core"',
-  );
-  expect(guards).toContain("handler.config");
+  expect(guards).toContain('from "@ignex/core"');
+  expect(guards).toContain("composeGuards");
+  expect(guards).toContain("guardChain");
+  expect(guards).toContain("composeGuards(...guardChain(guards))");
+  expect(guards).toContain("before: [withGuards");
 });
 
 test("--auth pre-wires the require-auth named hook", () => {

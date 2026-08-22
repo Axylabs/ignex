@@ -236,17 +236,30 @@ export type { ModelField };
  * present).
  */
 export const guardsTemplate = (): string => `/**
- * Route guard boilerplate — the app-owned \`withGuards\` template.
+ * Route guard boilerplate — the app-owned \`withGuards\` guard factory.
  *
- * Wraps a route handler and attaches a route-local \`before\` chain
- * (\`handler.config.before\`), which the AOT compiler and the interpreted
- * router both run right before the handler. Extend this file with your own
- * business guards (rate limits, tenancy checks, feature flags, ...) — the
- * framework primitives (\`requireAuthenticated\`, \`can\`, \`canAll\`,
- * \`hasRole\`) compose like any hook: return \`{ ok: false, response }\`
- * to halt, or \`{ ok: true, ctx }\` to continue.
+ * \`withGuards(guards?)\` returns a route-local \`before\` guard (a
+ * HookFn) to chain in a route's \`before\` array alongside any other
+ * guards:
+ *
+ *   export default post(handler, {
+ *     body: CreateBody,
+ *     before: [withGuards({ permissions: ["things:write"] }), otherGuard()],
+ *   });
+ *
+ * The compiler resolves the conventional \`withGuards\` name: literal
+ * guards in the \`before\` array are extracted at build time (RBAC
+ * optimization) and guarded routes are never hoisted. Extend this file with
+ * your own business guards freely.
  */
-import { can, canAll, hasRole, requireAuthenticated } from "@ignex/core";
+import {
+  can,
+  canAll,
+  composeGuards,
+  guardChain,
+  hasRole,
+  requireAuthenticated,
+} from "@ignex/core";
 import type { HookFn } from "@ignex/core";
 
 /** Guard requirements for a route (role/permission groups, any-of by default). */
@@ -259,22 +272,9 @@ export interface RouteGuards {
   authenticated?: boolean;
 }
 
-/**
- * Wrap a route handler with guards. Returns the handler with the guards
- * attached to \`handler.config.before\` — the route-local hook chain — so
- * the guard runs in BOTH the compiled pipeline and the interpreted router.
- */
-export const withGuards = <H extends (...args: never[]) => unknown>(
-  handler: H,
-  guards: RouteGuards = {},
-): H => {
-  const before: HookFn[] = [];
-  if (guards.authenticated !== false) before.push(requireAuthenticated);
-  if (guards.roles?.length) before.push(hasRole(...guards.roles));
-  if (guards.permissions?.length) {
-    before.push(guards.all ? canAll(...guards.permissions) : can(...guards.permissions));
-  }
-  (handler as unknown as { config?: { before: HookFn[] } }).config = { before };
-  return handler;
-};
+/** Build a route-local before-guard from RBAC requirements. */
+export const withGuards = (guards: RouteGuards = {}): HookFn =>
+  composeGuards(...guardChain(guards));
+
+export { requireAuthenticated };
 `;

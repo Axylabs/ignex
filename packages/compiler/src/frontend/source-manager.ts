@@ -88,6 +88,7 @@ export class SourceManager {
       schemaExport: parsed.schemaExport,
       configExport: parsed.configExport,
       wrappedHandler: parsed.wrappedHandler,
+      localHooks: parsed.localHooks,
       handler: parsed.handler,
 
       ...(parsed.handlerExportName !== undefined

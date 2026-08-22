@@ -175,7 +175,8 @@ export const generateRouteCode = (
     needsFull,
     compact,
     hasRouteHooks: hasHooks,
-    hasRouteAfter: route.analysis.configExport || route.analysis.wrappedHandler,
+    hasRouteAfter:
+      route.analysis.configExport || route.analysis.wrappedHandler || route.analysis.localHooks,
     sync: routeIsSync,
     resumeName,
     serializersVar,

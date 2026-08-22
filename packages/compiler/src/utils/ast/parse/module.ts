@@ -181,6 +181,7 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
     schemaExport: flags.schemaExport,
     configExport: flags.configExport,
     wrappedHandler: flags.wrappedHandler,
+    localHooks: flags.localHooks,
     handler: extractHandlerExport(source, ast),
 
     ...(guards !== undefined ? { guards } : {}),
@@ -199,5 +200,6 @@ const emptyParseResult = (): ParseResult => ({
   schemaExport: false,
   configExport: false,
   wrappedHandler: false,
+  localHooks: false,
   handler: null,
 });

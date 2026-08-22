@@ -90,6 +90,23 @@ export type RouteSchemas = {
   cookie?: SchemaLike;
   response?: SchemaLike | Record<number, SchemaLike>;
   /**
+   * Route-local BEFORE chain — the first-class per-route guard array.
+   * Guards run in order right before the handler; each is a `HookFn` —
+   * return `{ ok: false, response }` to halt (401/403/…) or
+   * `{ ok: true, ctx }` to continue. Chain the app's `withGuards(...)`
+   * alongside any other guards:
+   *
+   * ```ts
+   * get(handler, {
+   *   before: [withGuards({ permissions: ["gigs:write"] }), tenancyGuard()],
+   * });
+   * ```
+   */
+  before?: readonly HookFn[];
+  /** Route-local AFTER chain — runs right after the handler with the response
+   * (may replace ctx/response; `undefined` passes through). */
+  after?: readonly AfterHookFn[];
+  /**
    * OpenAPI operation decoration (summary/tags/hide/…). Not validated.
    * Targets interpreted `createRouter()` registrations; AOT route files
    * attach `detail` via `export const config = { detail }` instead.
@@ -245,6 +262,28 @@ const attachSchema = <T extends AnyFunction>(fn: T, schemaOrPath?: unknown): T =
     writable: false,
     configurable: true,
   });
+
+  // Route-local before/after chains are attached to `handler.config` so the
+  // AOT compiler (which reads `handler.config?.before/after` at module
+  // scope) and the interpreted router both run them. App guard templates
+  // may also attach config (e.g. a wrapping `withGuards`) — schema-declared
+  // hooks are APPENDED after those.
+  const sc = schemaOrPath as
+    | { before?: readonly HookFn[]; after?: readonly AfterHookFn[] }
+    | undefined;
+  if (sc?.before?.length || sc?.after?.length) {
+    const prev = (
+      fn as unknown as { config?: { before?: readonly HookFn[]; after?: readonly AfterHookFn[] } }
+    ).config;
+    const before = [...(prev?.before ?? []), ...(sc.before ?? [])];
+    const after = [...(prev?.after ?? []), ...(sc.after ?? [])];
+    Object.defineProperty(fn, "config", {
+      value: { before, after },
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+  }
 
   return fn;
 };

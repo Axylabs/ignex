@@ -36,7 +36,9 @@ export const buildRouteBeforeVar = (route: RouteIR): string => {
   if (route.analysis.configExport) {
     ids.push(`...(${configImportName(route)}?.before ?? [])`);
   }
-  if (route.analysis.wrappedHandler) {
+  // Runtime config from a wrapping withGuards OR the schema-declared
+  // before array (the DSL attaches both to handler.config).
+  if (route.analysis.wrappedHandler || route.analysis.localHooks) {
     ids.push(`...(handler_${route.codegen.handlerRef}?.config?.before ?? [])`);
   }
   for (const hookName of route.analysis.hooks) ids.push(hookIdent(hookName));
@@ -50,7 +52,7 @@ export const buildRouteAfterVar = (route: RouteIR): string => {
   if (route.analysis.configExport) {
     ids.push(`...(${configImportName(route)}?.after ?? [])`);
   }
-  if (route.analysis.wrappedHandler) {
+  if (route.analysis.wrappedHandler || route.analysis.localHooks) {
     ids.push(`...(handler_${route.codegen.handlerRef}?.config?.after ?? [])`);
   }
   return ids.length > 0 ? `[${ids.join(", ")}]` : `[]`;
@@ -60,5 +62,6 @@ export const buildRouteAfterVar = (route: RouteIR): string => {
 export const routeHasLocalHooks = (route: RouteIR): boolean =>
   route.analysis.configExport ||
   route.analysis.wrappedHandler ||
+  route.analysis.localHooks ||
   route.analysis.hooks.length > 0 ||
   guardHookEmissions(route).length > 0;

@@ -289,3 +289,51 @@ describe("integration — auth module + guarded route (interpreted)", () => {
     delete process.env.RBAC_PUB;
   });
 });
+
+describe("route DSL: before/after declared in the schema object", () => {
+  it("chains guards + after hooks via the route's before/after schema keys", async () => {
+    const seen: string[] = [];
+    const app = createApp({
+      router: createRouter().get(
+        "/demo",
+        () => {
+          seen.push("handler");
+          return new Response("ok", { status: 200 });
+        },
+        {
+          before: [
+            () => {
+              seen.push("guard1");
+              return { ok: true as const, ctx: createContext(new Request("http://x/")) };
+            },
+            () => {
+              seen.push("guard2");
+              return { ok: true as const, ctx: createContext(new Request("http://x/")) };
+            },
+          ],
+          after: [
+            (_c, response) => {
+              seen.push(`after:${response.status}`);
+            },
+          ],
+        },
+      ),
+    });
+    await app.init();
+    const res = await app.handler(new Request("http://localhost:3000/demo"));
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["guard1", "guard2", "handler", "after:200"]);
+  });
+
+  it("a before guard declared in the schema can halt with 403", async () => {
+    const app = createApp({
+      router: createRouter().get("/admin", () => new Response("secret", { status: 200 }), {
+        before: [() => ({ ok: false as const, response: new Response("denied", { status: 403 }) })],
+      }),
+    });
+    await app.init();
+    const res = await app.handler(new Request("http://localhost:3000/admin"));
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("denied");
+  });
+});
