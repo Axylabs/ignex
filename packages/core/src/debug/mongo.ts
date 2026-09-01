@@ -23,8 +23,9 @@
 import { currentTrace, type Trace } from "./tracer";
 import type { Span } from "./types";
 
-/** Preview cap for captured wire payloads (same budget as query results). */
-const WIRE_PREVIEW_CHARS = 2048;
+/** Preview cap for captured wire payloads (same budget as query results — big
+ * enough that a normal find/aggregate reply survives intact). */
+const WIRE_PREVIEW_CHARS = 32_768;
 
 /**
  * JSON-preview helper for wire payloads: capped so a huge cursor reply cannot

@@ -45,7 +45,7 @@ const capSent = (args: unknown[]): unknown => {
   } catch {
     return { note: "unserializable args" };
   }
-  return json.length > 2048 ? { preview: `${json.slice(0, 2048)}…` } : args;
+  return json.length > 32_768 ? { preview: `${json.slice(0, 32_768)}…` } : args;
 };
 
 export const db: typeof service.db.primaryClient = new Proxy(

@@ -13,8 +13,10 @@ import { debugLog } from "./logs";
 import { currentTrace, type Trace } from "./tracer";
 import type { DebugApi, DebugSpanHandle, LogLevel, SpanAttrs, SpanKind } from "./types";
 
-/** Preview cap for captured query results (kept small: spans live in a ring). */
-const QUERY_PREVIEW_CHARS = 2048;
+/** Preview cap for captured query results (kept bounded: spans live in a ring,
+ * but generous enough that a normal page of rows / a full document round-trips
+ * intact — GET queries show the complete data, not a 2 KiB stub). */
+const QUERY_PREVIEW_CHARS = 32_768;
 
 /**
  * Summarize a query result for the span attrs — enough to see WHAT came back
