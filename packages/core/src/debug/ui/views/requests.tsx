@@ -6,6 +6,7 @@
  */
 
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -13,6 +14,7 @@ import {
   For,
   type JSX,
   onCleanup,
+  type Setter,
   Show,
   untrack,
 } from "solid-js";
@@ -100,16 +102,40 @@ const TraceRow = (props: {
   );
 };
 
-/** Shared builder for the Requests and Errors surfaces. */
-const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
+/**
+ * Module-scoped stores so the live row set + filters survive view remounts.
+ * Solid disposes a view's reactive graph when the route changes (tab switch);
+ * keeping the list here means the Requests/Errors panels never wipe their
+ * rows, and `seenIds` is shared so returning rows don't re-flash as "fresh".
+ */
+interface ListStore {
+  rows: Accessor<Map<string, TraceSummary>>;
+  setRows: Setter<Map<string, TraceSummary>>;
+  q: Accessor<string>;
+  setQ: Setter<string>;
+  method: Accessor<string>;
+  setMethod: Setter<string>;
+  status: Accessor<string>;
+  setStatus: Setter<string>;
+  /** Ids already shown — flash newly arrived rows exactly once. */
+  seenIds: Set<string>;
+}
+
+const createListStore = (): ListStore => {
   const [rows, setRows] = createSignal<Map<string, TraceSummary>>(new Map());
   const [q, setQ] = createSignal("");
   const [method, setMethod] = createSignal("");
   const [status, setStatus] = createSignal("");
-  const [loadError, setLoadError] = createSignal<string | null>(null);
+  return { rows, setRows, q, setQ, method, setMethod, status, setStatus, seenIds: new Set() };
+};
 
-  // Ids already shown — used to flash newly arrived rows exactly once.
-  const seenIds = new Set<string>();
+const reqStore = createListStore();
+const errStore = createListStore();
+
+/** Shared builder for the Requests and Errors surfaces. */
+const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
+  const s = props.errorsOnly ? errStore : reqStore;
+  const [loadError, setLoadError] = createSignal<string | null>(null);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup((): void => {
@@ -118,30 +144,41 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
 
   const load = (): void => {
     void getRequests({
-      q: untrack(q),
-      method: untrack(method),
-      status: untrack(status),
+      q: untrack(s.q),
+      method: untrack(s.method),
+      status: untrack(s.status),
       errorsOnly: props.errorsOnly,
       limit: 200,
     })
       .then((data): void => {
         setLoadError(null);
-        setRows((prev) => mergeById(prev, data, (r) => r.id));
+        s.setRows((prev) => mergeById(prev, data, (r) => r.id));
       })
       .catch((err: Error): void => {
         setLoadError(err.message);
       });
   };
 
-  // Live tail: refetch when the traces domain moves (or full-refresh pulses).
+  // Live tail: fetch once on mount (so returning to the tab shows the current
+  // window immediately — the revision baseline is re-seeded from the CURRENT
+  // counters, so a first-run domainMoved check would be a no-op and leave the
+  // panel empty until the next request arrives or the user hits refresh), then
+  // refetch whenever the traces domain moves (or a full-refresh pulse lands).
+  let mounted = false;
   const baseline = baselineFrom(lastRevision());
   createEffect((): void => {
-    if (domainMoved(baseline, "traces", currentPulse().rev)) load();
+    const pulse = currentPulse();
+    if (!mounted) {
+      mounted = true;
+      load();
+      return;
+    }
+    if (domainMoved(baseline, "traces", pulse.rev)) load();
   });
 
   // Derived window stats (recomputed only when rows change).
   const stats = createMemo(() => {
-    const list = [...rows().values()];
+    const list = [...s.rows().values()];
     let n4xx = 0;
     let n5xx = 0;
     let errs = 0;
@@ -164,7 +201,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
     };
   });
 
-  const rowsList = createMemo(() => [...rows().values()]);
+  const rowsList = createMemo(() => [...s.rows().values()]);
 
   return (
     <div>
@@ -199,9 +236,9 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
             id="search"
             type="text"
             placeholder="filter method / path / error…"
-            value={q()}
+            value={s.q()}
             onInput={(ev): void => {
-              setQ((ev.target as HTMLInputElement).value);
+              s.setQ((ev.target as HTMLInputElement).value);
               if (debounceTimer !== null) clearTimeout(debounceTimer);
               debounceTimer = setTimeout(load, 250);
             }}
@@ -209,7 +246,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
           <select
             id="method-filter"
             onChange={(ev): void => {
-              setMethod((ev.target as HTMLSelectElement).value);
+              s.setMethod((ev.target as HTMLSelectElement).value);
               load();
             }}
           >
@@ -221,7 +258,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
           <select
             id="status-filter"
             onChange={(ev): void => {
-              setStatus((ev.target as HTMLSelectElement).value);
+              s.setStatus((ev.target as HTMLSelectElement).value);
               load();
             }}
           >
@@ -271,7 +308,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
           <tbody>
             <For each={rowsList()}>
               {(row): JSX.Element => (
-                <TraceRow row={row} maxDur={(): number => stats().maxDur} seenIds={seenIds} />
+                <TraceRow row={row} maxDur={(): number => stats().maxDur} seenIds={s.seenIds} />
               )}
             </For>
           </tbody>

@@ -80,14 +80,20 @@ const LogRowView = (props: { row: LogRow }): JSX.Element => (
   </tr>
 );
 
+/**
+ * Module-scoped store so the log window + filters survive view remounts (tab
+ * switches) — otherwise the list is wiped and, since the revision baseline is
+ * re-seeded from the CURRENT counters on mount, stays empty until the next
+ * log line or a manual refresh.
+ */
+const [records, setRecords] = createSignal<Map<string, LogRow>>(new Map());
+const [stats, setStats] = createSignal<{ warn: number; error: number } | null>(null);
+const [q, setQ] = createSignal("");
+const [level, setLevel] = createSignal("");
+const [persisted, setPersisted] = createSignal(false);
+
 /** The logs panel. */
 export const LogsView: Component = () => {
-  const [records, setRecords] = createSignal<Map<string, LogRow>>(new Map());
-  const [stats, setStats] = createSignal<{ warn: number; error: number } | null>(null);
-  const [q, setQ] = createSignal("");
-  const [level, setLevel] = createSignal("");
-  const [persisted, setPersisted] = createSignal(false);
-
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const load = (): void => {
@@ -106,9 +112,20 @@ export const LogsView: Component = () => {
       });
   };
 
+  // Live tail: fetch once on mount (same rationale as requests.tsx — the
+  // revision baseline is re-seeded from the CURRENT counters, so a first-run
+  // domainMoved check would be a no-op), then refetch whenever the logs
+  // domain moves (or a full-refresh pulse lands).
+  let mounted = false;
   const baseline = baselineFrom(lastRevision());
   createEffect((): void => {
-    if (domainMoved(baseline, "logs", currentPulse().rev)) load();
+    const pulse = currentPulse();
+    if (!mounted) {
+      mounted = true;
+      load();
+      return;
+    }
+    if (domainMoved(baseline, "logs", pulse.rev)) load();
   });
 
   const recordsList = createMemo(() => [...records().values()]);
