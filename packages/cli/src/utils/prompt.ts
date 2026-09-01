@@ -340,7 +340,7 @@ async function rawSelect(
     selected: new Set<number>(multi ? initialIndexes : initialIndexes.slice(0, 1)),
   };
   const bufferState: SelectBufferState = { buffer: "" };
-  let rows = 0;
+  let _rows = 0;
 
   const render = (): void => {
     const lines = renderSelectLines(
@@ -351,25 +351,13 @@ async function rawSelect(
     const footer = options.hint ? dim(`  ${options.hint}`) : "";
     const all = [...lines, footer].filter((line) => line.length > 0);
 
-    if (rows > 0) {
-      // FIX 1: Move cursor up to the *first* line of the previous render.
-      // Since the cursor is currently at the end of the last line,
-      // we move up (rows - 1) lines, not `rows` lines.
-      stdout.write(`\x1b[${rows - 1}A`);
-
-      // FIX 2: Clear all lines from top to bottom to prevent ghosting
-      // or artifacts, especially if the new list is shorter than the old one.
-      for (let i = 0; i < rows; i++) {
-        stdout.write("\x1b[2K\x1b[1B");
-      }
-
-      // FIX 3: Move cursor back up to the first line to start writing fresh.
-      stdout.write(`\x1b[${rows}A`);
-    }
+    // Clear previous content by moving to home and clearing lines,
+    // then write the new render positioned at the top.
+    stdout.write("\x1b[2J\x1b[H");
 
     // Write the new lines
     stdout.write(all.map((line) => `\x1b[2K${line}`).join("\n"));
-    rows = all.length;
+    _rows = all.length;
   };
 
   return await new Promise<string[]>((resolve, reject) => {
