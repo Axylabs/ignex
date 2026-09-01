@@ -11,8 +11,6 @@
  *   - When stdin is not a TTY (piped scripts, CI, tests) every prompt falls
  *     back to its `initial`/default value instead of hanging, so wizards stay
  *     scriptable.
- *   - The legacy readline helpers (`openPrompt`/`ask`/`askConfirm`) remain for
- *     callers that still want a plain question line.
  *
  * Rendering helpers (`renderOptionLine`, `renderSelectLines`) are exported pure
  * so the UI can be unit-tested without a TTY.
@@ -86,25 +84,6 @@ const questionPrefix = (): string => cyan("?");
 /** Open a readline interface over stdin/stdout (callers must close it). */
 export const openPrompt = (): Readline =>
   createInterface({ input: process.stdin, output: process.stdout });
-
-/** Ask an open question; an empty answer falls back to `fallback`. */
-export const ask = async (rl: Readline, question: string, fallback = ""): Promise<string> => {
-  const suffix = fallback ? ` (${fallback})` : "";
-  const answer = (await rl.question(`${question}${suffix}: `)).trim();
-  return answer.length > 0 ? answer : fallback;
-};
-
-/** Ask a yes/no confirmation; an empty answer falls back to `fallback`. */
-export const askConfirm = async (
-  rl: Readline,
-  question: string,
-  fallback: boolean,
-): Promise<boolean> => {
-  const suffix = fallback ? "(Y/n)" : "(y/N)";
-  const answer = (await rl.question(`${question} ${suffix} `)).trim().toLowerCase();
-  if (!answer) return fallback;
-  return answer.startsWith("y");
-};
 
 /** Free-text input with a default, optional validation, and TTY fallback. */
 export async function promptText(options: TextPromptOptions): Promise<string> {

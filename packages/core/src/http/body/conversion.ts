@@ -6,6 +6,7 @@
  * requested target.
  */
 
+import { encoder } from "../encoder";
 import { BodyParseError } from "./errors";
 import { forEachFormDataEntry } from "./form-data";
 import type { BodyKind, BodyState } from "./types";
@@ -14,7 +15,7 @@ const fromJson = (value: unknown, target: BodyKind): unknown => {
   const text = JSON.stringify(value);
   if (target === "text") return text;
   if (target === "arrayBuffer") {
-    return new TextEncoder().encode(text).buffer;
+    return encoder.encode(text).buffer;
   }
   if (target === "blob") {
     return new Blob([text], { type: "application/json" });
@@ -26,7 +27,7 @@ const fromText = (value: unknown, target: BodyKind): unknown => {
   const text = value as string;
   if (target === "json") return JSON.parse(text);
   if (target === "arrayBuffer") {
-    return new TextEncoder().encode(text).buffer;
+    return encoder.encode(text).buffer;
   }
   if (target === "blob") return new Blob([text]);
   if (target === "formData") {

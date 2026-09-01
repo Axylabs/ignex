@@ -63,6 +63,29 @@ an acceleration layer — importing it **never throws**.
 | `IGNEX_NATIVE_PATH` | Override the addon (a `.node` path or module specifier). |
 | `IGNEX_NATIVE` | `off` disables the addon even when installed (parity debugging); unset/`auto` uses it when present. |
 | `IGNEX_FFI_MODE` | `auto` (default: bun:ffi on Bun, NAPI otherwise) · `ffi` (force bun:ffi; throws on bind/self-test failure) · `napi` (force NAPI). |
+| `IGNEX_SIZE_GATES` | `off` disables per-op size-gated dispatch (all calls follow the static table — parity tests / emergency rollback). |
+
+## Size-gated dispatch (2026-08-24) — "check the length, then decide"
+
+The static table answers "which impl wins for a TYPICAL payload"; a few ops
+flip winner with input size. `SIZE_GATES` (`selection.ts`) records the
+MEASURED byte crossover below which JS wins, and wrappers consult
+`sizeGateAllowsNative(op, bytes)` per call. Calibration methodology:
+`bun scripts/bench-size-crossover.ts` (median of 5 interleaved trials across a
+0B→256KB sweep) — re-run after major Bun/castrum upgrades and update the table.
+
+Measured 2026-08-24 (Bun 1.4.1-canary + castrum C-ABI):
+
+| Op | Verdict | Decision |
+| --- | --- | --- |
+| `jsonValid` | native wins from ~64B (≤1.22×); **loses 20–40% below** under forced-native dispatch | **gated**: JS < 256B, native ≥ |
+| `hmacSha256` | noise-level trading (0.89–1.12×) across the whole sweep — no clean flip | not gated; static stands |
+| `fnv1a64` | native from ≥32B (7–60×) | no gate needed (static native) |
+| `sessionSeal` | JS wins ≤ ~550B; parity only past ~1KB envelopes | opt-in flag (`nativeFusion`), not gated |
+| `sessionOpen` | **JS wins at every size**, growing to 2.36× | never default; opt-in only |
+
+Gates are performance-only: results are byte-identical on both sides of every
+threshold (asserted in `packages/native/test/size-gates.test.ts`).
 
 ## 2026-08-14 — C-ABI transport, batch stability, task-group
 
@@ -373,6 +396,76 @@ rate-limit → terminal 429 and CORS preflight → 204/403 end-to-end):
   pipeline and handing it to the framework), which reworks the lazy-body
   contract and risks streaming uploads — for a saving of only the extra FFI
   crossing. Non-goal; the per-route native derive pattern is the stable choice.
+
+## 2026-08-25 — native-flow hardening + batch/responder wiring
+
+A reliability audit of the native flows produced four P0 memory-safety/DoS
+fixes, full observability for silent degradations, and first-class wrappers
+for two measured-but-unwired features:
+
+**Memory safety (packed-wire decoders fail fast).** `packed.ts` now validates
+every length/count against the buffer BEFORE reading (structural bounds:
+`count ≤ remaining/min-item-bytes`, per-field `pos+len ≤ buf.byteLength`).
+Under Bun the ffi readers (`read.u32(ptr)` / `CString(ptr, off, len)`) are raw
+pointer dereferences with no bounds knowledge — a corrupt or hostile wire used
+to risk uncatchable SIGSEGV; under Node `subarray` clamped silently (divergent
+garbage). Malformed wires now throw `PackedWireError`; the route runner's
+existing catch treats any decode failure as "native result unusable" → JS
+prelude (byte-parity preserved). Same guard on the route result header
+(`readRouteResult` requires ≥8B) and the session-open wire.
+
+**Bounded body reads in the compiled native prelude.** The emitted body
+prelude read via an unconditional `await req.arrayBuffer()` BEFORE the native
+2 MiB limit applied — an adversarial chunked request could buffer up to Bun's
+128 MiB server cap per in-flight request. It now emits `readBodyBounded()`
+(new core helper): content-length pre-check → incremental stream read that
+aborts with `BodyParseError(413)` the moment the running total crosses the
+cap. A native `errorCode === 413` verdict also throws directly instead of
+falling through to the slower JS re-parse.
+
+**Ingress short-write defense.** `runOnce` decoded the pooled verdict object
+whenever `w > 0`; a SHORT positive write (< `outDataStart`) decoded STALE
+fields from the previous request (cross-request bleed of status/rate-limit
+numbers into terminal responses). Any write `< L.outDataStart` is now treated
+exactly like a fault (degradation report + fail-closed/open policy).
+
+**Rate-limiter fallback eviction is amortized O(1).** The old `evictIfOver`
+scanned the WHOLE Map on every insert past `maxEntries` to remove ONE key — a
+unique-IP flood pinned ~1M entries (~100–200 MB) AND turned every subsequent
+check into a full-map scan. Overflow inserts now drop the insertion-oldest key
+in O(1) (bound: `maxEntries + 1`), with the full expired-window sweep running
+only every 256th overflow insert.
+
+**Observability.** Addon load failures, auto-mode ffi bind/self-test failures
+and route-surface absence report through the telemetry sink (were debug-gated
+or silent). Degradation events are ALWAYS counted: `degradationCounts()` /
+`degradationTotal()` expose the true magnitude even after the once-per-op
+console line has fired (new `"self-test-failed"` kind). Route compile failure
+now distinguishes "surface absent" from "symbols present but descriptor
+rejected" (ROUTE_DESC_VERSION skew) instead of misdiagnosing both as a missing
+surface. The fused session ops gained a bind-time seal→open self-test (mismatch
+→ degrade to signCookie/verifyCookie with a report) and fully bounds-checked
+wire decoding.
+
+**CI pins the castrum revision.** Both workflows previously built castrum from
+the floating default branch while production installs `^0.9.1` — CI validated a
+moving target. `CASTRUM_REF` now pins the exact tested SHA (bump procedure
+documented inline; align `packages/native/package.json` + `vendor/castrum.d.ts`
+deliberately).
+
+**Typed batch wrappers (the measured winners finally have callers).**
+`signCookieBatch`/`verifyCookieBatch` (n≥4, ~2×), `csrfVerifyBatch` (n≥16,
+~4×), `hmacSha256Batch`/`hmacSha256VerifyBatch` (n≥4/n≥16) wrap the raw
+`*BatchPacked` NAPI symbols with threshold dispatch: below threshold or
+without the addon they are plain loops over the scalar impls (byte-parity,
+never slower than DIY); a native attempt that throws degrades to the loop and
+reports. Validated unpackers (`unpackByteItems` etc., plain-Uint8Array
+normalized per the deep-equality convention) are exported alongside.
+
+**Lean responder first-class.** `nativeRouteHandler`/`NativeRouteSnapshot` are
+re-exported from `@ignex/core`. They remain opt-in for embedders (raw
+Bun.serve handler, no lifecycle stages) — the compiled prelude stays the
+framework default because plugins/hooks/error semantics live there.
 
 ## 2026-08-22 — interpreted-router hot path + format-validator decision
 

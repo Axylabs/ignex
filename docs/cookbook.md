@@ -283,17 +283,31 @@ export const wsHandler = createWSHandler({
 ## Typed realtime events (@ignex/nova)
 
 For typed pub/sub over WebSockets — rooms, groups, per-user delivery, NATS
-cluster sync, and a Rust FFI serializer — use the `novaPlugin` bridge:
+cluster sync, and a Rust FFI serializer — use the `novaPlugin` bridge. The
+events layer (`on`/`emit`/`emitToUser`) is **enabled by default**; for your
+own event names pass the generated `bindings` (from `src/realtime.ts`):
+
+```ts
+// src/realtime.ts — the wire contract (single source of truth)
+import { Type } from "@sinclair/typebox";
+export const realtime = {
+  subjectPrefix: "myapp",
+  events: {
+    "chat.message": Type.Object({ to: Type.String(), body: Type.String() }),
+  },
+};
+```
 
 ```ts
 // src/app.config.ts
 import { jwtAuth, novaPlugin } from "@ignex/core";
+import { bindings } from "../.ignex/sdk/realtime/index.js"; // generated
 
 export const plugins: IgnexPlugin[] = [
   novaPlugin({
     port: 3001,                 // the WS server port
     path: "/ws",
-    inbound: ["chat"],          // events clients may SEND
+    bindings,                   // custom event registry (from src/realtime.ts)
     // Bridge nova's WS auth to the app's JWT hook: the resolved claims become
     // the client record (id / userId / groups / meta) the events layer uses.
     authenticate: jwtAuth({ secret: env.JWT_SECRET }),
@@ -303,9 +317,12 @@ export const plugins: IgnexPlugin[] = [
 ];
 ```
 
+Regenerate the local SDK (bindings + typed client + server facade) with
+`ignex build` (auto) or `ignex sdk --platform realtime`:
+
 ```ts
-// anywhere in the app — typed emit / handle
-import { emitToUser, on } from "@ignex/nova/events";
+// anywhere in the app — typed emit / handle (no casts)
+import { emitToUser, on } from "./lib/events.js"; // re-exports the SDK facade
 
 on("chat.message", (payload, ctx) => {
   emitToUser(payload.to, "chat.delivered", { id: payload.id });
@@ -315,14 +332,14 @@ on("chat.message", (payload, ctx) => {
 emitToUser("u-42", "order.update", { orderId: "o-1" });
 ```
 
-- **Clients** (browser + Bun): `createClient("ws://host:3001/ws")` from
-  `@ignex/nova/client` — `client.on("quote", cb)` / `client.send("chat", …)`
-  are typed against the event registry.
-- **Own events**: `generateBindings(schema)` from `@ignex/nova/generate` builds
-  the wire stack for ANY TypeBox schema in your app.
-- **Scaffold**: `ignex event bus <name>` emits the events file + a publish
-  route + an example consumer (offers to install `@ignex/nova`).
-- Install: `bun add @ignex/nova`.
+- **Clients** (browser + Bun): `createRealtimeClient("ws://host:3001/ws")`
+  from the generated SDK — `client.on("quote", cb)` / `client.send("chat", …)`
+  are typed against YOUR events; decode is pure JS (FlatBuffers), no FFI.
+- **Scaffold**: `ignex event bus <name>` emits `src/realtime.ts`, a pre-wired
+  `src/realtime.plugin.ts`, a publish route, and an example consumer — it also
+  updates `tsconfig` include and generates the local SDK (offers to install
+  `@ignex/nova`; codegen needs `flatc` on PATH).
+- Install: `bun add @ignex/nova` (+ `@sinclair/typebox` for the contract).
 
 ## Mail & notifications
 

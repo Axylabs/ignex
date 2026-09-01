@@ -8,6 +8,7 @@ import {
   compression,
   createI18n,
   debugbar,
+  devSessionSecret,
   type IgnexPlugin,
   nativePreflight,
   openapi,
@@ -28,12 +29,14 @@ export const plugins: IgnexPlugin[] = [
   dbPlugin(),
   compression(),
   // Developer debug dashboard (traces, waterfall, errors + replay, system
-  // profile, SDK list, KT docs) at `/__debugbar`. Registered only when the
-  // app runs with DEBUG=true (see src/config/env.ts / packages/app/.env).
-  // `enabled: true` makes DEBUG authoritative — the dashboard comes up even
-  // when the shell exports NODE_ENV=production, which would otherwise
-  // self-disable the plugin's debug-mode default. `sdkPaths`/`clientPaths`
-  // point the Clients panel at the packages `ignex sdk` generates.
+  // profile, NATS events) at `/__debugbar`. Registered only when the app runs
+  // with DEBUG=true (see src/config/env.ts / packages/app/.env); `enabled:
+  // true` makes DEBUG authoritative in dev. In production builds the compiler
+  // eliminates it entirely, and a production PROCESS keeps it locked off
+  // unless IGNEX_DEBUG=1 is explicitly set — a stray DEBUG=true env file
+  // cannot ship the toolbar to prod.
+  // `sdkPaths`/`clientPaths` point the Clients panel at the packages
+  // `ignex sdk` generates.
   ...(env.DEBUG
     ? [
         debugbar({
@@ -51,7 +54,10 @@ export const plugins: IgnexPlugin[] = [
   // `rolling: false` avoids re-signing the cookie on every request that merely
   // carries a valid session; the cookie is only rewritten when data changes.
   session({
-    secret: env.SESSION_SECRET ?? "dev-secret-change-me",
+    // Local dev: stable per-machine generated secret (.ignex/dev-session-secret,
+    // 0600). Production MUST set SESSION_SECRET — the session manager refuses
+    // weak/known-default secrets outside explicit local development.
+    secret: env.SESSION_SECRET ?? devSessionSecret(),
     createIfMissing: "lazy",
     rolling: false,
   }),

@@ -9,12 +9,15 @@
 
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { getCacheConfig, tryNormalizeConstant } from "../decisions";
+import { heatCountStmt } from "../heat";
 import {
   coreHandlerName,
   ctxOptsVar,
   guardHookEmissions,
   handlerImportName,
+  methodHandlerName,
   routeReplyFn,
+  wildcardNames,
 } from "../identifiers";
 import type { CodegenState } from "../state";
 import { emitCacheWrapper } from "./cache";
@@ -39,7 +42,7 @@ export const generateRouteCode = (
   route: RouteIR,
   opts: CompilerOptions,
 ): void => {
-  const { cfg, appConfigHasHooks, helpers, functions } = state;
+  const { cfg, appConfigHasHooks, usedCore, functions } = state;
 
   // Deduplicated (non-leader) routes reuse the leader's handler; only the
   // leader emits it.
@@ -74,12 +77,13 @@ export const generateRouteCode = (
 
   // Emit the RBAC guard hooks (`hasRole(...)` / `can(...)` / `canAll(...)` /
   // `requireAuthenticated`) as module-level consts referenced from the route's
-  // pre-execution hook array. Mark the referenced core symbol as used so the
-  // `@ignex/core` import (pruned to referenced symbols) keeps it.
+  // pre-execution hook array. The referenced core symbols join `usedCore` so
+  // the entry's import carries them (the bundler prunes any that end up
+  // unused).
   for (const g of guardHookEmissions(route)) {
     state.header.push(`const ${g.ident} = ${g.expr};`);
     const openParen = g.expr.indexOf("(");
-    helpers.markCore(openParen < 0 ? g.expr : g.expr.slice(0, openParen));
+    usedCore.add(openParen < 0 ? g.expr : g.expr.slice(0, openParen));
   }
 
   // Usage-driven context specialization. A full context is required when the
@@ -124,13 +128,25 @@ export const generateRouteCode = (
   // only — fires only when a hook returns a Promise, never for all-sync apps).
   const resumeName = needsFull && routeIsSync ? `${coreName}__resume` : "";
 
-  helpers.markUsed(routeReplyFn(route));
-  helpers.markUsed("__finalize");
-  if (!compact) helpers.markUsed("__applySet");
-  helpers.markUsed("__handleError");
+  // Record the table-bound wrapper variant for pass 2. Wildcard routes (and
+  // anything that returned earlier, e.g. WS) stay unrecorded → the generic
+  // runtime-checked `__wrap` — exact prior behavior. `needsFull && sync`
+  // routes use the async static wrapper: their non-async core fn can still
+  // return a Promise via the cold hook-resume continuation.
+  if (wildcardNames(route.source.path).length === 0) {
+    state.wrapVariants.set(
+      methodHandlerName(route),
+      routeIsSync && !cacheConfig && !needsFull ? "static-sync" : "static",
+    );
+  }
 
   const pre: string[] = [];
   let callExpr = "";
+
+  // Dev heat capture (`heatCapture`): count this request against the route's
+  // static "METHOD path" identity as the first statement of the core fn.
+  const heat = heatCountStmt(route, cfg.heatCapture);
+  if (heat) pre.push(heat);
 
   if (needsFull) {
     // Hoist the per-route context options to a frozen module const. The old
@@ -145,11 +161,11 @@ export const generateRouteCode = (
     // per-part validation block (native-first prelude when the route is
     // eligible and `nativeRoutes` is on — the addon pre-bakes the exact
     // query/cookie pipeline; otherwise the plain JS prelude).
-    pre.push(...buildFullContextPrelude(route, helpers, routeIsSync, resumeName));
+    pre.push(...buildFullContextPrelude(route, routeIsSync, resumeName));
     if (nativeRouteEligible(route, opts)) {
       emitNativeRouteVar(state, route, opts);
     }
-    pre.push(...emitNativeValidationPrelude(route, opts, helpers));
+    pre.push(...emitNativeValidationPrelude(route, opts, usedCore));
 
     // Call the handler directly. `__lc.afterHandle` (user hooks + plugin
     // `onResponse`) must NOT run on the raw handler result — plugin hooks
@@ -159,7 +175,7 @@ export const generateRouteCode = (
     // call below.
     callExpr = `${handlerImportName(route)}(ctx)`;
   } else {
-    const specialized = buildSpecializedContext(route, helpers);
+    const specialized = buildSpecializedContext(route, usedCore);
     pre.push(...specialized.pre);
     callExpr = specialized.callExpr;
   }

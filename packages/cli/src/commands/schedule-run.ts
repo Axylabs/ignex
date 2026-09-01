@@ -1,5 +1,5 @@
 /**
- * `ignex schedule:run` — run scheduled jobs as a worker process.
+ * @fileoverview `ignex schedule:run` — run scheduled jobs as a worker process.
  *
  * The `createScheduler` enqueues a durable job per cron tick; THIS command is
  * the worker that executes them. It loads the project's `src/schedule.ts`
@@ -14,22 +14,38 @@
  */
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { scheduleTemplate } from "../templates/schedule.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { metaFor } from "./registry.js";
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  once: { type: "boolean", description: "Process due jobs once, then exit" },
+  init: { type: "boolean", description: "Scaffold src/schedule.ts when missing" },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+} satisfies ArgsDef;
+
+export const scheduleRunCmd = defineCommand({
+  meta: metaFor("schedule:run"),
+  args: argsDef,
+  async run(ctx) {
+    await runSchedule(ctx.rawArgs);
+  },
+});
+
+export default scheduleRunCmd;
+
+/** Run `ignex schedule:run`. */
 export async function runSchedule(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    once: { type: "boolean" },
-    init: { type: "boolean" },
-  });
-  const root = resolveRoot(values, positionals);
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+  const root = await resolveProjectRoot(parsed.root);
 
   const schedulePath = join(root, "src", "schedule.ts");
   if (!(await exists(schedulePath))) {
-    if (values.init === true) {
+    if (parsed.init === true) {
       // Scaffold src/schedule.ts (like `ignex seed --create`).
       await writeFileEnsuringDir(schedulePath, scheduleTemplate());
       success("Created src/schedule.ts — add cron jobs, then run `ignex schedule:run`.");
@@ -43,7 +59,7 @@ export async function runSchedule(args: string[]): Promise<void> {
     return;
   }
 
-  const once = values.once === true;
+  const once = parsed.once === true;
   step(once ? "Processing due scheduled jobs once" : "Running scheduled jobs (claim loop)");
 
   try {

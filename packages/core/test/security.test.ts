@@ -51,12 +51,38 @@ describe("crypto", () => {
   });
 
   it("rejects wrong issuer/audience", () => {
-    const jwt = createJwt({ secret: "s3cret", issuer: "ignex", audience: "web" });
+    const jwt = createJwt({ secret: "s3cret", ttlSeconds: 3600, issuer: "ignex", audience: "web" });
     const token = jwt.sign({ sub: "1" });
-    const otherIssuer = createJwt({ secret: "s3cret", issuer: "other", audience: "web" });
-    const otherAudience = createJwt({ secret: "s3cret", issuer: "ignex", audience: "mobile" });
+    const otherIssuer = createJwt({
+      secret: "s3cret",
+      ttlSeconds: 3600,
+      issuer: "other",
+      audience: "web",
+    });
+    const otherAudience = createJwt({
+      secret: "s3cret",
+      ttlSeconds: 3600,
+      issuer: "ignex",
+      audience: "mobile",
+    });
+    expect(jwt.verify(token)).not.toBeNull();
     expect(otherIssuer.verify(token)).toBeNull();
     expect(otherAudience.verify(token)).toBeNull();
+  });
+
+  it("rejects tokens without exp by default; accepts with requireExp: false", () => {
+    const warn = console.warn;
+    console.warn = () => {}; // silence the expected no-TTL construction warning
+    try {
+      const jwt = createJwt({ secret: "s3cret" }); // no ttlSeconds
+      const token = jwt.sign({ sub: "1" });
+      // Default verify REJECTS the never-expiring token...
+      expect(jwt.verify(token)).toBeNull();
+      // ...and an explicit opt-out accepts it.
+      expect(jwt.verify(token, { requireExp: false })).not.toBeNull();
+    } finally {
+      console.warn = warn;
+    }
   });
 
   it("createEd25519Jwt signs EdDSA tokens and enforces issuer/audience", () => {

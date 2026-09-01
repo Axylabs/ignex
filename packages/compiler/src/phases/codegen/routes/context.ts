@@ -8,13 +8,12 @@
  *   referenced. Both are driven by the AST-derived ContextUsage.
  */
 
-import type { Emitter } from "../../../emitter";
 import type { RouteIR } from "../../../types";
 import { ctxOptsVar, handlerImportName, validatorImportName } from "../identifiers";
 import { emitValidatorThrow, validationFlags } from "./validate";
 
 /** Build the usage-specialized object-literal props for the handler call. */
-const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
+const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
   const props: string[] = [];
   const usage = route.analysis.usage;
   const hasParamsValidator = !!route.decisions.validators?.params;
@@ -40,46 +39,39 @@ const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
     props.push(`setState: (key, value) => { state.set(key, value); }`);
   }
   if (usage.json) {
-    helpers.markUsed("jsonReply");
     props.push(`json: jsonReply`);
   }
   if (usage.text) {
-    helpers.markUsed("textReply");
     props.push(`text: textReply`);
   }
   if (usage.html) {
-    helpers.markUsed("htmlReply");
     props.push(`html: htmlReply`);
   }
   if (usage.stream) {
-    helpers.markUsed("streamReply");
     props.push(`stream: streamReply`);
   }
   if (usage.redirect) {
-    helpers.markUsed("redirectReply");
     props.push(`redirect: redirectReply`);
   }
   if (usage.empty) {
-    helpers.markUsed("emptyReply");
     props.push(`empty: emptyReply`);
   }
   if (usage.status) {
-    helpers.markUsed("statusReply");
     props.push(`status: statusReply`);
   }
   if (usage.sendFile) {
-    helpers.markCore("sendFile");
+    usedCore.add("sendFile");
     props.push(`sendFile: (path, opts) => sendFile(path, { req, ...opts })`);
   }
   if (usage.cookie) {
     props.push(`cookie: __cookieJar`);
   }
   if (usage.proxy) {
-    helpers.markCore("proxyRequest");
+    usedCore.add("proxyRequest");
     props.push(`proxy: (target, opts) => proxyRequest(target, { req, ...opts })`);
   }
   if (usage.forward) {
-    helpers.markCore("forwardRequest");
+    usedCore.add("forwardRequest");
     props.push(`forward: (target, opts) => forwardRequest(req, target, opts)`);
   }
 
@@ -89,14 +81,9 @@ const buildContextProps = (route: RouteIR, helpers: Emitter): string[] => {
 /** Emit the full-context prelude (context creation + global pre-hooks). */
 export const buildFullContextPrelude = (
   route: RouteIR,
-  helpers: Emitter,
   sync = false,
   resumeName = "",
 ): string[] => {
-  helpers.markCore("runHooks");
-  helpers.markCore("runTimed");
-  helpers.markCore("debugStageEnd");
-  helpers.markCore("createContext");
   // The per-route opts const (`__ctxOpts_<ref>`, frozen at module scope) is
   // emitted by `generateRouteCode` — the inline object literal used to be
   // re-allocated on every request.
@@ -153,7 +140,7 @@ export const buildFullContextPrelude = (
  */
 export const buildSpecializedContext = (
   route: RouteIR,
-  helpers: Emitter,
+  usedCore: Set<string>,
 ): { pre: string[]; callExpr: string } => {
   const { hasParamsValidator, hasQueryValidator, hasHeadersValidator, hasBodyValidator } =
     validationFlags(route);
@@ -163,7 +150,6 @@ export const buildSpecializedContext = (
   pre.push(`const __params = params ?? EMPTY_PARAMS;`);
 
   if (hasParamsValidator) {
-    helpers.markUsed("validationError");
     pre.push(emitValidatorThrow(validatorImportName(route, "params"), "params", "__params"));
   }
 
@@ -175,8 +161,7 @@ export const buildSpecializedContext = (
 
   if (route.analysis.usage.query || hasQueryValidator) {
     if (hasQueryValidator) {
-      helpers.markUsed("validationError");
-      helpers.markCore("parseQueryFromURL");
+      usedCore.add("parseQueryFromURL");
       pre.push(`const query = parseQueryFromURL(req.url);`);
       pre.push(emitValidatorThrow(validatorImportName(route, "query"), "query", "query"));
     } else {
@@ -186,18 +171,14 @@ export const buildSpecializedContext = (
 
   if (route.analysis.usage.headers || hasHeadersValidator) {
     if (hasHeadersValidator) {
-      helpers.markUsed("validationError");
-      pre.push(`const __headers = Object.fromEntries(req.headers.entries());`);
+      usedCore.add("headersToRecord");
+      pre.push(`const __headers = headersToRecord(req.headers);`);
       pre.push(emitValidatorThrow(validatorImportName(route, "headers"), "headers", "__headers"));
     }
   }
 
   if (route.analysis.usage.body || hasBodyValidator) {
-    helpers.markCore("createLazyBody");
-
-    if (hasBodyValidator) {
-      helpers.markUsed("validationError");
-    }
+    usedCore.add("createLazyBody");
 
     pre.push(`let body = createLazyBody(req, BODY_LIMITS);`);
 
@@ -223,11 +204,11 @@ export const buildSpecializedContext = (
     // handler reading a single cookie does not pay for eagerly parsing the
     // full header up front (the old `createCookieJar(__set, {}, …)` path also
     // passed parsed cookies as `initial`, so values were never exposed).
-    helpers.markCore("createLazyCookieJar");
+    usedCore.add("createLazyCookieJar");
     pre.push(`const __cookieJar = createLazyCookieJar(__set, () => req.headers.get("cookie"));`);
   }
 
-  const props = buildContextProps(route, helpers);
+  const props = buildContextProps(route, usedCore);
 
   return {
     pre,

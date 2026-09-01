@@ -1,7 +1,7 @@
 /**
  * Environment & typed config — dotenv loading + typed accessors.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tryCatchOr } from "@ignex/shared";
 import { coerceBoolean } from "./coerce";
 
@@ -78,7 +78,15 @@ export const writeEnvKeys = (keys: Record<string, string>, path = ".env"): numbe
   const block = pending.map(([key, value]) => `${key}=${value}`).join("\n");
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const sep = existing === "" || existing.endsWith("\n") ? "" : "\n";
-  writeFileSync(path, `${existing}${sep}${block}\n`);
+  // Secrets may land here (auth key bootstrap writes Ed25519 private keys),
+  // so the file is owner-read/write only — and an existing file with looser
+  // perms is tightened rather than left world-readable.
+  writeFileSync(path, `${existing}${sep}${block}\n`, { mode: 0o600 });
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Best-effort on platforms without POSIX perms.
+  }
   return pending.length;
 };
 

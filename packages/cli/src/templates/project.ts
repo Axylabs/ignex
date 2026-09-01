@@ -107,7 +107,9 @@ export default {
   // below can be overridden.
   optimizationLevel: 3,
   minify: false,
-  sourceMap: false,
+  // Emits the .js.map next to the bundle so the debugbar can remap error
+  // stacks and span origins back to your TypeScript sources.
+  sourceMap: true,
 
   generateTypes: true,
   generateOpenAPI: true,
@@ -115,7 +117,6 @@ export default {
 
   specializeContext: true,
   hoistConstants: true,
-  treeshakeRuntime: true,
   routeCache: true,
 
   precompileValidators: true,
@@ -125,9 +126,13 @@ export default {
 }
 export function biomeTemplate(): string {
   const biome = {
-    $schema: "https://biomejs.dev/schemas/2.5.5/schema.json",
-    organizeImports: {
-      enabled: true,
+    $schema: "https://biomejs.dev/schemas/2.5.10/schema.json",
+    assist: {
+      actions: {
+        source: {
+          organizeImports: "on",
+        },
+      },
     },
     linter: {
       enabled: true,

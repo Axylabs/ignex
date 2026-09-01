@@ -12,18 +12,19 @@ import { DiagnosticCodes } from "../../diagnostics";
 import type { SourceManager } from "../../frontend";
 import type { AppConfigInfo, CompilerContext, CompilerOptions } from "../../types";
 import { projectPath } from "../../utils/path";
-import { analyzeDevOnlyPlugins } from "./dev-only-plugins";
+import { analyzeDevOnlyPlugins, lifecycleExportIsStaticallyEmpty } from "./dev-only-plugins";
 import { safeReadFile } from "./fs";
 
 /**
  * Is this build production-shaped? Production builds bake `NODE_ENV=production`
- * (`--compile`) or run with it set, and unless `IGNEX_DEBUG=1` is set at build
- * time the default-enabled `debugbar()` is provably disabled — so the compiler
- * can eliminate it and keep every AOT optimization (constant hoisting,
- * context specialization) for the shipped artifact.
+ * (`--compile`, or the explicit `production` option — set by `ignex build` by
+ * default) or run with it set; unless `IGNEX_DEBUG=1` is set at build time the
+ * default-enabled `debugbar()` is provably disabled — so the compiler can
+ * eliminate it and keep every AOT optimization (constant hoisting, context
+ * specialization) for the shipped artifact.
  */
 export const isProductionBuild = (opts: CompilerOptions): boolean =>
-  (opts.compile === true || process.env.NODE_ENV === "production") &&
+  (opts.compile === true || opts.production === true || process.env.NODE_ENV === "production") &&
   process.env.IGNEX_DEBUG !== "1";
 
 export const resolveAppConfig = (
@@ -59,15 +60,23 @@ export const resolveAppConfig = (
   const source = sources.fromSource(absPath, relPath, content, ctx.diagnostics);
   const exportNames = new Set(source.exports.map((x) => x.name));
   const hasPlugins = exportNames.has("plugins");
-  const hasLifecycle = exportNames.has("lifecycle") || exportNames.has("hooks");
+  // A lifecycle/hooks export that is PROVABLY empty (statically-empty object
+  // literal, e.g. `export const lifecycle = {}`) carries no per-request hooks
+  // — same contract as an all-disabled plugins list.
+  const hasLifecycle =
+    (exportNames.has("lifecycle") || exportNames.has("hooks")) &&
+    !lifecycleExportIsStaticallyEmpty(source);
 
   // A `plugins` export whose only elements are always-disabled dev-only
   // plugins (debugbar) contributes no per-request hooks: drop it from the AOT
-  // optimization decision. The runtime lifecycle is cleaned separately in
+  // optimization decision. A STATICALLY EMPTY array literal (`plugins = []`)
+  // is equally hook-free. The runtime lifecycle is cleaned separately in
   // codegen (the `__ignexDevOnly` filter), so build-time and runtime agree.
   const devOnly = analyzeDevOnlyPlugins(source, isProductionBuild(opts));
-  const hasActivePlugins =
-    hasPlugins && !(devOnly.eliminated > 0 && devOnly.eliminated === devOnly.totalElements);
+  const staticallyEmptyOrAllDisabled =
+    devOnly.totalElements === 0 ||
+    (devOnly.eliminated > 0 && devOnly.eliminated === devOnly.totalElements);
+  const hasActivePlugins = hasPlugins && !staticallyEmptyOrAllDisabled;
 
   return {
     path: absPath,
@@ -79,5 +88,6 @@ export const resolveAppConfig = (
     // A kept `debugbar()` enables the lifecycle-stage instrumentation at
     // runtime; codegen folds it out entirely when none is kept.
     hasEnabledDebugbar: devOnly.kept > 0,
+    isProductionBuild: isProductionBuild(opts),
   };
 };

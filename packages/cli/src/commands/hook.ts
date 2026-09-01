@@ -13,14 +13,16 @@
  * `app.config.ts` into the generated server).
  */
 import { readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { globalHookTemplate, namedHookTemplate } from "../templates/hook.js";
-import { parseCliArgs } from "../utils/args.js";
 import { bunWriteFile } from "../utils/bun-compat.js";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success, warn } from "../utils/logger.js";
-import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
 
 /** Lifecycle stages a global hook may be registered on (mirrors `LifeCycleStore`). */
 export const GLOBAL_STAGES = [
@@ -100,22 +102,48 @@ const insertImport = (content: string, importLine: string): string => {
   return `${importLine}\n${content}`;
 };
 
-export async function runHook(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    global: { type: "boolean" },
-    stage: { type: "string" },
-    force: { type: "boolean" },
-  });
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  name: {
+    type: "positional",
+    required: false,
+    description: "Hook name in kebab-case (e.g. require-admin)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  global: {
+    type: "boolean",
+    description: "Register the hook as a global lifecycle hook (app.config lifecycle)",
+  },
+  stage: {
+    type: "string",
+    valueHint: "beforeHandle|afterHandle|afterResponse|error|...",
+    description: "Lifecycle stage for --global (default beforeHandle)",
+  },
+  force: { type: "boolean", description: "Overwrite an existing hook file" },
+} satisfies ArgsDef;
 
-  const root = resolve((values.root as string | undefined) ?? ".");
-  const name = firstPositional(
-    positionals,
-    "Hook name is required (e.g. ignex hook require-admin).",
-  );
-  if (!name) return;
-  const isGlobal = Boolean(values.global);
-  const stage = (values.stage as string | undefined) ?? "beforeHandle";
+export const hookCmd = defineCommand({
+  meta: metaFor("hook"),
+  args: argsDef,
+  async run(ctx) {
+    await runHook(ctx.rawArgs);
+  },
+});
+
+export default hookCmd;
+
+export async function runHook(args: string[]): Promise<void> {
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+
+  const root = await resolveProjectRoot(parsed.root);
+  const name = parsed.name;
+  if (!name) {
+    error("Hook name is required (e.g. ignex hook require-admin).");
+    process.exitCode = 1;
+    return;
+  }
+  const isGlobal = parsed.global === true;
+  const stage = parsed.stage ?? "beforeHandle";
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
     error(
       `Invalid hook name "${name}" — use a valid JS identifier (e.g. require-admin → requireAdmin).`,
@@ -140,7 +168,7 @@ export async function runHook(args: string[]): Promise<void> {
   );
   if (
     !(await writeScaffold(hookPath, isGlobal ? globalHookTemplate(name) : namedHookTemplate(name), {
-      force: Boolean(values.force),
+      force: parsed.force === true,
       overwrite: true,
     }))
   ) {

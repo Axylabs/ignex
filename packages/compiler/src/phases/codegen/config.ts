@@ -15,12 +15,13 @@ export interface CodegenConfig {
   specializeContext: boolean;
   reusePort: boolean;
   routeCache: boolean;
-  treeshakeRuntime: boolean;
   hoistConstants: boolean;
   maxInlineBytes: number;
   inlineThreshold: number;
   enableTraceHeaders: boolean;
   enableAccessLog: boolean;
+  /** Dev-only per-route request counter (see `./heat`). */
+  heatCapture: boolean;
 }
 
 export const getConfig = (opts: CompilerOptions): CodegenConfig => ({
@@ -30,12 +31,12 @@ export const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   specializeContext: opts.specializeContext ?? true,
   reusePort: opts.reusePort ?? false,
   routeCache: opts.routeCache ?? true,
-  treeshakeRuntime: opts.treeshakeRuntime ?? true,
   hoistConstants: opts.hoistConstants ?? true,
   maxInlineBytes: opts.maxInlineBytes ?? 2048,
   inlineThreshold: opts.inlineThreshold ?? 50,
   enableTraceHeaders: opts.enableTraceHeaders ?? false,
   enableAccessLog: opts.enableAccessLog ?? false,
+  heatCapture: opts.heatCapture ?? false,
 });
 
 /** Convert an absolute module path into a relative import specifier (from `outDir`). */

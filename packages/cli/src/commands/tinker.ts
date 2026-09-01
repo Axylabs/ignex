@@ -21,9 +21,11 @@ import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as repl from "node:repl";
 import { pathToFileURL } from "node:url";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, success } from "../utils/logger.js";
+import { metaFor } from "./registry.js";
 
 /** What `ignex tinker` exposes in the REPL context. */
 interface TinkerContext {
@@ -110,14 +112,31 @@ async function connectDb(
   }
 }
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  db: {
+    type: "boolean",
+    default: true,
+    description: "Connect Mongo at boot (pass --no-db to skip)",
+  },
+} satisfies ArgsDef;
+
+export const tinkerCmd = defineCommand({
+  meta: metaFor("tinker"),
+  args: argsDef,
+  async run(ctx) {
+    await runTinker(ctx.rawArgs);
+  },
+});
+
+export default tinkerCmd;
+
 export async function runTinker(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    "no-db": { type: "boolean" },
-  });
-  const root = resolveRoot(values, positionals);
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+  const root = await resolveProjectRoot(parsed.root);
   const config = await loadConfig(root);
-  const dbFlag = values["no-db"] !== true;
+  const dbFlag = parsed.db !== false;
 
   const ctx: TinkerContext = {};
 

@@ -55,3 +55,11 @@ bench/results/server
 bench/results/server
 bench/results/compare
 .bun-tmp
+.ignex
+# Debugbar SPA build staging (scripts/gen-debug-ui.ts)
+.gen-debug-ui-*
+# Workspace-local package-manager caches (used when ~/.bun is unavailable)
+.bun-install/
+
+# throwaway DX dogfood app (docs/dx-improvement-plan.md)
+.dx-eval

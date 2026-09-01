@@ -12,10 +12,10 @@
  * Uses `node:fs/promises` for portability across Bun and Node runtimes.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { DiagnosticCodes, errorMessage } from "./diagnostics";
 import { isRouteFile } from "./phases/discovery";
 import type { CompilerContext, CompilerOptions, OptimizationMeta } from "./types";
@@ -25,8 +25,20 @@ import { projectPath } from "./utils/path";
 /**
  * Bump when the generated output format changes so stale caches are
  * invalidated even if inputs are identical.
+ *
+ * 0.9.0 — linker always bundles (routes/modules compiled into the artifact);
+ * helper DCE delegated to the bundler; `treeshakeRuntime` removed.
+ * 0.9.1 — dispatch-shell specialization: per-route `__wrapStatic` /
+ * `__wrapStaticSync` variants, build-time HEAD for constant GETs, dev heat
+ * capture (`heatCapture`).
+ * 0.9.2 — routes.d.ts emits quoted param keys (always-valid TS identifiers);
+ * cached companion artifacts regenerate on cache hits, but the version bump
+ * keeps every stored record's semantics aligned with the new artifact shape.
+ * 0.9.4 — bootstrap: `maxRequestBodySize` defaults to the core 64MB constant;
+ * websocket handlers get an injected default `maxPayloadLength`; graceful
+ * shutdown (SIGTERM/SIGINT drain) emitted for config-less apps too.
  */
-const COMPILER_CACHE_VERSION = "0.7.8";
+export const COMPILER_CACHE_VERSION = "0.9.5";
 
 const CACHE_FILE = ".ignex-cache.json";
 
@@ -52,12 +64,30 @@ export interface RouteChangeSet {
   readonly unchanged: string[];
 }
 
-const listFiles = (dir: string, base = ""): string[] => {
+/**
+ * Walk `dir` for fingerprinting. Symlinked directories are followed at most
+ * once per real target (same cycle guard as discovery's `scanDirectory`): the
+ * fingerprint must stay a finite, deterministic function of the tree even when
+ * it contains symlink cycles.
+ */
+const listFiles = (dir: string, base = "", seen: Set<string> = new Set()): string[] => {
   const out: string[] = [];
+
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return out;
+  }
+  if (seen.has(realDir)) return out;
+  seen.add(realDir);
 
   let entries: string[];
   try {
-    entries = readdirSync(dir);
+    // Sorted for a deterministic fingerprint: `readdir` order is
+    // OS-dependent, and the fingerprint hashes files in enumeration order —
+    // an unsorted walk made the same tree hash differently across machines.
+    entries = readdirSync(dir).sort();
   } catch {
     return out;
   }
@@ -76,7 +106,7 @@ const listFiles = (dir: string, base = ""): string[] => {
     }
 
     if (isDir) {
-      out.push(...listFiles(abs, rel));
+      out.push(...listFiles(abs, rel, seen));
     } else {
       out.push(rel);
     }
@@ -88,8 +118,11 @@ const listFiles = (dir: string, base = ""): string[] => {
 const hashFile = (absPath: string): string => {
   try {
     const content = readFileSync(absPath, "utf-8");
-    const stat = statSync(absPath);
-    return `${hashString(content)}:${stat.mtimeMs}`;
+    // Content ONLY — deliberately no mtime. Mixing mtime into the fingerprint
+    // made `git checkout`/`touch`/copy invalidate the whole-build cache even
+    // when every byte was identical, so builds logged "0 route(s) changed"
+    // yet still performed a full rebuild.
+    return `${hashString(content)}`;
   } catch {
     // Distinguish a DELETED file (cache miss as normal) from an unreadable one
     // (permission error, transient FS fault) so the cache never treats the
@@ -208,8 +241,34 @@ export const computeFingerprint = (opts: CompilerOptions): string => {
     hashDir(opts.hooksDir);
   }
 
-  if (opts.appConfig) {
-    chunks.push(`appConfig:${hashFile(projectPath(opts.appConfig))}`);
+  // Same default as phases/analysis/app-config.ts: when no explicit app config
+  // is passed, `./src/app.config.ts` is still a build input.
+  const appConfigPath = opts.appConfig ?? "./src/app.config.ts";
+  if (existsSync(projectPath(appConfigPath))) {
+    chunks.push(`appConfig:${hashFile(projectPath(appConfigPath))}`);
+    // The app config IMPORTS project files that the generated server bundles
+    // (db.ts, middleware/*, models, views, …). They are runtime inputs, so a
+    // content change must invalidate the whole-build cache exactly like a
+    // route edit does. Hash every file under the app-config directory except
+    // subtrees already hashed above (routesDir/hooksDir) — bounded to the
+    // app's own sources, never node_modules or dotdirs (listFiles skips both).
+    const appDir = dirname(projectPath(appConfigPath));
+    const excludedPrefixes = [opts.routesDir, opts.hooksDir]
+      .filter((dir): dir is string => typeof dir === "string" && existsSync(dir))
+      .map((dir) => {
+        let rel = "";
+        try {
+          rel = relative(appDir, realpathSync(dir)).replace(/\\/g, "/");
+        } catch {
+          rel = "";
+        }
+        return rel === "" || rel.startsWith("..") ? null : `${rel}/`;
+      })
+      .filter((prefix): prefix is string => prefix !== null);
+    for (const rel of listFiles(appDir)) {
+      if (excludedPrefixes.some((prefix) => rel.startsWith(prefix))) continue;
+      chunks.push(`appSrc/${rel}:${hashFile(join(appDir, rel))}`);
+    }
   }
 
   const core = corePackageDir();
@@ -255,12 +314,22 @@ const hashRouteContent = (absPath: string): string => {
 /**
  * Scan the routes directory and fingerprint every route source file, sorted
  * by relative path so the set is deterministic regardless of FS order.
+ *
+ * @param opts - The validated compiler options.
+ * @param routeFiles - Optional precomputed route-file relPaths (e.g. the
+ *   discovery phase's `files` list). Providing it skips a second directory
+ *   walk on full rebuilds; non-route entries are filtered defensively, so
+ *   passing a raw scan list is always safe.
  */
-export const fingerprintRouteFiles = (opts: CompilerOptions): RouteFingerprint[] => {
+export const fingerprintRouteFiles = (
+  opts: CompilerOptions,
+  routeFiles?: readonly string[],
+): RouteFingerprint[] => {
   if (!opts.routesDir || !existsSync(opts.routesDir)) return [];
 
+  const rels = routeFiles ?? listFiles(opts.routesDir);
   const out: RouteFingerprint[] = [];
-  for (const rel of listFiles(opts.routesDir)) {
+  for (const rel of rels) {
     if (!isRouteFile(rel)) continue;
     out.push({
       relPath: rel,
@@ -305,11 +374,17 @@ export const diffRouteFingerprints = (
  * Diff the current routes directory against the routes recorded in the last
  * stored cache. Returns `undefined` when there is no cached route fingerprint
  * set (e.g. the cache predates route fingerprinting) or no cache exists.
+ *
+ * `routeFiles` (a precomputed discovery file list) is forwarded to
+ * {@link fingerprintRouteFiles} to skip a redundant directory walk.
  */
-export const computeRouteChanges = (opts: CompilerOptions): RouteChangeSet | undefined => {
+export const computeRouteChanges = (
+  opts: CompilerOptions,
+  routeFiles?: readonly string[],
+): RouteChangeSet | undefined => {
   const record = readCache(opts);
   if (!record?.routes) return undefined;
-  return diffRouteFingerprints(record.routes, fingerprintRouteFiles(opts));
+  return diffRouteFingerprints(record.routes, fingerprintRouteFiles(opts, routeFiles));
 };
 
 const cachePath = (opts: CompilerOptions): string => join(opts.outDir, CACHE_FILE);
@@ -329,19 +404,35 @@ const readCache = (opts: CompilerOptions): CacheRecord | undefined => {
 /**
  * Returns the cached build (code + outFile) when inputs are unchanged and the
  * previous output still exists on disk, otherwise `undefined`.
+ *
+ * @param fingerprint - Precomputed whole-build fingerprint. The orchestrator
+ *   computes it once per build and shares it with {@link storeCache}; when
+ *   omitted it is computed here (standalone callers).
  */
 export const tryCachedBuild = async (
   opts: CompilerOptions,
   ctx: CompilerContext,
+  fingerprint?: string,
 ): Promise<{ code: string; outFile: string; meta?: OptimizationMeta } | undefined> => {
   try {
     const record = readCache(opts);
     if (!record) return undefined;
 
-    const fingerprint = computeFingerprint(opts);
-    if (record.fingerprint !== fingerprint) return undefined;
+    if (record.fingerprint !== (fingerprint ?? computeFingerprint(opts))) return undefined;
 
+    // Hardening: a tampered or hand-edited record must not point the read
+    // outside outDir (e.g. `"outFile": "../secrets.txt"` would feed an
+    // arbitrary file into the build output). Contained paths only.
+    if (typeof record.outFile !== "string" || record.outFile.length === 0) return undefined;
     const outFile = join(opts.outDir, record.outFile);
+    const rel = relative(opts.outDir, outFile);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      ctx.diagnostics.warn({
+        code: DiagnosticCodes.BuildCacheInvalid,
+        message: `Build cache ignored — recorded output escapes outDir: ${record.outFile}`,
+      });
+      return undefined;
+    }
     if (!existsSync(outFile)) return undefined;
 
     // A server entry whose validators/serializers/artifacts were deleted is
@@ -364,30 +455,40 @@ export const tryCachedBuild = async (
   }
 };
 
-/** Persist the current build's fingerprint so the next build can be skipped. */
+/**
+ * Persist the current build's fingerprint so the next build can be skipped.
+ *
+ * @param fingerprint - Precomputed whole-build fingerprint (shared with
+ *   {@link tryCachedBuild} so the tree is hashed once per build).
+ * @param routeFiles - Precomputed discovery file list, forwarded to
+ *   {@link fingerprintRouteFiles} to skip a redundant directory walk.
+ */
 export const storeCache = async (
   opts: CompilerOptions,
   ctx: CompilerContext,
   outPath: string,
   meta?: OptimizationMeta,
+  fingerprint?: string,
+  routeFiles?: readonly string[],
 ): Promise<void> => {
   try {
     const record: CacheRecord = {
       version: COMPILER_CACHE_VERSION,
-      fingerprint: computeFingerprint(opts),
+      fingerprint: fingerprint ?? computeFingerprint(opts),
       outFile: relative(opts.outDir, outPath).replace(/\\/g, "/"),
       timestamp: new Date().toISOString(),
-      routes: fingerprintRouteFiles(opts),
+      routes: fingerprintRouteFiles(opts, routeFiles),
       ...(meta ? { meta } : {}),
     };
 
     // Atomic write (temp + rename): a crash or a second concurrent build
     // (dev watcher + `ignex build`) can never leave a truncated .json that a
     // reader half-parses — the rename is atomic, so readers see either the
-    // old file or the complete new one.
+    // old file or the complete new one. Compact JSON: the cache is
+    // machine-consumed; pretty-printing cost bytes and time on every build.
     const path = cachePath(opts);
     const tmp = `${path}.tmp-${process.pid}`;
-    await writeFile(tmp, JSON.stringify(record, null, 2));
+    await writeFile(tmp, JSON.stringify(record));
     await rename(tmp, path);
   } catch (error) {
     ctx.diagnostics.warn({

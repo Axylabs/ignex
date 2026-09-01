@@ -19,6 +19,10 @@ await buildAsync({
   minify: true,
   sourceMap: false,
 
+  // Production shape: eliminates the devbar/tracing instrumentation and bakes
+  // `__IGNEX_PROD_BUILD` regardless of this process's NODE_ENV.
+  production: true,
+
   enableAccessLog: false,
 
   generateTypes: true,
@@ -27,7 +31,6 @@ await buildAsync({
 
   specializeContext: true,
   hoistConstants: true,
-  treeshakeRuntime: true,
   routeCache: true,
 
   precompileValidators: true,

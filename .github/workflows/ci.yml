@@ -14,6 +14,15 @@ concurrency:
 # bump deliberately, never silently via `latest`.
 env:
   BUN_VERSION: 1.4.0
+  # Pin the castrum addon revision CI builds against — previously the DEFAULT
+  # BRANCH floated, so CI validated a moving target that could be ahead of the
+  # `^0.9.1` production install (a parity pass proved nothing about what users
+  # actually get). Pinned to the exact revision every gate here was validated
+  # against (tag v0.9.3). To move: bump BOTH this and
+  # packages/native/package.json's optionalDependency deliberately, run
+  # `bun run verify:native:ffi && bun run verify:native:route` locally first,
+  # and keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
+  CASTRUM_REF: 0d8e4e84a96420e5dfcc2e6528a7c80303d200bf
 
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely
@@ -30,10 +39,39 @@ jobs:
       - name: Scan tracked files for credentials
         run: bun scripts/scan-secrets.ts
 
-  quality:
-    name: Quality gates
+  # Software supply-chain scanning (OSV): scans bun.lock + workspace manifests
+  # against the OSV vulnerability database and reports findings as a SARIF
+  # upload for the GitHub Security tab. Mirrors castrum's supply-chain job.
+  supply-chain:
+    name: Supply-chain scan (OSV)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: OSV scan
+        uses: google/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --recursive
+            .
+
+  # Quality gates across ALL supported platforms. Linux is the authoritative
+  # lane (native addon present); macOS/Windows exercise the pure-TS fallback
+  # end-to-end — typecheck, lint, tests, AOT build and both smoke modes must
+  # pass WITHOUT an addon, which is what every non-linux-x64 user actually runs.
+  quality:
+    name: Quality gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,6 +92,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # JS dependency audit: blocks on known high/critical advisories in the
+      # resolved tree. Mirrors castrum's audit gate so both repos of the
+      # framework meet the same supply-chain bar. Once per push (Linux lane).
+      - name: JS dependency audit
+        if: runner.os == 'Linux'
+        run: bun audit --audit-level=high
+
       - name: Typecheck (root)
         run: bun run typecheck
 
@@ -70,6 +115,7 @@ jobs:
         run: bun run test:coverage
 
       - name: Native bench sanity (fallback mode — no addon in this job)
+        if: runner.os == 'Linux'
         run: bun run bench:native
 
       - name: Build (AOT compile example app)
@@ -78,7 +124,7 @@ jobs:
       - name: Smoke (boot server + assert all routes/flows)
         run: bun run smoke
 
-      - name: Smoke (fallback mode — no native addon in this job)
+      - name: Smoke (fallback mode — no native addon on this lane)
         run: bun run smoke:fallback
 
       # AOT-compile + boot checks that the vitest suites don't cover (they need
@@ -92,10 +138,11 @@ jobs:
         run: bun run verify:cli:resource
 
       - name: Compiler cache-version check (vs last tag)
+        if: runner.os == 'Linux'
         run: bun run check:cache-versions
 
       - name: Upload coverage report
-        if: always()
+        if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -103,14 +150,23 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # Real-addon parity: build the castrum NAPI addon and run the native suites
-  # against it (nativePreflight terminal responses, RateLimiter, parity vectors).
-  # A hard gate: native parity regressions must fail loudly (the JS fallback
-  # would otherwise mask them silently).
+  # Real-addon parity on EVERY desktop/server platform: build the castrum NAPI
+  # addon FROM SOURCE on each OS and run the native suites against it. This is
+  # the gate that ends "linux-x64-only" drift — macOS (arm64) and Windows
+  # (x64-msvc) prove the addon compiles AND passes byte-parity off-Linux, and
+  # the loader discovers the platform binary without IGNEX_NATIVE_PATH hints.
+  # Non-Linux lanes are currently allow-listed (`continue-on-error`) until
+  # castrum publishes/verifies those targets — flip them to blocking as soon
+  # as they go green; do NOT remove them.
   native-parity:
-    name: Native parity (real addon)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Native parity (real addon, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    continue-on-error: ${{ runner.os != 'Linux' }}
     steps:
       - name: Checkout ignex
         uses: actions/checkout@v4
@@ -118,8 +174,10 @@ jobs:
       - name: Checkout castrum (Rust addon)
         uses: actions/checkout@v4
         with:
-          # Repo from castrum's package.json `repository` field.
+          # Repo from castrum's package.json `repository` field, PINNED to the
+          # tested revision (env.CASTRUM_REF) — never the floating default branch.
           repository: Axylabs/flux-rs
+          ref: ${{ env.CASTRUM_REF }}
           path: castrum
 
       - name: Setup Bun
@@ -139,9 +197,27 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
+      # Locate this platform's addon binary generically (naming varies by
+      # target triple: linux-x64-gnu, darwin-arm64, win32-x64-msvc, …) instead
+      # of hardcoding the Linux filename.
+      - name: Locate built addon
+        shell: bash
+        run: |
+          ADDON=$(find castrum -name '*.node' -type f | head -1)
+          if [ -z "$ADDON" ]; then
+            echo "::error::No .node addon produced by castrum build on ${RUNNER_OS}"
+            exit 1
+          fi
+          echo "IGNEX_NATIVE_PATH=$(pwd)/$ADDON" >> "$GITHUB_ENV"
+          echo "Addon: $ADDON"
+
+      # vendor/castrum.d.ts is the compile-time contract for @ignex/native —
+      # fail loudly when the real addon surface drifts from it (renamed or
+      # removed runtime exports would otherwise typecheck but break at runtime).
+      - name: Native type-stub surface check
+        run: bun run check:native:surface
+
       - name: Native parity + benchmark (real addon)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: |
           bun run test:native:real
           bun scripts/native-bench.ts
@@ -150,13 +226,9 @@ jobs:
       # dlopen bun:ffi) — the ONLY checks that exercise the C-ABI bindings
       # directly. Hard gate: a binding/parity regression must fail loudly.
       - name: C-ABI scalar parity (plain Bun, real addon)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run verify:native:ffi
 
       - name: Per-route native stack parity (plain Bun, real addon)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run verify:native:route
 
       # C-ABI (bun:ffi) is the PRIMARY transport — force it so a bind/self-test
@@ -164,7 +236,6 @@ jobs:
       # back to NAPI. `IGNEX_FFI_MODE=ffi` throws on any ffi failure.
       - name: Native tests — C-ABI (bun:ffi) forced
         env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
           IGNEX_FFI_MODE: ffi
         run: bun run test:native
 
@@ -172,24 +243,22 @@ jobs:
       # passes parity when C-ABI is explicitly disabled.
       - name: Native tests — NAPI forced
         env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
           IGNEX_FFI_MODE: napi
         run: bun run test:native
 
       # Batch + task-group stability gate: 12 batch entry points x 40 trials
       # must return 0 malformed results (exits non-zero otherwise).
       - name: Batch + task-group stability probe
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun scripts/bench-batch.ts --probe
 
   # End-to-end compiled-server regression gate (native on vs fallback).
   # Benchmarks the AOT-compiled app server and compares native req/s against
   # the committed baseline + the in-run fallback (see scripts/check-server-bench.ts).
-  # `bench/results/server/baseline.json` is COMMITTED (native-vs-baseline check is
-  # live when run params match). HARD gate: the previous /api/big native-mode
-  # overhead (~15-16%) was resolved (re-measured ~2% on 2026-08-19), so the perf
-  # regression gate can fail CI again.
+  # `bench/results/server/baseline.json` is COMMITTED — machine-sensitive, so
+  # this gate intentionally stays LINUX-ONLY (a committed baseline measured on
+  # one runner class cannot arbitrate regressions measured on another).
+  # HARD gate: the previous /api/big native-mode overhead (~15-16%) was resolved
+  # (re-measured ~2% on 2026-08-19), so the perf regression gate can fail CI again.
   server-bench:
     name: Server bench gate (real addon)
     runs-on: ubuntu-latest

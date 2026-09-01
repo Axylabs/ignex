@@ -14,6 +14,7 @@
  */
 
 import { loadCastrumModule } from "./loader";
+import { reportDegradation } from "./telemetry";
 
 /** Normalized result of a native pre-flight pipeline run. */
 export interface NativePreflightResult {
@@ -218,8 +219,15 @@ export const createNativePipeline = async (
             }
           : null;
         return { terminal, response: out.response ?? null, result };
-      } catch {
-        // Defensive: a native failure must never break the request flow.
+      } catch (err) {
+        // Defensive: report the degradation, then keep the request flow alive
+        // (fail-open, availability-first). Operators who need fail-closed
+        // semantics use `createNativeIngress` with `runtime.failClosed`.
+        reportDegradation(
+          "call-failed",
+          "pipeline.preprocess",
+          `native pipeline threw: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return { terminal: false, response: null, result: null };
       }
     },

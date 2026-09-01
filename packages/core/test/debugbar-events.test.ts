@@ -15,13 +15,11 @@ import { debugbar } from "../src/plugins/debugbar.js";
 const req = (path = "/", init: RequestInit = {}) =>
   new Request(`http://localhost:3000${path}`, init);
 
-let server: { requestIP(): null; fetch(r: Request): Promise<Response> };
-
 const run = (
   app: { handler(req: Request, srv?: unknown): Promise<Response> },
   path: string,
   init: RequestInit = {},
-) => app.handler(req(path, init), server);
+) => app.handler(req(path, init));
 
 const scratchDirs: string[] = [];
 afterEach(() => {
@@ -176,10 +174,7 @@ describe("debugbar AI summary", () => {
   it("serves the summary without a router (AOT-style context)", async () => {
     const app = appWith();
     const ctx = createContext(req("/__debugbar/api/ai/summary"), {}, {});
-    const res = await app.handler(
-      new Request("http://localhost:3000/__debugbar/api/ai/summary"),
-      server,
-    );
+    const res = await app.handler(new Request("http://localhost:3000/__debugbar/api/ai/summary"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { service: string };
     expect(typeof body.service).toBe("string");

@@ -7,7 +7,6 @@
  * these so existing `from "../types"` imports keep working unchanged.
  */
 
-import type { ContextUsage } from "@ignex/shared";
 import { FULL_USAGE } from "@ignex/shared";
 import type { CompilerOptions, HttpMethod } from "./types";
 
@@ -52,7 +51,6 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     precompileSerializers: false,
     hoistConstants: false,
     specializeContext: false,
-    treeshakeRuntime: false,
     routeCache: false,
     generateTypes: false,
     generateOpenAPI: false,
@@ -67,7 +65,6 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     precompileSerializers: false,
     hoistConstants: false,
     specializeContext: false,
-    treeshakeRuntime: false,
     routeCache: false,
   },
   2: {
@@ -79,7 +76,6 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     nativeRoutes: true,
     hoistConstants: true,
     specializeContext: true,
-    treeshakeRuntime: true,
     routeCache: true,
   },
   3: {
@@ -91,7 +87,6 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     nativeRoutes: true,
     hoistConstants: true,
     specializeContext: true,
-    treeshakeRuntime: true,
     routeCache: true,
     incremental: true,
   },
@@ -101,7 +96,10 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
 export const createDefaultOptions = (): CompilerOptions => ({
   routesDir: process.env.ROUTES_DIR || "./src/routes",
   appConfig: process.env.APP_CONFIG || "./src/app.config.ts",
-  maxRequestBodySize: 128 * 1024 * 1024,
+  // NOTE: no `maxRequestBodySize` literal here — the emitted bootstrap falls
+  // back to the shared core constant (DEFAULT_MAX_REQUEST_BODY_SIZE, 64MB) so
+  // the compiled server and the interpreted `serve()` enforce the SAME
+  // deliberate ceiling. Set this option explicitly to override.
   strictRouteConflicts: false,
   validateCookies: true,
   outDir: process.env.OUT_DIR || "./.ignex",
@@ -111,7 +109,11 @@ export const createDefaultOptions = (): CompilerOptions => ({
   optimizationLevel: 3,
   inlineThreshold: 50,
   enableHandlerDeduplication: true,
-  sourceMap: false,
+  // Source maps ON by default: the debugbar's stack/origin remapper
+  // (packages/core/src/debug/sourcemaps.ts) needs `<out>.js.map` next to the
+  // bundle to translate frames back to src/*.ts. Disable only when artifact
+  // size matters more than debuggability.
+  sourceMap: true,
   minify: false,
   verbose: false,
 
@@ -131,11 +133,11 @@ export const createDefaultOptions = (): CompilerOptions => ({
 
   hoistConstants: true,
   specializeContext: true,
-  treeshakeRuntime: true,
   routeCache: true,
   incremental: true,
 
   maxInlineBytes: 2048,
+  heatCapture: false,
 });
 
 /** The default {@link CompilerOptions} (see {@link createDefaultOptions}). */
@@ -149,5 +151,3 @@ export const DEFAULT_OPTS: CompilerOptions = createDefaultOptions();
  * order (`params` first) — see `codegen/routes/validate.ts` `PART_KINDS`.
  */
 export const SCHEMA_PARTS = ["body", "query", "params", "headers", "cookie"] as const;
-
-export type { ContextUsage };

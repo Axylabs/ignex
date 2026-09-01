@@ -15,7 +15,7 @@
  *   - correct status semantics (422 invalid id / 404 not found / 201 created)
  */
 
-import { type ModelField, pascalCase, pluralize } from "./model";
+import { pascalCase, pluralize } from "./model";
 
 /** The route file name for a method of the resource. */
 export const resourceRoutePath = (plural: string, kind: ResourceKind): string => {
@@ -224,8 +224,6 @@ bunx ignex db:sync
 \`\`\`
 `;
 };
-
-export type { ModelField };
 
 /**
  * The RBAC guard boilerplate (`src/lib/guards.ts`) — the APP-owned

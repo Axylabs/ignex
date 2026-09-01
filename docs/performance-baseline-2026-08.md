@@ -1045,3 +1045,54 @@ green. Dead-code pass: removed the duplicate JSDoc (negotiation.ts) + the unused
 `listed` array (content-encoding.ts); the castrum repo's other modified files
 are the user's in-progress work and were left untouched.
 
+
+## Round 16 — dispatch-shell specialization + dev heat capture (PGO) (2026-08-24)
+
+Two-part pass: (1) the compiler now emits per-route wrapper variants instead of
+one runtime-checked `__wrap` for every route, and (2) `ignex dev` captures
+per-route request heat so the compiler's hotness heuristic becomes
+profile-guided.
+
+### 1. Wrapper variants chosen at build time (`packages/compiler/src/phases/codegen/`)
+- Pass 1 records a `WrapVariant` per table-bound handler name
+  (`state.wrapVariants`, from `generateRouteCode` / `emitConstantRoute`);
+  pass 2 binds it. Unrecorded routes (WS, wildcards) keep the generic
+  runtime-checked `__wrap` — exact prior behavior.
+- **`__wrapStatic`** — static routes (incl. `:param`) drop the wildcard block:
+  no `wildcards.length` branch, no per-request `new URL(req.url)` parse, no
+  spread fallback. **`__wrapStaticSync`** — constant-hoisted and sync compact
+  routes additionally drop the Promise funnel (`.catch` path only on a sync
+  throw). The `needsFull && sync` resume path deliberately stays on the async
+  static wrapper (its non-async core can still return a Promise via the cold
+  hook-resume continuation).
+- **Build-time auto-HEAD for constant GETs**: a module-level
+  `function HEAD_<ref>() { return new Response(null, INIT_<ref>); }` is bound
+  directly in the routes table — HEAD probes no longer run the GET handler +
+  `await` + `new Headers()` re-wrap. Static GETs use `__headStatic`; wildcard
+  GETs keep `__head`. Shared `__stripForHead` deduplicates the strip logic.
+- The `__fallback` OPTIONS memoized wrapper switched to `__wrapStatic`.
+- `COMPILER_CACHE_VERSION` → 0.9.1 (generated shape changed).
+
+### 2. Dev heat capture (`heatCapture` option; `ignex dev` default-on, `--no-heat` opts out)
+- Codegen emits a dev-only counter module (`codegen/heat.ts`): per-route
+  `__heat["METHOD path"]` increments as the first statement of each core fn +
+  an unref'd interval flush to `<outDir>/hot-routes.json`. Zero cost in prod
+  builds (option defaults off and is part of the build fingerprint).
+- Analysis merges measured counts into `hotnessScore`
+  (`phases/analysis/heat.ts`): log-scaled contribution
+  `min(10, floor(log2(count+1)))` so session volume cannot swamp the static
+  fan-in score. Missing/malformed files degrade silently. Feeds the existing
+  inline-budget priority + dedup-leader choice (PGO).
+
+### Verified end-to-end
+- Live loop: `ignex dev` on packages/app + 3 curls → `.ignex/hot-routes.json`
+  = `{"GET /":2,"GET /health":1}` (exact match); next build's manifest picks up
+  the heat bonus (test asserts `hotnessScore` delta == `heatContribution(n)`).
+- Built artifact: 18× `__wrapStatic` GET bindings, direct const HEAD for `/`,
+  zero generic `__wrap` bindings (app has no wildcard routes).
+
+### Gates
+New `dispatch-shell.test.ts` (10 tests: variant binding matrix, HEAD consts,
+heat emission on/off, manifest heat merge, malformed-file tolerance).
+Full suites green (compiler 297+10, core 820, shared, cli, mcp), verify:quick,
+smoke 52/52 native AND `IGNEX_NATIVE=off` fallback parity.

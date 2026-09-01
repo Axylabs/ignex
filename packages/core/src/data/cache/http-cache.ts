@@ -41,6 +41,10 @@ interface StoredEntry {
  * Only cacheable responses (per `Cache-Control`/`Set-Cookie` rules) are
  * stored; oversized bodies are rejected. `getOrSet` de-duplicates concurrent
  * misses for the same key.
+ *
+ * Requests carrying an `Authorization` header (or cookies, unless the caller
+ * varies on `cookie`) bypass the cache entirely — see {@link HttpResponseCache.getOrSet}
+ * options `allowAuthorized` / `allowCookies` for the explicit opt-outs.
  */
 export class HttpResponseCache {
   private store: HttpResponseCacheStore;
@@ -188,9 +192,28 @@ export class HttpResponseCache {
       staleTtlMs?: number;
       vary?: string[];
       etag?: boolean;
+      allowAuthorized?: boolean;
+      allowCookies?: boolean;
     } = {},
   ): Promise<Response> {
     if (req.method !== "GET" && req.method !== "HEAD") {
+      return factory();
+    }
+
+    // RFC 9111 §3.5: a shared cache MUST NOT serve a stored response for a
+    // request carrying Authorization unless explicitly allowed — the cache
+    // key does not include credentials, so serving one would leak response
+    // bodies across users. Cookie-bearing requests are bypassed too unless
+    // the caller varies on `cookie` (per-cookie keys) or opts in, because
+    // session-scoped output silently cross-poisones anonymous keys otherwise.
+    if (!opts.allowAuthorized && req.headers.has("authorization")) {
+      return factory();
+    }
+    if (
+      !opts.allowCookies &&
+      !opts.vary?.some((h) => h.toLowerCase() === "cookie") &&
+      req.headers.has("cookie")
+    ) {
       return factory();
     }
 

@@ -4,6 +4,7 @@
  */
 
 import { sseEncode } from "@ignex/native";
+import { encoder } from "./encoder";
 
 /** Options for an individual SSE event frame. */
 export interface SSEOptions {
@@ -36,7 +37,6 @@ export const sse = (
   init?: ResponseInit,
   options: { signal?: AbortSignal } = {},
 ): Response => {
-  const encoder = new TextEncoder();
   const { signal } = options;
   let stopped = false;
 
@@ -68,11 +68,35 @@ export const sse = (
         else signal.addEventListener("abort", onAbort, { once: true });
       }
 
+      /**
+       * Backpressure guard: `controller.enqueue` never blocks, so a consumer
+       * that stops reading (slow client, dead keep-alive socket) would grow
+       * the internal queue without bound while the generator keeps producing.
+       * Pause pulling from the generator whenever the stream's desired size
+       * is non-positive (consumer is behind), and tear the generator down
+       * when the backlog persists — the connection is effectively dead at
+       * that point and the generator's timers/loops must be released.
+       */
+      const waitDrained = async (): Promise<boolean> => {
+        let waits = 0;
+        while (!stopped && !signal?.aborted && (controller.desiredSize ?? 1) <= 0) {
+          // ~1s of sustained backlog (1ms × 1000) with zero drain progress:
+          // treat the consumer as gone.
+          if (++waits > 1000) return false;
+          await new Promise((r) => setTimeout(r, 1));
+        }
+        return true;
+      };
+
       try {
         for await (const chunk of generator as AsyncGenerator<string | SSEMessage>) {
           if (stopped || signal?.aborted) break;
           const msg = typeof chunk === "string" ? { data: chunk } : chunk;
           controller.enqueue(encoder.encode(formatSSE(msg)));
+          if (!(await waitDrained())) {
+            stop();
+            break;
+          }
         }
       } catch {
         /* stream closed */

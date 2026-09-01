@@ -79,6 +79,11 @@ export interface NatsTrackerOptions {
   connect?: boolean;
   /** Payload truncation cap in chars. Default 4000. */
   maxPayloadChars?: number;
+  /**
+   * Mutation notification (record/clear) — used by the debugbar's live-stream
+   * revision counters; called after each recorded event.
+   */
+  onNotify?: () => void;
 }
 
 /** Connection status string, monotonic across (re)connect attempts. */
@@ -417,7 +422,10 @@ export class NatsEventTracker {
   private readonly events: NatsEvent[] = [];
   private started = false;
 
+  private readonly onNotify: (() => void) | null;
+
   constructor(options: NatsTrackerOptions = {}) {
+    this.onNotify = options.onNotify ?? null;
     const url = options.url ?? process.env.NATS_URL ?? null;
     this.enabled = url !== null && url !== "";
     this.url = url;
@@ -479,6 +487,7 @@ export class NatsEventTracker {
       error,
     });
     if (this.events.length > this.maxEvents) this.events.shift();
+    this.onNotify?.();
   }
 
   /** Recent events, newest first, optional filters. */
@@ -518,6 +527,7 @@ export class NatsEventTracker {
   /** Drop the buffer (connection stays up). */
   clear(): void {
     this.events.length = 0;
+    this.onNotify?.();
   }
 
   /** Aggregate stats. */

@@ -325,3 +325,17 @@ export declare function formParsePacked(input: Uint8Array): Uint8Array;
 
 /** Castrum ingress pipeline factory (TS-layer export — the "route manager" adapter). */
 export declare function createPipeline(options?: unknown): unknown;
+
+/** Sharded counters/gauges/histograms registry (castrum `metrics` domain). */
+export declare class MetricsRegistry {
+  constructor();
+  counter(name: string, labelKeys?: string[] | null): number;
+  gauge(name: string, labelKeys?: string[] | null): number;
+  histogram(name: string, labelKeys?: string[] | null, buckets?: number[] | null): number;
+  record(series: number, values?: string[] | null, amount?: number): void;
+  gaugeSet(series: number, values: string[] | null, value: number): void;
+  render(): string;
+  /** Packed v1 series snapshot (families then series — see castrum registry). */
+  snapshot(): Uint8Array;
+  seriesCount?(): number;
+}

@@ -90,7 +90,15 @@ export const createNotifier = (options: NotifierOptions = {}): Notifier => {
           text: typeof payload === "string" ? payload : JSON.stringify(payload, null, 2),
           meta: { notification: name },
         };
-        await options.mailer.send(message).catch(() => {});
+        // A silently swallowed send failure meant notifications vanished
+        // without a trace — log it (the notification flow itself still
+        // continues; email failure must not fail the request).
+        await options.mailer.send(message).catch((err) => {
+          console.error(
+            `[ignex] notifier: mail delivery failed for "${name}" → ${user.email}:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
       }
     },
   };

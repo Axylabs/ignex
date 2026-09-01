@@ -92,21 +92,32 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
   const { store, handlers, concurrency = 1, pollIntervalMs = 250, leaseMs = 60_000 } = options;
 
   const inFlight = new Map<string, Promise<void>>();
+  /** jobId → the leaseOwner token minted when THIS worker claimed it. */
+  const owners = new Map<string, string>();
   let running = 0;
   let pending = 0;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const runClaimed = async (job: StoredJob): Promise<void> => {
+    // Ownership token minted by THIS worker's claim — threaded into every
+    // store mutation so a losing racer can never mark someone else's job
+    // done (the cross-process double-run/double-complete bug).
+    const owner = job.leaseOwner ? { owner: job.leaseOwner } : undefined;
     const handler = handlers[job.name];
     if (!handler) {
-      await store.fail(job.id, new Error(`No handler registered for job '${job.name}'`));
+      await store.fail(
+        job.id,
+        new Error(`No handler registered for job '${job.name}'`),
+        undefined,
+        owner,
+      );
       return;
     }
 
     try {
       await handler(job.payload, { attempt: job.attempts + 1 });
-      await store.complete(job.id);
+      await store.complete(job.id, owner);
 
       if (job.intervalMs != null) {
         // Recurring durable job: re-enqueue for the next interval.
@@ -120,6 +131,7 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
         // Clear the completion/lease state carried over from the old record.
         delete next.lastError;
         delete next.leaseUntil;
+        delete next.leaseOwner;
         await store.enqueue(next);
         pending += 1;
       }
@@ -128,10 +140,10 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
     } catch (error) {
       const attempt = job.attempts + 1;
       if (attempt >= job.maxAttempts) {
-        await store.fail(job.id, error);
+        await store.fail(job.id, error, undefined, owner);
         options.onFailed?.(job, error);
       } else {
-        await store.fail(job.id, error, Date.now() + backoffFor(attempt));
+        await store.fail(job.id, error, Date.now() + backoffFor(attempt), owner);
         options.onRetry?.(job, error, attempt);
       }
     }
@@ -145,7 +157,8 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
 
       // Renew leases of in-flight jobs every tick so slow jobs are never stolen.
       for (const id of inFlight.keys()) {
-        await store.heartbeat(id, now + leaseMs);
+        const owner = owners.get(id);
+        await store.heartbeat(id, now + leaseMs, owner ? { owner } : undefined);
       }
 
       // Recover jobs whose leases expired (crashed workers).
@@ -163,6 +176,7 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
         // `onError` and always clean up `running`/`inFlight`. Previously this
         // `void task.finally(...)` produced an UNHANDLED rejection that
         // bypassed both `onRetry`/`onFailed` and `onError`.
+        if (job.leaseOwner) owners.set(job.id, job.leaseOwner);
         running += 1;
         const task = runClaimed(job);
         inFlight.set(job.id, task);
@@ -173,6 +187,7 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
           .finally(() => {
             running -= 1;
             inFlight.delete(job.id);
+            owners.delete(job.id);
           });
       }
     } catch (error) {

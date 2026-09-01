@@ -225,6 +225,24 @@ const applySetCookies = (h: Headers, cookie: Record<string, ElysiaCookie> | unde
 };
 
 /**
+ * Materialize a `Headers` instance into a plain string record.
+ *
+ * Uses the runtime's native `headers.toJSON()` when available (Bun: a single
+ * C++ pass, ~5× faster than `Object.fromEntries(headers.entries())`, which
+ * allocates an intermediate entries array plus one pair array per header) and
+ * falls back to the spec-shaped iteration elsewhere. Values are already
+ * lower-cased keys on both paths.
+ */
+export const headersToRecord = (headers: Headers): Record<string, string> => {
+  const toJSON = (headers as { toJSON?: () => unknown }).toJSON;
+  if (typeof toJSON === "function") {
+    const out = toJSON.call(headers) as unknown;
+    if (out !== null && typeof out === "object") return out as Record<string, string>;
+  }
+  return Object.fromEntries(headers.entries());
+};
+
+/**
  * Apply accumulated header + cookie mutations to a `Headers` instance.
  *
  * Single shared implementation for the in-place `mutateHeaders` path and the

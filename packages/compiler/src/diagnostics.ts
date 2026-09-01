@@ -58,6 +58,8 @@ export const DiagnosticCodes = {
   DeadRoute: "IGN_ROUTE_DEAD",
   /** A route file has no handler export — it would silently 404. */
   NoHandlerExport: "IGN_NO_HANDLER_EXPORT",
+  /** A route file is empty and produces no route. */
+  EmptyRouteFile: "IGN_EMPTY_ROUTE_FILE",
   /** A schema failed Ajv standalone compilation; validation was dropped. */
   ValidatorCompileFailed: "IGN_VALIDATOR_COMPILE_FAILED",
   /** Response schema serialization fell back to JSON.stringify. */
@@ -70,6 +72,8 @@ export const DiagnosticCodes = {
   ConfigEvalFailed: "IGN_CONFIG_EVAL_FAILED",
   /** A route references a hook module that does not exist or has no default export. */
   HookMissing: "IGN_HOOK_MISSING",
+  /** Guards could not be statically evaluated; the runtime wrapper is kept. */
+  OpaqueGuards: "IGN_OPAQUE_GUARDS",
   /** Writing a generated artifact failed. */
   ArtifactWriteFailed: "IGN_ARTIFACT_WRITE_FAILED",
   /** A compiler option is deprecated and no longer affects output. */

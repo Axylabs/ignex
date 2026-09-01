@@ -1,0 +1,3 @@
+{
+  "ignorePatterns": [".bun-install", ".npm-tmp-cache", ".gen-debug-ui-*"]
+}

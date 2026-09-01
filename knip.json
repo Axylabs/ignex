@@ -1,0 +1,43 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts", "bench/**/*.ts"],
+      "project": ["scripts/**/*.ts", "bench/**/*.ts"],
+      "ignoreDependencies": ["@tailwindcss/cli", "tailwindcss"]
+    },
+    "packages/compiler": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["@ignex/core"]
+    },
+    "packages/cli": {
+      "project": ["src/**/*.ts", "bin/**/*.js"]
+    },
+    "packages/mcp": {
+      "project": ["src/**/*.ts", "bin/**/*.js"]
+    },
+    "packages/create": {
+      "entry": [],
+      "project": ["bin/**/*.js", "test/**/*.ts"]
+    },
+    "packages/app": {
+      "entry": [
+        "src/**/*.ts",
+        "test/fixtures/matrix/builder.ts",
+        "test/fixtures/matrix/src/**/*.ts"
+      ],
+      "project": ["**/*.ts"]
+    },
+    "packages/test-utils": {},
+    "packages/core": {
+      "entry": ["src/debug/ui/index.tsx"]
+    }
+  },
+  "ignoreBinaries": ["oha", "builder.ts", "demo", "flatc"],
+  "ignoreExportsUsedInFile": true,
+  "includeEntryExports": false,
+  "ignore": ["packages/native/src/execution.ts", "packages/core/src/security/csrf.ts"],
+  "rules": {
+    "duplicates": "off"
+  }
+}

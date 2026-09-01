@@ -12,9 +12,20 @@
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, step, success } from "../utils/logger.js";
+import { metaFor } from "./registry.js";
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  create: {
+    type: "boolean",
+    description: "Scaffold src/seed.ts when missing, then exit (run it afterwards)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+} satisfies ArgsDef;
 
 /** Seed script body — imports the generated db wiring and inserts example data. */
 export const seedTemplate = (): string => `import { db, initDb, service } from "./db.js";
@@ -30,16 +41,23 @@ console.log("[seed] done");
 await service.closeConnections();
 `;
 
+export const seedCmd = defineCommand({
+  meta: metaFor("seed"),
+  args: argsDef,
+  async run(ctx) {
+    await runSeed(ctx.rawArgs);
+  },
+});
+
+export default seedCmd;
+
 /** Run `ignex seed`. */
 export async function runSeed(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    create: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // The optional `create` positional is a flag-like action, never the root.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const wantsCreate = Boolean(values.create) || positionals[0] === "create";
+  const root = await resolveProjectRoot(parsed.root);
+  const wantsCreate = parsed.create === true || parsed._.includes("create");
 
   const seedPath = join(root, "src", "seed.ts");
   if (!(await exists(seedPath))) {

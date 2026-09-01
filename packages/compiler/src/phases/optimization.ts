@@ -7,6 +7,7 @@
  * re-transpiles handler bodies.
  */
 
+import { DiagnosticCodes } from "../diagnostics";
 import type { InlineCandidate } from "../ir/route";
 import type {
   CompilerContext,
@@ -31,6 +32,12 @@ export const isInlineEligible = (
   if (route.analysis.hasValidation) return false;
   if (route.analysis.hooks.length > 0) return false;
   if (route.analysis.isConstantResponse) return false;
+
+  // SECURITY: opaque guards (`PERMS.X` constants the evaluator cannot fold)
+  // mean the static guard chain is incomplete. Inlining drops the runtime
+  // `withGuards` wrapper, which would silently downgrade authorization to
+  // authenticated-only — keep the wrapper so the real guards run per request.
+  if (route.analysis.guards?.opaque) return false;
 
   // A handler can only be inlined into the generated server when its body is
   // fully self-contained: imports that the body references would be dropped,
@@ -69,6 +76,29 @@ export const detectInlineCandidates = (
 
 // ── Inline candidate resolution (moved out of codegen) ───────────
 
+/** Minimal Bun.Transpiler surface the inliner uses. */
+interface InlineTranspiler {
+  transformSync(code: string): string;
+}
+
+/**
+ * Shared TS→JS transpiler for handler-body inlining. Constructing
+ * `Bun.Transpiler` is not free and the instance is stateless — one per process,
+ * created lazily on first candidate (vitest workers may lack `Bun.Transpiler`,
+ * which caches the `null` answer too).
+ */
+let sharedTranspiler: InlineTranspiler | null | undefined;
+const getTranspiler = (): InlineTranspiler | null => {
+  if (sharedTranspiler !== undefined) return sharedTranspiler;
+  const bun = (
+    globalThis as {
+      Bun?: { Transpiler?: new (opts: { loader: string }) => InlineTranspiler };
+    }
+  ).Bun;
+  sharedTranspiler = bun?.Transpiler ? new bun.Transpiler({ loader: "ts" }) : null;
+  return sharedTranspiler;
+};
+
 /**
  * Transpile a handler body from TS to plain JS so it can be safely inlined
  * into the generated `.js` server. Returns `null` when the body cannot be
@@ -80,17 +110,10 @@ export const detectInlineCandidates = (
  * inlined raw.
  */
 export const transpileHandlerBody = (body: string, isAsync: boolean): string | null => {
-  const bun = (
-    globalThis as {
-      Bun?: {
-        Transpiler?: new (opts: { loader: string }) => { transformSync(code: string): string };
-      };
-    }
-  ).Bun;
+  const t = getTranspiler();
 
-  if (bun?.Transpiler) {
+  if (t) {
     try {
-      const t = new bun.Transpiler({ loader: "ts" });
       // Wrap so top-level `return` / `await` are legal, then extract the inner
       // body from the transpiled (type-erased) function.
       const wrapped = t.transformSync(
@@ -265,31 +288,46 @@ export const runOptimization = (
   modules: readonly ModuleInfo[],
   opts: CompilerOptions,
   ctx: CompilerContext,
-): OptimizationResult =>
-  ctx.logger.time("optimization", () => {
-    const inlined = detectInlineCandidates(routes, modules, opts.inlineThreshold);
+): OptimizationResult => {
+  // Timing is owned by the pipeline stage that calls this (single
+  // `logger.time("optimization")` entry — the phase itself does not re-wrap).
+  // Surface opaque guards once per file: the RBAC AOT optimization is
+  // skipped and the runtime wrapper is preserved (never a silent downgrade).
+  for (const route of routes) {
+    if (!route.analysis.guards?.opaque) continue;
+    const mod = modules[route.source.moduleIdx];
+    ctx.diagnostics.warn({
+      code: DiagnosticCodes.OpaqueGuards,
+      message:
+        `Route '${route.source.file}': withGuards argument is not statically evaluable — ` +
+        "keeping the runtime wrapper so the real guards execute per request",
+      file: mod?.path ?? route.source.file,
+    });
+  }
 
-    const deduped = opts.enableHandlerDeduplication ? deduplicateRoutes(inlined) : inlined;
+  const inlined = detectInlineCandidates(routes, modules, opts.inlineThreshold);
 
-    // Resolve + transpile inline candidates up-front so codegen only reads
-    // `decisions.inlineCandidate` (no re-derivation, no re-transpile).
-    const resolved = computeInlineCandidates(deduped, modules, opts);
-    // Hot-first global inlining budget (opt-in; no-op by default).
-    const finalized = applyInlineBudget(resolved, opts);
+  const deduped = opts.enableHandlerDeduplication ? deduplicateRoutes(inlined) : inlined;
 
-    const inlinedCount = countInlined(finalized);
-    const dedupedCount = countDeduped(finalized);
+  // Resolve + transpile inline candidates up-front so codegen only reads
+  // `decisions.inlineCandidate` (no re-derivation, no re-transpile).
+  const resolved = computeInlineCandidates(deduped, modules, opts);
+  // Hot-first global inlining budget (opt-in; no-op by default).
+  const finalized = applyInlineBudget(resolved, opts);
 
-    ctx.logger.info(`Optimized: ${inlinedCount} inlined | ${dedupedCount} deduplicated`);
+  const inlinedCount = countInlined(finalized);
+  const dedupedCount = countDeduped(finalized);
 
-    return {
-      routes: finalized,
-      meta: {
-        inlined: inlinedCount,
-        deduplicated: dedupedCount,
-        // A route whose handler is merged into the leader's no longer emits
-        // its own handler — it is effectively eliminated from the output.
-        eliminated: dedupedCount,
-      },
-    };
-  });
+  ctx.logger.info(`Optimized: ${inlinedCount} inlined | ${dedupedCount} deduplicated`);
+
+  return {
+    routes: finalized,
+    meta: {
+      inlined: inlinedCount,
+      deduplicated: dedupedCount,
+      // A route whose handler is merged into the leader's no longer emits
+      // its own handler — it is effectively eliminated from the output.
+      eliminated: dedupedCount,
+    },
+  };
+};

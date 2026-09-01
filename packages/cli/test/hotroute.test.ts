@@ -20,7 +20,7 @@ import {
   hotResourceReadmeTemplate,
   hotRouteTemplates,
 } from "../src/templates/hotroute.js";
-import { parseFlagDocs } from "../src/utils/completion.js";
+import { flagsFromArgs } from "../src/utils/completion.js";
 
 test("hotCacheTemplate wires a shared HotCache over the collection", () => {
   const code = hotCacheTemplate("Gig");
@@ -158,10 +158,12 @@ describe("runHotRoute target layout", () => {
     expect(dbSrc).toContain('await db.createSchema("events");');
   });
 
-  test("exposes the hotroute command with its flags", () => {
-    const cmd = findCommand("hotroute");
-    expect(cmd).toBeDefined();
-    const flags = parseFlagDocs(cmd?.options);
+  test("exposes the hotroute command with its flags", async () => {
+    expect(findCommand("hotroute")).toBeDefined();
+    // Flags come from the typed citty args definition (loaded lazily).
+    const { loadCommand } = await import("../src/commands/loaders.js");
+    const cmd = await loadCommand("hotroute");
+    const flags = flagsFromArgs((cmd?.args ?? {}) as never);
     expect(flags.some((f) => f.flag === "--fields")).toBe(true);
   });
 });

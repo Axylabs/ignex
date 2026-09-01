@@ -1,9 +1,10 @@
 /**
  * Dev-only plugin elimination tests.
  *
- * `debugbar()` must never degrade a production build: when it is provably
- * disabled (explicit `enabled: false`, or the default mode in a production
- * build), the compiler drops it from the per-request lifecycle so routes keep
+ * `debugbar()` must never degrade — or ship inside — a production build: when
+ * the build is production-shaped, EVERY reachable debugbar is eliminated
+ * (explicit `IGNEX_DEBUG=1` at build time opts back in). When it is provably
+ * disabled (`enabled: false`, or default mode in production), routes keep
  * constant-response hoisting and usage-specialized contexts.
  */
 
@@ -11,7 +12,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SourceManager } from "../src/frontend";
 import { buildAsync } from "../src/index";
 import { isProductionBuild, resolveAppConfig } from "../src/phases/analysis/app-config";
-import { analyzeDevOnlyPlugins } from "../src/phases/analysis/dev-only-plugins";
+import {
+  analyzeDevOnlyPlugins,
+  debugbarStubRewrite,
+} from "../src/phases/analysis/dev-only-plugins";
+import { parseToAst } from "../src/utils/ast/parse/bridge";
 import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
 
 const origNodeEnv = process.env.NODE_ENV;
@@ -39,9 +44,14 @@ describe("analyzeDevOnlyPlugins", () => {
     expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
-  it("keeps debugbar({ enabled: true }) even in a production build", () => {
-    const r = analyze(configSource("debugbar", "debugbar({ enabled: true })"), true);
+  it("keeps debugbar({ enabled: true }) in a dev-shaped build", () => {
+    const r = analyze(configSource("debugbar", "debugbar({ enabled: true })"), false);
     expect(r).toEqual({ eliminated: 0, kept: 1, totalElements: 1 });
+  });
+
+  it("eliminates debugbar({ enabled: true }) in a production build (IGNEX_DEBUG=1 is the only opt-in)", () => {
+    const r = analyze(configSource("debugbar", "debugbar({ enabled: true })"), true);
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
   it("eliminates the default debugbar() in a production build", () => {
@@ -59,12 +69,12 @@ describe("analyzeDevOnlyPlugins", () => {
     expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
-  it("keeps debugbar with a non-literal enabled expression (conservative)", () => {
+  it("eliminates a non-literal enabled expression in a production build (env decides at runtime, build decides inclusion)", () => {
     const r = analyze(
       configSource("debugbar", "debugbar({ enabled: process.env.X === '1' })"),
       true,
     );
-    expect(r).toEqual({ eliminated: 0, kept: 1, totalElements: 1 });
+    expect(r).toEqual({ eliminated: 1, kept: 0, totalElements: 1 });
   });
 
   it("only eliminates the debugbar elements when mixed with real plugins", () => {
@@ -74,26 +84,47 @@ describe("analyzeDevOnlyPlugins", () => {
 
   it("does nothing without a debugbar import", () => {
     const r = analyze(configSource("compression", "compression()"), true);
+    // Non-empty array without a debugbar import: UNKNOWN shape → conservative
+    // `totalElements: 1` so callers keep the export active.
+    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 1 });
+  });
+
+  it("treats a statically empty plugins array as hook-free", () => {
+    const r = analyze(`export const plugins = [];\n`, true);
     expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 0 });
+    // …even when debugbar is imported but never registered.
+    const r2 = analyze(
+      `import { debugbar } from "@ignex/core";\nexport const plugins = [];\n`,
+      false,
+    );
+    expect(r2).toEqual({ eliminated: 0, kept: 0, totalElements: 0 });
+  });
+
+  it("is conservative for unknown plugin shapes (no static array)", () => {
+    const src = `import p from "./p";\nexport const plugins = p;\n`;
+    const r = analyze(src, true);
+    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 1 });
   });
 
   it("is conservative for aliased imports (no elimination)", () => {
     const src = `import { debugbar as db } from "@ignex/core";\nexport const plugins = [db()];\n`;
     const r = analyze(src, true);
-    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 0 });
+    expect(r).toEqual({ eliminated: 0, kept: 0, totalElements: 1 });
   });
 
-  it("keeps debugbar hidden inside spread conditionals (__TRACE_DEBUG signal)", () => {
+  it("folds spread-hidden debugbar out of production builds (__TRACE_DEBUG signal)", () => {
     const src = `import { debugbar } from "@ignex/core";\nexport const plugins = [...(env.DEBUG ? [debugbar({ enabled: true })] : [])];\n`;
     const sm = new SourceManager();
     const file = sm.fromSource("/tmp/app.config.ts", "./src/app.config.ts", src);
-    // Even in a production build an explicit enabled:true is never eliminated —
-    // the spread must not hide it from the instrumentation decision.
+    // Dev build: kept — the debugbar could be enabled at runtime.
     const dev = analyzeDevOnlyPlugins(file, false);
     expect(dev.kept).toBe(1);
+    // Production build: eliminated everywhere — a stray DEBUG=true env file
+    // must not compile the toolbar into the artifact. IGNEX_DEBUG=1 at build
+    // time is the explicit opt-back-in (it flips the production decision).
     const prod = analyzeDevOnlyPlugins(file, true);
-    expect(prod.kept).toBe(1);
-    expect(prod.eliminated).toBe(0);
+    expect(prod.kept).toBe(0);
+    expect(prod.eliminated).toBe(0); // top-level elimination stays conservative for spreads
   });
 
   it("still folds a default debugbar() inside a spread in production builds", () => {
@@ -111,11 +142,51 @@ describe("analyzeDevOnlyPlugins", () => {
     expect(isProductionBuild({ compile: true } as never)).toBe(true);
     expect(isProductionBuild({} as never)).toBe(false);
 
+    // The explicit `production` option (set by `ignex build` by default)
+    // implies the production shape without NODE_ENV or a binary compile.
+    expect(isProductionBuild({ production: true } as never)).toBe(true);
+    expect(isProductionBuild({ production: false } as never)).toBe(false);
+
     process.env.NODE_ENV = "production";
     expect(isProductionBuild({} as never)).toBe(true);
     process.env.IGNEX_DEBUG = "1";
     expect(isProductionBuild({} as never)).toBe(false);
     expect(isProductionBuild({ compile: true } as never)).toBe(false);
+    expect(isProductionBuild({ production: true } as never)).toBe(false);
+  });
+});
+
+describe("debugbarStubRewrite (production artifact slimming)", () => {
+  it("rebinds the import to an inert local stub, keeping sibling specifiers", () => {
+    const src =
+      `import { compression, debugbar, openapi } from "@ignex/core";\n` +
+      `export const plugins = [compression(), debugbar(), openapi()];\n`;
+    const out = debugbarStubRewrite(src);
+    expect(out).not.toBeNull();
+    expect(out).toContain('const debugbar = () => ({ name: "debugbar", __ignexDevOnly: true });');
+    expect(out).toMatch(/import \{ compression,\s*openapi \} from "@ignex\/core";/);
+  });
+
+  it("handles aliased bindings and both comma positions", () => {
+    const src =
+      `import { debugbar as db } from "@ignex/core";\n` +
+      `import { debugbar } from "@ignex/core/index";\n` +
+      `export const plugins = [debugbar(), db()];\n`;
+    const out = debugbarStubRewrite(src);
+    expect(out).not.toBeNull();
+    expect(out).toContain("const db = ");
+    expect(out).toContain("const debugbar = ");
+    // The rewritten module must stay syntactically valid.
+    expect(() => parseToAst(out as string)).not.toThrow();
+  });
+
+  it("returns null without a static named debugbar import", () => {
+    expect(debugbarStubRewrite(`export const plugins = [];\n`)).toBeNull();
+    expect(
+      debugbarStubRewrite(
+        `import * as core from "@ignex/core";\nexport const p = [core.debugbar()];\n`,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -168,6 +239,42 @@ describe("production build keeps AOT optimizations", () => {
     expect(result.errors).toHaveLength(0);
     // The debugbar could be enabled → the route needs the full context.
     expect(result.code).toContain("__ctxOpts_");
+  });
+
+  it("the `production: true` option shapes the artifact with NODE_ENV unset", async () => {
+    // `ignex build` sets `production: true` by default — the deploy artifact
+    // must be production-shaped even when the CI/dev shell has no NODE_ENV.
+    const layout = materializeFixture("debugbar");
+    delete process.env.NODE_ENV;
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      minify: false,
+      sourceMap: false,
+      incremental: false,
+      generateTypes: false,
+      generateOpenAPI: false,
+      generateClient: false,
+      precompileValidators: false,
+      precompileSerializers: false,
+      appConfig: fixturePath("debugbar", "app.config.ts"),
+      production: true,
+    });
+    expect(result.errors).toHaveLength(0);
+    // Debugbar eliminated → tracing instrumentation folded out + AOT restored.
+    expect(result.code).toContain("const __TRACE_DEBUG = false");
+    expect(result.code).not.toContain("__ctxOpts_");
+    // The runtime guard is baked so a launch without NODE_ENV stays locked.
+    expect(result.code).toContain("globalThis.__IGNEX_PROD_BUILD = true");
+    // Safe error responses by default under a production shape.
+    expect(result.code).toContain("const EXPOSE_ERRORS = false");
+    // The TLS policy never auto-generates dev certs in a prod-shaped artifact.
+    expect(result.code).toContain("production: true,\n  certDir:");
+    // The import-binding stub treeshakes the debug graph out of the bundle:
+    // no dashboard SPA (tailwind CSS string), no observatory endpoints.
+    expect(result.code).not.toContain("tailwindcss");
+    expect(result.code).not.toContain("createEndpointTable");
   });
 
   it("bakes __TRACE_DEBUG from whether a debugbar is kept for the build", async () => {

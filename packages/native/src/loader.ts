@@ -26,6 +26,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { reportDegradation } from "./telemetry";
 import type * as Castrum from "./vendor/castrum";
 
 /** The typed surface of the loaded addon. */
@@ -250,12 +251,28 @@ const requireAddon = (nodePath: string): unknown => {
 const normalize = (mod: unknown): unknown =>
   (mod as { default?: unknown }).default ?? (mod as { rust?: unknown }).rust ?? mod;
 
-/** One-time (and debug-gated) log so broken addon loads are diagnosable. */
+/**
+ * One-time load-failure report. ALWAYS routed through the telemetry sink
+ * (previously debug-gated — a broken addon install degraded every op to JS
+ * with zero signal in production); `IGNEX_NATIVE=debug` additionally logs the
+ * raw error detail.
+ */
 let reportedLoadFailure = false;
 const reportLoadFailure = (err: unknown): void => {
-  if (reportedLoadFailure || process.env.IGNEX_NATIVE !== "debug") return;
+  if (reportedLoadFailure) return;
   reportedLoadFailure = true;
-  console.info("[ignex-native] failed to load addon:", err);
+  reportDegradation(
+    "surface-missing",
+    "addon.load",
+    `castrum addon failed to load — all ops pinned to their pure-TS fallbacks${
+      process.env.IGNEX_NATIVE === "debug"
+        ? `: ${err instanceof Error ? err.message : String(err)}`
+        : ""
+    }`,
+  );
+  if (process.env.IGNEX_NATIVE === "debug") {
+    console.info("[ignex-native] failed to load addon:", err);
+  }
 };
 
 /** Resolved castrum `.node` binary path (or `null`). Cached for FFI/dlopen reuse. */

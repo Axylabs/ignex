@@ -34,10 +34,17 @@ export {
   backendName,
   createExecutionBackend,
   createNativeRoute,
+  csrfVerifyBatch,
+  type DegradationEvent,
+  type DegradationKind,
+  degradationCounts,
+  degradationTotal,
   type ExecutionBackend,
   type ExecutionOpStatus,
   type ExecutionStatus,
   executionStatus,
+  hmacSha256Batch,
+  hmacSha256VerifyBatch,
   type IgnexExecution,
   implFor,
   initNative,
@@ -46,10 +53,15 @@ export {
   type NativeRouteFrame,
   type NativeRoutePlan,
   type NativeRouteRunResult,
+  type NativeRouteSnapshot,
+  nativeRouteHandler,
   type OpDecision,
   type OpName,
   SELECTION,
+  setNativeTelemetrySink,
+  signCookieBatch,
   useNative,
+  verifyCookieBatch,
 } from "@ignex/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
 export {
@@ -146,14 +158,18 @@ export { compileValidator, validateAsync, validateOrThrow } from "./data/schema"
 export {
   createFileStore,
   createMemoryStore,
+  createRedisRateLimitStore,
   createRedisStore,
   createSqliteStore,
   createStoreManager,
   type FileStoreOptions,
   type MaybePromise,
   type MemoryStoreOptions,
+  type RedisRateLimitStore,
+  type RedisRateLimitStoreOptions,
   type RedisStoreOptions,
   redisMissingError,
+  redisRateLimitMissingError,
   type SqliteStoreOptions,
   type Store,
   type StoreManagerOptions,
@@ -169,7 +185,18 @@ export {
 } from "./debug/api";
 // ── debug (developer dashboard primitives) ──────────────────────
 export { ClientRegistry, type PublishedClient } from "./debug/clients";
+export { analyzeSamples, forceGc, linearTrend } from "./debug/leaks";
+export {
+  activeLogStore,
+  captureConsole,
+  debugLog,
+  installLogStore,
+  LogStore,
+  uninstallLogStore,
+} from "./debug/logs";
+export { MetricsRegistry } from "./debug/metrics";
 export { NatsEventTracker } from "./debug/nats-tracker";
+export { ObservatoryDb } from "./debug/persist";
 export { TraceStore } from "./debug/store";
 export { SystemProfiler } from "./debug/system";
 export {
@@ -178,9 +205,21 @@ export {
 } from "./debug/tracer";
 export type {
   AiDebugSummary,
+  AppStateSnapshot,
   DebugApi,
   DebugSpanHandle,
+  DiagnosticsReport,
+  HistoryQuery,
+  HistoryTraceSummary,
+  LeakFinding,
+  LogLevel,
+  LogQuery,
+  LogRecord,
+  LogStats,
+  MetricsSnapshot as ObservatoryMetricsSnapshot,
+  PersistStatus,
   RequestTrace,
+  RouteMetrics,
   Span,
   SpanAttrs,
   SpanKind,
@@ -189,7 +228,7 @@ export type {
 } from "./debug/types";
 // ── http ────────────────────────────────────────────────────────
 export type { LazyBody, LazyBodyOptions } from "./http/body";
-export { BodyParseError, createLazyBody } from "./http/body";
+export { BodyParseError, createLazyBody, readBodyBounded } from "./http/body";
 export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";
 export { createContext } from "./http/context";
 export {
@@ -198,6 +237,7 @@ export {
   createCookieJar,
   createLazyCookieJar,
   parseCookieString,
+  readRequestCookie,
   serializeCookie,
 } from "./http/cookies";
 export { safeJoin, sendFile, streamDownload } from "./http/files";
@@ -210,7 +250,7 @@ export {
   withBody,
 } from "./http/finalize";
 export type { SetHeaders } from "./http/headers";
-export { applySet, mutateHeaders } from "./http/headers";
+export { applySet, headersToRecord, mutateHeaders } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
 export {
   createRouter,
@@ -219,6 +259,10 @@ export {
   type RouterMethod,
 } from "./http/router";
 export { formatSSE, type SSEMessage, type SSEOptions, sse } from "./http/sse";
+export {
+  type ServeStaticAppOptions,
+  serveStaticApp,
+} from "./http/static-app";
 export {
   DEFAULT_SERVER_IDLE_TIMEOUT,
   DEV_CERT_FILENAMES,
@@ -232,6 +276,18 @@ export {
   type ServerProtocolConfig,
   type ServerTlsConfig,
 } from "./http/tls";
+export {
+  DEFAULT_UPLOAD_TYPES,
+  type SavedUpload,
+  type SaveUploadOptions,
+  type ServeUploadOptions,
+  sanitizeFileName,
+  saveUpload,
+  serveUpload,
+  type UploadRejection,
+  type UploadSuccess,
+  type UploadTypes,
+} from "./http/uploads";
 export {
   createWSConnections,
   createWSHandler,
@@ -255,6 +311,8 @@ export {
   buildPostStages,
   buildPreStages,
   createApp,
+  DEFAULT_MAX_REQUEST_BODY_SIZE,
+  DEFAULT_WS_MAX_PAYLOAD_LENGTH,
   debugStageEnd,
   lifecycleTracing,
   POST_HANDLER_STAGES,
@@ -319,12 +377,20 @@ export type {
   JobHandler,
 } from "./platform/jobs-durable";
 export { createDurableJobQueue } from "./platform/jobs-durable";
-export type { JobStatus, JobStore, StoredJob } from "./platform/jobs-store";
+export type {
+  JobCompletionOptions,
+  JobRetentionOptions,
+  JobStatus,
+  JobStore,
+  StoredJob,
+  StoreJobStoreOptions,
+} from "./platform/jobs-store";
 export {
   createFileJobStore,
   createSqliteJobStore,
   createStoreJobStore,
   newJobId,
+  openStoreJobStore,
 } from "./platform/jobs-store";
 export {
   createMailer,
@@ -369,6 +435,13 @@ export { type CompressionOptions, compression } from "./plugins/compression";
 export { type CorsOptions, cors } from "./plugins/cors";
 export { csrf } from "./plugins/csrf";
 export { type DebugbarOptions, debugbar } from "./plugins/debugbar";
+export {
+  type HealthProbeOptions,
+  healthProbe,
+  type ReadinessCheck,
+  type ReadinessReport,
+  runReadinessChecks,
+} from "./plugins/health";
 export { type LoggerOptions, logger } from "./plugins/logger";
 export {
   createOtlpExporter,
@@ -405,6 +478,16 @@ export {
 } from "./plugins/rbac";
 export { type SecurityOptions, security } from "./plugins/security";
 export { type SessionPluginOptions, session } from "./plugins/session";
+// ── realtime rpc ────────────────────────────────────────────────
+export type {
+  RpcKitCompiledValidator,
+  RpcKitContext,
+  RpcKitMethod,
+  RpcKitOptions,
+  RpcKitSchema,
+  RpcManifestDoc,
+} from "./rpc/kit";
+export { createRpcKit } from "./rpc/kit";
 // ── security ────────────────────────────────────────────────────
 export type { AuthUser, JwtAuthOptions } from "./security/auth";
 export {
@@ -451,6 +534,7 @@ export {
 } from "./security/crypto";
 export type { CsrfGuardOptions } from "./security/csrf";
 export { createCsrfGuard } from "./security/csrf";
+export { devSessionSecret } from "./security/dev-secret";
 export type {
   Session,
   SessionManager,

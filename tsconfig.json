@@ -9,6 +9,8 @@
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

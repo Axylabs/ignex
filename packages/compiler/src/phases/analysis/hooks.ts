@@ -22,6 +22,11 @@ export const collectHookNames = (routes: readonly RouteIR[]): Set<string> => {
  * Resolve and validate a single hook module: it must exist under `hooksDir`
  * and parse successfully. Emits `IGN_HOOK_MISSING` when it does not. The
  * module is read + parsed through the build's {@link SourceManager} (once).
+ *
+ * A missing hook is a HARD ERROR, not a warning: codegen references the hook
+ * identifier inside the emitted route function, so an unresolved hook would
+ * otherwise ship as a per-request `ReferenceError` (a typo'd auth hook would
+ * silently take routes down in production).
  */
 export const resolveHook = (
   name: string,
@@ -33,9 +38,11 @@ export const resolveHook = (
   const abs = projectPath(rel);
 
   if (!existsSync(abs)) {
-    ctx?.diagnostics.warn({
+    ctx?.diagnostics.error({
       code: DiagnosticCodes.HookMissing,
-      message: `Route references hook '${name}' but '${rel}' does not exist.`,
+      message:
+        `Route references hook '${name}' but '${rel}' does not exist. ` +
+        `Create the hook module or remove it from the route's config.hooks.`,
       file: abs,
     });
     return undefined;
@@ -45,8 +52,9 @@ export const resolveHook = (
 
   if (content === undefined) {
     // The hook exists but could not be read (permissions, transient IO) —
-    // surface it instead of treating it as a valid empty hook module.
-    ctx?.diagnostics.warn({
+    // fail the build: emitting a reference without its import would ship a
+    // per-request ReferenceError.
+    ctx?.diagnostics.error({
       code: DiagnosticCodes.IoReadFailed,
       message: `Hook '${name}' exists but could not be read: ${rel}`,
       file: abs,

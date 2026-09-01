@@ -6,10 +6,11 @@
  */
 
 import type { RouteIR } from "../../types";
-import { escapeRegExp, pathRegexSource, wildcardNames } from "../../utils/route-path";
+import { hashString } from "../../utils/hash";
+import { pathRegexSource, wildcardNames } from "../../utils/route-path";
 
 // Re-exported for existing callers (see codegen/index.ts).
-export { escapeRegExp, wildcardNames };
+export { wildcardNames };
 
 export const handlerImportName = (route: RouteIR): string => `handler_${route.codegen.handlerRef}`;
 
@@ -24,7 +25,28 @@ export const constantBodyVar = (route: RouteIR): string => `BODY_${route.codegen
 
 export const constantInitVar = (route: RouteIR): string => `INIT_${route.codegen.handlerRef}`;
 
-export const hookIdent = (name: string): string => `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+/** Module-level build-time HEAD handler for a constant-hoisted route ref. */
+export const headConstName = (ref: string): string => `HEAD_${ref}`;
+
+/**
+ * Module-level pre-built static Response for a constant-hoisted route ref —
+ * bound directly into Bun's native routes table (served in Rust, zero JS).
+ */
+export const staticResponseName = (ref: string): string => `STATIC_RES_${ref}`;
+
+/**
+ * Generated identifier for a hook module's default export.
+ *
+ * Sanitization is lossy (`auth-basic` and `auth_basic` both collapse to
+ * `hook_auth_basic`, which would emit a duplicate declaration). When any
+ * character was replaced, the RAW name is mixed into a deterministic suffix so
+ * distinct hook names always yield distinct identifiers; clean names keep the
+ * historical `hook_<name>` form unchanged.
+ */
+export const hookIdent = (name: string): string => {
+  const base = `hook_${name.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+  return /^[a-zA-Z0-9_$]+$/.test(name) ? base : `${base}_${hashString(name)}`;
+};
 
 /** Module-level const name for a route's Nth guard hook. */
 export const guardIdent = (route: RouteIR, index: number): string =>
@@ -62,6 +84,9 @@ export const guardHookEmissions = (route: RouteIR): GuardHookEmission[] => {
 };
 
 export const cacheVar = (route: RouteIR): string => `CACHE_${route.codegen.handlerRef}`;
+
+/** Frozen per-route cache options const (hoisted out of the request path). */
+export const cacheOptsVar = (route: RouteIR): string => `CACHE_OPTS_${route.codegen.handlerRef}`;
 
 /** Frozen per-route context options const (hoisted — was a per-request literal). */
 export const ctxOptsVar = (route: RouteIR): string => `__ctxOpts_${route.codegen.handlerRef}`;

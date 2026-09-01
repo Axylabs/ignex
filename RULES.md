@@ -99,7 +99,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 - When you add/rename/move files or exports, update `AGENTS.md`, `RULES.md`,
   the relevant `.agents/skills/`, `docs/*.md`, and regenerate the scaffolding
   map (`bun run gen:ai-map`).
-- Keep `CHANGELOG.md` in sync with `package.json` (currently 0.1.7); keep
+- Keep `CHANGELOG.md` in sync with `package.json` (currently 0.1.11); keep
   JSDoc on exported symbols (`jsdoc:check:strict`).
 
 ## 7. Local development with core projects (maintainers & AI only)

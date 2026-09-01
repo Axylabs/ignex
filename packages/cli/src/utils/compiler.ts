@@ -2,7 +2,8 @@ import { isAbsolute, join } from "node:path";
 import { type CompileResult, type CompilerOptions, formatDiagnostic } from "@ignex/compiler";
 import { loadConfig } from "./config.js";
 import { exists } from "./fs.js";
-import { step, warn } from "./logger.js";
+import { info, step, warn } from "./logger.js";
+import { emitRealtimeArtifact, ensureLocalRealtimeSdk } from "./realtime-artifact.js";
 
 /**
  * CLI flags are mapped to real CompilerOptions names here.
@@ -18,8 +19,10 @@ const CLI_TO_COMPILER: Partial<Record<string, keyof CompilerOptions>> = {
   target: "target",
   cache: "routeCache",
   routeCache: "routeCache",
+  heatCapture: "heatCapture",
   verbose: "verbose",
   compile: "compile",
+  production: "production",
   "binary-outfile": "binaryOutfile",
   bytecode: "bytecode",
 };
@@ -98,6 +101,27 @@ export async function buildProject(
     ...opts,
     ...resolveRootedPaths(root, opts as unknown as Record<string, unknown>),
   } as CompilerOptions;
+
+  // Realtime bootstrap BEFORE compiling: the compiled server imports the
+  // generated wire stack (bindings + typed facade), so the SDK must exist
+  // before route compilation. Emitting realtime.json + regenerating the SDK
+  // here also guarantees the bundle never embeds a STALE wire stack (a stale
+  // stack silently corrupts frames — see docs/dx-improvement-plan.md).
+  const realtimeOutDir = String(rootedOpts.outDir ?? ".ignex");
+  try {
+    if (await emitRealtimeArtifact(root, realtimeOutDir)) {
+      if (await ensureLocalRealtimeSdk(root, realtimeOutDir)) {
+        info(`Local realtime SDK: ${join(realtimeOutDir, "sdk")}`);
+      }
+    }
+  } catch (err) {
+    throw new Error(
+      `Realtime SDK generation failed — install @ignex/nova and the FlatBuffers ` +
+        `compiler (flatc), or remove src/realtime.ts. ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+    );
+  }
 
   step(
     `Compiling ${String(rootedOpts.routesDir ?? "src/routes")} → ${String(

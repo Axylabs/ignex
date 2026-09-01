@@ -18,9 +18,71 @@ import {
   tagSdkVersion,
   writeSdk,
 } from "@ignex/compiler";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { buildProject } from "../utils/compiler.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, formatError, info, success } from "../utils/logger.js";
+import { emitRealtimeArtifact } from "../utils/realtime-artifact.js";
+import { metaFor } from "./registry.js";
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  platform: {
+    type: "string",
+    valueHint: "typescript|openapi|flatbuffers|realtime|all",
+    description: "Comma-separated SDK platforms (default typescript)",
+  },
+  name: {
+    type: "string",
+    valueHint: "pkg",
+    description: "SDK package name (default: app SDK name)",
+  },
+  scope: { type: "string", valueHint: "@scope", description: "npm scope" },
+  version: {
+    type: "string",
+    valueHint: "x.y.z",
+    description: "SDK version (default: nearest package.json)",
+  },
+  out: { type: "string", valueHint: "dir", description: "SDK package output dir" },
+  "tag-prefix": {
+    type: "string",
+    valueHint: "prefix",
+    description: "Git tag prefix (default sdk-v)",
+  },
+  push: { type: "boolean", description: "Tag + push the SDK version to git" },
+  publish: { type: "boolean", description: "npm publish each platform package" },
+  release: { type: "boolean", description: "Attach the packed tarball to a GitHub release" },
+  registry: { type: "string", valueHint: "url", description: "npm registry for --publish" },
+  access: {
+    type: "string",
+    valueHint: "public|restricted",
+    description: "npm access for scoped packages (default public)",
+  },
+  "dist-tag": {
+    type: "string",
+    valueHint: "tag",
+    description: "npm dist-tag (default latest)",
+  },
+  token: { type: "string", valueHint: "token", description: "GitHub token (default: env)" },
+  repo: {
+    type: "string",
+    valueHint: "owner/repo",
+    description: "GitHub repo (default: origin remote)",
+  },
+  "dry-run": { type: "boolean", description: "Generate + print the plan, distribute nothing" },
+  "no-build": { type: "boolean", description: "Skip the rebuild; use existing artifacts" },
+} satisfies ArgsDef;
+
+export const sdkCmd = defineCommand({
+  meta: metaFor("sdk"),
+  args: argsDef,
+  async run(ctx) {
+    await runSdk(ctx.rawArgs);
+  },
+});
+
+export default sdkCmd;
 
 interface SdkCommandArgs {
   root: string;
@@ -61,58 +123,40 @@ const versionFromPackage = (root: string): string | undefined => {
   return undefined;
 };
 
-const parseSdkArgs = (args: string[]): SdkCommandArgs => {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    platform: { type: "string" },
-    name: { type: "string" },
-    scope: { type: "string" },
-    version: { type: "string" },
-    out: { type: "string" },
-    "tag-prefix": { type: "string" },
-    push: { type: "boolean" },
-    publish: { type: "boolean" },
-    release: { type: "boolean" },
-    registry: { type: "string" },
-    access: { type: "string" },
-    "dist-tag": { type: "string" },
-    token: { type: "string" },
-    repo: { type: "string" },
-    "dry-run": { type: "boolean" },
-    "no-build": { type: "boolean" },
-  });
+const parseSdkArgs = async (args: string[]): Promise<SdkCommandArgs> => {
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
-  const platformsRaw = (values.platform as string | undefined) ?? "typescript";
+  const platformsRaw = parsed.platform ?? "typescript";
   const platforms = platformsRaw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((id) => (id === "all" ? "typescript,openapi,flatbuffers" : id))
+    .map((id) => (id === "all" ? "typescript,openapi,flatbuffers,realtime" : id))
     .join(",")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean) as SdkPlatformId[];
 
-  const access = values.access === "restricted" ? "restricted" : "public";
+  const access = parsed.access === "restricted" ? "restricted" : "public";
 
   return {
-    root: resolveRoot(values, positionals),
+    root: await resolveProjectRoot(parsed.root),
     platforms,
-    name: (values.name as string | undefined) ?? process.env.SDK_NAME,
-    scope: (values.scope as string | undefined) ?? process.env.SDK_SCOPE,
-    version: (values.version as string | undefined) ?? process.env.SDK_VERSION,
-    out: values.out as string | undefined,
-    tagPrefix: (values["tag-prefix"] as string | undefined) ?? "sdk-v",
-    push: values.push === true,
-    publish: values.publish === true,
-    release: values.release === true,
-    registry: (values.registry as string | undefined) ?? process.env.SDK_NPM_REGISTRY,
+    name: parsed.name ?? process.env.SDK_NAME,
+    scope: parsed.scope ?? process.env.SDK_SCOPE,
+    version: parsed.version ?? process.env.SDK_VERSION,
+    out: parsed.out,
+    tagPrefix: parsed["tag-prefix"] ?? "sdk-v",
+    push: parsed.push === true,
+    publish: parsed.publish === true,
+    release: parsed.release === true,
+    registry: parsed.registry ?? process.env.SDK_NPM_REGISTRY,
     access,
-    distTag: (values["dist-tag"] as string | undefined) ?? "latest",
-    token: values.token as string | undefined,
-    dryRun: values["dry-run"] === true,
-    skipBuild: values["no-build"] === true,
-    repo: values.repo as string | undefined,
+    distTag: parsed["dist-tag"] ?? "latest",
+    token: parsed.token,
+    dryRun: parsed["dry-run"] === true,
+    skipBuild: parsed["no-build"] === true,
+    repo: parsed.repo,
   };
 };
 
@@ -175,7 +219,7 @@ const distributeSdk = (
 };
 
 export async function runSdk(args: string[]): Promise<void> {
-  const parsed = parseSdkArgs(args);
+  const parsed = await parseSdkArgs(args);
 
   info(`SDK: ${parsed.platforms.join(", ")} for ${parsed.root}`);
 
@@ -191,6 +235,12 @@ export async function runSdk(args: string[]): Promise<void> {
       outDir = opts.outDir;
     }
     if (!isAbsolute(outDir)) outDir = join(parsed.root, outDir);
+
+    // Refresh the realtime artifact (both paths above resolve outDir the same
+    // way), so `--no-build` still picks up src/realtime.ts changes.
+    if (await emitRealtimeArtifact(parsed.root, outDir)) {
+      info(`Realtime artifact: ${join(outDir, "realtime.json")}`);
+    }
 
     const version = parsed.version ?? versionFromPackage(parsed.root) ?? "0.0.0";
 

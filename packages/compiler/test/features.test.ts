@@ -68,11 +68,9 @@ describe("compiler features", () => {
     expect(off.precompileValidators).toBe(false);
     expect(off.precompileSerializers).toBe(false);
     expect(off.inlineThreshold).toBe(0);
-    expect(off.treeshakeRuntime).toBe(false);
 
     const full = mergeOptions({ optimizationLevel: 3 });
     expect(full.precompileValidators).toBe(true);
-    expect(full.treeshakeRuntime).toBe(true);
 
     const custom = mergeOptions({ optimizationLevel: 0, inlineThreshold: 77 });
     expect(custom.inlineThreshold).toBe(77);

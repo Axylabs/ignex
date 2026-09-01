@@ -70,7 +70,6 @@ const result = await buildAsync({
   generateClient: false,
   specializeContext: true,
   hoistConstants: true,
-  treeshakeRuntime: true,
   routeCache: false,
   precompileValidators: false,
   precompileSerializers: false,
@@ -82,7 +81,13 @@ check(
   "rbac guards emitted",
   result.code.includes('can("users:read")') && result.code.includes('can("users:write")'),
 );
-check("guard hook chain wired", /\[__guard__h\d+_\d+/.test(result.code));
+check(
+  "guard hook chain wired",
+  // Guards wire either into a bracketed per-route array or merged into the
+  // config-driven before chain (`[..., __guard__h0_0]`) when the route module
+  // was loadable at build time.
+  /\[\s*__guard__h\d+_\d+/.test(result.code) || /,\s*__guard__h\d+_\d+\]/.test(result.code),
+);
 
 console.log(
   failures === 0

@@ -36,10 +36,26 @@ export interface EdDsaJwtSignOptions {
 export interface EdDsaJwtVerifyOptions {
   /** Current epoch seconds (defaults to `Date.now() / 1000`). */
   nowSeconds?: number;
+  /**
+   * Reject tokens without a numeric `exp` claim. Default `true` — mirrors
+   * HS256 `jwtVerify`: non-expiring tokens must be an explicit opt-out,
+   * never a silent consequence of omitting `ttlSeconds` at sign time.
+   */
+  requireExp?: boolean;
 }
 
 /** Clock-skew leeway (seconds) for the `iat` claim — matches HS256 + native. */
 const IAT_LEEWAY_SECONDS = 60;
+
+/**
+ * Enforce `requireExp` on a successful EdDSA verify result — same contract as
+ * the HS256 helper in `./crypto` (wrapper-level so native and fallback agree).
+ */
+const enforceRequireExp = <T>(claims: T, requireExp: boolean): T | null => {
+  if (!requireExp) return claims;
+  if (claims == null || typeof claims !== "object") return null;
+  return typeof (claims as Record<string, unknown>).exp === "number" ? claims : null;
+};
 
 /** An Ed25519 keypair serialized for `.env` storage (base64url DER strings). */
 export interface Ed25519Keypair {
@@ -201,12 +217,13 @@ export const jwtVerifyEdDsa = (
 ): unknown | null => {
   const key = derBytes(publicKey);
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const requireExp = options.requireExp ?? true;
   const nv = nativeFor("jwtVerifyEdDsa");
   if (nv) {
     const result = nv.jwtVerifyEddsa(toBytes(token), key, now);
-    return result ?? null;
+    return enforceRequireExp(result ?? null, requireExp);
   }
-  return jwtVerifyEdDsaFallback(toStr(toBytes(token)), key, now);
+  return enforceRequireExp(jwtVerifyEdDsaFallback(toStr(toBytes(token)), key, now), requireExp);
 };
 
 /** Time-claim checks (`exp`/`nbf`/`iat`) for the EdDSA verify fallback. */

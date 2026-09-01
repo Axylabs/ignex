@@ -25,8 +25,11 @@ import {
   isFile,
 } from "./form-data";
 import { resolveLimits } from "./limits";
-import { assertContentLength, assertParsedSize, textByteLength } from "./size";
+import { assertContentLength, assertParsedSize, readBodyBounded } from "./size";
 import type { BodyKind, LazyBody, LazyBodyOptions } from "./types";
+
+/** UTF-8 decoder for bounded raw-byte reads (shared, stateless for our use). */
+const utf8 = new TextDecoder();
 
 /**
  * Normalized media type of a request's `Content-Type` header — lowercased,
@@ -132,9 +135,7 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
           // is already known, so parse straight from bytes via Bun's native
           // req.json() — skipping the text → TextEncoder → JSON.parse
           // round-trip — and reuse the header value for the post-parse size
-          // guard (`parsedRawBytes`/`assertParsedSize`). Fall back to text +
-          // measure only for chunked bodies that omit content-length, where
-          // the wire-byte length must actually be measured to enforce limits.
+          // guard (`parsedRawBytes`/`assertParsedSize`).
           const contentLength = req.headers.get("content-length");
           const len =
             contentLength === null || contentLength.trim() === ""
@@ -144,10 +145,17 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
             parsedRawBytes = len;
             return (await req.json()) as T;
           }
-          const text = await req.text();
-          parsedRawBytes = textByteLength(text);
-          return JSON.parse(text) as T;
-        } catch {
+          // Chunked body (no content-length): Bun's req.json()/req.text()
+          // would buffer the WHOLE stream (up to Bun.serve's
+          // maxRequestBodySize per in-flight request) BEFORE any size guard
+          // could run — a transient memory amplification under concurrent
+          // attack. Read through `readBodyBounded`, which aborts mid-stream
+          // with 413 the moment the running total exceeds the limit.
+          const bytes = await readBodyBounded(req, limits.maxJsonBytes);
+          parsedRawBytes = bytes.byteLength;
+          return JSON.parse(utf8.decode(bytes)) as T;
+        } catch (err) {
+          if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid JSON body", 400);
         }
       },
@@ -159,8 +167,15 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "text",
       async () => {
         try {
-          return await req.text();
-        } catch {
+          // Chunked bodies stream under the cap (see json() above); bodies
+          // with content-length keep Bun's native fast path.
+          const contentLength = req.headers.get("content-length");
+          if (contentLength !== null && contentLength.trim() !== "") {
+            return await req.text();
+          }
+          return utf8.decode(await readBodyBounded(req, limits.maxTextBytes));
+        } catch (err) {
+          if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid text body", 400);
         }
       },
@@ -172,8 +187,16 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "arrayBuffer",
       async () => {
         try {
-          return await req.arrayBuffer();
-        } catch {
+          const contentLength = req.headers.get("content-length");
+          if (contentLength !== null && contentLength.trim() !== "") {
+            return await req.arrayBuffer();
+          }
+          const bytes = await readBodyBounded(req, limits.maxFileBytes);
+          const out = new ArrayBuffer(bytes.byteLength);
+          new Uint8Array(out).set(bytes);
+          return out;
+        } catch (err) {
+          if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid binary body", 400);
         }
       },
@@ -185,8 +208,16 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
       "blob",
       async () => {
         try {
-          return await req.blob();
-        } catch {
+          const contentLength = req.headers.get("content-length");
+          if (contentLength !== null && contentLength.trim() !== "") {
+            return await req.blob();
+          }
+          const bytes = await readBodyBounded(req, limits.maxFileBytes);
+          const copy = new Uint8Array(bytes.byteLength);
+          copy.set(bytes);
+          return new Blob([copy.buffer as ArrayBuffer]);
+        } catch (err) {
+          if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid blob body", 400);
         }
       },
@@ -206,14 +237,22 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
           const ct = contentType(req);
 
           if (ct === "application/x-www-form-urlencoded") {
-            const text = await req.text();
+            const contentLength = req.headers.get("content-length");
+            const text =
+              contentLength !== null && contentLength.trim() !== ""
+                ? await req.text()
+                : // Chunked: bounded read (see json() above).
+                  utf8.decode(await readBodyBounded(req, limits.maxFormBytes));
             const fd = new FormData();
             for (const [name, value] of formPairs(text)) fd.append(name, value);
             return fd as unknown as FormData;
           }
 
+          // Multipart goes through Bun's parser (which owns its own limits);
+          // the content-length pre-check + post-parse guard still apply.
           return (await req.formData()) as unknown as FormData;
-        } catch {
+        } catch (err) {
+          if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid form/multipart body", 400);
         }
       },

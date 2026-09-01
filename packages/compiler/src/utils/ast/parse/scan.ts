@@ -15,7 +15,7 @@ import {
   type Program,
   type VariableDeclarator,
 } from "../ast-types";
-import { HTTP_HELPER_CALLS, isHandlerInitNode } from "../handler";
+import { HTTP_WRAPPERS, isHandlerInitNode } from "../handler";
 import { walk, walkSome } from "../walk";
 
 /** Whether a schema argument is "real" (not a string literal placeholder). */
@@ -130,7 +130,7 @@ const applyDefaultExport = (
     // A wrapper call (`withGuards(...)`, not an HTTP helper) may attach
     // route-local hooks at runtime — record it for codegen + hoist gating.
     const callee = decl.callee?.type === "Identifier" ? decl.callee.name : "";
-    if (!HTTP_HELPER_CALLS.has(callee)) flags.wrappedHandler = true;
+    if (!HTTP_WRAPPERS.has(callee)) flags.wrappedHandler = true;
     // Route-local before/after declared in the schema object (the
     // first-class guard array) — drives the compiled hook chain.
     const schemaArg = decl.arguments?.[1];

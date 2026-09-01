@@ -24,6 +24,7 @@
 
 import type { NativeRoute } from "./route";
 import type { NativeRouteRunResult } from "./route-wire";
+import { reportDegradation } from "./telemetry";
 import { encoder } from "./util";
 
 /** The decoded request snapshot handed to a lean native-stack responder. */
@@ -59,6 +60,10 @@ const codedError = (code: string, message: string): CodedError => {
   err.code = code;
   return err;
 };
+
+/** Server-side error description for telemetry (message + stack when present). */
+const describeError = (err: unknown): string =>
+  err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
 
 /**
  * Bounded request-body read: the declared `content-length` is checked first
@@ -139,32 +144,51 @@ export function nativeRouteHandler(
   const parseQuery = route.parseQuery;
   const parseCookies = route.parseCookies;
 
-  return async (req) => {
+  /** Body read + native run + verdict mapping, hoisted to keep complexity low. */
+  const runNative = async (
+    req: Request,
+  ): Promise<
+    | { ok: true; result: NativeRouteRunResult; body: Uint8Array | null }
+    | { ok: false; response: Response }
+  > => {
     let body: Uint8Array | null = null;
     if (readBody) {
       try {
         body = await readBodyBounded(req, maxBodyBytes);
       } catch (err) {
-        const code = (err as CodedError).code;
-        const status = code === "BODY_TOO_LARGE" ? 413 : 400;
-        return TERMINAL_JSON(status, "BAD_REQUEST", "Request body read failed");
+        const status = (err as CodedError).code === "BODY_TOO_LARGE" ? 413 : 400;
+        return {
+          ok: false,
+          response: TERMINAL_JSON(status, "BAD_REQUEST", "Request body read failed"),
+        };
       }
     }
 
     // Extract the query substring + Cookie header (the only request inputs the
     // native stack reads) and run the tiny frame in ONE native call.
-    const url = req.url;
-    const qIndex = url.indexOf("?");
-    const queryStr = qIndex >= 0 ? url.slice(qIndex + 1) : "";
+    const qIndex = req.url.indexOf("?");
+    const queryStr = qIndex >= 0 ? req.url.slice(qIndex + 1) : "";
     const cookieStr = req.headers.get("cookie") ?? "";
 
-    let result: NativeRouteRunResult;
     try {
-      result = route.runParts(queryStr, cookieStr, body);
-    } catch {
-      return TERMINAL_JSON(500, "INTERNAL", "Native route run failed");
+      return { ok: true, result: route.runParts(queryStr, cookieStr, body), body };
+    } catch (err) {
+      // A swallowed error here made native crash signatures undebuggable in
+      // production. Keep the generic client body (no internals leaked), but
+      // log the actual failure server-side.
+      reportDegradation("call-failed", "route.runParts", describeError(err));
+      return {
+        ok: false,
+        response: TERMINAL_JSON(500, "INTERNAL", "Native route run failed"),
+      };
     }
+  };
 
+  return async (req) => {
+    const outcome = await runNative(req);
+    if (!outcome.ok) return outcome.response;
+
+    const { result } = outcome;
     if (!result.ok || result.errorCode !== 0) {
       return terminalFor(result.errorCode);
     }
@@ -172,7 +196,7 @@ export function nativeRouteHandler(
     return responder({
       query: parseQuery ? pairsToRecord(result.query) : {},
       cookies: parseCookies ? pairsToRecord(result.cookie) : {},
-      body: body ?? new Uint8Array(0),
+      body: outcome.body ?? new Uint8Array(0),
       req,
     });
   };

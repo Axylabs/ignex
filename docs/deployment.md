@@ -11,15 +11,23 @@ the production artifact. The interpreted `createApp` path exists for dev and
 tests; run the compiled one in prod:
 
 ```sh
-# Build the standalone binary (Bun runtime embedded, minified + bytecode)
+# Build the deploy artifact (prod-shaped by default)
+ignex build
+
+# Or the standalone binary (Bun runtime embedded, minified + bytecode)
 ignex build --compile --binary-outfile ignex-server
 ./ignex-server                      # PORT=3000, HTTPS off by default behind a proxy
 ```
 
-- `NODE_ENV=production` is baked in for `--compile` builds (minify + bytecode +
-  linked sourcemap + `NODE_ENV=production`). The debugbar self-disables, the
-  dev error overlay never checks its marker, and per-request dev costs are
-  zero.
+- **`ignex build` is production-shaped by default**: the debugbar, its
+  observatory stack and the per-request tracing instrumentation are eliminated
+  at build time, `__IGNEX_PROD_BUILD` is baked in (launching the artifact with
+  `NODE_ENV` unset stays locked), TLS never auto-generates dev certificates,
+  and `exposeErrorDetails` defaults to `false`. Pass `--dev` for a dev-shaped
+  artifact, or set `IGNEX_DEBUG=1` at build time to keep the toolbar in.
+- `--compile` builds additionally bake minify + bytecode. The debugbar
+  self-disables, the dev error overlay never checks its marker, and
+  per-request dev costs are zero.
 - TLS is terminated at the proxy (Caddy recommended — see `ignex ops caddy`).
   Set `server.https: false` / `IGNEX_HTTPS=0` behind a proxy so the app
   serves plain HTTP/1 to the proxy, which owns HTTPS + HTTP/2/3.
@@ -65,25 +73,38 @@ State that must be SHARED across instances lives in stores:
 | State | Default (single instance) | Multi-instance |
 | --- | --- | --- |
 | Sessions | in-memory / signed cookie | Redis store (`createRedisStore`) via `createStoreManager` |
-| Rate limits | in-memory | Redis store (fail-closed) |
+| Rate limits | in-memory | `createRedisRateLimitStore()` — ATOMIC fixed-window counting across replicas |
 | HTTP cache | in-memory | Redis store (fail-open) |
-| Durable jobs | file / sqlite | Redis store (atomic claim = exactly-once) |
+| Durable jobs | file / sqlite | `await openStoreJobStore(createRedisStore(...))` — fresh-read claims + owner-token leases |
 | Realtime presence | in-process | nova NATS/Redis cluster (below) |
 
 ```ts
 // src/db.ts / a store wiring module
-import { createRedisStore } from "@ignex/core";
+import { createRedisRateLimitStore, createRedisStore } from "@ignex/core";
 export const redis = createRedisStore({ url: process.env.REDIS_URL });
+export const redisLimiter = createRedisRateLimitStore({ url: process.env.REDIS_URL });
 
-// sessions({ store: redis }), rateLimit({ store: redis }), cache: redis, …
+// sessions({ store: redis }), rateLimit({ store: redisLimiter }), cache: redis, …
 ```
+
+### Readiness vs liveness
+
+`GET /health` is LIVENESS: it never touches dependencies (a dead DB must not
+cause a restart loop). For LOAD BALANCER routing use readiness:
+`healthProbe({ readiness: [...] })` registers `/ready` on interpreted apps,
+and AOT apps ship a `src/routes/ready.get.ts` file route running the same
+checks via `runReadinessChecks()`. A failing check returns **503**, so a
+replica with a dead MongoDB stops receiving traffic instead of serving errors.
 
 `ignex ops compose` scaffolds the infra (MongoDB/Redis/NATS) + `.env.docker`.
 
 ## 4. Durable jobs & the scheduler across instances
 
 `ignex queue:work` and `ignex schedule:run` are worker processes; run as many
-as you need — the store's atomic claim/lease guarantees each job runs once:
+as you need. Every job operation performs a FRESH read-modify-write against
+the store (no stale snapshots), claims stamp a random **owner token**, and
+completion/heartbeat bookkeeping verifies ownership — the loser of any race
+cannot double-run or double-complete someone else's job:
 
 ```sh
 # systemd / container: one app + N workers + 1 scheduler (or N schedulers)
@@ -92,10 +113,21 @@ ignex queue:work          # claim loop (run 2+ for throughput)
 ignex schedule:run        # cron ticks → durable jobs (run 1+, safe to duplicate)
 ```
 
-- `schedule:run` enqueues durable jobs; `queue:work` executes them. Multiple
-  replicas of either never double-run a job (claim is atomic).
+- Multiple replicas never double-CLAIM (fresh reads see another worker's
+  `running` stamp) and cannot double-COMPLETE (owner tokens). The residual
+  last-writer-wins window of a single-key store is narrowed but not
+  eliminated — for strict exactly-once at high concurrency, back the queue
+  with a store that has native atomic ops (Redis Lua / SQL row updates) via a
+  custom `JobStore`.
 - A crash mid-job is recovered by lease expiry: the job is re-queued and
   picked up by another worker. At-least-once — handlers should be idempotent.
+- Completed/failed history grows without bound unless bounded: configure
+  `retention` on the job store (`createFileJobStore(dir, { retention: { maxAgeMs, maxCompleted } })`)
+  to prune finished jobs.
+- Rate-limit stores can fail OPEN or CLOSED per deployment posture:
+  `rateLimit({ store, onStoreError: "closed" })` returns 503 when Redis is
+  unreachable instead of silently disabling protection (default `"open"`
+  allows and logs once).
 
 ## 5. Realtime (nova) cluster topology
 

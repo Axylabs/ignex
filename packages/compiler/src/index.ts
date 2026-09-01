@@ -16,7 +16,7 @@
  */
 
 import { pipeAsync } from "@ignex/shared";
-import { computeRouteChanges, tryCachedBuild } from "./cache";
+import { computeFingerprint, computeRouteChanges, tryCachedBuild } from "./cache";
 import {
   DiagnosticCodes,
   DiagnosticCollector,
@@ -77,6 +77,7 @@ export {
   generateSdk,
   packSdk,
   sdkPlatforms,
+  writeRealtimeSdk,
   writeSdk,
 } from "./sdk";
 export type { JsonSchemaToTsOptions } from "./sdk/json-schema-to-ts";
@@ -99,6 +100,7 @@ export type {
   SdkPackage,
   SdkPlatform,
   SdkPlatformId,
+  SdkRealtimeInput,
   SdkResult,
   SdkRouteInfo,
 } from "./sdk/types";
@@ -173,8 +175,14 @@ export class IgnexCompiler {
 
     // Incremental fast path: reuse the previous build when nothing changed.
     let routeChanges: ReturnType<typeof computeRouteChanges>;
+    // The whole-build fingerprint is computed exactly ONCE per build and
+    // shared between the cache-hit probe and the post-build store (see
+    // PipelineState.fingerprint) — each computation hashes every file under
+    // core/src + routesDir.
+    let fingerprint: string | undefined;
     if (opts.incremental) {
-      const cached = await tryCachedBuild(opts, ctx);
+      fingerprint = computeFingerprint(opts);
+      const cached = await tryCachedBuild(opts, ctx, fingerprint);
       if (cached) {
         // Artifacts (openapi.json, client.ts/d.ts, routes.d.ts) are NOT stored
         // in the cache, so on a cache hit they could go stale or go missing.
@@ -231,7 +239,14 @@ export class IgnexCompiler {
       routeChanges = computeRouteChanges(opts);
     }
 
-    const state = (await pipeAsync({ opts, ctx, t0, routes: [], sources } as PipelineState)(
+    const state = (await pipeAsync({
+      opts,
+      ctx,
+      t0,
+      routes: [],
+      sources,
+      fingerprint,
+    } as PipelineState)(
       discoveryStage,
       analysisStage,
       optimizationStage,

@@ -98,4 +98,22 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     expect(result.code).not.toContain("hasRole(");
     expect(result.code).not.toContain("canAll(");
   });
+
+  it("opaque guards are never inlined away (runtime wrapper is preserved)", async () => {
+    // `withGuards(handler, { permissions: ADMIN_PERMS })` — the guards object
+    // references an imported constant. Inlining would drop the wrapper and
+    // silently downgrade authorization to authenticated-only, so the route
+    // must keep its runtime module import instead.
+    const layout = materializeFixture("guards");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+
+    // The handler body stays inside its own module (imported at runtime) —
+    // it is NOT inlined into the generated server.
+    expect(result.code).not.toContain("opaque-body");
+
+    // The compiler surfaces WHY the RBAC AOT optimization was skipped.
+    expect(result.warnings.some((w) => w.code === "IGN_OPAQUE_GUARDS")).toBe(true);
+  });
 });

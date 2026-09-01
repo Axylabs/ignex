@@ -75,10 +75,11 @@ describe("generated client.ts (SDK)", () => {
 
     const routes = readFileSync(join(outDir, "routes.d.ts"), "utf8");
     expect(routes).toContain("export interface IgnexRoutes");
-    // Param route declares a typed params object.
+    // Param route declares a typed params object (keys quoted — always valid
+    // TS identifiers, even for `[user-id]`-style segments).
     expect(routes).toContain('"/products/:id": {');
     expect(routes).toContain("      params: {");
-    expect(routes).toContain("    id: string;");
+    expect(routes).toContain('    "id": string;');
     // Param-less route has no params property.
     expect(routes).toContain('"/health": {\n    get: {\n      response: unknown;');
   });

@@ -126,6 +126,13 @@ describe("jwt", () => {
     expect(claims.exp).toBe(now + 3600);
   });
 
+  it("rejects non-expiring tokens by default; accepts with requireExp: false", () => {
+    const token = jwtSign({ sub: "1" }, SECRET); // no ttlSeconds → no exp
+    expect(jwtVerify(token, SECRET)).toBeNull();
+    const claims = jwtVerify(token, SECRET, { requireExp: false }) as Record<string, unknown>;
+    expect(claims.sub).toBe("1");
+  });
+
   it("rejects expired, future-iat, tampered and wrong-alg tokens", () => {
     const now = 1_700_000_000;
     const token = jwtSign({ sub: "1" }, SECRET, { ttlSeconds: 60, nowSeconds: now });
@@ -157,6 +164,26 @@ describe("random tokens & passwords", () => {
     expect(phc.startsWith("$argon2id$") || phc.startsWith("$scrypt$")).toBe(true);
     expect(passwordVerify("hunter2", phc)).toBe(true);
     expect(passwordVerify("wrong", phc)).toBe(false);
+  });
+
+  it("password verify fails closed on attacker-inflated scrypt costs (no memory blowup)", () => {
+    // N=2^27 would allocate ~4 GiB at r=8 if honored; the verifier must
+    // reject it without attempting the KDF.
+    const salt = "ab".repeat(16);
+    const hash = "cd".repeat(32);
+    const inflated = `$scrypt$N=134217728,r=8,p=1$${salt}$${hash}`;
+    const started = Date.now();
+    expect(passwordVerify("hunter2", inflated)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
+
+    // Non-power-of-two N and out-of-range r/p are rejected the same way.
+    expect(passwordVerify("hunter2", `$scrypt$N=16383,r=8,p=1$${salt}$${hash}`)).toBe(false);
+    expect(passwordVerify("hunter2", `$scrypt$N=16384,r=64,p=1$${salt}$${hash}`)).toBe(false);
+    expect(passwordVerify("hunter2", `$scrypt$N=16384,r=8,p=99$${salt}$${hash}`)).toBe(false);
+
+    // A legitimately stronger hash within the caps still verifies.
+    const strong = passwordHash("hunter2", "static-salt-0123456789");
+    expect(passwordVerify("hunter2", strong)).toBe(true);
   });
 });
 

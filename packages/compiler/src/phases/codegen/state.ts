@@ -2,10 +2,22 @@
  * @fileoverview Codegen: shared mutable state threaded through the emission
  * stages. Each stage appends to its own section so the final assembly order
  * (imports → header → helpers → cache decls → functions) is deterministic.
+ *
+ * Dead-code elimination of generated runtime helpers is delegated to the
+ * linker's bundler (`Bun.build` treeshaking) — no string-key usage tracking
+ * lives here. Only `@ignex/core` symbols that the ENTRY itself references by
+ * identifier are collected (`usedCore`): emitted identifiers must be imported,
+ * which is inherent information, not duplication.
  */
 
-import type { Emitter } from "../../emitter";
 import type { CodegenConfig } from "./config";
+
+/**
+ * The table-bound wrapper variant recorded for a route during pass 1 and
+ * consumed by the route-table pass. `wildcard` (the default for anything
+ * unrecorded, e.g. WS routes) keeps the generic runtime-checked `__wrap`.
+ */
+export type WrapVariant = "static" | "static-sync" | "wildcard";
 
 export interface CodegenState {
   cfg: CodegenConfig;
@@ -16,12 +28,13 @@ export interface CodegenState {
   cacheDecls: string[];
   functions: string[];
 
-  // Helper usage tracking (dead-code elimination of generated boilerplate).
-  helpers: Emitter;
-
-  // `@ignex/core` import assembly.
-  coreNames: string[];
-  uniqueCore: string[];
+  /**
+   * `@ignex/core` symbols referenced by EMITTED route/header identifiers in
+   * the entry (sendFile, runHooks, createContext, …). Generated runtime
+   * helpers declare their own core deps inside their sources — the bundler
+   * prunes unused exports — so only entry-referenced names are tracked here.
+   */
+  usedCore: Set<string>;
 
   // App config presence (drives lifecycle/plugin emission).
   hasAppConfig: boolean;
@@ -39,6 +52,13 @@ export interface CodegenState {
    * instrumentation is const-folded out of the artifact.
    */
   traceDebug: boolean;
+  /**
+   * Whether this build is production-shaped (baked as
+   * `globalThis.__IGNEX_PROD_BUILD = true`). Dev-only plugins read it so a
+   * production-built artifact stays toolbar-free even when launched without
+   * `NODE_ENV=production` in the environment.
+   */
+  isProductionBuild: boolean;
 
   // Inlined handler bodies (self-contained modules emitted inline).
   inlineHandlers: Map<string, { body: string; isAsync: boolean; param: string }>;
@@ -53,25 +73,50 @@ export interface CodegenState {
   explicitKeys: Set<string>;
   allowMethodsByPattern: Map<string, Set<string>>;
   wildcardsByPath: Map<string, string[]>;
+
+  /**
+   * Wrapper variant per TABLE-BOUND handler name (`methodHandlerName` — for
+   * deduplicated members this is the leader's name, which `routeHandlerName`
+   * resolves to). Recorded during pass 1 (`generateRouteCode` /
+   * `emitConstantRoute`), consumed by pass 2. Missing ⇒ generic `__wrap`.
+   */
+  wrapVariants: Map<string, WrapVariant>;
+
+  /** Refs of constant-hoisted GET routes (a build-time HEAD handler exists). */
+  constantGets: Set<string>;
+
+  /**
+   * Pre-built static `Response` consts keyed by TABLE-BOUND handler name
+   * (`methodHandlerName`). When present, pass 2 binds the frozen Response
+   * VALUE directly into Bun's native routes table — Bun then serves the route
+   * entirely in Rust (zero per-request JS), with free auto-HEAD (body
+   * stripped, content-length preserved) and conditional-GET handling. Only
+   * registered for provably-constant routes on apps WITHOUT lifecycle hooks
+   * (`tryNormalizeConstant(route, hasGlobalLifecycle)` already refuses those),
+   * so skipping the JS pipeline cannot drop hook-driven mutations.
+   */
+  staticResponses: Map<string, string>;
 }
 
-export const createCodegenState = (cfg: CodegenConfig, helpers: Emitter): CodegenState => ({
+export const createCodegenState = (cfg: CodegenConfig): CodegenState => ({
   cfg,
   imports: new Set(),
   header: [],
   cacheDecls: [],
   functions: [],
-  helpers,
-  coreNames: [],
-  uniqueCore: [],
+  usedCore: new Set(),
   hasAppConfig: false,
   appConfigHasHooks: false,
   appConfigAbs: undefined,
   traceDebug: false,
+  isProductionBuild: false,
   inlineHandlers: new Map(),
   wsHandlers: [],
   routeEntries: new Map(),
   explicitKeys: new Set(),
   allowMethodsByPattern: new Map(),
   wildcardsByPath: new Map(),
+  wrapVariants: new Map(),
+  constantGets: new Set(),
+  staticResponses: new Map(),
 });

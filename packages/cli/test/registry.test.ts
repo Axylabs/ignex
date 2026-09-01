@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { commands, findCommand, renderCommandHelp, renderHelp } from "../src/commands/registry.js";
+import { loadCommand } from "../src/commands/loaders.js";
+import { commands, findCommand, renderRootHelp } from "../src/commands/registry.js";
+import { renderCommandHelp } from "../src/usage.js";
 import { cliVersion } from "../src/version.js";
+
+/** Help for a command by registry name/alias, via the lazy citty loader. */
+const helpFor = async (nameOrAlias: string): Promise<string> => {
+  const cmd = await loadCommand(nameOrAlias);
+  expect(cmd).toBeDefined();
+  return renderCommandHelp(cmd as never);
+};
 
 describe("registry", () => {
   it("declares the core commands", () => {
@@ -22,18 +31,23 @@ describe("registry", () => {
     expect(findCommand("does-not-exist")).toBeUndefined();
   });
 
-  it("renders help that documents dev flags", () => {
-    const help = renderHelp();
+  it("renders root help that documents the command surface", () => {
+    const help = renderRootHelp();
     expect(help).toContain("dev");
-    expect(help).toContain("--no-spawn");
-    expect(help).toContain("--verbose");
     expect(help).toContain("build");
+    expect(help).toContain("create my-app");
   });
 
-  it("renders ops help with targets and db flags", () => {
-    const help = renderHelp();
-    expect(help).toContain("ops");
-    expect(help).toContain("dockerfile | compose | caddy | ci | docker");
+  it("renders per-command help with the dev flags", async () => {
+    const help = await helpFor("dev");
+    expect(help).toContain("--no-spawn");
+    expect(help).toContain("--verbose");
+    expect(help).toContain("--kill-port");
+  });
+
+  it("renders ops help with targets and db flags", async () => {
+    const help = await helpFor("ops");
+    expect(help).toContain("dockerfile|compose|caddy|ci|docker");
     expect(help).toContain("--db-user");
     expect(help).toContain("--db-password");
     expect(help).toContain("--replica");
@@ -41,10 +55,10 @@ describe("registry", () => {
   });
 
   it("renders help grouped by section", () => {
-    const help = renderHelp();
+    const help = renderRootHelp();
     expect(help).toContain("Scaffold");
     expect(help).toContain("Develop");
-    expect(help).toContain("Deploy");
+    expect(help).toContain("Ship");
     expect(help).toContain("Integrate");
   });
 
@@ -53,21 +67,20 @@ describe("registry", () => {
     expect(findCommand("events")?.name).toBe("event");
   });
 
-  it("documents the module + kill-port flags in help", () => {
-    const help = renderHelp();
-    expect(help).toContain("--no-module");
-    expect(help).toContain("--kill-port");
-    expect(help).toContain("--services");
-    expect(help).toContain("--redis-password");
+  it("documents the module + kill-port flags in help", async () => {
+    const route = await helpFor("route");
+    expect(route).toContain("--no-module");
+    const dev = await helpFor("dev");
+    expect(dev).toContain("--kill-port");
+    const ops = await helpFor("ops");
+    expect(ops).toContain("--services");
+    expect(ops).toContain("--redis-password");
   });
 
-  it("renders per-command help with usage and options", () => {
-    const route = findCommand("route");
-    expect(route).toBeDefined();
-    if (!route) return;
-    const help = renderCommandHelp(route);
-    expect(help).toContain("Usage:");
-    expect(help).toContain("ignex route");
+  it("renders per-command help with usage and options", async () => {
+    const help = await helpFor("route");
+    expect(help).toContain("USAGE");
+    expect(help).toContain("route [OPTIONS]");
     expect(help).toContain("--no-module");
     expect(help).toContain("Route path");
   });
@@ -77,42 +90,41 @@ describe("registry", () => {
   });
 });
 
-it("declares the tinker REPL command", () => {
+it("declares the tinker REPL command", async () => {
   expect(findCommand("tinker")?.name).toBe("tinker");
   expect(findCommand("repl")?.name).toBe("tinker");
   expect(findCommand("console")?.name).toBe("tinker");
-  const help = renderHelp();
-  expect(help).toContain("tinker");
+  const help = await helpFor("tinker");
   expect(help).toContain("--no-db");
 });
 
-it("declares route:list with json + method filters", () => {
+it("declares route:list with json + method filters", async () => {
   expect(findCommand("route:list")?.name).toBe("route:list");
   expect(findCommand("rl")?.name).toBe("route:list");
-  const help = renderCommandHelp(findCommand("route:list") as never);
+  const help = await helpFor("route:list");
   expect(help).toContain("--json");
   expect(help).toContain("--methods");
 });
 
-it("declares the factory scaffold command", () => {
+it("declares the factory scaffold command", async () => {
   expect(findCommand("factory")?.name).toBe("factory");
   expect(findCommand("make:factory")?.name).toBe("factory");
-  const help = renderCommandHelp(findCommand("factory") as never);
+  const help = await helpFor("factory");
   expect(help).toContain("--fields");
   expect(help).toContain("--force");
 });
 
-it("declares schedule:run with a --once flag", () => {
+it("declares schedule:run with a --once flag", async () => {
   expect(findCommand("schedule:run")?.name).toBe("schedule:run");
   expect(findCommand("schedule")?.name).toBe("schedule:run");
-  const help = renderCommandHelp(findCommand("schedule:run") as never);
+  const help = await helpFor("schedule:run");
   expect(help).toContain("--once");
 });
 
-it("declares queue:work with --once and --init", () => {
+it("declares queue:work with --once and --init", async () => {
   expect(findCommand("queue:work")?.name).toBe("queue:work");
   expect(findCommand("queue")?.name).toBe("queue:work");
-  const help = renderCommandHelp(findCommand("queue:work") as never);
+  const help = await helpFor("queue:work");
   expect(help).toContain("--once");
   expect(help).toContain("--init");
 });

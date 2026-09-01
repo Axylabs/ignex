@@ -4,12 +4,12 @@
 > Do not edit by hand — regenerate after structural changes. The
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
-- monorepo: `ignex` v0.1.7 (private, workspaces: packages/*)
-- root scripts (70): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, `lint`, `lint:fix`, `test`, …
+- monorepo: `ignex` v0.1.11 (private, workspaces: packages/*)
+- root scripts (74): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
 
 ## packages/ (workspace)
 
-### `@ignex/app` v0.1.7 · test: `vitest run`
+### `@ignex/app` v0.1.11 · test: `vitest run`
 
 ```
 packages/app/
@@ -20,21 +20,20 @@ packages/app/
 │  ├─ serializers/
 │  ├─ validators/
 │  │  ├─ _h1.params.cjs
-│  │  ├─ _h2.body.cjs
 │  │  ├─ _h2.params.cjs
-│  │  ├─ _h20.params.cjs
 │  │  ├─ _h25.params.cjs
-│  │  ├─ _h26.params.cjs
-│  │  ├─ _h27.params.cjs
 │  │  ├─ _h3.params.cjs
-│  │  ├─ _h4.params.cjs
-│  │  ├─ _h7.body.cjs
-│  │  └─ _h8.body.cjs
+│  │  └─ _h7.body.cjs
 │  ├─ .ignex-cache.json
 │  ├─ .ignex-modules.json
 │  ├─ client.d.ts
 │  ├─ client.ts
+│  ├─ dev-session-secret
+│  ├─ hot-routes.json
 │  ├─ manifest.json
+│  ├─ observatory.db
+│  ├─ observatory.db-shm
+│  ├─ observatory.db-wal
 │  ├─ openapi.json
 │  ├─ routes.d.ts
 │  └─ server.js
@@ -86,6 +85,7 @@ packages/app/
 │  │  ├─ index.get.ts
 │  │  ├─ jobs.get.ts
 │  │  ├─ page.get.ts
+│  │  ├─ ready.get.ts
 │  │  ├─ session.get.ts
 │  │  └─ upload.post.ts
 │  ├─ views/
@@ -167,7 +167,7 @@ packages/app/
 └─ vitest.config.ts
 ```
 
-### `@ignex/cli` v0.1.7 · test: `vitest run`
+### `@ignex/cli` v0.1.11 · test: `vitest run`
 
 ```
 packages/cli/
@@ -236,10 +236,10 @@ packages/cli/
 │  │  ├─ native.ts
 │  │  ├─ port.ts
 │  │  ├─ prompt.ts
+│  │  ├─ realtime-artifact.ts
 │  │  ├─ route.ts
 │  │  ├─ runtime.ts
 │  │  ├─ scaffold.ts
-│  │  ├─ spinner.ts
 │  │  └─ terminal.ts
 │  ├─ config.ts
 │  ├─ index.ts
@@ -271,6 +271,7 @@ packages/cli/
 │  ├─ ops.test.ts
 │  ├─ port.test.ts
 │  ├─ prompt.test.ts
+│  ├─ realtime-artifact.test.ts
 │  ├─ registry.test.ts
 │  ├─ route-list.test.ts
 │  ├─ route.test.ts
@@ -287,7 +288,7 @@ packages/cli/
 └─ vitest.config.ts
 ```
 
-### `@ignex/compiler` v0.1.7 · test: `vitest run`
+### `@ignex/compiler` v0.1.11 · test: `vitest run`
 
 ```
 packages/compiler/
@@ -307,6 +308,7 @@ packages/compiler/
 │  │  │  ├─ conflicts.ts
 │  │  │  ├─ dev-only-plugins.ts
 │  │  │  ├─ fs.ts
+│  │  │  ├─ heat.ts
 │  │  │  ├─ hooks.ts
 │  │  │  ├─ index.ts
 │  │  │  └─ route-graph.ts
@@ -324,7 +326,6 @@ packages/compiler/
 │  │  │  │  ├─ context.ts
 │  │  │  │  ├─ generate.ts
 │  │  │  │  ├─ handler.ts
-│  │  │  │  ├─ index.ts
 │  │  │  │  ├─ native.ts
 │  │  │  │  ├─ reply.ts
 │  │  │  │  ├─ validate.ts
@@ -332,6 +333,7 @@ packages/compiler/
 │  │  │  ├─ config.ts
 │  │  │  ├─ decisions.ts
 │  │  │  ├─ header.ts
+│  │  │  ├─ heat.ts
 │  │  │  ├─ helpers.ts
 │  │  │  ├─ identifiers.ts
 │  │  │  ├─ imports.ts
@@ -353,6 +355,7 @@ packages/compiler/
 │  │  ├─ load.ts
 │  │  ├─ openapi.ts
 │  │  ├─ publish.ts
+│  │  ├─ realtime.ts
 │  │  ├─ types.ts
 │  │  └─ typescript.ts
 │  ├─ utils/
@@ -381,7 +384,6 @@ packages/compiler/
 │  │  └─ route-path.ts
 │  ├─ cache.ts
 │  ├─ diagnostics.ts
-│  ├─ emitter.ts
 │  ├─ fp.ts
 │  ├─ index.ts
 │  ├─ logger.ts
@@ -395,6 +397,7 @@ packages/compiler/
 │  │  │  ├─ about.get.ts
 │  │  │  ├─ app.config.ts
 │  │  │  ├─ echo.post.ts
+│  │  │  ├─ empty.config.ts
 │  │  │  ├─ health.get.ts
 │  │  │  ├─ index.get.ts
 │  │  │  └─ server-only.config.ts
@@ -413,10 +416,23 @@ packages/compiler/
 │  │  ├─ debugbar-direct/
 │  │  │  ├─ app.config.ts
 │  │  │  └─ hello.get.ts
+│  │  ├─ dispatch/
+│  │  │  ├─ files/
+│  │  │  │  └─ [...path].get.ts
+│  │  │  ├─ users/
+│  │  │  │  └─ [id].get.ts
+│  │  │  └─ index.get.ts
 │  │  ├─ guards/
+│  │  │  ├─ after-only.get.ts
 │  │  │  ├─ authed.get.ts
+│  │  │  ├─ before.get.ts
 │  │  │  ├─ canall.get.ts
+│  │  │  ├─ hoist-before.get.ts
+│  │  │  ├─ opaque.get.ts
 │  │  │  └─ protected.get.ts
+│  │  ├─ lib/
+│  │  │  ├─ guards.ts
+│  │  │  └─ perms.ts
 │  │  ├─ named-export/
 │  │  │  ├─ echo.get.ts
 │  │  │  ├─ index.get.ts
@@ -425,6 +441,10 @@ packages/compiler/
 │  │  ├─ non-optimizable/
 │  │  │  ├─ health.get.ts
 │  │  │  └─ index.get.ts
+│  │  ├─ pattern-mw/
+│  │  │  ├─ api.get.ts
+│  │  │  ├─ app.config.ts
+│  │  │  └─ other.get.ts
 │  │  ├─ redirect/
 │  │  │  ├─ app.config.ts
 │  │  │  └─ home.get.ts
@@ -454,8 +474,8 @@ packages/compiler/
 │  ├─ debug-usage.test.ts
 │  ├─ dev-only-plugins.test.ts
 │  ├─ diagnostics.test.ts
+│  ├─ dispatch-shell.test.ts
 │  ├─ edge.test.ts
-│  ├─ emitter.test.ts
 │  ├─ fail-fast.test.ts
 │  ├─ features.test.ts
 │  ├─ guards.test.ts
@@ -467,12 +487,16 @@ packages/compiler/
 │  ├─ openapi-helpers.test.ts
 │  ├─ optimization.test.ts
 │  ├─ options.test.ts
+│  ├─ pattern-middleware.test.ts
 │  ├─ persist.test.ts
 │  ├─ redirect-port.test.ts
 │  ├─ sdk-flatbuffers.test.ts
+│  ├─ sdk-realtime.test.ts
 │  ├─ sdk.test.ts
+│  ├─ stability-security.test.ts
 │  ├─ standard-schema.test.ts
 │  ├─ typed-artifacts.test.ts
+│  ├─ usage-soundness.test.ts
 │  ├─ validate-prelude.test.ts
 │  └─ ws.test.ts
 ├─ .gitignore
@@ -482,7 +506,7 @@ packages/compiler/
 └─ vitest.config.ts
 ```
 
-### `@ignex/core` v0.1.7 · test: `vitest run`
+### `@ignex/core` v0.1.11 · test: `vitest run`
 
 ```
 packages/core/
@@ -500,19 +524,18 @@ packages/core/
 │  │  │  ├─ index.ts
 │  │  │  └─ types.ts
 │  │  ├─ drivers/
-│  │  │  ├─ index.ts
 │  │  │  └─ manager.ts
 │  │  ├─ store/
 │  │  │  ├─ file.ts
 │  │  │  ├─ index.ts
 │  │  │  ├─ manager.ts
 │  │  │  ├─ memory.ts
+│  │  │  ├─ redis-rate-limit.ts
 │  │  │  ├─ redis.ts
 │  │  │  ├─ sqlite.ts
 │  │  │  └─ types.ts
 │  │  ├─ content-encoding.ts
 │  │  ├─ dataloader.ts
-│  │  ├─ index.ts
 │  │  ├─ lru.ts
 │  │  ├─ query.ts
 │  │  ├─ ratelimit.ts
@@ -520,18 +543,68 @@ packages/core/
 │  │  ├─ schema.ts
 │  │  └─ validation.ts
 │  ├─ debug/
+│  │  ├─ server/
+│  │  │  ├─ handlers/
+│  │  │  │  ├─ app-panels.ts
+│  │  │  │  └─ data-panels.ts
+│  │  │  ├─ assets.ts
+│  │  │  ├─ auth.ts
+│  │  │  ├─ endpoints.ts
+│  │  │  ├─ revisions.ts
+│  │  │  ├─ route-index.ts
+│  │  │  ├─ stream.ts
+│  │  │  └─ types.ts
+│  │  ├─ ui/
+│  │  │  ├─ components/
+│  │  │  │  ├─ detail-parts.tsx
+│  │  │  │  ├─ keyed.ts
+│  │  │  │  └─ widgets.tsx
+│  │  │  ├─ views/
+│  │  │  │  ├─ ai.tsx
+│  │  │  │  ├─ clients.tsx
+│  │  │  │  ├─ copy-attr.ts
+│  │  │  │  ├─ detail-types.ts
+│  │  │  │  ├─ diagnostics.tsx
+│  │  │  │  ├─ events.tsx
+│  │  │  │  ├─ history.tsx
+│  │  │  │  ├─ jobs.tsx
+│  │  │  │  ├─ kt.tsx
+│  │  │  │  ├─ log-detail.tsx
+│  │  │  │  ├─ logs.tsx
+│  │  │  │  ├─ metrics.tsx
+│  │  │  │  ├─ registry.tsx
+│  │  │  │  ├─ request-detail.tsx
+│  │  │  │  ├─ requests.tsx
+│  │  │  │  ├─ routes.tsx
+│  │  │  │  ├─ state.tsx
+│  │  │  │  └─ system.tsx
+│  │  │  ├─ api.ts
+│  │  │  ├─ app.tsx
+│  │  │  ├─ clipboard.ts
+│  │  │  ├─ format.ts
+│  │  │  ├─ index.tsx
+│  │  │  ├─ live.ts
+│  │  │  ├─ router.ts
+│  │  │  ├─ styles.css
+│  │  │  ├─ theme.ts
+│  │  │  └─ toast.tsx
 │  │  ├─ api.ts
 │  │  ├─ clients.ts
-│  │  ├─ dashboard-css.ts
-│  │  ├─ dashboard-html.ts
-│  │  ├─ dashboard-js.ts
-│  │  ├─ dashboard.ts
+│  │  ├─ curl.ts
+│  │  ├─ dashboard-client.gen.ts
 │  │  ├─ index.ts
 │  │  ├─ kt.ts
+│  │  ├─ leaks.ts
+│  │  ├─ logs.ts
 │  │  ├─ markdown.ts
+│  │  ├─ metrics.ts
+│  │  ├─ mongo.ts
 │  │  ├─ nats-tracker.ts
+│  │  ├─ persist.ts
 │  │  ├─ replay.ts
 │  │  ├─ respond.ts
+│  │  ├─ sourcemaps.ts
+│  │  ├─ state.ts
 │  │  ├─ store.ts
 │  │  ├─ system.ts
 │  │  ├─ tracer.ts
@@ -553,7 +626,6 @@ packages/core/
 │  │  ├─ files.ts
 │  │  ├─ finalize.ts
 │  │  ├─ headers.ts
-│  │  ├─ index.ts
 │  │  ├─ proxy.ts
 │  │  ├─ request-id.ts
 │  │  ├─ route-stages.ts
@@ -561,11 +633,12 @@ packages/core/
 │  │  ├─ router-utils.ts
 │  │  ├─ router.ts
 │  │  ├─ sse.ts
+│  │  ├─ static-app.ts
 │  │  ├─ tls.ts
+│  │  ├─ uploads.ts
 │  │  └─ ws.ts
 │  ├─ lifecycle/
 │  │  ├─ hooks.ts
-│  │  ├─ index.ts
 │  │  ├─ lifecycle.ts
 │  │  ├─ plugin.ts
 │  │  └─ run.ts
@@ -595,7 +668,7 @@ packages/core/
 │  │  ├─ cors.ts
 │  │  ├─ csrf.ts
 │  │  ├─ debugbar.ts
-│  │  ├─ index.ts
+│  │  ├─ health.ts
 │  │  ├─ logger.ts
 │  │  ├─ metrics.ts
 │  │  ├─ native.ts
@@ -605,12 +678,14 @@ packages/core/
 │  │  ├─ rbac.ts
 │  │  ├─ security.ts
 │  │  └─ session.ts
+│  ├─ rpc/
+│  │  └─ kit.ts
 │  ├─ security/
 │  │  ├─ auth-module.ts
 │  │  ├─ auth.ts
 │  │  ├─ crypto.ts
 │  │  ├─ csrf.ts
-│  │  ├─ index.ts
+│  │  ├─ dev-secret.ts
 │  │  ├─ rbac.ts
 │  │  ├─ session-store.ts
 │  │  └─ session.ts
@@ -640,14 +715,22 @@ packages/core/
 │  ├─ cron6.test.ts
 │  ├─ data-integrity-port.test.ts
 │  ├─ dataloader.test.ts
+│  ├─ debug-mongo.test.ts
+│  ├─ debug-server.test.ts
+│  ├─ debug-sourcemaps.test.ts
+│  ├─ debug-ui-router.test.ts
+│  ├─ debugbar-dashboard-runtime.test.ts
 │  ├─ debugbar-events.test.ts
+│  ├─ debugbar-observability.test.ts
 │  ├─ debugbar.test.ts
+│  ├─ enterprise-hardening.test.ts
 │  ├─ env-config.test.ts
 │  ├─ error-port.test.ts
 │  ├─ errors.test.ts
 │  ├─ exports.test.ts
 │  ├─ features.test.ts
 │  ├─ formdata-port.test.ts
+│  ├─ hardening-pass.test.ts
 │  ├─ http-stream.test.ts
 │  ├─ http-types.test.ts
 │  ├─ http.test.ts
@@ -663,6 +746,8 @@ packages/core/
 │  ├─ nats-tracker.test.ts
 │  ├─ notifier.test.ts
 │  ├─ nova-plugin.test.ts
+│  ├─ observability-persist.test.ts
+│  ├─ observability.test.ts
 │  ├─ openapi-plugin.test.ts
 │  ├─ openapi.property.test.ts
 │  ├─ openapi.test.ts
@@ -671,6 +756,7 @@ packages/core/
 │  ├─ process-guards.test.ts
 │  ├─ ratelimit.test.ts
 │  ├─ rbac.test.ts
+│  ├─ read-body-bounded.test.ts
 │  ├─ redirect-port.test.ts
 │  ├─ redis-store.test.ts
 │  ├─ regression-port.test.ts
@@ -679,18 +765,23 @@ packages/core/
 │  ├─ response-port.test.ts
 │  ├─ router-utils.test.ts
 │  ├─ router.test.ts
+│  ├─ rpc-kit.test.ts
 │  ├─ sanitize-port.test.ts
 │  ├─ scheduler.test.ts
 │  ├─ schema.test.ts
+│  ├─ security-fixes.test.ts
 │  ├─ security-hardening.test.ts
 │  ├─ security.test.ts
+│  ├─ session-fusion.test.ts
 │  ├─ session-store.test.ts
 │  ├─ stability-hardening.test.ts
+│  ├─ static-app.test.ts
 │  ├─ status-port.test.ts
 │  ├─ store-driver-integration.test.ts
 │  ├─ store.test.ts
 │  ├─ tls.test.ts
 │  ├─ trace-db-op.integration.test.ts
+│  ├─ uploads.test.ts
 │  ├─ validator-port.test.ts
 │  ├─ validator-typebox-parity.test.ts
 │  ├─ ws-port.test.ts
@@ -701,7 +792,7 @@ packages/core/
 └─ vitest.config.ts
 ```
 
-### `create-ignex` v0.1.7 · test: `vitest run`
+### `create-ignex` v0.1.11 · test: `vitest run`
 
 ```
 packages/create/
@@ -714,7 +805,7 @@ packages/create/
 └─ vitest.config.ts
 ```
 
-### `@ignex/mcp` v0.1.7 · test: `vitest run`
+### `@ignex/mcp` v0.1.11 · test: `vitest run`
 
 ```
 packages/mcp/
@@ -734,7 +825,7 @@ packages/mcp/
 └─ vitest.config.ts
 ```
 
-### `@ignex/native` v0.1.7 · test: `vitest run`
+### `@ignex/native` v0.1.11 · test: `vitest run`
 
 ```
 packages/native/
@@ -753,6 +844,7 @@ packages/native/
 │  │  └─ types.ts
 │  ├─ vendor/
 │  │  └─ castrum.d.ts
+│  ├─ batch.ts
 │  ├─ bun.ts
 │  ├─ crypto.ts
 │  ├─ ed25519.ts
@@ -764,6 +856,7 @@ packages/native/
 │  ├─ ingress.ts
 │  ├─ json.ts
 │  ├─ loader.ts
+│  ├─ metrics.ts
 │  ├─ native-handler.ts
 │  ├─ packed.ts
 │  ├─ payload.ts
@@ -774,26 +867,31 @@ packages/native/
 │  ├─ runtime.ts
 │  ├─ scratch.ts
 │  ├─ selection.ts
+│  ├─ telemetry.ts
 │  ├─ template.ts
 │  ├─ util.ts
 │  └─ validation.ts
 ├─ test/
 │  ├─ ed25519.test.ts
 │  ├─ execution.test.ts
+│  ├─ hardening.test.ts
 │  ├─ http-property.test.ts
 │  ├─ ingress-stages.test.ts
+│  ├─ metrics.test.ts
 │  ├─ native-handler.test.ts
 │  ├─ native.test.ts
 │  ├─ route-wire.test.ts
 │  ├─ route.test.ts
 │  ├─ scratch.test.ts
-│  └─ selection.test.ts
+│  ├─ selection.test.ts
+│  ├─ size-gates.test.ts
+│  └─ wire-hardening.test.ts
 ├─ package.json
 ├─ README.md
 └─ vitest.config.ts
 ```
 
-### `@ignex/shared` v0.1.7 · test: `vitest run`
+### `@ignex/shared` v0.1.11 · test: `vitest run`
 
 ```
 packages/shared/
@@ -818,7 +916,7 @@ packages/shared/
 └─ README.md
 ```
 
-### `@ignex/test-utils` v0.1.7
+### `@ignex/test-utils` v0.1.11
 
 ```
 packages/test-utils/
@@ -834,6 +932,8 @@ packages/test-utils/
 
 ```
 scripts/
+├─ vendor/
+│  └─ babel-preset-solid.d.ts
 ├─ bench-batch.ts
 ├─ bench-bun-internals.ts
 ├─ bench-ffi.ts
@@ -842,17 +942,19 @@ scripts/
 ├─ bench-jwt.ts
 ├─ bench-native.ts
 ├─ bench-realworld.ts
-├─ bench-server-bound.mjs
 ├─ bench-server-routes.ts
 ├─ bench-server.ts
+├─ bench-size-crossover.ts
 ├─ benchmark.ts
 ├─ check-cache-versions.ts
 ├─ check-compare-bench.ts
 ├─ check-compare-gate.ts
 ├─ check-jsdoc.ts
+├─ check-native-surface.ts
 ├─ check-server-bench.ts
 ├─ fuzz-malformed-input.ts
 ├─ gen-ai-map.ts
+├─ gen-debug-ui.ts
 ├─ generate-openapi-client.ts
 ├─ generate-sdk.ts
 ├─ native-bench.ts
@@ -1192,6 +1294,26 @@ bench/
 │  │     ├─ 01-smoke.bench.json
 │  │     ├─ 01-smoke.bench.md
 │  │     ├─ 01-smoke.failures.ndjson
+│  │     ├─ 02-load.bench.html
+│  │     ├─ 02-load.bench.json
+│  │     ├─ 02-load.bench.md
+│  │     ├─ 02-load.failures.ndjson
+│  │     ├─ 03-stress.bench.html
+│  │     ├─ 03-stress.bench.json
+│  │     ├─ 03-stress.bench.md
+│  │     ├─ 03-stress.failures.ndjson
+│  │     ├─ 04-spike.bench.html
+│  │     ├─ 04-spike.bench.json
+│  │     ├─ 04-spike.bench.md
+│  │     ├─ 04-spike.failures.ndjson
+│  │     ├─ 09-large-payload.bench.html
+│  │     ├─ 09-large-payload.bench.json
+│  │     ├─ 09-large-payload.bench.md
+│  │     ├─ 09-large-payload.failures.ndjson
+│  │     ├─ 13-heavy-json-nested.bench.html
+│  │     ├─ 13-heavy-json-nested.bench.json
+│  │     ├─ 13-heavy-json-nested.bench.md
+│  │     ├─ 13-heavy-json-nested.failures.ndjson
 │  │     ├─ 16-crud-validation-mix.bench.html
 │  │     ├─ 16-crud-validation-mix.bench.json
 │  │     ├─ 16-crud-validation-mix.bench.md
@@ -1279,6 +1401,16 @@ bench/
 │  │  ├─ 2026-08-19T20-20-34-180Z.json
 │  │  ├─ 2026-08-21T11-53-08-768Z.json
 │  │  ├─ 2026-08-21T13-02-18-085Z.json
+│  │  ├─ 2026-08-24T12-20-10-887Z.json
+│  │  ├─ 2026-08-24T12-38-43-440Z.json
+│  │  ├─ 2026-08-24T12-55-24-093Z.json
+│  │  ├─ 2026-08-24T13-18-54-759Z.json
+│  │  ├─ 2026-08-24T13-19-14-704Z.json
+│  │  ├─ 2026-08-24T13-19-55-957Z.json
+│  │  ├─ 2026-08-24T13-38-06-192Z.json
+│  │  ├─ 2026-08-24T13-38-21-258Z.json
+│  │  ├─ 2026-08-24T13-38-44-208Z.json
+│  │  ├─ 2026-08-24T16-39-17-896Z.json
 │  │  ├─ baseline.json
 │  │  └─ latest.json
 │  ├─ batch-selection.json

@@ -37,15 +37,17 @@ const mkCtx = () => {
 };
 
 describe("resolveHook", () => {
-  it("emits IGN_HOOK_MISSING when the hook module does not exist", () => {
+  it("emits IGN_HOOK_MISSING (error) when the hook module does not exist", () => {
     const dir = tmp();
     const { ctx, d } = mkCtx();
     const result = resolveHook("nope", dir, new SourceManager(), ctx as never);
     expect(result).toBeUndefined();
-    expect(d.warnings.some((w) => w.code === DiagnosticCodes.HookMissing)).toBe(true);
+    // A missing hook is a hard error: codegen would otherwise emit a
+    // reference without an import — a per-request ReferenceError in prod.
+    expect(d.errors.some((w) => w.code === DiagnosticCodes.HookMissing)).toBe(true);
   });
 
-  it("emits IGN_IO_READ_FAILED when the hook exists but is unreadable", () => {
+  it("emits IGN_IO_READ_FAILED (error) when the hook exists but is unreadable", () => {
     const dir = tmp();
     // A directory passes existsSync but fails readFileSync (EISDIR).
     mkdirSync(join(dir, "broken.ts"), { recursive: true });
@@ -53,7 +55,7 @@ describe("resolveHook", () => {
     const { ctx, d } = mkCtx();
     const result = resolveHook("broken", dir, new SourceManager(), ctx as never);
     expect(result).toBeUndefined();
-    expect(d.warnings.some((w) => w.code === DiagnosticCodes.IoReadFailed)).toBe(true);
+    expect(d.errors.some((w) => w.code === DiagnosticCodes.IoReadFailed)).toBe(true);
   });
 
   it("does not treat a legitimately empty hook as a read failure", () => {

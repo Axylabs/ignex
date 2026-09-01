@@ -18,10 +18,33 @@ import { extractHandlerExport, extractHandlerExportName, extractRouteGuardsAST }
 import { extractExportsAST, extractImportsAST } from "../imports";
 import { collectTopLevelBindingNames, extractSymbolsAST } from "../symbols";
 import { walk } from "../walk";
-import { parseToAst } from "./bridge";
+import { type ParseFailureError, parseToAst } from "./bridge";
 import { cacheParse, getCachedParse } from "./cache";
 import { scanExportFlags } from "./scan";
 import type { ParseResult } from "./types";
+
+/**
+ * Convert a parser-reported byte offset into a 1-based line / 0-based column.
+ * Returns `undefined` when the offset is missing or out of bounds — callers
+ * then fall back to framing the head of the file.
+ */
+const positionFromOffset = (
+  source: string,
+  offset: number | undefined,
+): { line: number; column: number } | undefined => {
+  if (offset === undefined || !Number.isFinite(offset) || offset < 0 || offset >= source.length) {
+    return undefined;
+  }
+  let line = 1;
+  let lastNewline = -1;
+  for (let i = 0; i < offset; i++) {
+    if (source.charCodeAt(i) === 10) {
+      line++;
+      lastNewline = i;
+    }
+  }
+  return { line, column: offset - lastNewline - 1 };
+};
 
 /** Estimate the AST node count for a module (reuses the memoized parse). */
 export function estimateNodeCount(source: string): number {
@@ -140,7 +163,19 @@ export const isPlainJavaScriptBody = (body: string, isAsync: boolean): boolean =
  * source content. Never throws for malformed source — it emits a parse
  * diagnostic and returns an empty Program instead.
  */
-export function parseModule(source: string, diagnostics?: DiagnosticCollector): ParseResult {
+/**
+ * Optional attribution context for parse diagnostics.
+ */
+export interface ParseMeta {
+  /** Path the diagnostic should attribute the failure to. */
+  readonly file?: string;
+}
+
+export function parseModule(
+  source: string,
+  diagnostics?: DiagnosticCollector,
+  meta?: ParseMeta,
+): ParseResult {
   if (typeof source !== "string") {
     // Defensive: callers must pass source text — return an empty parse rather
     // than crashing the whole build.
@@ -157,11 +192,17 @@ export function parseModule(source: string, diagnostics?: DiagnosticCollector): 
   } catch (error) {
     // A route/hook/app-config module that cannot parse is a BUILD ERROR —
     // continuing with an empty program silently drops the route (404 in
-    // production). Fail the build with a clear diagnostic instead.
+    // production). Fail the build with the real cause, file, position, and a
+    // code frame pointing at the actual line (parsers report byte offsets).
+    const offset = (error as ParseFailureError).parseOffset;
+    const position = positionFromOffset(source, offset);
     diagnostics?.error({
       code: DiagnosticCodes.ParseError,
-      message: `Failed to parse module: ${errorMessage(error)}`,
-      frame: getCodeFrame(source, { line: 1, column: 0 }),
+      message: `Failed to parse module${meta?.file ? ` '${meta.file}'` : ""}: ${errorMessage(error)}`,
+      ...(meta?.file ? { file: meta.file } : {}),
+      ...(position
+        ? { position, frame: getCodeFrame(source, position) }
+        : { frame: getCodeFrame(source, { line: 1, column: 0 }) }),
     });
     ast = { type: "Program", body: [] };
   }

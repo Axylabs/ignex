@@ -18,10 +18,12 @@
 import type { Dirent } from "node:fs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error } from "../utils/logger.js";
 import { padAnsi, stringWidth } from "../utils/terminal.js";
+import { metaFor } from "./registry.js";
 
 /** One row of the route table. */
 interface RouteRow {
@@ -149,13 +151,34 @@ export function renderTable(rows: RouteRow[], root: string): string {
   return lines.join("\n");
 }
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  json: { type: "boolean", description: "Machine-readable JSON output" },
+  methods: {
+    type: "string",
+    valueHint: "GET,POST",
+    description: "Filter by method (comma-separated)",
+  },
+  match: {
+    type: "string",
+    description: "Only show routes whose path contains this substring",
+  },
+} satisfies ArgsDef;
+
+export const routeListCmd = defineCommand({
+  meta: metaFor("route:list"),
+  args: argsDef,
+  async run(ctx) {
+    await runRouteList(ctx.rawArgs);
+  },
+});
+
+export default routeListCmd;
+
 export async function runRouteList(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    json: { type: "boolean" },
-    methods: { type: "string" },
-  });
-  const root = resolveRoot(values, positionals);
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+  const root = await resolveProjectRoot(parsed.root);
   const config = await loadConfig(root);
 
   let rows: RouteRow[];
@@ -173,15 +196,22 @@ export async function runRouteList(args: string[]): Promise<void> {
     rows = rowsFromFiles(routesDir);
   }
 
-  if (values.methods) {
-    const wanted = String(values.methods)
+  if (parsed.methods) {
+    const wanted = String(parsed.methods)
       .split(",")
       .map((m) => m.trim().toUpperCase())
       .filter(Boolean);
     rows = rows.filter((r) => wanted.includes(r.method));
   }
 
-  if (values.json) {
+  if (parsed.match) {
+    const needle = parsed.match.toLowerCase();
+    rows = rows.filter(
+      (r) => r.path.toLowerCase().includes(needle) || r.file.toLowerCase().includes(needle),
+    );
+  }
+
+  if (parsed.json) {
     console.log(JSON.stringify(rows, null, 2));
     return;
   }

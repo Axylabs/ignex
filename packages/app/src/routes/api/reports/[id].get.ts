@@ -2,7 +2,9 @@ import { createJwt } from "@ignex/core";
 import { get } from "@ignex/core/http";
 import { BENCH_SECRET } from "../../../bench-data";
 
-const jwt = createJwt({ secret: BENCH_SECRET });
+// Explicit TTL: issued bench tokens carry exp, and verify() requires it
+// (non-expiring tokens are rejected by default — see @ignex/core crypto).
+const jwt = createJwt({ secret: BENCH_SECRET, ttlSeconds: 3600 });
 
 /** GET /api/reports/:id — HS256 JWT verification on every request. */
 export default get(async (ctx) => {

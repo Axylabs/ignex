@@ -6,11 +6,16 @@
  * OpenAPI 3.1 document with real request/response schemas). This keeps the SDK
  * in lockstep with the served API: whatever `ignex build` produced is exactly
  * what the SDK describes.
+ *
+ * Realtime declarations are loaded the same way when present:
+ * `<outDir>/realtime.json` (written by `ignex build` from the app's
+ * `src/realtime.ts`) optionally merged with `<outDir>/rpc-manifest.json`
+ * (written by the runtime RPC kit).
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SdkRouteInfo } from "./types";
+import type { SdkRealtimeInput, SdkRouteInfo } from "./types";
 
 /** Shape of a `manifest.json` route entry (the fields the SDK reads). */
 interface ManifestRoute {
@@ -33,6 +38,82 @@ const toOpenApiPath = (path: string): string =>
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * Read a JSON artifact that may not exist. Returns `undefined` for a missing
+ * file and throws a clear error for unreadable or malformed files.
+ */
+const readOptionalJson = (dir: string, file: string): unknown => {
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, file), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error(`Cannot read ${file} in ${dir}: ${errorMessage(error)}`);
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error(
+      `${file} in ${dir} is not valid JSON — regenerate it via \`ignex build\`. (${errorMessage(error)})`,
+    );
+  }
+};
+
+/** Require an object-of-schemas field on a realtime artifact. */
+const schemaRecordOf = (value: unknown, field: string, file: string): Record<string, unknown> => {
+  if (!isRecord(value)) {
+    throw new Error(`${file}: "${field}" must be an object mapping names to TypeBox JSON schemas.`);
+  }
+  return value;
+};
+
+/**
+ * Build the {@link SdkRealtimeInput} from `<outDir>/realtime.json`, merging
+ * method schemas from `<outDir>/rpc-manifest.json` when present.
+ *
+ * @returns `undefined` when the app has no realtime declarations.
+ */
+export const realtimeInputOf = (outDir: string): SdkRealtimeInput | undefined => {
+  const doc = readOptionalJson(outDir, "realtime.json");
+  if (doc === undefined) return undefined;
+  if (!isRecord(doc)) {
+    throw new Error(
+      `realtime.json in ${outDir} must be a plain object ({ subjectPrefix, events, schemas?, controlEvents? }).`,
+    );
+  }
+  if (typeof doc.subjectPrefix !== "string" || doc.subjectPrefix === "") {
+    throw new Error(
+      `realtime.json in ${outDir} must carry a non-empty string "subjectPrefix" — regenerate via \`ignex build\` with a valid src/realtime.ts.`,
+    );
+  }
+
+  const input: SdkRealtimeInput = {
+    subjectPrefix: doc.subjectPrefix,
+    events: schemaRecordOf(doc.events ?? {}, "events", "realtime.json"),
+  };
+  if (doc.schemas !== undefined) {
+    input.schemas = schemaRecordOf(doc.schemas, "schemas", "realtime.json");
+  }
+  if (doc.controlEvents !== undefined) {
+    input.controlEvents = schemaRecordOf(doc.controlEvents, "controlEvents", "realtime.json");
+  }
+
+  const manifest = readOptionalJson(outDir, "rpc-manifest.json");
+  if (manifest !== undefined) {
+    if (!isRecord(manifest)) {
+      throw new Error(
+        `rpc-manifest.json in ${outDir} must be a plain object ({ methods: { "<method.name>": <args schema> } }).`,
+      );
+    }
+    input.rpcMethods = schemaRecordOf(manifest.methods ?? {}, "methods", "rpc-manifest.json");
+  }
+
+  return input;
+};
 
 /** Merge path/query OpenAPI parameters into a single object schema. */
 const parametersToSchema = (
@@ -131,12 +212,19 @@ const routeInput = (
  * Load the compiled SDK inputs from an artifact directory.
  *
  * @param outDir - Directory holding `manifest.json` + `openapi.json`
- * (the compiler's output directory).
- * @returns The resolved routes, the OpenAPI document, and the service name.
+ * (the compiler's output directory), plus the optional `realtime.json` /
+ * `rpc-manifest.json` realtime artifacts.
+ * @returns The resolved routes, the OpenAPI document, the service name, and
+ * the realtime input (absent when the app declares no realtime events).
  */
 export const loadSdkInputs = (
   outDir: string,
-): { routes: readonly SdkRouteInfo[]; openapi: Record<string, unknown>; serviceName: string } => {
+): {
+  routes: readonly SdkRouteInfo[];
+  openapi: Record<string, unknown>;
+  serviceName: string;
+  realtime?: SdkRealtimeInput;
+} => {
   const manifestPath = join(outDir, "manifest.json");
   const openapiPath = join(outDir, "openapi.json");
 
@@ -156,10 +244,12 @@ export const loadSdkInputs = (
   const routes = (manifest.routes ?? []).map((entry) =>
     routeInput(entry, operationOf(paths, entry)),
   );
+  const realtime = realtimeInputOf(outDir);
 
   return {
     routes,
     openapi,
     serviceName: typeof manifest.serviceName === "string" ? manifest.serviceName : "ignex",
+    ...(realtime !== undefined ? { realtime } : {}),
   };
 };

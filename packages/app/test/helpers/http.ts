@@ -13,7 +13,6 @@
  * expect(await jsonBody(res)).toEqual({ ok: true });
  * ```
  */
-import { expect } from "vitest";
 
 export type TestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
@@ -62,10 +61,4 @@ export const jsonBody = async (res: Response): Promise<unknown> => {
   } catch {
     throw new Error(`expected a JSON body, got: ${JSON.stringify(text.slice(0, 200))}`);
   }
-};
-
-/** Assert a status and return the parsed JSON body in one step. */
-export const expectJson = async (res: Response, status: number): Promise<unknown> => {
-  expect(res.status).toBe(status);
-  return jsonBody(res);
 };

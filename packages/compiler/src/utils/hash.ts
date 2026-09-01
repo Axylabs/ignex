@@ -17,5 +17,10 @@ import { fnv1a64 } from "@ignex/native";
  * measured x6.74 on the 2026-08-11 bench), deterministic whether or not the
  * Rust addon is present. Used for cache fingerprints and content keys — cold
  * paths where speed pays off.
+ *
+ * NOT cryptographic: 64-bit, unkeyed, collisions feasible by construction.
+ * Only ever use for caching, deduplication, and fingerprinting — never as an
+ * identifier for auth decisions, tokens, signatures, or any security-relevant
+ * equality check.
  */
 export const hashString = (input: string): string => fnv1a64(input).toString(16);

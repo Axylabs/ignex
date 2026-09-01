@@ -8,12 +8,14 @@
 
 import { join } from "node:path";
 import type { EnvIssue } from "@ignex/core/env";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { checkProjectEnv } from "../utils/env-check.js";
 import { exists, readTextFile } from "../utils/fs.js";
 import { error, success } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
+import { metaFor } from "./registry.js";
 
 /** Diagnostics report for a project (see {@link collectDoctorReport}). */
 export interface DoctorReport {
@@ -72,19 +74,21 @@ const DEFAULT_OUT_DIR = ".ignex";
 /** Out file default when the config omits it (compiler parity). */
 const DEFAULT_OUT_FILE = "server.js";
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+} satisfies ArgsDef;
+
 /**
- * Collect a doctor report for the project at `--root` (or the first
- * positional, or cwd). Never throws; problems are surfaced as report issues.
+ * Collect a doctor report for the project at `--root` (or via walk-up
+ * discovery, or cwd). Never throws; problems are surfaced as report issues.
  *
  * @param args - Raw CLI args (`--root <dir>`).
  * @returns The structured health report.
  */
 export async function collectDoctorReport(args: string[]): Promise<DoctorReport> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-  });
-
-  const root = resolveRoot(values, positionals);
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+  const root = await resolveProjectRoot(parsed.root);
   const issues: string[] = [];
 
   const config = await loadConfig(root);
@@ -184,6 +188,19 @@ export function renderDoctor(report: DoctorReport): string[] {
   }
   return lines;
 }
+
+/**
+ * `ignex doctor` — check project health and print the report.
+ */
+export const doctorCmd = defineCommand({
+  meta: metaFor("doctor"),
+  args: argsDef,
+  async run(ctx) {
+    await runDoctor(ctx.rawArgs);
+  },
+});
+
+export default doctorCmd;
 
 /**
  * Run `ignex doctor`: print the report and set a non-zero exit code when

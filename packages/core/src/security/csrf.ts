@@ -27,6 +27,19 @@ export interface CsrfGuardOptions {
 
 const DEFAULT_METHODS: readonly HttpMethod[] = ["POST", "PUT", "PATCH", "DELETE"];
 
+/**
+ * Length-checked constant-time string equality for the double-submit compare.
+ * The HMAC inside {@link csrfVerify} is already constant-time, but the
+ * cookie↔header equality itself must be too — a plain `!==` leaks the
+ * matched-prefix length to a same-origin script reading response timing.
+ */
+const safeEqual = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < b.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
 /** Create a double-submit CSRF guard hook. */
 export const createCsrfGuard = (options: CsrfGuardOptions): HookFn => {
   const {
@@ -52,7 +65,7 @@ export const createCsrfGuard = (options: CsrfGuardOptions): HookFn => {
     const cookie = ctx.cookie[cookieName]?.value;
     const header = ctx.headers.get(headerName);
 
-    if (!cookie || !header || header !== cookie || !csrfVerify(header, secret)) {
+    if (!cookie || !header || !safeEqual(header, cookie) || !csrfVerify(header, secret)) {
       return haltHook(Response.json({ error: "CSRF token validation failed" }, { status: 403 }));
     }
 

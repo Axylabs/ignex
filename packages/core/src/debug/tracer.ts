@@ -16,7 +16,10 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { IgnexContext } from "../http/context";
+import { sharedSourceFrames } from "./sourcemaps";
 import type { CapturedRequest, RequestTrace, Span, SpanAttrs, SpanKind } from "./types";
 
 /** The per-request ALS payload. */
@@ -67,13 +70,6 @@ export const debugStageEnd = (name: string): void => {
 // Trace
 // ============================================================================
 
-/** Options controlling per-request capture. */
-export interface TraceOptions {
-  readonly captureBody: boolean;
-  /** Maximum un-finalized traces kept alive before the oldest is force-closed. */
-  readonly maxActive?: number;
-}
-
 const REDACTED_HEADERS = new Set([
   "authorization",
   "proxy-authorization",
@@ -100,12 +96,53 @@ export const captureRedactedHeaders = (headers: Headers): Record<string, string>
   return out;
 };
 
-/** Trim a stack trace to the top caller frames (noise removal). */
-const topFrames = (stack: string | undefined, count = 4): string | null => {
+/**
+ * Directory of THIS debug layer as seen at runtime. NOTE: inside a compiled
+ * bundle `import.meta.url` is the bundle file (`.ignex/server.js`), so this
+ * does NOT match sourcemapped frames — they resolve back to core's real
+ * source tree. `isInternalFrame` therefore also matches stable path shapes
+ * (packages/core/src/debug, @ignex/core) that hold wherever core is
+ * installed (workspace link, node_modules, published tarball).
+ */
+const DEBUG_SRC_DIR = dirname(fileURLToPath(import.meta.url));
+
+/** True when a (remapped) frame belongs to framework/vendor internals. */
+export const isInternalFrame = (frame: string): boolean =>
+  frame.includes(`${DEBUG_SRC_DIR}/`) ||
+  frame.includes("packages/core/src/debug/") ||
+  /[\\/]@ignex[\\/]core[\\/]/.test(frame) ||
+  /\bnode_modules\b/.test(frame) ||
+  /\bat\s+(?:async\s+)?node:/.test(frame);
+
+/**
+ * Capture an error stack for the trace: sourcemapped where maps are
+ * registered, keeping the FULL chain in true order (capped at `cap` frames so
+ * a pathological recursion cannot balloon the ring). The complete chain —
+ * framework and vendor frames included — is what lets a developer trace where
+ * an error actually started.
+ */
+const captureErrorStack = (stack: string | undefined, cap = 40): string | null => {
   if (!stack) return null;
+  const remap = sharedSourceFrames().remapFrame;
   const lines = stack.split("\n").filter((l) => l.trim().length > 0);
-  return lines.slice(0, count).join("\n");
+  const header = lines[0] && !lines[0].trimStart().startsWith("at ") ? (lines[0] as string) : null;
+  const frames = (header ? lines.slice(1) : lines).map(remap).slice(0, cap);
+  if (frames.length === 0) return null;
+  return (header ? [header, ...frames] : frames).join("\n");
 };
+
+/**
+ * Capture cap for request/response bodies (UTF-16 code units ≈ bytes for
+ * ASCII payloads). Dev-toolbar tradeoff: big enough for realistic JSON
+ * fixtures, small enough that a stray huge upload cannot balloon the ring.
+ */
+export const MAX_CAPTURED_BODY_CHARS = 262_144; // 256 KiB
+
+/** Clip a captured body to the cap; returns the text plus a truncated flag. */
+export const clipBody = (text: string): { text: string; truncated: boolean } =>
+  text.length > MAX_CAPTURED_BODY_CHARS
+    ? { text: text.slice(0, MAX_CAPTURED_BODY_CHARS), truncated: true }
+    : { text, truncated: false };
 
 /**
  * Lifecycle stage names the framework records as spans (`runTimed` /
@@ -133,14 +170,34 @@ const FRAMEWORK_STAGE_NAMES = new Set([
 const isFrameworkStageSpan = (span: Span): boolean =>
   span.kind === "lifecycle" && FRAMEWORK_STAGE_NAMES.has(span.name);
 
-/** The first non-debugbar caller frame — a cheap "where was this span created". */
-const callerOrigin = (): string | null => {
-  const err = new Error();
-  const lines = err.stack?.split("\n") ?? [];
-  // lines[0] = "Error", lines[1] = this fn, lines[2] = Trace.start, lines[3] =
-  // the app caller.
-  const frame = lines[3]?.trim();
-  return frame && frame !== "Error" ? frame : null;
+/**
+ * The caller chain of a span — "where was this span created", traced from the
+ * APPLICATION call site through every frame below it (capped so a deep chain
+ * cannot balloon the trace). The leading debug-layer wrappers (`Trace.start`,
+ * `debugQuery`, `ctx.debug.*`) are skipped so the chain STARTS at the app
+ * code that created the span; everything beneath it — helper libraries such
+ * as ninox, route handlers, framework hooks, node internals — is kept in
+ * true order, so an origin can be traced back to the request entry point
+ * instead of stopping at the first wrapper frame.
+ */
+const callerOrigin = (cap = 16): string | null => {
+  const lines = new Error().stack?.split("\n") ?? [];
+  const remap = sharedSourceFrames().remapFrame;
+  const kept: string[] = [];
+  let started = false;
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i]?.trim();
+    if (!raw || raw === "Error") continue;
+    const mapped = remap(raw);
+    if (!started) {
+      if (isInternalFrame(mapped)) continue;
+      started = true;
+    }
+    kept.push(mapped);
+    if (kept.length >= cap) break;
+  }
+  if (kept.length === 0) return null;
+  return kept.join("\n");
 };
 
 let nextSpanId = 1;
@@ -153,6 +210,8 @@ let nextSpanId = 1;
 export class Trace {
   readonly id: string;
   readonly startedAtMs: number;
+  /** Wall-clock start (epoch ms) — the value serialized as `ts`. */
+  readonly startedAtEpochMs: number;
   readonly method: string;
   readonly path: string;
   readonly route: string;
@@ -162,6 +221,9 @@ export class Trace {
   readonly request: CapturedRequest;
   status = 0;
   responseHeaders: Record<string, string> | null = null;
+  /** Captured response body (set by the plugin when body capture is on). */
+  responseBody: string | null = null;
+  responseBodyTruncated = false;
   error: string | null = null;
   errorStack: string | null = null;
   finalized = false;
@@ -177,7 +239,10 @@ export class Trace {
 
   constructor(ctx: IgnexContext, captureBody: boolean) {
     this.id = ctx.requestId;
+    // Monotonic clock for ALL span/duration math; the wall-clock twin below
+    // is only for serialization (`ts`), persistence and display.
     this.startedAtMs = performance.now();
+    this.startedAtEpochMs = Date.now();
     this.method = ctx.method;
     this.path = ctx.path;
     this.route = ctx.route;
@@ -261,6 +326,12 @@ export class Trace {
    * Start a child span. Parent is the innermost still-open span (the active
    * stack), so sequential nesting is exact; concurrent siblings may nest
    * cosmetically (durations are always exact).
+   *
+   * Origin capture is skipped for framework lifecycle spans: their creator is
+   * always the generated pipeline (a minified internal frame of no diagnostic
+   * value), and capturing cost `new Error()` + stack parse PER STAGE — the
+   * dominant tracer CPU cost under load (~7% of total server CPU measured on
+   * a mixed-route benchmark). App spans (`ctx.debug.span(...)`) keep origins.
    */
   start(name: string, kind: SpanKind = "custom", attrs?: SpanAttrs): Span {
     const parent = this.stack[this.stack.length - 1] ?? this.root;
@@ -274,7 +345,7 @@ export class Trace {
       open: true,
       attrs: attrs && Object.keys(attrs).length > 0 ? attrs : null,
       error: null,
-      origin: callerOrigin(),
+      origin: kind === "lifecycle" ? null : callerOrigin(),
     };
     this.spansById.set(span.id, span);
     this.stack.push(span);
@@ -331,7 +402,7 @@ export class Trace {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     this.error = message;
-    if (stack) this.errorStack = topFrames(stack);
+    if (stack) this.errorStack = captureErrorStack(stack);
     const innermost = this.stack[this.stack.length - 1];
     if (innermost && innermost !== this.root && innermost.open) {
       this.fail(innermost, err);
@@ -350,10 +421,26 @@ export class Trace {
       const t = setTimeout(() => resolve(""), 250);
       t.unref?.();
     });
-    const body = await Promise.race([this.pendingBody, timeout]);
-    this.request.body = body;
+    const raw = await Promise.race([this.pendingBody, timeout]);
     this.pendingBody = null;
+    const body = raw === "" ? "" : clipBody(raw).text;
+    this.request.body = body;
     return body;
+  }
+
+  /**
+   * Record the captured response body (called by the plugin's onResponse hook
+   * after it has read a textual response). Empty text stores as null.
+   */
+  setResponseBody(text: string): void {
+    if (text === "") {
+      this.responseBody = null;
+      this.responseBodyTruncated = false;
+      return;
+    }
+    const clipped = clipBody(text);
+    this.responseBody = clipped.text;
+    this.responseBodyTruncated = clipped.truncated;
   }
 
   /**
@@ -377,7 +464,7 @@ export class Trace {
       const message = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? err.stack : undefined;
       this.error = message;
-      this.errorStack = stack ? topFrames(stack) : null;
+      this.errorStack = stack ? captureErrorStack(stack) : null;
     }
     // Close dangling spans (request cut short) as failed/open so the waterfall
     // stays truthful instead of hiding the leak. Two spans are exempt: the
@@ -406,13 +493,31 @@ export class Trace {
     let dbTimeMs = 0;
     let dbCount = 0;
     for (const s of spans) {
-      if (s.kind === "db" && !s.open) dbTimeMs += s.durationMs;
-      if (s.kind === "db") dbCount += 1;
+      if (s.kind !== "db") continue;
+      // A db span NESTED inside another db span is fine-grained detail on an
+      // already-counted operation (e.g. a driver command-monitor span under a
+      // logical ORM op span). Counting both would inflate dbCount/dbTimeMs,
+      // so only outermost db spans feed the aggregates.
+      let parent = s.parentId === null ? undefined : this.spansById.get(s.parentId);
+      let nested = false;
+      while (parent !== undefined) {
+        if (parent.kind === "db") {
+          nested = true;
+          break;
+        }
+        parent = parent.parentId === null ? undefined : this.spansById.get(parent.parentId);
+      }
+      if (nested) continue;
+      if (!s.open) dbTimeMs += s.durationMs;
+      dbCount += 1;
     }
     return {
       id: this.id,
-      ts: this.startedAtMs,
-      startedAtMs: this.startedAtMs,
+      // Epoch ms — consumers (dashboard `new Date(ts)`, SQLite pruning,
+      // history `since`/`until` filters) all assume wall clock. The monotonic
+      // startedAtMs must never leak onto the wire.
+      ts: this.startedAtEpochMs,
+      startedAtMs: this.startedAtEpochMs,
       durationMs: Math.max(0, performance.now() - this.startedAtMs),
       method: this.method,
       path: this.path,
@@ -424,6 +529,8 @@ export class Trace {
       errorStack: this.errorStack,
       request: { ...this.request },
       responseHeaders: this.responseHeaders,
+      responseBody: this.responseBody,
+      responseBodyTruncated: this.responseBodyTruncated,
       spans,
       dbTimeMs,
       dbCount,

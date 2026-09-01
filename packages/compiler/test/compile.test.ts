@@ -73,6 +73,36 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain('process.on("SIGINT"');
   });
 
+  it("drains connections on shutdown even WITHOUT an app config", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // The old config-less path mapped signals straight to process.exit(0),
+    // killing in-flight requests on every rolling deploy/Ctrl-C. The
+    // generated bootstrap must drain (`stop(false)`) for every app; plugin
+    // closing stays app-config-conditional.
+    expect(result.code).toContain("__server.stop(false)");
+    expect(result.code).not.toContain('process.on("SIGTERM", () => process.exit(0))');
+    expect(result.code).toMatch(/setTimeout\(\(\) => process\.exit\(0\), 10000\)/);
+  });
+
+  it("applies deliberate default limits (body cap + WS frame ceiling)", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // A deliberate body ceiling via the shared core constant (64MB) — never
+    // Bun's larger implicit 128MB default — and a websocket frame ceiling
+    // injected when the app config didn't set one. The linker's bundler may
+    // fold the imported constant to its literal, so assert both shapes.
+    expect(result.code).toMatch(
+      /maxRequestBodySize: __serverCfg\.maxRequestBodySize \?\? (DEFAULT_MAX_REQUEST_BODY_SIZE|67108864)/,
+    );
+    expect(result.code).not.toContain("134217728");
+    expect(result.code).toContain("maxPayloadLength: DEFAULT_WS_MAX_PAYLOAD_LENGTH");
+  });
+
   it("drains requests + closes plugins on shutdown when an app config is present", async () => {
     const layout = materializeFixture("basic");
     const result = await buildAsync({
@@ -81,9 +111,10 @@ describe("compile (end-to-end)", () => {
     });
 
     expect(result.errors).toHaveLength(0);
-    // Graceful shutdown: drain active requests, then close plugin resources
+    // Graceful shutdown: drain active requests (stop(false) — stop(true)
+    // would FORCE-close in-flight requests), then close plugin resources
     // (DB connections, stores) before exiting.
-    expect(result.code).toContain("__server.stop(true)");
+    expect(result.code).toContain("__server.stop(false)");
     expect(result.code).toContain("__pluginContext.closeAll()");
     expect(result.code).toContain('received " + __signal');
   });
@@ -109,17 +140,30 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain("jsonReply");
   });
 
-  it("prunes unused runtime helpers for constant-only apps", async () => {
-    const layout = materializeFixture("constant-only");
-    const result = await buildAsync(baseOptions(layout));
+  // Bundler DCE requires the Bun runtime; vitest workers may run under Node,
+  // where the linker degrades to a raw (unpruned) write.
+  const hasBundler = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
-    expect(result.errors).toHaveLength(0);
+  it.runIf(hasBundler)(
+    "prunes unused runtime helpers via the linker's bundler for constant-only apps",
+    async () => {
+      const layout = materializeFixture("constant-only");
+      const result = await buildAsync(baseOptions(layout));
 
-    // Constant routes never need reply/finalize helpers.
-    expect(result.code).not.toContain("jsonReply");
-    expect(result.code).not.toContain("textReply");
-    expect(result.code).not.toContain("__finalize");
-  });
+      expect(result.errors).toHaveLength(0);
+
+      // Dead-helper elimination happens at link time: every helper is emitted
+      // unconditionally and the linker's bundler (Bun.build treeshaking) drops
+      // unreferenced ones from the final artifact.
+      const linked = await Bun.file(join(layout.outDir, "server.js")).text();
+      expect(linked).not.toContain("jsonReply");
+      expect(linked).not.toContain("textReply");
+      expect(linked).not.toContain("__finalize");
+
+      // Structural bootstrap code always survives.
+      expect(linked).toContain("Bun.serve");
+    },
+  );
 
   it("emits a single __appConfig import when an app config is present", async () => {
     const layout = materializeFixture("basic");
@@ -278,6 +322,20 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain("return response;");
     // The app config is still wired for server options.
     expect(result.code).toContain("__appConfig");
+  });
+
+  it("treats STATICALLY EMPTY plugins/lifecycle exports as hook-free", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "empty.config.ts"),
+    });
+
+    // `plugins = []` + `lifecycle = { request: [] }` contribute no per-request
+    // hooks, so constant routes are bound as pre-built static Responses and
+    // hook-free routes keep the compact path.
+    expect(result.code).toContain("STATIC_RES_");
+    expect(result.code).toContain("return response;");
   });
 });
 

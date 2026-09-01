@@ -17,6 +17,9 @@ on:
 
 env:
   BUN_VERSION: 1.4.0
+  # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
+  # the nightly sweep must exercise the SAME addon production installs.
+  CASTRUM_REF: 0d8e4e84a96420e5dfcc2e6528a7c80303d200bf
 
 jobs:
   native-parity:
@@ -31,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Axylabs/flux-rs
+          ref: ${{ env.CASTRUM_REF }}
           path: castrum
 
       - name: Setup Bun
@@ -99,6 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Axylabs/flux-rs
+          ref: ${{ env.CASTRUM_REF }}
           path: castrum
 
       - name: Setup Bun

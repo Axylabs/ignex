@@ -130,6 +130,29 @@ describe("Trace", () => {
     expect(json.error).toBe("kaboom");
     expect(json.errorStack).toBeTruthy();
   });
+
+  it("captures response bodies with a size cap (setResponseBody)", async () => {
+    const ctx = createContext(req("/"), {}, {});
+    const trace = beginTrace(ctx, false);
+
+    trace.setResponseBody('{"hello":"world"}');
+    let json = trace.toJSON();
+    expect(json.responseBody).toBe('{"hello":"world"}');
+    expect(json.responseBodyTruncated).toBe(false);
+
+    // Oversized bodies are clipped at the capture cap and flagged.
+    const huge = "x".repeat(300_000);
+    trace.setResponseBody(huge);
+    json = trace.toJSON();
+    expect(json.responseBody?.length).toBeLessThanOrEqual(262_144);
+    expect(json.responseBodyTruncated).toBe(true);
+
+    // Empty bodies store as null (204/304-style responses).
+    trace.setResponseBody("");
+    json = trace.toJSON();
+    expect(json.responseBody).toBeNull();
+    expect(json.responseBodyTruncated).toBe(false);
+  });
 });
 
 describe("free helpers (ALS propagation)", () => {
@@ -149,6 +172,33 @@ describe("free helpers (ALS propagation)", () => {
     const json = trace.toJSON();
     expect(json.spans.some((s) => s.name === "outer")).toBe(true);
     expect(json.spans.some((s) => s.name === "SELECT 1" && s.kind === "db")).toBe(true);
+  });
+
+  it("debugQuery records the result shape (row count + preview) on the span", async () => {
+    setTracingEnabled(true);
+    const ctx = createContext(req("/"), {}, {});
+    const trace = beginTrace(ctx, false);
+    enterTraceContext(trace);
+
+    await debugQuery("SELECT * FROM users", [], async () => [{ id: 1 }, { id: 2 }, { id: 3 }]);
+    await debugQuery("INSERT INTO users VALUES (1)", [1], async () => ({
+      changes: 1,
+      lastInsertRowid: 5,
+    }));
+    await debugQuery("SELECT fail", [], async () => {
+      throw new Error("no such table");
+    }).catch(() => {}); // the error is recorded AND rethrown
+
+    const json = trace.toJSON();
+    const select = json.spans.find((s) => s.name === "SELECT * FROM users");
+    expect(select?.attrs).toMatchObject({ rowCount: 3 });
+    expect(String(select?.attrs?.preview)).toContain('"id":1');
+
+    const insert = json.spans.find((s) => s.name.startsWith("INSERT INTO"));
+    expect(insert?.attrs).toMatchObject({ changes: 1, lastInsertRowid: 5 });
+
+    const failed = json.spans.find((s) => s.name === "SELECT fail");
+    expect(failed?.error).toBe("no such table");
   });
 
   it("helpers are pass-throughs with no active trace", async () => {
@@ -192,6 +242,56 @@ describe("redactRequestTrace", () => {
   });
 });
 
+describe("buildCurl", () => {
+  it("renders method, URL, headers and body as a reproducible command", async () => {
+    const { buildCurl } = await import("../src/debug/curl");
+    const curl = buildCurl({
+      method: "POST",
+      request: {
+        method: "POST",
+        url: "http://localhost:3000/orders",
+        headers: { authorization: "[redacted]", "content-type": "application/json" },
+        body: '{"orderId":"7"}',
+      },
+    });
+    expect(curl).toContain("-X POST");
+    expect(curl).toContain("'http://localhost:3000/orders'");
+    expect(curl).toContain("-H 'authorization: [redacted]'");
+    expect(curl).toContain('--data-raw \'{"orderId":"7"}\'');
+  });
+
+  it("single-quote-escapes values containing quotes", async () => {
+    const { buildCurl } = await import("../src/debug/curl");
+    const curl = buildCurl({
+      method: "GET",
+      request: {
+        method: "GET",
+        url: "http://localhost:3000/search",
+        headers: { "x-note": "it's here" },
+        body: null,
+      },
+    });
+    expect(curl).toContain(`it'\\''s here`);
+    expect(curl).not.toContain("--data-raw");
+  });
+
+  it("skips hop-by-hop headers", async () => {
+    const { buildCurl } = await import("../src/debug/curl");
+    const curl = buildCurl({
+      method: "GET",
+      request: {
+        method: "GET",
+        url: "http://localhost:3000/",
+        headers: { host: "localhost:3000", connection: "keep-alive", accept: "*/*" },
+        body: null,
+      },
+    });
+    expect(curl).not.toContain("-H 'host:");
+    expect(curl).not.toContain("-H 'connection:");
+    expect(curl).toContain("accept: */*");
+  });
+});
+
 // ── store ──────────────────────────────────────────────────────
 
 describe("TraceStore", () => {
@@ -210,6 +310,8 @@ describe("TraceStore", () => {
     errorStack: null,
     request: { method: "GET", url: "http://localhost:3000/", headers: {}, body: null },
     responseHeaders: null,
+    responseBody: null,
+    responseBodyTruncated: false,
     spans: [],
     dbTimeMs: 0,
     dbCount: 0,
@@ -242,6 +344,43 @@ describe("TraceStore", () => {
     const p = store.percentiles();
     expect(p.avgMs).toBeGreaterThan(9);
     expect(p.p95Ms).toBeLessThanOrEqual(100);
+  });
+
+  it("sheds bodies oldest-first when the body budget fills (spans survive)", () => {
+    const body = "b".repeat(10_000);
+    const fatTrace = (id: string): ReturnType<typeof makeTrace> => ({
+      ...makeTrace(id, null),
+      request: { method: "POST", url: "http://localhost:3000/", headers: {}, body },
+      responseBody: body,
+      responseBodyTruncated: false,
+    });
+    // Budget fits ~4 traces' worth of bodies (40 KiB total budget).
+    const store = new TraceStore({ maxBodyBytes: 40_000 });
+    for (let i = 1; i <= 8; i++) store.push(fatTrace(`r${i}`));
+
+    expect(store.retainedBodyBytes).toBeLessThanOrEqual(40_000);
+    // Oldest captures shed their body text…
+    const old = store.get("r1");
+    expect(old?.request.body).toBeNull();
+    expect(old?.responseBody).toBeNull();
+    // …but their spans/metadata survive.
+    expect(old?.id).toBe("r1");
+    expect(old?.path).toBe("/r1");
+    // The newest capture keeps its bodies (it just arrived).
+    expect(store.get("r8")?.request.body).toBe(body);
+    expect(store.get("r8")?.responseBody).toBe(body);
+
+    // Ring eviction keeps the accounting exact after turnover.
+    for (let i = 9; i <= 12; i++) store.push(fatTrace(`r${i}`));
+    expect(store.size).toBeLessThanOrEqual(store.maxTraces);
+    let recomputed = 0;
+    for (const t of store.list()) {
+      recomputed += (t.request.body?.length ?? 0) + (t.responseBody?.length ?? 0);
+    }
+    expect(store.retainedBodyBytes).toBe(recomputed);
+    expect(store.retainedBodyBytes).toBeLessThanOrEqual(40_000);
+    store.clear();
+    expect(store.retainedBodyBytes).toBe(0);
   });
 });
 
@@ -440,6 +579,108 @@ describe("debugbar plugin (AOT-style interception)", () => {
     });
   });
 
+  it("captures request AND response bodies by default (and skips streams)", async () => {
+    const sseStarted: (() => void) | null = null;
+    const app = createApp({
+      plugins: [debugbar({ enabled: true })], // captureBody defaults to ON
+      handler: async (ctx) => {
+        if (ctx.method === "POST" && ctx.url.pathname === "/echo") {
+          const body = (await ctx.req.json()) as { msg: string };
+          return ctx.json({ got: body.msg, n: 42 });
+        }
+        if (ctx.url.pathname === "/stream") {
+          // An SSE-style infinite stream must NOT be awaited by the tracer.
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: hi\n\n"));
+                sseStarted?.();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        return ctx.json({ ok: true });
+      },
+    });
+    server = loopingServer(app);
+
+    const payload = JSON.stringify({ msg: "hello bodies" });
+    const res = await run(app, "/echo", { method: "POST", body: payload });
+    // The client still receives the full, unmodified response.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ got: "hello bodies", n: 42 });
+
+    const rows = (await (await run(app, "/__debugbar/api/requests")).json()) as Array<{
+      id: string;
+      method: string;
+      path: string;
+    }>;
+    const post = rows.find((r) => r.path === "/echo");
+    expect(post).toBeTruthy();
+
+    const detail = (await (await run(app, `/__debugbar/api/requests/${post?.id}`)).json()) as {
+      request: { body: string | null };
+      responseBody: string | null;
+      responseBodyTruncated: boolean;
+    };
+    expect(detail.request.body).toBe(payload);
+    expect(detail.responseBody).toBe('{"got":"hello bodies","n":42}');
+    expect(detail.responseBodyTruncated).toBe(false);
+
+    // SSE responses are skipped (never awaited) and the stream still flows.
+    const streamRes = await run(app, "/stream");
+    expect(streamRes.headers.get("content-type")).toContain("text/event-stream");
+    const reader = streamRes.body?.getReader();
+    const chunk = await reader?.read();
+    expect(new TextDecoder().decode(chunk?.value)).toContain("data: hi");
+    await reader?.cancel();
+
+    await sleep(20);
+    const streamRows = (await (await run(app, "/__debugbar/api/requests")).json()) as Array<{
+      id: string;
+      path: string;
+    }>;
+    const streamed = streamRows.find((r) => r.path === "/stream");
+    if (streamed) {
+      // The stream trace is stored, but its body was never captured.
+      const streamDetail = (await (
+        await run(app, `/__debugbar/api/requests/${streamed.id}`)
+      ).json()) as { responseBody: string | null };
+      expect(streamDetail.responseBody).toBeNull();
+    }
+  });
+
+  it("captures db queries with results through the per-request debug API", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true })],
+      handler: async (ctx) => {
+        const rows = (await ctx.debug.query("SELECT id FROM orders", [], async () => [
+          { id: "o1" },
+          { id: "o2" },
+        ])) as Array<{ id: string }>;
+        return ctx.json({ count: rows.length });
+      },
+    });
+    server = loopingServer(app);
+
+    await run(app, "/orders");
+    const rows = (await (await run(app, "/__debugbar/api/requests")).json()) as Array<{
+      id: string;
+      dbCount: number;
+    }>;
+    expect(rows[0]?.dbCount).toBe(1);
+    const detail = (await (await run(app, `/__debugbar/api/requests/${rows[0]?.id}`)).json()) as {
+      dbTimeMs: number;
+      spans: Array<{ kind: string; name: string; attrs: Record<string, unknown> | null }>;
+    };
+    const query = detail.spans.find((s) => s.kind === "db");
+    expect(query?.name).toBe("SELECT id FROM orders");
+    expect(query?.attrs?.rowCount).toBe(2);
+    expect(String(query?.attrs?.preview)).toContain("o1");
+    expect(detail.dbTimeMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("captures handler errors with stacks and lists them", async () => {
     const app = createApp({
       plugins: [debugbar({ enabled: true })],
@@ -482,11 +723,96 @@ describe("debugbar plugin (AOT-style interception)", () => {
 
     const kt = (await (await run(app, "/__debugbar/api/kt")).json()) as {
       markdown: string;
-      knowledge: { serviceName: string; routes: unknown[] };
+      knowledge: {
+        serviceName: string;
+        routes: unknown[];
+        areas: Array<{ name: string }>;
+        docs: Array<{ path: string; title: string }>;
+        dbActions: unknown[];
+      };
     };
     expect(kt.knowledge.serviceName).toBe("demo");
     expect(kt.markdown).toContain("Request anatomy");
     expect(kt.markdown).toContain("debugbar");
+    // New-developer onboarding sections are always present.
+    expect(kt.markdown).toContain("Where things live");
+    expect(kt.markdown).toContain("Database activity");
+    expect(kt.markdown).toContain("Documentation");
+    expect(Array.isArray(kt.knowledge.dbActions)).toBe(true);
+  });
+
+  it("KT documents the DB actions observed across retained requests", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true })],
+      handler: async (ctx) => {
+        if (ctx.url.pathname === "/users") {
+          await ctx.debug.query(
+            "SELECT id, name FROM users WHERE active = 1 LIMIT 20",
+            [],
+            async () => [{ id: 1 }],
+          );
+        }
+        return ctx.json({ ok: true });
+      },
+    });
+    server = loopingServer(app);
+    await run(app, "/users");
+    await run(app, "/users"); // second call → calls == 2
+
+    const kt = (await (await run(app, "/__debugbar/api/kt")).json()) as {
+      markdown: string;
+      knowledge: {
+        dbActions: Array<{
+          action: string;
+          table: string | null;
+          statement: string;
+          calls: number;
+          totalMs: number;
+          routes: string[];
+        }>;
+      };
+    };
+    const action = kt.knowledge.dbActions.find((a) => a.table === "users");
+    expect(action).toBeTruthy();
+    expect(action?.action).toBe("SELECT");
+    expect(action?.calls).toBe(2);
+    // Literals are normalized away so the pattern is stable.
+    expect(action?.statement).toBe("SELECT id, name FROM users WHERE active = ? LIMIT ?");
+    expect(action?.routes.length).toBeGreaterThan(0);
+    // And the markdown table renders it.
+    expect(kt.markdown).toContain("SELECT id, name FROM users WHERE active = ? LIMIT ?");
+  });
+
+  it("KT lists the project's documentation from the configured scan paths", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "ignex-kt-docs-"));
+    writeFileSync(join(dir, "README.md"), "# Demo Service\n\nThe entry point doc.\n", "utf8");
+    writeFileSync(join(dir, "architecture.md"), "# System architecture\n", "utf8");
+    const sub = join(dir, "guides");
+    (await import("node:fs")).mkdirSync(sub);
+    writeFileSync(join(sub, "auth.md"), "# Auth guide\nHow sessions work.\n", "utf8");
+
+    const app = createApp({
+      plugins: [debugbar({ enabled: true, docsPaths: [dir], manifestPaths: [], sdkPaths: [] })],
+      handler: () => new Response("ok"),
+    });
+    server = loopingServer(app);
+    await run(app, "/x");
+
+    const kt = (await (await run(app, "/__debugbar/api/kt")).json()) as {
+      knowledge: { docs: Array<{ path: string; title: string }> };
+    };
+    const doc = (suffix: string) => kt.knowledge.docs.find((d) => d.path.endsWith(suffix));
+    // Titles come from each file's first `#` heading.
+    expect(doc("architecture.md")?.title).toBe("System architecture");
+    expect(doc("auth.md")?.title).toBe("Auth guide");
+    expect(doc("guides/auth.md")).toBeTruthy();
+    // README sorts first and its title comes from the heading.
+    expect(kt.knowledge.docs[0]?.path.endsWith("README.md")).toBe(true);
+    expect(kt.knowledge.docs[0]?.title).toBe("Demo Service");
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("enforces the token when configured", async () => {
@@ -499,12 +825,38 @@ describe("debugbar plugin (AOT-style interception)", () => {
 
     const denied = await run(app, "/__debugbar/api/requests");
     expect(denied.status).toBe(403);
-    const allowed = await run(app, "/__debugbar/api/requests?token=sekrit");
-    expect(allowed.status).toBe(200);
+    // Query-string tokens are rejected on API endpoints (they leak into
+    // access logs/referrers) — the page handshake converts them into a cookie.
+    const queryToken = await run(app, "/__debugbar/api/requests?token=sekrit");
+    expect(queryToken.status).toBe(403);
     const headerOk = await run(app, "/__debugbar/api/requests", {
       headers: { "x-debugbar-token": "sekrit" },
     });
     expect(headerOk.status).toBe(200);
+  });
+
+  it("converts a ?token= page visit into an HttpOnly cookie and strips the token from the URL", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true, token: "sekrit" })],
+      handler: () => new Response("ok"),
+    });
+    server = loopingServer(app);
+    await run(app, "/x");
+
+    const handshake = await run(app, "/__debugbar/?token=sekrit");
+    expect(handshake.status).toBe(307);
+    expect(handshake.headers.get("location")).toBe("/__debugbar/");
+    const setCookie = handshake.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("__debugbar_token=sekrit");
+    expect(setCookie).toContain("HttpOnly");
+    // A wrong token still gets the dashboard 403.
+    const wrong = await run(app, "/__debugbar/?token=nope");
+    expect(wrong.status).toBe(403);
+    // The cookie authenticates subsequent API calls.
+    const viaCookie = await run(app, "/__debugbar/api/requests", {
+      headers: { cookie: "__debugbar_token=sekrit" },
+    });
+    expect(viaCookie.status).toBe(200);
     // The static JS asset stays reachable for the page to load (no token
     // gate) and is served as executable JavaScript, not text/html.
     const js = await run(app, "/__debugbar/app.js");
@@ -531,6 +883,59 @@ describe("debugbar plugin (AOT-style interception)", () => {
     // hooks. The marker must exactly mirror the enabled state.
     expect(debugbar({ enabled: false }).__ignexDevOnly).toBe(true);
     expect(debugbar({ enabled: true }).__ignexDevOnly).toBe(false);
+  });
+
+  it("never boots in production unless IGNEX_DEBUG=1 explicitly opts in", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    const origIgnExDebug = process.env.IGNEX_DEBUG;
+    try {
+      delete process.env.IGNEX_DEBUG;
+
+      // Production + explicit enabled:true → forced off (stray DEBUG=true
+      // env files must not ship the toolbar into production).
+      process.env.NODE_ENV = "production";
+      const warns: string[] = [];
+      const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+        warns.push(args.map(String).join(" "));
+      });
+      try {
+        expect(debugbar({ enabled: true }).__ignexDevOnly).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(warns.some((l) => l.includes("IGNEX_DEBUG=1"))).toBe(true);
+
+      // Production + IGNEX_DEBUG=1 → explicit opt-in works.
+      process.env.IGNEX_DEBUG = "1";
+      expect(debugbar({ enabled: true }).__ignexDevOnly).toBe(false);
+      expect(debugbar().__ignexDevOnly).toBe(false);
+      expect(debugbar({ enabled: false }).__ignexDevOnly).toBe(true);
+    } finally {
+      if (origNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = origNodeEnv;
+      if (origIgnExDebug === undefined) delete process.env.IGNEX_DEBUG;
+      else process.env.IGNEX_DEBUG = origIgnExDebug;
+    }
+  });
+
+  it("treats a production-built artifact (__IGNEX_PROD_BUILD) as production even with an ambiguous env", () => {
+    const origIgnExDebug = process.env.IGNEX_DEBUG;
+    delete process.env.NODE_ENV;
+    delete process.env.IGNEX_DEBUG;
+    const g = globalThis as { __IGNEX_PROD_BUILD?: boolean };
+    try {
+      // Prod-BUILT artifact launched bare (no NODE_ENV): locked off.
+      g.__IGNEX_PROD_BUILD = true;
+      expect(debugbar({ enabled: true }).__ignexDevOnly).toBe(true);
+
+      // Explicit IGNEX_DEBUG=1 opt-in unlocks it.
+      process.env.IGNEX_DEBUG = "1";
+      expect(debugbar({ enabled: true }).__ignexDevOnly).toBe(false);
+    } finally {
+      delete g.__IGNEX_PROD_BUILD;
+      if (origIgnExDebug === undefined) delete process.env.IGNEX_DEBUG;
+      else process.env.IGNEX_DEBUG = origIgnExDebug;
+    }
   });
 
   it("logs the dashboard URL on init, and the exact URL on the first request", async () => {
@@ -687,5 +1092,125 @@ describe("debugbar data panels", () => {
     const res = await run(app, "/__debugbar/api/jobs");
     const body = (await res.json()) as { enabled: boolean };
     expect(body.enabled).toBe(false);
+  });
+
+  it("serves the nova event trace (what fired) from a wired handle", async () => {
+    let cleared = 0;
+    const plugin = debugbar({
+      enabled: true,
+      path: "/__debugbar",
+      data: {
+        nova: () => ({
+          getEventTrace: (opts?: { limit?: number; direction?: string; name?: string }) => ({
+            enabled: true,
+            capacity: 1024,
+            stats: {
+              size: 2,
+              total: 3,
+              inCount: 1,
+              outCount: 2,
+              bytes: 64,
+              byName: { "quote.tick": 2, chat: 1 },
+              last: { name: "quote.tick", ts: 1720000000000 },
+            },
+            recent:
+              opts?.direction !== undefined
+                ? [
+                    {
+                      seq: 2,
+                      ts: 1720000000000,
+                      direction: "out.emit",
+                      name: "quote.tick",
+                      target: "user",
+                      key: "u-42",
+                      bytes: 32,
+                    },
+                  ]
+                : [
+                    {
+                      seq: 2,
+                      ts: 1720000000000,
+                      direction: "out.emit",
+                      name: "quote.tick",
+                      target: "user",
+                      key: "u-42",
+                      bytes: 32,
+                    },
+                    {
+                      seq: 1,
+                      ts: 1720000000000,
+                      direction: "in.client",
+                      name: "chat",
+                      bytes: 32,
+                    },
+                  ],
+          }),
+          clearEventTrace: () => {
+            cleared++;
+          },
+        }),
+      },
+    });
+    const app = createApp({
+      plugins: [plugin],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+
+    const res = await run(app, "/__debugbar/api/nova/events?limit=50&direction=out.emit");
+    const body = (await res.json()) as {
+      enabled: boolean;
+      stats: { byName: Record<string, number> };
+      recent: Array<{ name: string; target?: string }>;
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.stats.byName).toMatchObject({ "quote.tick": 2 });
+    // filters reach the underlying trace (out.emit-only → the chat row drops)
+    expect(body.recent).toHaveLength(1);
+    expect(body.recent[0]?.name).toBe("quote.tick");
+    expect(body.recent[0]?.target).toBe("user");
+
+    const clearRes = await run(app, "/__debugbar/api/nova/events/clear", { method: "POST" });
+    expect(((await clearRes.json()) as { ok: boolean }).ok).toBe(true);
+    expect(cleared).toBe(1);
+
+    // the AI summary carries the compact nova block for agents
+    const summary = (await (await run(app, "/__debugbar/api/ai/summary")).json()) as {
+      nova?: { enabled: boolean; outCount: number; recent: Array<{ name: string }> };
+    };
+    expect(summary.nova?.enabled).toBe(true);
+    expect(summary.nova?.outCount).toBe(2);
+    expect(summary.nova?.recent[0]?.name).toBe("quote.tick");
+  });
+
+  it("reports nova as not wired when no data.nova probe is configured", async () => {
+    const plugin = debugbar({ enabled: true, path: "/__debugbar" });
+    const app = createApp({
+      plugins: [plugin],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+    const res = await run(app, "/__debugbar/api/nova/events");
+    const body = (await res.json()) as { enabled: boolean; hint?: string };
+    expect(body.enabled).toBe(false);
+    expect(body.hint).toContain("data.nova");
+
+    // and a throwing probe degrades to the same disabled state
+    const broken = debugbar({
+      enabled: true,
+      path: "/__db2",
+      data: {
+        nova: () => {
+          throw new Error("probe exploded");
+        },
+      },
+    });
+    const app2 = createApp({
+      plugins: [broken],
+      router: createRouter(),
+      handler: () => new Response("ok"),
+    });
+    const res2 = await run(app2, "/__db2/api/nova/events");
+    expect(((await res2.json()) as { enabled: boolean }).enabled).toBe(false);
   });
 });

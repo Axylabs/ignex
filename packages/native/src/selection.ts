@@ -221,3 +221,51 @@ export const OPS: readonly OpName[] = [
 export const SELECTION: Record<OpName, OpDecision> = Object.fromEntries(
   OPS.map((op) => [op, { impl: implFor(op) }]),
 ) as Record<OpName, OpDecision>;
+
+/**
+ * Per-op input-size crossovers (the "check the length, then decide" layer).
+ *
+ * The static table above answers "which impl wins for a TYPICAL payload" —
+ * but some ops flip winner with input size: tiny inputs lose to the
+ * boundary/transcode cost while large ones amortize it. Each gate records
+ * the MEASURED byte threshold (see `scripts/bench-size-crossover.ts`, median
+ * of interleaved trials) below which the JS path wins.
+ *
+ * Measured 2026-08 (Bun 1.4.1-canary, castrum C-ABI):
+ * - `jsonValid`: JS (JSON.parse) loses ~20–40% below 64B under the forced
+ *   native dispatch; native wins consistently from ~64B (up to ~1.2×).
+ *   Threshold set at 256B for margin on both sides of the flip.
+ * - `hmacSha256`: measured NO clean crossover (noise-level trading across
+ *   the sweep) → deliberately NOT gated; static decision stands.
+ * - `fnv1a64`: native from ≥32B (7–60×) → no gate needed (static native).
+ * - `sessionSeal`/`sessionOpen`: JS wins at every size for open (growing to
+ *   2.3×); seal flips only past ~1KB envelopes → opt-in flag, not gated.
+ *
+ * Kill switch: `IGNEX_SIZE_GATES=off` disables all gating (every call uses
+ * the static-table decision — used by parity tests and emergency rollbacks).
+ */
+export interface SizeGate {
+  /** Use the JS path for inputs strictly below this many bytes. */
+  readonly jsBelowBytes: number;
+}
+
+/**
+ * Per-op measured size crossovers (see the rationale above and
+ * `scripts/bench-size-crossover.ts`). Read-only data — never mutate.
+ */
+export const SIZE_GATES: Readonly<Partial<Record<OpName, SizeGate>>> = Object.freeze({
+  jsonValid: Object.freeze({ jsBelowBytes: 256 }),
+} satisfies Partial<Record<OpName, SizeGate>>);
+
+const SIZE_GATES_DISABLED = process.env.IGNEX_SIZE_GATES === "off";
+
+/**
+ * True when an input of `bytes` length may take the NATIVE path for `op`
+ * (false = the measured crossover says JS wins at this size). Ops without a
+ * gate always allow native (static table decides as before).
+ */
+export const sizeGateAllowsNative = (op: OpName, bytes: number): boolean => {
+  if (SIZE_GATES_DISABLED) return true;
+  const gate = SIZE_GATES[op];
+  return gate === undefined || bytes >= gate.jsBelowBytes;
+};

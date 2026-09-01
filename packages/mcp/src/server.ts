@@ -7,12 +7,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   runDebugClientsTool,
+  runDebugDiagnosticsTool,
   runDebugEventPublishTool,
   runDebugEventsTool,
+  runDebugHistoryTool,
   runDebugKtTool,
+  runDebugLogsTool,
+  runDebugMetricsTool,
+  runDebugNovaEventsTool,
   runDebugReplayTool,
   runDebugRequestsTool,
   runDebugRequestTool,
+  runDebugStateTool,
   runDebugSummaryTool,
   runDebugSystemTool,
 } from "./debugger.js";
@@ -351,6 +357,38 @@ export const createMcpServer = (): McpServer => {
   );
 
   register(
+    "debug-nova-events",
+    {
+      title: "Debugbar: nova (FlatBuffer realtime) event trace",
+      description:
+        "See what fired in the app's nova FlatBuffer transport — every emitted, published, and received realtime event (client / remote instance / NATS bridge), newest first, with per-event counts and frame sizes. Use to debug realtime/websocket flows.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+        limit: z.number().optional().describe("Max rows (1-500, default 50)"),
+        name: z.string().optional().describe('Filter by wire event name (e.g. "quote.tick")'),
+        direction: z
+          .string()
+          .optional()
+          .describe(
+            'Filter by direction: "out.publish" | "out.emit" | "in.client" | "in.remote" | "in.bridge"',
+          ),
+        clear: z.boolean().optional().describe("Clear the retained trace rows instead of listing"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugNovaEventsTool(
+            args as unknown as Parameters<typeof runDebugNovaEventsTool>[0],
+          ),
+        },
+      ],
+    }),
+  );
+
+  register(
     "debug-system",
     {
       title: "Debugbar: system profile",
@@ -401,7 +439,7 @@ export const createMcpServer = (): McpServer => {
     {
       title: "Debugbar: how this app works",
       description:
-        "The app's knowledge-transfer page (markdown): route map, plugins, lifecycle stages, span kinds, environment — lets an agent understand the app before touching it.",
+        "The app's knowledge-transfer page (markdown): project map (where routes/models/middleware live), the repo's documentation inventory, route map with per-route usage, plugins, lifecycle stages, observed DB activity per route (normalized statements + counts + routes), span kinds and environment — lets an agent understand the app before touching it.",
       inputSchema: {
         url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
         token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
@@ -412,6 +450,151 @@ export const createMcpServer = (): McpServer => {
         {
           type: "text",
           text: await runDebugKtTool(args as unknown as Parameters<typeof runDebugRequestTool>[0]),
+        },
+      ],
+    }),
+  );
+
+  // ── observatory tools ────────────────────────────────────────────────────
+  //
+  // Structured logs, metrics (Prometheus-compatible), leak diagnostics,
+  // process state and SQLite-persisted history — the deep-inspection layer
+  // behind the debugbar's observatory.
+
+  register(
+    "debug-logs",
+    {
+      title: "Observatory: structured logs",
+      description:
+        "Read the app's structured log stream with filters: minimum level (debug/info/warn/error), text search, correlated trace id. persisted=true reads the SQLite history that survives restarts instead of the live ring.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+        limit: z.number().optional().describe("Max rows (1-500, default 100)"),
+        level: z
+          .enum(["debug", "info", "warn", "error"])
+          .optional()
+          .describe("Minimum level (inclusive)"),
+        q: z.string().optional().describe("Substring filter over message"),
+        traceId: z.string().optional().describe("Only logs emitted inside this request trace"),
+        persisted: z.boolean().optional().describe("Read from SQLite history instead of live ring"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugLogsTool(args as unknown as Parameters<typeof runDebugLogsTool>[0]),
+        },
+      ],
+    }),
+  );
+
+  register(
+    "debug-metrics",
+    {
+      title: "Observatory: metrics + Prometheus export",
+      description:
+        "Per-route request counts, error counts and duration quantiles (p50/p95/p99), system gauges and custom counters. format='prometheus' returns the exact Prometheus exposition a Grafana scrape would pull.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+        format: z
+          .enum(["json", "prometheus"])
+          .optional()
+          .describe("Response format (default json)"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugMetricsTool(
+            args as unknown as Parameters<typeof runDebugMetricsTool>[0],
+          ),
+        },
+      ],
+    }),
+  );
+
+  register(
+    "debug-diagnostics",
+    {
+      title: "Observatory: leak & trend diagnostics",
+      description:
+        "Detect memory leaks and degradation BEFORE production incidents: heap/RSS growth slopes with fit quality, event-loop saturation, in-flight requests never draining. Each finding carries measured evidence + recommendation. gc=true forces a full GC first and reports freed memory.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+        gc: z
+          .boolean()
+          .optional()
+          .describe("Force full GC and report freed memory instead of analyzing"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugDiagnosticsTool(
+            args as unknown as Parameters<typeof runDebugDiagnosticsTool>[0],
+          ),
+        },
+      ],
+    }),
+  );
+
+  register(
+    "debug-state",
+    {
+      title: "Observatory: application state",
+      description:
+        "Snapshot of application + process state: runtime versions, memory breakdown, environment variable NAMES (never values), route/plugin inventory, store sizes and feature flags.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugStateTool(args as unknown as Parameters<typeof runDebugStateTool>[0]),
+        },
+      ],
+    }),
+  );
+
+  register(
+    "debug-history",
+    {
+      title: "Observatory: persisted trace history",
+      description:
+        "Query the SQLite observatory db (.ignex/observatory.db) for request traces across restarts — the post-mortem record. Filter by time range, method, status family, errors-only, minimum duration or text; pass id for one fully reconstructed trace with spans.",
+      inputSchema: {
+        url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
+        token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
+        id: z
+          .string()
+          .optional()
+          .describe("Fetch one persisted trace by id (full detail incl. spans)"),
+        limit: z.number().optional().describe("Max rows (1-200, default 50)"),
+        q: z.string().optional().describe("Substring over method+path+error"),
+        method: z.string().optional().describe("HTTP method, e.g. GET"),
+        status: z.string().optional().describe("Status family 2xx/3xx/4xx/5xx or exact code"),
+        error: z.boolean().optional().describe("Only failed requests"),
+        minMs: z.number().optional().describe("Minimum duration ms"),
+        since: z.number().optional().describe("Epoch ms lower bound"),
+        until: z.number().optional().describe("Epoch ms upper bound"),
+      },
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text",
+          text: await runDebugHistoryTool(
+            args as unknown as Parameters<typeof runDebugHistoryTool>[0],
+          ),
         },
       ],
     }),

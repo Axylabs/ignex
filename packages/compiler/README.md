@@ -86,7 +86,6 @@ interface CompileResult {
 | `optimizationLevel` | `3` | Reserved preset knob (0–3). |
 | `inlineThreshold` / `maxInlineBytes` | `50` / `2048` | Gates for handler inlining. |
 | `enableHandlerDeduplication` | `true` | Deduplicate identical constant responses (per method). |
-| `treeshakeRuntime` | `true` | Prune unused generated runtime helpers. |
 | `hoistConstants` | `true` | Hoist constant responses to `Object.freeze` bodies. |
 | `specializeContext` | `true` | Emit route-specialized context objects instead of the full context. |
 | `routeCache` | `true` | Runtime HTTP response caching for `config.cache` routes. |
@@ -161,22 +160,29 @@ shape changes.
 
 With default options the server entry is readable and deterministic:
 
-- A single `@ignex/core` import (symbols pruned to what is used).
+- A single `@ignex/core` import (entry-referenced symbols; the linker's
+  bundler prunes whatever remains unused).
 - Frozen header constants (`EMPTY_PARAMS`, `BODY_LIMITS`, `EXPOSE_ERRORS`).
-- Only the runtime helpers actually referenced by a route (`// ==== Generated runtime helpers ====`).
+- All generated runtime helpers (`// ==== Generated runtime helpers ====`) —
+  the linker's bundler removes unreferenced ones via treeshaking.
 - Inlined handlers for fully self-contained route modules (no imports, no other
   top-level symbols, small body).
 - A `Bun.serve({ routes })` table with automatic `HEAD`/`OPTIONS` and 404/405 fallbacks.
 
-Enable `minify: true` to bundle the entry with `Bun.build` for production.
+The linker ALWAYS bundles the entry with `Bun.build`: route modules, hooks,
+validators/serializers and helpers compile into one self-contained artifact
+with real treeshaking (dev included; `minify` only controls identifier
+compression). Packages that cannot be resolved at build time are externalized
+with a warning and resolve at runtime instead of failing the build. The
+standalone-binary path (`compile: true`) embeds everything instead.
 
 ## Optimization presets
 
 `optimizationLevel` (0–3) now maps to documented knob groups (see `optimizationPresets` in `src/types.ts`):
 
-- `0` — raw output: no inlining/dedup, no precompilation, no hoisting/treeshaking, no cache.
+- `0` — raw output: no inlining/dedup, no precompilation, no hoisting, no cache.
 - `1` — inlining + handler deduplication.
-- `2` — + constant hoisting, context specialization, runtime treeshaking, route caching.
+- `2` — + constant hoisting, context specialization, route caching.
 - `3` — + validator/serializer precompilation and incremental caching (default).
 
 Explicit option values always override the preset.

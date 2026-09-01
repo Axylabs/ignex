@@ -13,12 +13,55 @@ import {
   gunzipSync,
   gzipSync,
 } from "node:zlib";
-import { bunGunzipSync, bunGzipSync, bunSha1Base64 } from "./bun";
+import { bunGzipSync, bunSha1Base64 } from "./bun";
 import { isFfiActive } from "./ffi";
 import { nativeFor } from "./runtime";
 import { fromBytes, toBytes, toPlain, toStr } from "./util";
 
 // ── Compression ─────────────────────────────────────────────────
+
+/**
+ * Default decompression-bomb cap (bytes) for the JS fallback paths.
+ *
+ * The native addon enforces its own 64 MiB cap inside Rust; the JS fallbacks
+ * previously had NONE — a small malicious gzip/brotli body could expand to
+ * gigabytes and exhaust the process. 64 MiB matches castrum's policy so both
+ * backends share one safety envelope. Override per call via `opts`.
+ */
+export const DEFAULT_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
+
+/** Error thrown when a decompression result exceeds the bomb cap. */
+export class PayloadTooLargeError extends Error {
+  readonly code = "PAYLOAD_TOO_LARGE";
+  constructor(message = "Decompressed payload exceeds the configured maximum size") {
+    super(message);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
+const MAX_OUTPUT_LENGTH_KEY = "maxOutputLength";
+
+/** gunzip with a hard output cap (`maxOutputLength` throws ERANGE-style on overflow). */
+const cappedGunzipSync = (data: Uint8Array, maxOutputLength: number): Uint8Array => {
+  try {
+    return gunzipSync(data, { [MAX_OUTPUT_LENGTH_KEY]: maxOutputLength });
+  } catch (err) {
+    if (err instanceof RangeError || (err as { code?: string }).code === "ERR_STRING_TOO_LONG") {
+      throw new PayloadTooLargeError();
+    }
+    throw err;
+  }
+};
+
+/** brotli-decompress with a hard output cap. */
+const cappedBrotliDecompressSync = (data: Uint8Array, maxOutputLength: number): Uint8Array => {
+  try {
+    return brotliDecompressSync(data, { [MAX_OUTPUT_LENGTH_KEY]: maxOutputLength });
+  } catch (err) {
+    if (err instanceof RangeError) throw new PayloadTooLargeError();
+    throw err;
+  }
+};
 
 /** gzip-compress `data` (optional 0–9 `level`, default 6). */
 export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
@@ -30,12 +73,25 @@ export const gzipCompress = (data: Uint8Array, level = 6): Uint8Array => {
   return toPlain(gzipSync(data, { level }));
 };
 
-/** gzip-decompress `data`. */
-export const gzipDecompress = (data: Uint8Array): Uint8Array => {
+/**
+ * gzip-decompress `data` with a decompression-bomb cap.
+ *
+ * @param data - The gzipped bytes.
+ * @param opts - `maxOutputBytes` (default {@link DEFAULT_MAX_DECOMPRESSED_BYTES},
+ *   matching the native 64 MiB cap). The native path is used only when it can
+ *   honor the requested cap; otherwise the capped zlib path runs.
+ * @throws {PayloadTooLargeError} when the output exceeds the cap.
+ */
+export const gzipDecompress = (
+  data: Uint8Array,
+  opts: { maxOutputBytes?: number } = {},
+): Uint8Array => {
+  const cap = Math.max(1, Math.floor(opts.maxOutputBytes ?? DEFAULT_MAX_DECOMPRESSED_BYTES));
   const n = nativeFor("gzipDecompress");
-  if (n) return toPlain(n.gzipDecompress(data));
-  if (bunGunzipSync) return toPlain(bunGunzipSync(data));
-  return toPlain(gunzipSync(data));
+  if (n && cap >= DEFAULT_MAX_DECOMPRESSED_BYTES) return toPlain(n.gzipDecompress(data));
+  // Capped fallback: `Bun.gunzipSync` has no output-length bound, so the
+  // capped path always goes through node:zlib's maxOutputLength guard.
+  return toPlain(cappedGunzipSync(data, cap));
 };
 
 /** brotli-compress `data` (optional 0–11 `quality`, default 5). */
@@ -48,10 +104,20 @@ export const brotliCompress = (data: Uint8Array, quality = 5): Uint8Array => {
   );
 };
 
-/** brotli-decompress `data`. */
-export const brotliDecompress = (data: Uint8Array): Uint8Array => {
+/**
+ * brotli-decompress `data` with a decompression-bomb cap (same contract as
+ * {@link gzipDecompress}).
+ *
+ * @throws {PayloadTooLargeError} when the output exceeds the cap.
+ */
+export const brotliDecompress = (
+  data: Uint8Array,
+  opts: { maxOutputBytes?: number } = {},
+): Uint8Array => {
+  const cap = Math.max(1, Math.floor(opts.maxOutputBytes ?? DEFAULT_MAX_DECOMPRESSED_BYTES));
   const n = nativeFor("brotliDecompress");
-  return toPlain(n ? n.brotliDecompress(data) : brotliDecompressSync(data));
+  if (n && cap >= DEFAULT_MAX_DECOMPRESSED_BYTES) return toPlain(n.brotliDecompress(data));
+  return toPlain(cappedBrotliDecompressSync(data, cap));
 };
 
 // ── SSE ─────────────────────────────────────────────────────────

@@ -1,26 +1,84 @@
 /**
- * @fileoverview Codegen: server bootstrap + helper pruning + final assembly.
+ * @fileoverview Codegen: server bootstrap + final assembly.
+ *
+ * The entry's `@ignex/core` import is assembled HERE (single source of truth):
+ * structural symbols the bootstrap always references, plugin-lifecycle symbols
+ * when an app config is present, and `state.usedCore` for route-conditional
+ * identifiers. Generated runtime helpers are emitted unconditionally and their
+ * dead code (plus unused core imports) is removed by the linker's bundler.
  */
 
 import type { CompilerOptions } from "../../types";
 import { CORE_PATH } from "./config";
-import { HELPER_SOURCES, HELPERS, resolveUsedHelpers } from "./helpers";
+import { HELPER_SOURCES } from "./helpers";
 import type { CodegenState } from "./state";
 
 /**
- * Emit the `Bun.serve` bootstrap, prune generated helpers to those actually
- * referenced, compute the minimal `@ignex/core` import, and assemble the final
- * module string (imports → header → helpers → cache decls → functions).
+ * Core symbols referenced by the emitted server bootstrap itself. Everything
+ * else (route-conditional identifiers) arrives via {@link CodegenState.usedCore};
+ * the bundler prunes unused named imports after helper DCE.
+ */
+const STRUCTURAL_CORE = [
+  "DEFAULT_MAX_REQUEST_BODY_SIZE",
+  "DEFAULT_SERVER_IDLE_TIMEOUT",
+  "DEFAULT_WS_MAX_PAYLOAD_LENGTH",
+  "EMPTY_LIFECYCLE",
+  "installProcessGuards",
+  "resolveServeTls",
+] as const;
+
+/** Symbols needed only when the app config contributes plugins/lifecycle. */
+const APP_CONFIG_CORE = [
+  "createPluginContext",
+  "mergeLifeCycle",
+  "pluginsToLifeCycle",
+  "pluginContextToLifecycle",
+] as const;
+
+/**
+ * Core symbols referenced by the generated runtime helper sources. All helpers
+ * are emitted unconditionally (the bundler prunes dead ones), so every symbol
+ * any helper may call must be imported for the pre-link module to resolve;
+ * unused bindings vanish together with their dead callers.
+ */
+const HELPER_CORE = [
+  "ValidationError",
+  "applySet",
+  "createContext",
+  "debugStageEnd",
+  "errorToResponse",
+  "runHooks",
+  "runTimed",
+  "validateAsync",
+] as const;
+
+/** Assemble the pruned-at-link `@ignex/core` named import for the entry. */
+const buildCoreImport = (state: CodegenState): string => {
+  const names = new Set<string>(STRUCTURAL_CORE);
+  if (state.hasAppConfig) for (const n of APP_CONFIG_CORE) names.add(n);
+  for (const n of HELPER_CORE) names.add(n);
+  for (const n of state.usedCore) names.add(n);
+  return `import { ${[...names].sort().join(", ")} } from ${JSON.stringify(CORE_PATH)};`;
+};
+
+/**
+ * Emit the `Bun.serve` bootstrap, assemble the `@ignex/core` import, and
+ * collect the final module string (imports → header → helpers → cache decls →
+ * functions).
  */
 export const stageServer = (state: CodegenState, opts: CompilerOptions): string => {
-  const { cfg, imports, header, cacheDecls, functions, helpers } = state;
+  const { cfg, imports, header, cacheDecls, functions } = state;
 
-  // Emit server bootstrap.
+  // Emit server bootstrap. `maxRequestBodySize` defaults to the core constant
+  // (64MB — a deliberate ceiling) instead of Bun's larger implicit default;
+  // an explicit compiler option still wins.
   functions.push(`const __serveOptions = {
   port: Number(process.env.PORT ?? __serverCfg.port ?? 3000),
   hostname: __serverCfg.hostname,
   reusePort: ${cfg.reusePort ? "true" : "(__serverCfg.reusePort ?? false)"},
-  maxRequestBodySize: __serverCfg.maxRequestBodySize ?? ${opts.maxRequestBodySize ?? 128 * 1024 * 1024},
+  maxRequestBodySize: __serverCfg.maxRequestBodySize ?? ${
+    opts.maxRequestBodySize ?? "DEFAULT_MAX_REQUEST_BODY_SIZE"
+  },
   routes: __routes,
   fetch: __fallback,
 };`);
@@ -30,14 +88,24 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // unless `server.https: false`. In production with no certs it warns and
   // falls back to HTTP/1. Dev certs are cached under `<outDir>/certs`
   // (relative to the emitted file, so the output stays machine-independent).
+  // The production decision is BAKED from the build shape: a prod-shaped
+  // artifact must never attempt mkcert/openssl auto-generation on a machine
+  // that happens to launch it without NODE_ENV set — it warns and serves
+  // HTTP/1 (TLS terminates at the proxy). Dev-shaped builds keep the runtime
+  // env read so `ignex dev`-style flows behave exactly as before.
   functions.push(`const __serveTls = resolveServeTls(__serverCfg, {
-  production: process.env.NODE_ENV === "production",
+  production: ${state.isProductionBuild ? "true" : 'process.env.NODE_ENV === "production"'},
   certDir: (import.meta.dir || process.cwd()) + "/certs",
 });
 if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;
 if (__serverCfg.h2 && __serveTls.tls) __serveOptions.h2 = true;`);
 
-  functions.push(`if (__serverCfg.websocket) __serveOptions.websocket = __serverCfg.websocket;`);
+  // WS handler wiring: inject the core default frame ceiling when the app
+  // config didn't set `maxPayloadLength` (spread AFTER so an explicit value
+  // always wins). Copied — `__serverCfg` is never mutated.
+  functions.push(
+    `if (__serverCfg.websocket) __serveOptions.websocket = { maxPayloadLength: DEFAULT_WS_MAX_PAYLOAD_LENGTH, ...__serverCfg.websocket };`,
+  );
   if (state.wsHandlers.length === 1) {
     // A single WS route: its `wsHandler` is the server websocket handler
     // directly (the common case — no dispatch overhead).
@@ -85,67 +153,45 @@ __serveOptions.websocket ??= {
   );
 
   // Graceful shutdown on SIGTERM/SIGINT (containers, rolling deploys, Ctrl-C):
-  // stop accepting new connections, drain active requests, close plugin
-  // resources (DB connections, stores), then exit. A 10s hard deadline
-  // prevents a stuck plugin close from hanging a container stop forever.
-  if (state.hasAppConfig) {
+  // stop accepting new connections and DRAIN active requests (`stop(false)` —
+  // `stop(true)` would FORCE-close in-flight requests) — for EVERY app, with
+  // or without an app config. The old config-less path exited immediately,
+  // killing in-flight requests on every rolling deploy/Ctrl-C.
+  // With plugins: close plugin resources (DB connections, stores), then exit
+  // as soon as closing finishes. Without: rely on Bun's natural process exit
+  // once the drained event loop empties (no lingering handles), with a 10s
+  // hard deadline (unref'd, so it only fires when something is wedged — a
+  // stuck keep-alive/WS connection must never hang a container stop forever).
+  {
+    const drainBody = state.hasAppConfig
+      ? `  Promise.resolve()
+    .then(() => __pluginContext.closeAll())
+    .catch((__err) => console.error("[ignex] plugin close error:", __err))
+    .finally(() => process.exit(0));`
+      : `  // No plugin resources to close — let the drained event loop exit naturally.`;
     functions.push(`let __shuttingDown = false;
 const __shutdown = (__signal) => {
   if (__shuttingDown) return;
   __shuttingDown = true;
   console.log("[ignex] received " + __signal + " — draining connections");
-  try { __server.stop(true); } catch (__err) { console.error("[ignex] stop error:", __err); }
-  Promise.resolve()
-    .then(() => __pluginContext.closeAll())
-    .catch((__err) => console.error("[ignex] plugin close error:", __err))
-    .finally(() => process.exit(0));
+  try { __server.stop(false); } catch (__err) { console.error("[ignex] stop error:", __err); }
+${drainBody}
   setTimeout(() => process.exit(0), 10000).unref?.();
 };
 process.on("SIGTERM", () => __shutdown("SIGTERM"));
 process.on("SIGINT", () => __shutdown("SIGINT"));`);
-  } else {
-    functions.push(`process.on("SIGTERM", () => process.exit(0));
-process.on("SIGINT", () => process.exit(0));`);
   }
 
   functions.push(`export default __server;`);
 
-  // Emit runtime helpers (pruned to what is actually referenced).
-  const usedHelpers = resolveUsedHelpers(helpers);
-
-  // Prune the `@ignex/core` import to only the symbols the emitted code
-  // actually references: header-required symbols, per-route core deps
-  // (markCore), and the transitive core deps of used generated helpers.
-  const neededCore = new Set<string>([
-    "DEFAULT_SERVER_IDLE_TIMEOUT",
-    "EMPTY_LIFECYCLE",
-    "installProcessGuards",
-    "resolveServeTls",
-  ]);
-  if (state.hasAppConfig) {
-    neededCore.add("createPluginContext");
-    neededCore.add("mergeLifeCycle");
-    neededCore.add("pluginsToLifeCycle");
-    neededCore.add("pluginContextToLifecycle");
-  }
-  for (const name of state.uniqueCore) {
-    if (helpers.isCoreUsed(name)) neededCore.add(name);
-  }
-  for (const name of usedHelpers) {
-    for (const dep of HELPERS[name]?.core ?? []) neededCore.add(dep);
-  }
-  const coreImport = `import { ${[...neededCore].sort().join(", ")} } from ${JSON.stringify(
-    CORE_PATH,
-  )};`;
-
-  const helperBlock = Object.keys(HELPERS)
-    .filter((name) => (cfg.treeshakeRuntime ? usedHelpers.has(name) : true))
-    .map((name) => HELPER_SOURCES[name])
-    .join("\n\n");
+  // Emit ALL runtime helpers unconditionally — the linker's bundler performs
+  // dead-code elimination over the entry, so helpers no route references are
+  // removed from the final artifact (no string-key usage tracking).
+  const helperBlock = Object.values(HELPER_SOURCES).join("\n\n");
 
   return [
     `import { existsSync, readFileSync } from "node:fs";`,
-    coreImport,
+    buildCoreImport(state),
     Array.from(imports).join("\n"),
     header.join("\n\n"),
     "// ===== Generated runtime helpers =====",

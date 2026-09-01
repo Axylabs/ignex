@@ -95,7 +95,11 @@ Two cross-cutting layers sit directly under `src/`:
   or zod/valibot) so they can be precompiled instead of falling back to runtime.
 - **codegen/** — emits the optimized `__server.js`: native Bun routing, a
   specialized per-route context, `__applySet`/`__finalize`/`__handleError`
-  helpers, and the pre/post lifecycle. `generateServer` composes named emission
+  helpers, and the pre/post lifecycle. Constant-hoisted routes are promoted
+  one step further: a single pre-built frozen `Response` is bound directly as
+  the route-table value (`GET: STATIC_RES_<ref>`), so Bun serves the route in
+  Rust with zero per-request JS (native auto-HEAD included; heat-capture dev
+  builds keep the legacy handler). `generateServer` composes named emission
   stages (`imports.ts` → `header.ts` → `routes.ts` → `routetable.ts` →
   `server.ts`) over a shared `CodegenState`; `identifiers.ts` owns all
   generated-name conventions and `helpers.ts` the dependency-aware helper

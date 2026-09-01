@@ -7,12 +7,17 @@ import type { CompilerOptions, RouteIR } from "../../types";
 /**
  * Generate the build `manifest.json` — per-route metadata (method, path,
  * file, response type, usage) for tooling and observability.
+ *
+ * NOTE: deliberately NO wall-clock timestamp. The manifest must be a pure
+ * function of the build inputs — an embedded `generatedAt` changed the file
+ * content on every rebuild (even no-op incremental ones), defeating
+ * content-diffed writes and churning watchers/SDK caches.
  */
 export const generateManifest = (
   routes: readonly RouteIR[],
   opts: CompilerOptions,
 ): Record<string, unknown> => ({
-  generatedAt: new Date().toISOString(),
+  version: 1,
   serviceName: opts.serviceName ?? "ignex",
   target: opts.target,
   optimizationLevel: opts.optimizationLevel,

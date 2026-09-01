@@ -47,6 +47,14 @@ export interface PipelineState {
   opts: CompilerOptions;
   ctx: CompilerContext;
   t0: number;
+  /**
+   * Whole-build content fingerprint, computed once per incremental build by
+   * the orchestrator (`computeFingerprint`) and shared between the cache-hit
+   * probe ({@link tryCachedBuild}) and the post-build store
+   * ({@link storeCache}) — hashing every file under core/src + routesDir is
+   * the most expensive cold-path work in an incremental rebuild.
+   */
+  fingerprint?: string;
   discovery?: ReturnType<typeof runDiscovery>;
   analysis?: ReturnType<typeof runAnalysis>;
   optimized?: ReturnType<typeof runOptimization>;
@@ -120,6 +128,10 @@ export const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
       s.ctx,
       s.outPath,
       (s.optimized as ReturnType<typeof runOptimization>).meta,
+      // Shared fingerprint (avoids a second full-tree hash) + the discovery
+      // file list (avoids a second routesDir walk) when available.
+      s.fingerprint,
+      s.discovery?.files,
     );
 
     // Persist per-module parse results so the next build rehydrates instead of

@@ -24,5 +24,12 @@ export {
   type RedisStoreOptions,
   redisMissingError,
 } from "./redis";
+export {
+  createRedisRateLimitStore,
+  type RedisRateLimitClientLike,
+  type RedisRateLimitStore,
+  type RedisRateLimitStoreOptions,
+  redisRateLimitMissingError,
+} from "./redis-rate-limit";
 export { createSqliteStore, type SqliteStoreOptions } from "./sqlite";
 export type { MaybePromise, Store, StoreSetOptions } from "./types";

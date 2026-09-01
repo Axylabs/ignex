@@ -2,17 +2,22 @@ import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { runComplete } from "../src/commands/complete.js";
+import { loadCompletableCommands, runComplete } from "../src/commands/complete.js";
 import { runCompletions } from "../src/commands/completions.js";
-import { commands, findCommand, renderHelp } from "../src/commands/registry.js";
 import { FEATURE_NAMES } from "../src/types.js";
+import type { CompletableCommand, flagsFromArgs } from "../src/utils/completion.js";
 import {
   COMPLETION_SHELLS,
   complete,
   HTTP_METHODS,
-  parseFlagDocs,
   tokenizeLine,
 } from "../src/utils/completion.js";
+
+/** The live completable command table (registry rows + typed citty args). */
+const table: CompletableCommand[] = await loadCompletableCommands();
+
+const flagsFor = (name: string): ReturnType<typeof flagsFromArgs> =>
+  table.find((c) => c.name === name)?.flags ?? [];
 
 describe("tokenizeLine", () => {
   it("splits completed tokens from the in-progress token", () => {
@@ -40,70 +45,73 @@ describe("tokenizeLine", () => {
 
 describe("complete", () => {
   it("completes command names and aliases", () => {
-    expect(complete(commands, "ignex ", 6)).toContain("create");
-    expect(complete(commands, "ignex ", 6)).toContain("completions");
-    expect(complete(commands, "ignex cre", 9)).toEqual(["create"]);
-    expect(complete(commands, "ignex r", 7)).toContain("route");
-    expect(complete(commands, "ignex wa", 8)).toEqual(["watch"]);
+    expect(complete(table, "ignex ", 6)).toContain("create");
+    expect(complete(table, "ignex ", 6)).toContain("completions");
+    expect(complete(table, "ignex cre", 9)).toEqual(["create"]);
+    expect(complete(table, "ignex r", 7)).toContain("route");
+    expect(complete(table, "ignex wa", 8)).toEqual(["watch"]);
   });
 
   it("does not surface hidden backend commands", () => {
-    expect(complete(commands, "ignex _", 7)).not.toContain("_complete");
+    expect(complete(table, "ignex _", 7)).not.toContain("_complete");
   });
 
   it("completes flags for a command", () => {
-    const result = complete(commands, "ignex create --f", 16);
+    const result = complete(table, "ignex create --f", 16);
     expect(result).toContain("--features");
     expect(result).toContain("--force");
     expect(result).not.toContain("--runtime");
   });
 
   it("completes flag values from the preceding token", () => {
-    expect(complete(commands, "ignex create --runtime ", 23)).toEqual(["bun"]);
-    expect(complete(commands, "ignex create --runtime b", 24)).toEqual(["bun"]);
-    expect(complete(commands, "ignex create --pm n", 20)).toEqual(["npm"]);
+    expect(complete(table, "ignex create --runtime ", 23)).toEqual(["bun"]);
+    expect(complete(table, "ignex create --runtime b", 24)).toEqual(["bun"]);
+    expect(complete(table, "ignex create --pm n", 20)).toEqual(["npm"]);
   });
 
   it("completes special flag values (features / method / stage)", () => {
-    expect(complete(commands, "ignex create --features au", 26)).toEqual(["auth"]);
-    expect(complete(commands, "ignex route --method de", 23)).toEqual(["del"]);
-    expect(complete(commands, "ignex hook --global --stage aft", 31)).toEqual([
+    expect(complete(table, "ignex create --features au", 26)).toEqual(["auth"]);
+    expect(complete(table, "ignex route --method de", 23)).toEqual(["del"]);
+    expect(complete(table, "ignex hook --global --stage aft", 31)).toEqual([
       "afterHandle",
       "afterResponse",
     ]);
   });
 
   it("completes shell names after `ignex completions`", () => {
-    expect(complete(commands, "ignex completions ", 18)).toEqual([...COMPLETION_SHELLS]);
-    expect(complete(commands, "ignex completions ba", 20)).toEqual(["bash"]);
+    expect(complete(table, "ignex completions ", 18)).toEqual([...COMPLETION_SHELLS]);
+    expect(complete(table, "ignex completions ba", 20)).toEqual(["bash"]);
   });
 
   it("returns nothing for path-like tokens (shell file fallback)", () => {
-    expect(complete(commands, "ignex build src", 15)).toEqual([]);
+    expect(complete(table, "ignex build src", 15)).toEqual([]);
   });
 });
 
-describe("parseFlagDocs", () => {
-  const create = commands.find((c) => c.name === "create");
-
-  it("parses inline enum values from the option docs", () => {
-    const flags = parseFlagDocs(create?.options);
-    expect(flags).toContainEqual({ flag: "--runtime", values: ["bun"] });
-    expect(flags).toContainEqual({ flag: "--pm", values: ["bun", "npm", "pnpm", "yarn"] });
-    expect(flags).toContainEqual({ flag: "--root" });
-    expect(flags).toContainEqual({ flag: "--no-install" });
-    expect(flags.find((f) => f.flag === "--features")?.values).toEqual([...FEATURE_NAMES]);
+describe("flagsFromArgs", () => {
+  it("derives flags + enumerable values from typed args definitions", () => {
+    const create = flagsFor("create");
+    expect(create).toContainEqual({ flag: "--runtime", values: ["bun"] });
+    expect(create).toContainEqual({ flag: "--pm", values: ["bun", "npm", "pnpm", "yarn"] });
+    expect(create).toContainEqual({ flag: "--root" });
+    // Default-true booleans surface their `--no-*` form.
+    expect(create).toContainEqual({ flag: "--no-install" });
+    expect(create.find((f) => f.flag === "--features")?.values).toEqual([...FEATURE_NAMES]);
   });
 
   it("maps the method / stage placeholders to their keyword values", () => {
-    const route = commands.find((c) => c.name === "route");
-    expect(parseFlagDocs(route?.options).find((f) => f.flag === "--method")?.values).toEqual([
-      ...HTTP_METHODS,
+    expect(flagsFor("route").find((f) => f.flag === "--method")?.values).toEqual([...HTTP_METHODS]);
+    expect(flagsFor("hook").find((f) => f.flag === "--stage")?.values).toContain("afterHandle");
+  });
+
+  it("exposes ops targets as shell-completion values", () => {
+    expect(flagsFor("ops").find((f) => f.flag === "--target")?.values).toEqual([
+      "dockerfile",
+      "compose",
+      "caddy",
+      "ci",
+      "docker",
     ]);
-    const hook = commands.find((c) => c.name === "hook");
-    expect(parseFlagDocs(hook?.options).find((f) => f.flag === "--stage")?.values).toContain(
-      "afterHandle",
-    );
   });
 });
 
@@ -149,33 +157,10 @@ describe("completions command", () => {
       bash: "complete -o bashdefault",
       zsh: "#compdef ignex",
       fish: "complete -c ignex",
-      powershell: "Register-ArgumentCompleter -Native",
-      cmd: "clink.argmatcher",
+      powershell: "Register-ArgumentCompleter",
+      cmd: "-- clink completion for ignex",
     };
     expect(text).toContain(marker[shell]);
-    expect(text).toContain("ignex _complete --line");
     write.mockRestore();
-  });
-
-  it("errors on an unknown shell", async () => {
-    const originalExitCode = process.exitCode;
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    await runCompletions(["tcsh"]);
-    expect(process.exitCode).toBe(1);
-    process.exitCode = originalExitCode;
-    err.mockRestore();
-  });
-});
-
-describe("registry wiring", () => {
-  it("finds the hidden _complete backend", () => {
-    expect(findCommand("_complete")?.name).toBe("_complete");
-    expect(findCommand("_complete")?.hidden).toBe(true);
-  });
-
-  it("hides _complete from help but shows completions", () => {
-    const help = renderHelp();
-    expect(help).toContain("completions");
-    expect(help).not.toContain("_complete");
   });
 });

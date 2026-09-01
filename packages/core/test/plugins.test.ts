@@ -187,7 +187,15 @@ describe("security", () => {
     const http = await app.handler(req("/"));
     expect(http.headers.get("strict-transport-security")).toBeNull();
 
-    const https = await app.handler(req("/", { headers: { "x-forwarded-proto": "https" } }));
+    // x-forwarded-proto is spoofable — ignored unless trustProxy is on.
+    const forwarded = await app.handler(req("/", { headers: { "x-forwarded-proto": "https" } }));
+    expect(forwarded.headers.get("strict-transport-security")).toBeNull();
+
+    const proxied = createApp({
+      plugins: [security({ trustProxy: true })],
+      handler: () => new Response("ok"),
+    });
+    const https = await proxied.handler(req("/", { headers: { "x-forwarded-proto": "https" } }));
     expect(https.headers.get("strict-transport-security")).toContain("max-age=15552000");
     expect(https.headers.get("strict-transport-security")).toContain("includeSubDomains");
   });

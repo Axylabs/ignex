@@ -4,7 +4,7 @@
 
 import type { RouteIR } from "../../../types";
 import type { CacheOptions } from "../decisions";
-import { cacheVar, methodHandlerName } from "../identifiers";
+import { cacheOptsVar, cacheVar, methodHandlerName } from "../identifiers";
 import type { CodegenState } from "../state";
 
 /**
@@ -17,7 +17,7 @@ export const emitCacheWrapper = (
   cacheConfig: CacheOptions,
   coreName: string,
 ): void => {
-  state.helpers.markCore("HttpResponseCache");
+  state.usedCore.add("HttpResponseCache");
   state.cacheDecls.push(
     `const ${cacheVar(route)} = new HttpResponseCache(${JSON.stringify({
       max: 1000,
@@ -25,9 +25,8 @@ export const emitCacheWrapper = (
     })});`,
   );
 
-  state.functions.push(`function ${methodHandlerName(route)}(req, params, server) {
-  return ${cacheVar(route)}.getOrSet(req, () => ${coreName}(req, params, server), ${JSON.stringify(
-    cacheConfig,
-  )});
+  state.functions.push(`const ${cacheOptsVar(route)} = ${JSON.stringify(cacheConfig)};
+function ${methodHandlerName(route)}(req, params, server) {
+  return ${cacheVar(route)}.getOrSet(req, () => ${coreName}(req, params, server), ${cacheOptsVar(route)});
 }`);
 };

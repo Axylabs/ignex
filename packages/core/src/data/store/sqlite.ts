@@ -48,6 +48,18 @@ export const createSqliteStore = async (
   const valueCol = options.valueColumn ?? "value";
   const expiresCol = options.expiresColumn ?? "expires_at";
   const db = new Database(file);
+  // Concurrent-writer hardening: without WAL, a second process (or the job
+  // queue + request path sharing this file) trips over writer locks and gets
+  // SQLITE_BUSY errors. busy_timeout makes writers wait instead of failing;
+  // synchronous=NORMAL is the recommended WAL durability/perf point.
+  try {
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("PRAGMA synchronous = NORMAL");
+    db.run("PRAGMA busy_timeout = 5000");
+  } catch {
+    // :memory: databases (and some builds) reject journal_mode changes —
+    // harmless, the table below still works.
+  }
   db.run(
     `CREATE TABLE IF NOT EXISTS ${table} (${keyCol} TEXT PRIMARY KEY, ${valueCol} TEXT NOT NULL, ${expiresCol} INTEGER NOT NULL)`,
   );

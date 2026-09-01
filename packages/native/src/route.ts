@@ -28,10 +28,12 @@ import {
   packRouteFramePartsInto,
   packRouteFramePartsLength,
   planHasStage,
+  ROUTE_DESC_VERSION,
   readRouteFrameLengths,
   readRouteResult,
 } from "./route-wire";
 import { withScratch } from "./scratch";
+import { reportDegradation } from "./telemetry";
 import { encoder } from "./util";
 
 // Re-export the wire types so `./route` is the single import for the per-route
@@ -40,18 +42,31 @@ export type { NativeRouteFrame, NativeRoutePlan, NativeRouteRunResult } from "./
 
 let warnedRouteSurfaceAbsent = false;
 /**
- * Warn ONCE when the route surface is missing from a LOADED addon (i.e. native
- * is not force-disabled, but the build predates `castrum_route_*`). This is the
- * "registry gap" guard: castrum 0.9.0 removed the surface; it returned in
- * 0.10.0+. A plain `IGNEX_NATIVE=off` stays silent (getNative() is null).
+ * Warn ONCE when the per-route stack is unavailable despite native being
+ * loaded. Routed through the telemetry sink (was a bare console.warn). Two
+ * DISTINCT causes with different remediations:
+ * - "surface absent": the addon build predates `castrum_route_*` (registry
+ *   0.9.0 removed it; it returned in 0.10.0+) → upgrade castrum.
+ * - "compile rejected": symbols exist but `castrum_route_compile` refused the
+ *   descriptor → almost always a ROUTE_DESC_VERSION skew between this build's
+ *   wire format and the installed addon (mismatched magic/version) → align
+ *   @ignex/native and castrum versions; do NOT just upgrade blindly.
  */
-function warnRouteSurfaceAbsent(): void {
+function warnRouteSurfaceAbsent(reason: "surface-absent" | "compile-rejected"): void {
   if (warnedRouteSurfaceAbsent || getNative() === null) return;
   warnedRouteSurfaceAbsent = true;
-  console.warn(
-    "[ignex/native] the castrum addon is loaded but does NOT ship the per-route " +
-      "native stack (castrum_route_*). createNativeRoute() falls back to the JS " +
-      "prelude — ensure castrum >= 0.10.0 (registry 0.9.0 removed the surface).",
+  const detail =
+    reason === "compile-rejected"
+      ? "the addon EXPORTS castrum_route_* but rejected the route descriptor at compile — " +
+        `a ROUTE_DESC_VERSION/magic skew between @ignex/native (v${ROUTE_DESC_VERSION}) and the ` +
+        "installed castrum build. Align the two versions."
+      : "the loaded addon does NOT ship the per-route native stack (castrum_route_*). " +
+        "createNativeRoute() falls back to the JS prelude — ensure castrum >= 0.10.0 " +
+        "(registry 0.9.0 removed the surface).";
+  reportDegradation(
+    reason === "compile-rejected" ? "unsupported" : "surface-missing",
+    "route.compile",
+    `${detail} JS prelude owns these routes.`,
   );
 }
 
@@ -100,12 +115,25 @@ interface NapiRouteModule {
   };
 }
 
+/** Why a binding attempt produced no usable route stack. */
+type BindFailureReason = "surface-absent" | "compile-rejected";
+
 /** Bind the C-ABI transport (preferred) when it ships the route surface. */
-const bindFfiRoute = (descriptor: Uint8Array): NativeRouteBinding | null => {
+const bindFfiRoute = (
+  descriptor: Uint8Array,
+  onFail: (reason: BindFailureReason) => void,
+): NativeRouteBinding | null => {
   const ffi = getFfiRoute();
+  // No C-ABI surface → fall through to NAPI without diagnosing yet (NAPI may
+  // still own the Route class).
   if (!ffi) return null;
   const handle = ffi.routeCompile(descriptor);
-  if (!handle) return null;
+  if (!handle) {
+    // Symbols EXIST but the descriptor was refused — a wire-format skew, not a
+    // missing surface. Diagnose precisely instead of blaming the build.
+    onFail("compile-rejected");
+    return null;
+  }
   return {
     run(frame, out) {
       return ffi.routeRun(handle, frame, out);
@@ -117,13 +145,17 @@ const bindFfiRoute = (descriptor: Uint8Array): NativeRouteBinding | null => {
 };
 
 /** Bind the NAPI transport when the addon ships a `Route` class. */
-const bindNapiRoute = (descriptor: Uint8Array): NativeRouteBinding | null => {
+const bindNapiRoute = (
+  descriptor: Uint8Array,
+  onFail: (reason: BindFailureReason) => void,
+): NativeRouteBinding | null => {
   const mod = getNative() as NapiRouteModule | null;
   if (!mod || typeof mod.Route !== "function") return null;
   let instance: { run(frame: Uint8Array, out: Uint8Array): number; destroy?(): void };
   try {
     instance = new mod.Route(descriptor);
   } catch {
+    onFail("compile-rejected");
     return null;
   }
   if (typeof instance.run !== "function") {
@@ -154,14 +186,17 @@ const bindNapiRoute = (descriptor: Uint8Array): NativeRouteBinding | null => {
  */
 export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => {
   const descriptor = encodeRouteDescriptor(plan);
-  const binding = bindFfiRoute(descriptor) ?? bindNapiRoute(descriptor);
+  let failReason: BindFailureReason = "surface-absent";
+  const onFail = (reason: BindFailureReason): void => {
+    // First diagnostic wins (compile-rejected is the more specific signal).
+    if (failReason === "surface-absent") failReason = reason;
+  };
+  const binding = bindFfiRoute(descriptor, onFail) ?? bindNapiRoute(descriptor, onFail);
   if (!binding) {
     // The route stack is OPTIONAL (JS prelude is the byte-parity fallback), but
-    // a loaded addon WITHOUT the surface is a silent regression the framework
-    // should not hide: it means the installed castrum build predates
-    // `castrum_route_*` (registry 0.9.0 removed it; the surface returned in
-    // 0.10.0+). Warn ONCE so the gap is visible instead of quietly measuring JS.
-    warnRouteSurfaceAbsent();
+    // a loaded addon WITHOUT a working surface is a silent regression the
+    // framework should not hide — warn ONCE with the precise cause.
+    warnRouteSurfaceAbsent(failReason);
     return null;
   }
 

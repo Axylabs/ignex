@@ -61,9 +61,11 @@ export function sseRouteTemplate(): string {
 import { sse } from "@ignex/core";
 
 export default get(() =>
-  sse(async function* () {
-    yield { event: "ping", data: Date.now().toString() };
-  })
+  sse(
+    (async function* () {
+      yield { event: "ping", data: Date.now().toString() };
+    })(),
+  ),
 );
 `;
 }
@@ -559,16 +561,20 @@ export const lifecycle = {
   // The selected `--features` plugins (cors/rateLimit/security/compression/
   // logger) come from ./plugins/index.js (spread as appPlugins below); debugbar
   // + session + openapi are the baseline every scaffold gets.
-  return `${middlewareImports}${pluginsImport}import { debugbar, openapi, session } from "@ignex/core";
+  return `${middlewareImports}${pluginsImport}import { debugbar, devSessionSecret, openapi, session } from "@ignex/core";
 import { env } from "./config/env.js";
 
 export const plugins = [
 ${pluginsSpread}${middlewareSpread}  // Developer dashboard (request waterfall, errors + replay, system profile,
-  // SDK list, KT docs) at '/__debugbar'. Enabled by default in debug mode;
-  // when disabled (production) the plugin marks itself dev-only and the
-  // compiled server omits it entirely — zero per-request cost.
+  // SDK list, KT docs) at '/__debugbar'. Enabled only in explicit debug mode
+  // (NODE_ENV=development or IGNEX_DEBUG=1) — an unset/ambiguous environment
+  // (staging) stays OFF. When disabled the plugin marks itself dev-only and
+  // the compiled server omits it entirely — zero per-request cost.
   debugbar(),
-  session({ secret: env.SESSION_SECRET || "dev-secret-change-me", createIfMissing: true }),
+  // Local dev secret: stable per-machine generated value (.ignex/dev-session-secret).
+  // Production MUST set SESSION_SECRET — the session manager refuses weak or
+  // known-default secrets outside explicit local development.
+  session({ secret: env.SESSION_SECRET || devSessionSecret(), createIfMissing: true }),
   // OpenAPI docs — 'GET /openapi.json' (spec) + 'GET /openapi' (Scalar UI).
   // In AOT builds the plugin serves the compiler-generated openapi.json.
   openapi()

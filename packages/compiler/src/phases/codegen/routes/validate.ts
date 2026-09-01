@@ -2,7 +2,6 @@
  * @fileoverview Codegen: per-part validation prelude emission (full context).
  */
 
-import type { Emitter } from "../../../emitter";
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { validatorImportName } from "../identifiers";
 
@@ -28,10 +27,7 @@ export const validationFlags = (route: RouteIR): ValidationFlags => {
   return { ...flags, any: Object.values(flags).some(Boolean) };
 };
 
-/** The five validate-able schema parts, in emission order. */
-const PART_KINDS = ["params", "query", "headers", "cookie", "body"] as const;
-
-type PartKind = (typeof PART_KINDS)[number];
+type PartKind = "params" | "query" | "headers" | "cookie" | "body";
 
 /**
  * Emit a precompiled-validator guard + `validationError` throw. Single source
@@ -77,13 +73,13 @@ export const emitParamsPrelude = (
  */
 const emitQueryPrelude = (
   route: RouteIR,
-  helpers: Emitter,
+  usedCore: Set<string>,
   hasValidator: boolean,
   hasPart: boolean,
   usageQuery: boolean,
 ): string[] => {
   if (!hasValidator && !hasPart && !usageQuery) return [];
-  helpers.markCore("parseQueryFromURL");
+  usedCore.add("parseQueryFromURL");
   const lines = [`const __query = parseQueryFromURL(req.url);`];
 
   if (hasValidator) {
@@ -104,11 +100,13 @@ const emitQueryPrelude = (
 /** Headers — materialized ONLY when headers are validated. */
 export const emitHeadersPrelude = (
   route: RouteIR,
+  usedCore: Set<string>,
   hasValidator: boolean,
   hasPart: boolean,
 ): string[] => {
   if (!hasValidator && !hasPart) return [];
-  const lines = [`const __headers = Object.fromEntries(req.headers.entries());`];
+  usedCore.add("headersToRecord");
+  const lines = [`const __headers = headersToRecord(req.headers);`];
   lines.push(...emitValidatorOrRuntime(route, "headers", "__headers", "__schema?.headers"));
   return lines;
 };
@@ -119,12 +117,12 @@ export const emitHeadersPrelude = (
  */
 const emitCookiesPrelude = (
   route: RouteIR,
-  helpers: Emitter,
+  usedCore: Set<string>,
   hasValidator: boolean,
   hasPart: boolean,
 ): string[] => {
   if (!hasValidator && !hasPart && !route.analysis.usage.cookie) return [];
-  helpers.markCore("parseCookieString");
+  usedCore.add("parseCookieString");
   const lines = [`const __cookies = parseCookieString(req.headers.get("cookie"));`];
 
   if (hasValidator) {
@@ -136,7 +134,7 @@ const emitCookiesPrelude = (
   // Seed the lazy ctx.cookie jar with the header already parsed above so a
   // handler reading cookies does not re-parse the Cookie header.
   if (route.analysis.usage.cookie) {
-    helpers.markCore("createLazyCookieJar");
+    usedCore.add("createLazyCookieJar");
     lines.push(
       `ctx.cookie = createLazyCookieJar(ctx.set, () => req.headers.get("cookie"), undefined, __cookies);`,
     );
@@ -169,9 +167,8 @@ export const emitBodyPrelude = (
 };
 
 /**
- * Emit the full-context validation block (params/query/headers/cookie/body),
- * marking the generated helpers each part needs. Returns the prelude lines
- * that the caller appends before the handler call.
+ * Emit the full-context validation block (params/query/headers/cookie/body).
+ * Returns the prelude lines that the caller appends before the handler call.
  *
  * Usage-driven: each part is parsed AND validated ONLY when it is actually
  * validated (precompiled validator or a schema part) or consumed by the
@@ -185,30 +182,10 @@ export const emitSchemaConst = (route: RouteIR): string =>
     route.analysis.hasValidation ? `__schemaFor(schema_${route.codegen.handlerRef})` : `undefined`
   };`;
 
-/**
- * Mark the shared validation-prelude helpers (`__schemaFor`,
- * `validationError`, `__validatePart`) used by the per-part emitters. Shared
- * by the plain JS prelude and the native-first prelude (`routes/native.ts`).
- */
-export const markValidationPreludeHelpers = (
-  route: RouteIR,
-  hasAnyValidator: boolean,
-  helpers: Emitter,
-  hasSchemaPart: (kind: string) => boolean,
-): void => {
-  helpers.markUsed("__schemaFor");
-  if (hasAnyValidator) helpers.markUsed("validationError");
-  // Only mark `__validatePart` when at least one schema part has no
-  // precompiled validator (keeps the generated helper set minimal).
-  if (PART_KINDS.some((kind) => hasSchemaPart(kind) && !route.decisions.validators?.[kind])) {
-    helpers.markUsed("__validatePart");
-  }
-};
-
 export const emitFullValidationPrelude = (
   route: RouteIR,
   opts: CompilerOptions,
-  helpers: Emitter,
+  usedCore: Set<string>,
 ): string[] => {
   const {
     any: hasAnyValidator,
@@ -230,23 +207,21 @@ export const emitFullValidationPrelude = (
   const hasSchemaPart = (kind: string): boolean =>
     schemaDoc !== undefined ? schemaDoc[kind] !== undefined : true;
 
-  markValidationPreludeHelpers(route, hasAnyValidator, helpers, hasSchemaPart);
-
   const pre: string[] = [emitSchemaConst(route)];
 
   pre.push(...emitParamsPrelude(route, hasParamsValidator, hasSchemaPart("params")));
   pre.push(
     ...emitQueryPrelude(
       route,
-      helpers,
+      usedCore,
       hasQueryValidator,
       hasSchemaPart("query"),
       route.analysis.usage.query,
     ),
   );
-  pre.push(...emitHeadersPrelude(route, hasHeadersValidator, hasSchemaPart("headers")));
+  pre.push(...emitHeadersPrelude(route, usedCore, hasHeadersValidator, hasSchemaPart("headers")));
   if (opts.validateCookies !== false) {
-    pre.push(...emitCookiesPrelude(route, helpers, hasCookieValidator, hasSchemaPart("cookie")));
+    pre.push(...emitCookiesPrelude(route, usedCore, hasCookieValidator, hasSchemaPart("cookie")));
   }
   pre.push(...emitBodyPrelude(route, hasBodyValidator, hasSchemaPart("body")));
 

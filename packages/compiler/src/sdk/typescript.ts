@@ -139,6 +139,14 @@ export const emitTypesDts = (routes: readonly SdkRouteInfo[], ctx: SdkGenerateCo
       lines.push(
         `export type ${names.reserve("Body", route)} = ${jsonSchemaToTs(route.bodySchema, { resolveRef })};`,
       );
+    } else if (route.usesBody) {
+      // The handler reads the request body but declares no OpenAPI schema.
+      // `routes.d.ts` still reserves (and imports) the Body_* name for the
+      // call signature, so a fallback MUST be emitted here — otherwise the
+      // generated package imports a type that is never declared and fails
+      // consumer typechecking. Keep the reservation order identical to the
+      // routes.d.ts registry so numbering cannot diverge.
+      lines.push(`export type ${names.reserve("Body", route)} = Record<string, unknown>;`);
     }
 
     lines.push(

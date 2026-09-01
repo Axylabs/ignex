@@ -24,7 +24,6 @@ import {
 } from "@ignex/native";
 
 export type {
-  JwtSignOptions,
   JwtVerifyOptions,
   PasswordHashOptions,
 } from "@ignex/native";
@@ -80,6 +79,23 @@ export interface JwtService {
 }
 
 /**
+ * Warn ONCE per service when a JWT service is created without a TTL: every
+ * token it mints will lack `exp`, and `verify()` now rejects such tokens by
+ * default (`requireExp`), so the misconfiguration fails loudly at the edges
+ * instead of silently minting permanent credentials.
+ */
+let warnedNoTtl = false;
+const warnNoTtl = (): void => {
+  if (warnedNoTtl) return;
+  warnedNoTtl = true;
+  console.warn(
+    "[ignex] JWT service created without ttlSeconds and without an exp claim policy: " +
+      "minted tokens never expire. Set ttlSeconds, include exp in claims, or pass " +
+      "{ requireExp: false } to verify() to accept non-expiring tokens explicitly.",
+  );
+};
+
+/**
  * Create a reusable HS256 JWT signer/verifier.
  *
  * @param options - Secret plus optional TTL/issuer/audience constraints.
@@ -87,6 +103,7 @@ export interface JwtService {
  */
 export const createJwt = (options: JwtServiceOptions): JwtService => {
   assertSecret(options.secret, "createJwt");
+  if (options.ttlSeconds === undefined) warnNoTtl();
   const { secret, ttlSeconds, issuer, audience } = options;
 
   const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
@@ -121,6 +138,9 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
       if (verifyOptions.nowSeconds !== undefined) {
         verifyOpts.nowSeconds = verifyOptions.nowSeconds;
       }
+      if (verifyOptions.requireExp !== undefined) {
+        verifyOpts.requireExp = verifyOptions.requireExp;
+      }
       return validate(jwtVerify(token, secret, verifyOpts));
     },
   };
@@ -145,7 +165,7 @@ export interface Ed25519JwtService {
   /** Sign an EdDSA token with the configured issuer/audience/TTL applied. */
   sign(claims: Record<string, unknown>, nowSeconds?: number): string;
   /** Verify + validate `iss`/`aud`; returns the claims or `null`. */
-  verify(token: string, options?: { nowSeconds?: number }): unknown;
+  verify(token: string, options?: { nowSeconds?: number; requireExp?: boolean }): unknown;
 }
 
 /**
@@ -161,6 +181,7 @@ export interface Ed25519JwtService {
 export const createEd25519Jwt = (options: Ed25519JwtOptions): Ed25519JwtService => {
   assertSecret(options.privateKey, "createEd25519Jwt");
   assertSecret(options.publicKey, "createEd25519Jwt");
+  if (options.ttlSeconds === undefined) warnNoTtl();
   const { privateKey, publicKey, ttlSeconds, issuer, audience } = options;
 
   const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
@@ -191,9 +212,12 @@ export const createEd25519Jwt = (options: Ed25519JwtOptions): Ed25519JwtService 
     },
 
     verify(token, verifyOptions = {}): unknown {
-      const verifyOpts: { nowSeconds?: number } = {};
+      const verifyOpts: { nowSeconds?: number; requireExp?: boolean } = {};
       if (verifyOptions.nowSeconds !== undefined) {
         verifyOpts.nowSeconds = verifyOptions.nowSeconds;
+      }
+      if (verifyOptions.requireExp !== undefined) {
+        verifyOpts.requireExp = verifyOptions.requireExp;
       }
       return validate(jwtVerifyEdDsa(token, publicKey, verifyOpts));
     },

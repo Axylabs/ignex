@@ -130,10 +130,25 @@ const queue = createDurableJobQueue({
 });
 ```
 
-`createStoreJobStore` keeps the whole job map in memory and persists it under a
-reserved key on every mutation — matching the file/SQLite stores' semantics, so
-any driver (including a custom Redis store) can back the durable queue. The
-initial read must be synchronous; pre-warm async drivers before passing them in.
+Every job store performs a FRESH read-modify-write per operation (never a
+stale snapshot), stamps random **owner tokens** on claim and verifies them on
+complete/fail/heartbeat, prunes finished history via `retention`, and mints
+collision-resistant ids — safe to run multiple workers against one backend.
+For ASYNC drivers (Redis) use the async factory:
+
+```ts
+import { createRedisStore, openStoreJobStore } from "@ignex/core";
+
+const jobs = await openStoreJobStore(createRedisStore({ url: process.env.REDIS_URL }), {
+  retention: { maxCompleted: 1000 },
+});
+```
+
+`createStoreJobStore` remains for sync drivers (memory/file/sqlite) and throws
+an actionable error if handed an async one. The residual single-key
+last-writer-wins window under concurrent writers is documented in
+docs/deployment.md §4 — strict exactly-once at high concurrency wants a
+backend with native atomic ops.
 
 ### HTTP response cache
 

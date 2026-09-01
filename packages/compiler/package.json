@@ -21,7 +21,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@ignex/core": "workspace:*",
+    "@ignex/native": "workspace:*",
     "@ignex/shared": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
@@ -32,7 +32,16 @@
   "optionalDependencies": {
     "fast-json-stringify": "^7.0.1"
   },
+  "peerDependencies": {
+    "@ignex/nova": "^0.1.1"
+  },
+  "peerDependenciesMeta": {
+    "@ignex/nova": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@ignex/core": "workspace:*",
     "@types/bun": "^1.3.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

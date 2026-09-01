@@ -19,6 +19,7 @@
  */
 
 import { join } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
   COMPOSE_SERVICES,
   type ComposeService,
@@ -29,8 +30,8 @@ import {
   dockerfileTemplate,
   dockerignoreTemplate,
 } from "../templates/ops.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { secureRandomBytes } from "../utils/bun-compat.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, step, warn } from "../utils/logger.js";
 import {
   PromptCancelError,
@@ -41,12 +42,72 @@ import {
   promptText,
 } from "../utils/prompt.js";
 import { writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
 
 export const OPS_TARGETS = ["dockerfile", "compose", "caddy", "ci", "docker"] as const;
 export type OpsTarget = (typeof OPS_TARGETS)[number];
 
 /** Default infra services for `ignex ops compose` (kept scriptable). */
 export const DEFAULT_COMPOSE_SERVICES: readonly ComposeService[] = ["mongo"];
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  target: {
+    type: "string",
+    valueHint: "dockerfile|compose|caddy|ci|docker",
+    description: "Ops target (also accepted as the first positional)",
+  },
+  binary: { type: "string", valueHint: "name", description: "Binary name for the Dockerfile" },
+  "out-dir": { type: "string", valueHint: "dir", description: "Compiler output directory" },
+  port: { type: "string", valueHint: "port", description: "App port (default 3000)" },
+  "health-path": { type: "string", valueHint: "path", description: "Health check path" },
+  "private-registry": { type: "boolean", description: "Target a private image registry" },
+  "app-image": { type: "string", valueHint: "image", description: "App image name" },
+  services: {
+    type: "string",
+    valueHint: "mongo,redis,nats",
+    description: "Comma-separated compose services",
+  },
+  mongo: {
+    type: "boolean",
+    default: true,
+    description: "Include MongoDB in compose (--no-mongo to exclude)",
+  },
+  redis: { type: "boolean", description: "Include Redis in compose" },
+  nats: { type: "boolean", description: "Include NATS in compose" },
+  "db-user": { type: "string", description: "MongoDB root username" },
+  "db-password": { type: "string", description: "MongoDB root password" },
+  "db-name": { type: "string", description: "MongoDB database name" },
+  "db-image": { type: "string", valueHint: "image", description: "MongoDB image" },
+  replica: {
+    type: "boolean",
+    description: "Enable a single-node replica set (--no-replica to disable)",
+  },
+  "mongo-uri-var": { type: "string", valueHint: "VAR", description: "MONGO_URL env var name" },
+  "redis-password": { type: "string", description: "Redis password" },
+  "redis-image": { type: "string", valueHint: "image", description: "Redis image" },
+  "redis-uri-var": { type: "string", valueHint: "VAR", description: "REDIS_URL env var name" },
+  "nats-image": { type: "string", valueHint: "image", description: "NATS image" },
+  "nats-uri-var": { type: "string", valueHint: "VAR", description: "NATS_URL env var name" },
+  domain: { type: "string", valueHint: "domain", description: "Public domain for Caddy" },
+  upstream: { type: "string", valueHint: "host:port", description: "Upstream for Caddy" },
+  image: { type: "string", valueHint: "image", description: "CI deploy image" },
+  "deploy-host": { type: "string", valueHint: "user@host", description: "CI deploy target" },
+  "deploy-dir": { type: "string", valueHint: "dir", description: "CI deploy directory" },
+  force: { type: "boolean", description: "Overwrite existing files" },
+  yes: { type: "boolean", description: "Skip interactive prompts (use defaults)" },
+} satisfies ArgsDef;
+
+export const opsCmd = defineCommand({
+  meta: metaFor("ops"),
+  args: argsDef,
+  async run(ctx) {
+    await runOps(ctx.rawArgs);
+  },
+});
+
+export default opsCmd;
 
 interface OpsOptions {
   root: string;
@@ -291,9 +352,10 @@ async function resolveServices(
     return [...new Set(parsed)] as ComposeService[];
   }
 
-  // Individual toggles: --redis / --nats add, --no-mongo removes.
+  // Individual toggles: --redis / --nats add, --no-mongo removes (citty
+  // native boolean negation: `--no-mongo` → `values.mongo === false`).
   const base = new Set(DEFAULT_COMPOSE_SERVICES);
-  if (values["no-mongo"] === true) base.delete("mongo");
+  if (values.mongo === false) base.delete("mongo");
   if (values.redis === true) base.add("redis");
   if (values.nats === true) base.add("nats");
 
@@ -358,9 +420,9 @@ async function resolveComposeFields(values: Record<string, unknown>): Promise<Co
       ? await wizard(() => promptText({ message: "MongoDB database name", initial: "app" }), "app")
       : "app");
   const replica = wantsMongo
-    ? values["no-replica"]
+    ? values.replica === false
       ? false
-      : values.replica
+      : values.replica === true
         ? true
         : await wizard(
             () =>
@@ -410,53 +472,21 @@ async function runTarget(target: OpsTarget, root: string, opts: OpsOptions): Pro
 }
 
 export async function runOps(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    target: { type: "string" },
-    binary: { type: "string" },
-    "out-dir": { type: "string" },
-    port: { type: "string" },
-    "health-path": { type: "string" },
-    "private-registry": { type: "boolean" },
-    "app-image": { type: "string" },
-    services: { type: "string" },
-    "no-mongo": { type: "boolean" },
-    redis: { type: "boolean" },
-    nats: { type: "boolean" },
-    "db-user": { type: "string" },
-    "db-password": { type: "string" },
-    "db-name": { type: "string" },
-    "db-image": { type: "string" },
-    replica: { type: "boolean" },
-    "no-replica": { type: "boolean" },
-    "mongo-uri-var": { type: "string" },
-    "redis-password": { type: "string" },
-    "redis-image": { type: "string" },
-    "redis-uri-var": { type: "string" },
-    "nats-image": { type: "string" },
-    "nats-uri-var": { type: "string" },
-    domain: { type: "string" },
-    upstream: { type: "string" },
-    image: { type: "string" },
-    "deploy-host": { type: "string" },
-    "deploy-dir": { type: "string" },
-    force: { type: "boolean" },
-    yes: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // First positional is the ops target, never the project root.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const target = await resolveTarget(values, positionals);
+  const root = await resolveProjectRoot(parsed.root);
+  const target = await resolveTarget(parsed, parsed._);
   if (!target) return;
 
-  const port = resolvePort(values);
+  const port = resolvePort(parsed);
   if (port === undefined) return;
 
   const wantsCompose = target === "compose" || target === "docker";
   const wantsDomain = target === "caddy" || target === "docker";
 
   const db = wantsCompose
-    ? await resolveComposeFields(values)
+    ? await resolveComposeFields(parsed)
     : {
         services: [] as readonly ComposeService[],
         dbUser: "app",
@@ -468,7 +498,7 @@ export async function runOps(args: string[]): Promise<void> {
   if (wantsCompose && db.services.length === 0 && process.exitCode !== 0) return;
 
   const domain = wantsDomain
-    ? ((values.domain as string | undefined) ??
+    ? (parsed.domain ??
       (await wizard(
         () => promptText({ message: "Domain (e.g. example.com)", initial: "example.com" }),
         "example.com",
@@ -477,31 +507,31 @@ export async function runOps(args: string[]): Promise<void> {
 
   const opts: OpsOptions = {
     root,
-    binary: (values.binary as string | undefined) ?? "server",
-    outDir: (values["out-dir"] as string | undefined) ?? ".ignex",
+    binary: parsed.binary ?? "server",
+    outDir: parsed["out-dir"] ?? ".ignex",
     port,
-    healthPath: (values["health-path"] as string | undefined) ?? "/health",
-    privateRegistry: Boolean(values["private-registry"]),
-    appImage: (values["app-image"] as string | undefined) ?? "ignex-app:latest",
+    healthPath: parsed["health-path"] ?? "/health",
+    privateRegistry: Boolean(parsed["private-registry"]),
+    appImage: parsed["app-image"] ?? "ignex-app:latest",
     services: db.services,
     dbUser: db.dbUser,
     dbPassword: db.dbPassword,
     dbName: db.dbName,
-    dbImage: (values["db-image"] as string | undefined) ?? "percona/percona-server-mongodb:7.0",
+    dbImage: parsed["db-image"] ?? "percona/percona-server-mongodb:7.0",
     replica: db.replica,
-    mongoUriVar: (values["mongo-uri-var"] as string | undefined) ?? "MONGO_URL",
+    mongoUriVar: parsed["mongo-uri-var"] ?? "MONGO_URL",
     redisPassword: db.redisPassword,
-    redisImage: (values["redis-image"] as string | undefined) ?? "redis:7-alpine",
-    redisUriVar: (values["redis-uri-var"] as string | undefined) ?? "REDIS_URL",
-    natsImage: (values["nats-image"] as string | undefined) ?? "nats:2-alpine",
-    natsUriVar: (values["nats-uri-var"] as string | undefined) ?? "NATS_URL",
+    redisImage: parsed["redis-image"] ?? "redis:7-alpine",
+    redisUriVar: parsed["redis-uri-var"] ?? "REDIS_URL",
+    natsImage: parsed["nats-image"] ?? "nats:2-alpine",
+    natsUriVar: parsed["nats-uri-var"] ?? "NATS_URL",
     domain,
-    upstream: (values.upstream as string | undefined) ?? "127.0.0.1:3000",
+    upstream: parsed.upstream ?? "127.0.0.1:3000",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
-    image: (values.image as string | undefined) ?? "ghcr.io/${{ github.repository }}",
-    deployHost: (values["deploy-host"] as string | undefined) ?? "",
-    deployDir: (values["deploy-dir"] as string | undefined) ?? "/opt/ignex-app",
-    force: Boolean(values.force),
+    image: parsed.image ?? "ghcr.io/${{ github.repository }}",
+    deployHost: parsed["deploy-host"] ?? "",
+    deployDir: parsed["deploy-dir"] ?? "/opt/ignex-app",
+    force: Boolean(parsed.force),
   };
 
   await runTarget(target, root, opts);

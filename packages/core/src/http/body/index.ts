@@ -8,4 +8,5 @@
 
 export { BodyParseError } from "./errors";
 export { createLazyBody } from "./lazy-body";
-export type { BodyKind, BodyState, LazyBody, LazyBodyOptions } from "./types";
+export { readBodyBounded } from "./size";
+export type { LazyBody, LazyBodyOptions } from "./types";

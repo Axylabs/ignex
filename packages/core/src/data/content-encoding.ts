@@ -16,8 +16,17 @@ const COMPRESSIBLE_PREFIXES = [
   "image/svg+xml",
 ] as const;
 
+/**
+ * Content types that must NEVER be compressed, even when they match a
+ * compressible prefix. `text/event-stream` matches bare `text/` but its
+ * semantics (an unbounded push channel) break under content-encoding, and
+ * buffering one for compression is a memory-exhaustion hazard.
+ */
+const INCOMPRESSIBLE_TYPES = ["text/event-stream"] as const;
+
 /** Whether a `Content-Type` value is a compressible representation. */
 export const isCompressible = (contentType: string): boolean =>
+  !INCOMPRESSIBLE_TYPES.some((type) => contentType.startsWith(type)) &&
   COMPRESSIBLE_PREFIXES.some((prefix) => contentType.startsWith(prefix));
 
 /**

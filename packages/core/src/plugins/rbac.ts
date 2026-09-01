@@ -27,8 +27,6 @@ import {
   type SubjectResolver,
 } from "../security/rbac";
 
-export type { AuthMode } from "../security/auth-module";
-
 /** Options for {@link createRbac}. */
 export interface RbacOptions extends SubjectResolver {
   /** Informational claim-shaping mode (role/permission/both). */

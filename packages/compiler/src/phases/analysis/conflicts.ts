@@ -14,10 +14,12 @@ export const detectDeadRoutes = (
   modules: readonly ModuleInfo[],
   opts: { strictDuplicates?: boolean } = {},
   ctx?: CompilerContext,
-): { alive: RouteIR[]; dead: RouteIR[] } => {
+): { alive: RouteIR[]; dead: RouteIR[]; duplicateOf: ReadonlyMap<RouteIR, RouteIR> } => {
   const seen = new Map<string, RouteIR>();
   const alive: RouteIR[] = [];
   const dead: RouteIR[] = [];
+  /** Dropped duplicate → the route that survived (for actionable diagnostics). */
+  const duplicateOf = new Map<RouteIR, RouteIR>();
 
   for (const route of routes) {
     const moduleIdx = route.source.moduleIdx;
@@ -50,6 +52,7 @@ export const detectDeadRoutes = (
             ],
           });
         }
+        duplicateOf.set(route, existing);
         dead.push(route);
         continue;
       }
@@ -57,7 +60,7 @@ export const detectDeadRoutes = (
     }
     alive.push(route);
   }
-  return { alive, dead };
+  return { alive, dead, duplicateOf };
 };
 
 export interface RouteConflictIssue {

@@ -14,40 +14,10 @@ import { lowerRoute, parseRouteFilename } from "../../ir/lower";
 import type { RouteIR } from "../../ir/route";
 import type { CompilerContext, ModuleInfo } from "../../types";
 
-export const parseRouteFile = (file: string) => parseRouteFilename(file);
-
-export const findModuleByPath = (
-  modules: readonly ModuleInfo[],
-  relPath: string,
-): ModuleInfo | undefined => modules.find((m) => m.relPath === relPath);
-
-export const findModuleIndex = (modules: readonly ModuleInfo[], relPath: string): number =>
-  modules.findIndex((m) => m.relPath === relPath);
+/** Parse a route file's filename into its route shape (thin alias). */
+const parseRouteFile = (file: string) => parseRouteFilename(file);
 
 // ── RouteIR factory ──────────────────────────────────────────────
-
-// Re-export the lowering helpers so the analysis facade keeps its surface
-// (internal-only consumers; no public API change).
-export {
-  buildHandlerRef,
-  detectConstantResponse,
-  findHandlerSymbol,
-} from "../../ir/lower";
-
-export const resolveRouteModule = (
-  file: string,
-  modules: readonly ModuleInfo[],
-): { mod: ModuleInfo; parsed: NonNullable<ReturnType<typeof parseRouteFilename>> } | null => {
-  const parsed = parseRouteFile(file);
-  if (!parsed) return null;
-  const mod = findModuleByPath(modules, file);
-  if (!mod) return null;
-  // Accept default-export handlers AND named-export handlers
-  // (`export const httpGet = get(...)`, `export function httpGet(...)`).
-  // WebSocket routes (`*.ws.ts`) export `wsHandler` instead — allow those too.
-  if (!mod.hasHandlerExport && parsed.method !== "WS") return null;
-  return { mod, parsed };
-};
 
 export const buildRouteGraph = (
   files: readonly string[],
@@ -56,11 +26,20 @@ export const buildRouteGraph = (
 ): RouteIR[] => {
   const routes: RouteIR[] = [];
 
+  // Index modules once — the previous per-file Array.find/findIndex scans
+  // made graph construction O(files × modules).
+  const byPath = new Map<string, { mod: ModuleInfo; idx: number }>();
+  for (let i = 0; i < modules.length; i++) {
+    const mod = modules[i];
+    if (mod) byPath.set(mod.relPath, { mod, idx: i });
+  }
+
   for (const file of files) {
     const parsed = parseRouteFile(file);
     if (!parsed) continue; // not a route file — nothing to report
-    const mod = findModuleByPath(modules, file);
-    if (!mod) continue;
+    const hit = byPath.get(file);
+    if (!hit) continue;
+    const { mod, idx: moduleIdx } = hit;
     // A parseable route filename with NO handler export is a hard error: the
     // route would silently 404 in production (misspelled `httpGet`, missing
     // export, or an unparseable file that lowered to an empty program). Fail
@@ -68,15 +47,22 @@ export const buildRouteGraph = (
     if (!mod.hasHandlerExport && parsed.method !== "WS") {
       ctx.diagnostics.error({
         code: DiagnosticCodes.NoHandlerExport,
-        message: `Route file has no handler export for "${parsed.method.toUpperCase()} ${parsed.path}" — expected \`export const ${parsed.method} = get(...)\` (or a default export).`,
+        message:
+          `Route file has no handler export for "${parsed.method.toUpperCase()} ${parsed.path}". ` +
+          "Expected one of:\n" +
+          "  - `export default get((ctx) => ...)`\n" +
+          `  - \`export const http${capitalized(parsed.method)} = get((ctx) => ...)\`\n` +
+          "(WebSocket routes export `wsHandler` instead.)",
         file,
       });
       continue;
     }
-    const moduleIdx = findModuleIndex(modules, file);
-    if (moduleIdx < 0) continue;
     routes.push(lowerRoute(file, parsed, mod, routes.length, moduleIdx));
   }
 
   return routes;
 };
+
+/** `get` → `Get` (for export-name hints in diagnostics). */
+const capitalized = (method: string): string =>
+  method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();

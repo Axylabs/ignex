@@ -12,6 +12,8 @@ import {
   eventBusConsumerTemplate,
   eventBusEmitRouteTemplate,
   eventBusLibTemplate,
+  eventBusPluginTemplate,
+  eventBusRealtimeTemplate,
   eventFiles,
   eventSseModuleTemplate,
   eventSseRouteTemplate,
@@ -84,23 +86,41 @@ describe("webhook templates", () => {
 });
 
 describe("bus templates", () => {
-  it("lib re-exports the @ignex/nova typed events API", () => {
+  it("contract file declares the named event with a TypeBox payload", () => {
+    const code = eventBusRealtimeTemplate("order");
+    expect(code).toContain("export const realtime = {");
+    expect(code).toContain('"order.created"');
+    expect(code).toContain('subjectPrefix: "order"');
+    expect(code).toContain('import { Type } from "@sinclair/typebox";');
+  });
+
+  it("plugin file pre-wires novaPlugin with events + generated bindings", () => {
+    const code = eventBusPluginTemplate("order");
+    expect(code).toContain("novaPlugin({");
+    expect(code).toContain("events: {}");
+    expect(code).toContain('import { bindings } from "../.ignex/sdk/realtime/index.js";');
+    expect(code).toContain("authenticate(req)");
+  });
+
+  it("lib re-exports the typed server facade from the generated SDK", () => {
     const code = eventBusLibTemplate();
-    expect(code).toContain('from "@ignex/nova/events"');
+    expect(code).toContain('from "../../.ignex/sdk/realtime/server.js"');
     expect(code).toContain("emitToUser");
-    expect(code).toContain("novaPlugin({ port: 3001");
   });
 
-  it("emit route publishes <name>.created", () => {
+  it("emit route publishes <name>.created through the typed facade", () => {
     const code = eventBusEmitRouteTemplate("order");
-    expect(code).toContain('emit("order.created", payload)');
+    expect(code).toContain('emit("order.created", payload);');
     expect(code).toContain('import { emit } from "../../lib/events.js";');
+    expect(code).toContain("RealtimeEventPayloads");
   });
 
-  it("consumer module subscribes to the channel", () => {
+  it("consumer module subscribes to the channel and returns void", () => {
     const code = eventBusConsumerTemplate("order");
     expect(code).toContain('on("order.created"');
     expect(code).toContain("startOrderConsumers");
+    expect(code).toContain("): void {");
+    expect(code).not.toContain("return off;");
   });
 });
 
@@ -121,9 +141,11 @@ describe("eventFiles", () => {
     ]);
   });
 
-  it("scaffolds bus lib + emit route + consumer", () => {
+  it("scaffolds bus contract + plugin + lib + emit route + consumer", () => {
     const files = eventFiles("bus", "order");
     expect(files.map((f) => f.path)).toEqual([
+      "realtime.ts",
+      "realtime.plugin.ts",
       "lib/events.ts",
       "routes/events/emit.order.post.ts",
       "modules/events/order.consumer.ts",

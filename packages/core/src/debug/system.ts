@@ -15,6 +15,11 @@ export interface SystemProfilerOptions {
   readonly sampleMs?: number;
   /** Maximum number of samples retained. Default 3600 (1h @1s). */
   readonly maxSamples?: number;
+  /**
+   * Called with each fresh sample (metrics gauges, SQLite persistence).
+   * A throwing callback is ignored — sampling must never break the app.
+   */
+  readonly onSample?: (sample: SystemSample) => void;
 }
 
 const mb = (bytes: number): number => Math.round((bytes / 1024 / 1024) * 10) / 10;
@@ -26,6 +31,7 @@ const mb = (bytes: number): number => Math.round((bytes / 1024 / 1024) * 10) / 1
 export class SystemProfiler {
   readonly sampleMs: number;
   private readonly maxSamples: number;
+  private readonly onSample: ((sample: SystemSample) => void) | null;
   private readonly samples: SystemSample[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastCpu: NodeJS.CpuUsage = { user: 0, system: 0 };
@@ -36,6 +42,7 @@ export class SystemProfiler {
   constructor(options: SystemProfilerOptions = {}) {
     this.sampleMs = options.sampleMs ?? 1000;
     this.maxSamples = options.maxSamples ?? 3600;
+    this.onSample = options.onSample ?? null;
   }
 
   /** Begin sampling (idempotent; unref'd interval). */
@@ -70,15 +77,28 @@ export class SystemProfiler {
     this.lastCpu = cpu;
     this.lastSampleAt = now;
     const mem = process.memoryUsage();
-    this.samples.push({
-      ts: now,
-      cpuPct: Math.round((cpuMs / dtMs) * 1000 * 10) / 10,
+    const sample: SystemSample = {
+      // Wall-clock epoch (NOT the monotonic `now`): samples are persisted to
+      // SQLite keyed by ts and pruned against epoch cutoffs — a monotonic
+      // value collides across restarts and is instantly pruned.
+      ts: Date.now(),
+      // cpuMs/dtMs is CPU-ms per wall-ms (1.0 = one full core); percent is
+      // ×100, rounded to one decimal.
+      cpuPct: Math.round((cpuMs / dtMs) * 100 * 10) / 10,
       rssMiB: mb(mem.rss),
       heapMiB: mb(mem.heapUsed),
       eventLoopDelayMs: 0,
       activeRequests: this.activeRequests,
-    });
+    };
+    this.samples.push(sample);
     if (this.samples.length > this.maxSamples) this.samples.shift();
+    if (this.onSample) {
+      try {
+        this.onSample(sample);
+      } catch {
+        // observers (metrics/persistence) must never break sampling
+      }
+    }
   }
 
   /** Record an event-loop delay measurement (called from the plugin's timer). */

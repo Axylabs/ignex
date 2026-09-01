@@ -23,6 +23,13 @@ describe("buildProject (integration with @ignex/compiler)", () => {
     expect(opts.outDir).toBe(join(dir, ".ignex"));
   });
 
+  it("maps the production flag through to compiler options", async () => {
+    // `ignex build` injects `production: true` unless --dev is passed; the
+    // CLI→compiler mapping must carry it into the validated options.
+    const { opts } = await buildProject(dir, { production: true });
+    expect(opts.production).toBe(true);
+  });
+
   it("produces a runnable server entry in the rooted outDir", async () => {
     const { opts } = await buildProject(dir, {});
     const entry = await findServerEntry(dir, opts);

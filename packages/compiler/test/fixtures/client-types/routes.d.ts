@@ -10,7 +10,7 @@ export interface IgnexRoutes {
   "/products/:id": {
     get: {
       params: {
-    id: string;
+    "id": string;
   };
       response: unknown;
     };
@@ -24,7 +24,7 @@ export interface IgnexRoutes {
   "/submit/:id": {
     post: {
       params: {
-    id: string;
+    "id": string;
   };
       body: unknown;
       response: unknown;

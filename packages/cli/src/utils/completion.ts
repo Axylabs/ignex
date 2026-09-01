@@ -5,18 +5,17 @@
  * command line plus the cursor offset from a shell's generated completion script
  * and forwards both here. `tokenizeLine` splits the line up to the cursor into
  * completed tokens plus the in-progress token, then `complete` derives candidate
- * commands / flags / flag values from the command registry. Paths and free-form
+ * commands / flags / flag values from the command table. Paths and free-form
  * positionals intentionally yield nothing so each shell's native file completion
  * takes over (`-o default` in bash, `_files` in zsh, fish/PS defaults).
  *
- * Flags are parsed from each command's existing `options` doc string (the single
- * source of truth shared with `ignex help`), with a small keyword table for
- * values that live elsewhere (`--features` → `FEATURE_NAMES`, `--method` → HTTP
- * verbs, `--stage` → `GLOBAL_STAGES`).
+ * Flags are derived from each command's **typed citty args definition** (the
+ * single source of truth shared with parsing and usage rendering) — no more
+ * regex-scraping help text, so completions can never drift from reality.
  */
 
+import type { ArgsDef } from "citty";
 import { GLOBAL_STAGES } from "../commands/hook.js";
-import type { Command } from "../commands/registry.js";
 import { FEATURE_NAMES } from "../types.js";
 
 /** Shells that `ignex completions <shell>` can generate a script for. */
@@ -33,12 +32,20 @@ export interface TokenizedLine {
   current: string;
 }
 
-/** A flag parsed from a command's `options` doc string, plus any value hints. */
+/** A completable flag with any static value candidates it accepts. */
 export interface FlagCompletion {
   /** Long flag spelling, e.g. `--runtime`. */
   flag: string;
-  /** Static values the flag accepts, when the docs enumerate them. */
+  /** Static values the flag accepts, when they are enumerable. */
   values?: readonly string[];
+}
+
+/** Minimal command shape the engine completes against. */
+export interface CompletableCommand {
+  name: string;
+  aliases?: readonly string[];
+  hidden?: boolean;
+  flags: readonly FlagCompletion[];
 }
 
 const isSpace = (ch: string): boolean => ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
@@ -108,26 +115,18 @@ export function tokenizeLine(line: string, cursor: number): TokenizedLine {
   return { before, current: atBoundary ? "" : current };
 }
 
-/** Extract every `--flag` (and optional `<a|b|c>` value list) from an options doc. */
-const FLAG_PATTERN = /^\s*(--[a-zA-Z][a-zA-Z0-9-]*)(?:\s+<([^>]+)>)?/gm;
-
-/** Keyword → static values for placeholders whose values live outside the docs. */
-const PLACEHOLDER_VALUES: Record<string, readonly string[]> = {
-  method: HTTP_METHODS,
-  stage: GLOBAL_STAGES,
-};
+/** camelCase → kebab-case (local to avoid pulling scule into the hot path). */
+const kebab = (name: string): string => name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 
 /**
- * Generic argument metavariables used in option docs (`--root <dir>`,
+ * Generic argument metavariables used across the CLI (`--root <dir>`,
  * `--port <port>`, …). These name a user-supplied argument, NOT a literal
  * value, so they are not expanded into completion candidates.
  */
-const GENERIC_ARGUMENTS = new Set([
+const GENERIC_HINTS = new Set([
   "dir",
   "port",
   "list",
-  "method",
-  "stage",
   "name",
   "action",
   "target",
@@ -143,65 +142,77 @@ const GENERIC_ARGUMENTS = new Set([
   "file",
   "url",
   "value",
+  "tag",
+  "prefix",
+  "semver",
+  "host",
 ]);
 
-/**
- * Parse a command's `options` doc string into its flags and value hints.
- *
- * Inline enums (`--runtime <bun|auto>`) and single literal values
- * (`--runtime <bun>`) become `values`; generic metavariables (`--root <dir>`)
- * and boolean flags have no values; `--features` maps to `FEATURE_NAMES` and
- * the `method`/`stage` placeholders map to the HTTP verbs / lifecycle stages.
- *
- * @param options - The `Command.options` doc string (may be `undefined`).
- * @returns The parsed flags, in declaration order.
- */
-export function parseFlagDocs(options: string | undefined): readonly FlagCompletion[] {
-  if (!options) return [];
-  const flags: FlagCompletion[] = [];
-  for (const match of options.matchAll(FLAG_PATTERN)) {
-    const flag = match[1] as string;
-    const placeholder = match[2];
-    let values: readonly string[] | undefined;
-    if (flag === "--features") {
-      values = FEATURE_NAMES;
-    } else if (placeholder) {
-      if (placeholder.includes("|")) {
-        values = placeholder
-          .split("|")
-          .map((v) => v.trim())
-          .filter(Boolean);
-      } else {
-        // Known keyword placeholders (`method`/`stage`) map to their value
-        // lists first; generic metavariables (`dir`, `port`, …) name a
-        // user-supplied argument (no candidates); anything else (`bun`) is a
-        // single literal value.
-        values =
-          PLACEHOLDER_VALUES[placeholder] ??
-          (GENERIC_ARGUMENTS.has(placeholder) ? undefined : [placeholder]);
-      }
-    }
-    flags.push({ flag, values });
+/** Values that live outside the CLI definitions, keyed by arg name. */
+const NAMED_VALUES: Record<string, readonly string[]> = {
+  features: FEATURE_NAMES,
+  method: HTTP_METHODS,
+  stage: GLOBAL_STAGES,
+};
+
+/** Split an enumerable value hint like `"mongo|sql"` into candidate values. */
+const valuesFromHint = (
+  flagName: string,
+  hint: string | undefined,
+): readonly string[] | undefined => {
+  if (NAMED_VALUES[flagName]) return NAMED_VALUES[flagName];
+  if (!hint) return undefined;
+  if (hint.includes("|")) {
+    return hint
+      .split("|")
+      .map((v) => v.trim())
+      .filter(Boolean);
   }
+  if (GENERIC_HINTS.has(hint)) return undefined;
+  return [hint];
+};
+
+/**
+ * Derive completable flags from a command's typed citty args definition.
+ *
+ * Booleans whose default is `true` (or explicitly marked `negatable`) also
+ * surface their `--no-*` form; enumerable hints like `valueHint: "mongo|sql"`
+ * become static value candidates.
+ *
+ * @param argsDef - The command's citty args definition.
+ * @returns Flags in declaration order, kebab-case spelled.
+ */
+export function flagsFromArgs(argsDef: ArgsDef): readonly FlagCompletion[] {
+  const flags: FlagCompletion[] = [];
+
+  for (const [rawName, def] of Object.entries(argsDef ?? {})) {
+    if (!def || def.type === "positional") continue;
+
+    const kebabName = kebab(rawName);
+    const flag = `--${kebabName}`;
+
+    if (def.type === "boolean") {
+      flags.push({ flag });
+      const negatable =
+        (def as { default?: boolean }).default === true ||
+        (def as { negatable?: boolean }).negatable === true;
+      if (negatable) flags.push({ flag: `--no-${kebabName}` });
+      continue;
+    }
+
+    const hint = (def as { valueHint?: string }).valueHint;
+    flags.push({ flag, values: valuesFromHint(rawName, hint) });
+  }
+
   return flags;
 }
 
-const flagCache = new WeakMap<Command, readonly FlagCompletion[]>();
+const findCommandIn = (
+  cmds: readonly CompletableCommand[],
+  name: string,
+): CompletableCommand | undefined => cmds.find((c) => c.name === name || c.aliases?.includes(name));
 
-/** Memoized per-command flag list. */
-const flagsOf = (command: Command): readonly FlagCompletion[] => {
-  let flags = flagCache.get(command);
-  if (!flags) {
-    flags = parseFlagDocs(command.options);
-    flagCache.set(command, flags);
-  }
-  return flags;
-};
-
-const findCommandIn = (cmds: readonly Command[], name: string): Command | undefined =>
-  cmds.find((c) => c.name === name || c.aliases?.includes(name));
-
-const commandNames = (cmds: readonly Command[]): readonly string[] => [
+const commandNames = (cmds: readonly CompletableCommand[]): readonly string[] => [
   ...cmds.filter((c) => !c.hidden).flatMap((c) => [c.name, ...(c.aliases ?? [])]),
   "help",
   "--help",
@@ -216,17 +227,21 @@ const byPrefix =
 /**
  * Compute candidate completions for `line` with the cursor at `cursor`.
  *
- * Derives command names (plus aliases), per-command flags (parsed from the
- * command's `options` docs), and flag values for value-taking flags. Returns an
+ * Derives command names (plus aliases), per-command flags (from the typed
+ * args definitions), and flag values for value-taking flags. Returns an
  * empty list for paths and free-form positionals so the calling shell can fall
  * back to file completion.
  *
- * @param commands - The command registry to complete against.
+ * @param commands - The completable command table.
  * @param line - The full command line including the program name.
  * @param cursor - Character offset of the cursor into `line`.
  * @returns Matching suggestions (newline-free), filtered to the token prefix.
  */
-export function complete(commands: readonly Command[], line: string, cursor: number): string[] {
+export function complete(
+  commands: readonly CompletableCommand[],
+  line: string,
+  cursor: number,
+): string[] {
   const { before, current } = tokenizeLine(line, cursor);
   const args = before.slice(1); // drop the program name
   const partial = current;
@@ -250,7 +265,7 @@ export function complete(commands: readonly Command[], line: string, cursor: num
 
   // Completing a value for a value-taking flag (e.g. `--runtime b`).
   if (prev?.startsWith("-")) {
-    const flag = flagsOf(command).find((f) => f.flag === prev);
+    const flag = command.flags.find((f) => f.flag === prev);
     if (flag?.values && flag.values.length > 0) {
       return flag.values.filter(byPrefix(partial));
     }
@@ -259,9 +274,7 @@ export function complete(commands: readonly Command[], line: string, cursor: num
   // Completing flags: the token starts with `-`, or the user is at a fresh
   // token position right after the command.
   if (partial.startsWith("-") || partial === "") {
-    return flagsOf(command)
-      .map((f) => f.flag)
-      .filter(byPrefix(partial));
+    return command.flags.map((f) => f.flag).filter(byPrefix(partial));
   }
 
   // Positional token → no static suggestions; the shell offers files instead.

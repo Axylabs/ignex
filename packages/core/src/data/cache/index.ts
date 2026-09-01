@@ -8,13 +8,9 @@
 
 export { withBrowserCache } from "./browser";
 export { cacheControl, parseCacheControl } from "./cache-control";
-export { entityTag, fastHash } from "./hash";
+export { entityTag } from "./hash";
 export { HttpResponseCache } from "./http-cache";
 export type {
-  BrowserCacheOptions,
-  CacheControlDirectives,
-  CacheControlOptions,
-  CachedHttpResponse,
   HttpResponseCacheOptions,
   HttpResponseCacheStore,
 } from "./types";

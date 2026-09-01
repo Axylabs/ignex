@@ -24,6 +24,7 @@
     "castrum": "^0.9.1"
   },
   "devDependencies": {
+    "@ignex/test-utils": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

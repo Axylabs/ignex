@@ -5,7 +5,7 @@
  * Now with functional composition and error recovery.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
 import { type SourceFile, SourceManager } from "../frontend";
@@ -38,18 +38,39 @@ export const isValidDir = (entry: string): boolean =>
  * Recursively scan a directory for route files (sorted, deterministic).
  *
  * IO errors are reported as warnings and skipped rather than thrown.
+ * Symlinked directories are followed at most once per real target (tracked by
+ * resolved path): a self-referencing or mutually-referencing symlink cycle
+ * (`ln -s . loop`) would otherwise re-scan the same tree exponentially (until
+ * the kernel's ELOOP cap) — and a symlink pointing outside the tree would be
+ * traversed repeatedly on every level.
  *
  * @param dir - The directory to scan.
  * @param base - Base path prefix for returned relative paths.
  * @param diagnostics - Collector for scan-failure warnings.
+ * @param seen - Resolved paths already descended into (cycle guard).
  * @returns Relative route-file paths (POSIX separators).
  */
 export const scanDirectory = (
   dir: string,
   base = "",
   diagnostics?: DiagnosticCollector,
+  seen: Set<string> = new Set(),
 ): string[] => {
   const out: string[] = [];
+
+  // Resolve once per directory so a symlinked alias of an already-scanned dir
+  // is recognized as a cycle instead of a fresh subtree.
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    // Broken/unresolvable directory (dangling symlink, permission) — nothing
+    // to scan; a diagnostic for the top-level call is emitted by read failures
+    // downstream, so stay silent here to avoid noise on transient entries.
+    return out;
+  }
+  if (seen.has(realDir)) return out;
+  seen.add(realDir);
 
   let entries: string[];
   try {
@@ -79,7 +100,7 @@ export const scanDirectory = (
 
     if (isDir) {
       if (isValidDir(entry)) {
-        out.push(...scanDirectory(abs, rel, diagnostics));
+        out.push(...scanDirectory(abs, rel, diagnostics, seen));
       }
     } else if (isRouteFile(entry)) {
       out.push(rel);
@@ -103,6 +124,9 @@ export const scanDirectory = (
  * The frontend phase: scan the routes directory and parse every route module
  * exactly once through a `SourceManager` (retained AST for all later phases).
  *
+ * Timing is owned by the pipeline stage that calls this (single
+ * `logger.time("discovery")` entry — the phase itself does not re-wrap).
+ *
  * @param opts - Compiler options (uses `routesDir`).
  * @param ctx - Logger + diagnostics.
  * @param sources - Optional pre-seeded source manager (e.g. persistent cache).
@@ -112,23 +136,22 @@ export const runDiscovery = (
   opts: CompilerOptions,
   ctx: CompilerContext,
   sources?: SourceManager,
-): DiscoveryResult =>
-  ctx.logger.time("discovery", () => {
-    const files = scanDirectory(opts.routesDir, "", ctx.diagnostics);
-    // Reuse a caller-provided SourceManager (e.g. one seeded with the
-    // persistent parse cache) so unchanged modules skip re-parsing.
-    const manager = sources ?? new SourceManager();
-    const modules: SourceFile[] = [];
+): DiscoveryResult => {
+  const files = scanDirectory(opts.routesDir, "", ctx.diagnostics);
+  // Reuse a caller-provided SourceManager (e.g. one seeded with the
+  // persistent parse cache) so unchanged modules skip re-parsing.
+  const manager = sources ?? new SourceManager();
+  const modules: SourceFile[] = [];
 
-    for (const f of files) {
-      const abs = join(opts.routesDir, f);
-      const mod = manager.read(abs, f, ctx.diagnostics);
-      if (mod) modules.push(mod);
-    }
+  for (const f of files) {
+    const abs = join(opts.routesDir, f);
+    const mod = manager.read(abs, f, ctx.diagnostics);
+    if (mod) modules.push(mod);
+  }
 
-    ctx.logger.info(`Discovered ${files.length} files, ${modules.length} modules`, {
-      routesDir: opts.routesDir,
-    });
-
-    return { files, modules, sources: manager };
+  ctx.logger.info(`Discovered ${files.length} files, ${modules.length} modules`, {
+    routesDir: opts.routesDir,
   });
+
+  return { files, modules, sources: manager };
+};

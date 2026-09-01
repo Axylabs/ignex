@@ -22,12 +22,44 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { metaFor } from "./registry.js";
 
 export const MIGRATION_ACTIONS = ["create", "up", "down", "status"] as const;
 export type MigrationAction = (typeof MIGRATION_ACTIONS)[number];
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  action: {
+    type: "positional",
+    required: false,
+    description: "Migration action (create | up | down | status)",
+  },
+  name: {
+    type: "positional",
+    required: false,
+    description: "Migration name (create) or rollback target (down)",
+  },
+  db: {
+    type: "string",
+    valueHint: "mongo|sql",
+    description: "Database flavor (mongo default; sql delegates to drizzle-kit)",
+  },
+} satisfies ArgsDef;
+
+export const migrateCmd = defineCommand({
+  meta: metaFor("migrate"),
+  args: argsDef,
+  async run(ctx) {
+    await runMigrate(ctx.rawArgs);
+  },
+});
+
+export default migrateCmd;
 
 /** Fallback migration dir when `src/db.ts` doesn't pin one (ninox parity). */
 const DEFAULT_MIGRATION_DIR = "src/migrations";
@@ -139,19 +171,12 @@ function renderStatus(status: { applied: string[]; pending: string[] }): void {
 
 /** Run `ignex migrate`. */
 export async function runMigrate(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    action: { type: "string" },
-    name: { type: "string" },
-    db: { type: "string" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // The first positional is the action (+ optional name), never the root.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const action = ((values.action as string | undefined) ??
-    positionals[0] ??
-    "up") as MigrationAction;
-  const name = (values.name as string | undefined) ?? positionals[1];
+  const root = await resolveProjectRoot(parsed.root);
+  const action = (parsed.action ?? "up") as MigrationAction;
+  const name = parsed.name;
 
   if (!MIGRATION_ACTIONS.includes(action)) {
     error(`Unknown migrate action "${action}". Expected one of: ${MIGRATION_ACTIONS.join(", ")}.`);
@@ -163,7 +188,7 @@ export async function runMigrate(args: string[]): Promise<void> {
   // `drizzle-kit` CLI so migrations share the drizzle.config.ts the
   // `--db sql` resource scaffolded. `create`/`generate` are pure file writes
   // (no DB connection); `up`/`push`/`status` need the configured DB.
-  if (values.db === "sql") {
+  if (parsed.db === "sql") {
     const drizzleConfig = join(root, "drizzle.config.ts");
     if (!(await exists(drizzleConfig))) {
       error(

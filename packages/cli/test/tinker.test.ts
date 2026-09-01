@@ -7,10 +7,14 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const tempDirs: string[] = [];
+
+/** Repo root, resolved from this file so the suite is cwd-independent. */
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 function tmpProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ignex-cli-tinker-"));
@@ -31,9 +35,9 @@ afterEach(() => {
 /** Symlink the workspace packages so temp-project imports resolve. */
 function linkWorkspace(dir: string): void {
   mkdirSync(join(dir, "node_modules", "@ignex"), { recursive: true });
-  symlinkSync(join(process.cwd(), "packages/core"), join(dir, "node_modules", "@ignex/core"));
-  symlinkSync(join(process.cwd(), "packages/native"), join(dir, "node_modules", "@ignex/native"));
-  symlinkSync(join(process.cwd(), "packages/shared"), join(dir, "node_modules", "@ignex/shared"));
+  symlinkSync(join(repoRoot, "packages/core"), join(dir, "node_modules", "@ignex/core"));
+  symlinkSync(join(repoRoot, "packages/native"), join(dir, "node_modules", "@ignex/native"));
+  symlinkSync(join(repoRoot, "packages/shared"), join(dir, "node_modules", "@ignex/shared"));
 }
 
 describe("tinker context loading", () => {
@@ -45,7 +49,7 @@ describe("tinker context loading", () => {
 
     // Run tinker with stdin closed-ish: a piped expression then .exit.
     const { spawnSync } = await import("node:child_process");
-    const cli = join(process.cwd(), "packages/cli/bin/ignex.js");
+    const cli = join(repoRoot, "packages/cli/bin/ignex.js");
     const res = spawnSync("bun", [cli, "tinker", "--no-db", "--root", dir], {
       input: "1 + 1;\n.exit\n",
       encoding: "utf8",
@@ -58,9 +62,13 @@ describe("tinker context loading", () => {
 
   it("declares tinker in the command registry with a --no-db flag", async () => {
     const { findCommand } = await import("../src/commands/registry.js");
+    const { loadCommand } = await import("../src/commands/loaders.js");
+    const { renderCommandHelp } = await import("../src/usage.js");
     const cmd = findCommand("tinker");
     expect(cmd?.name).toBe("tinker");
     expect(cmd?.aliases).toContain("repl");
-    expect(cmd?.options).toContain("--no-db");
+    const def = await loadCommand("tinker");
+    const help = await renderCommandHelp(def as never);
+    expect(help).toContain("--no-db");
   });
 });

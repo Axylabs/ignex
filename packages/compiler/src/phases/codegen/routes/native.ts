@@ -15,7 +15,6 @@
  * the existing JS prelude — byte-parity preserved.
  */
 
-import type { Emitter } from "../../../emitter";
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { nativeRouteVar, validatorImportName } from "../identifiers";
 import type { CodegenState } from "../state";
@@ -26,7 +25,6 @@ import {
   emitParamsPrelude,
   emitSchemaConst,
   emitValidatorThrow,
-  markValidationPreludeHelpers,
   type ValidationFlags,
   validationFlags,
 } from "./validate";
@@ -74,6 +72,9 @@ const routeNativeNeeds = (
       route.analysis.usage.body === false,
   };
 };
+
+/** The emitted numeric body cap — kept identical to the plan's `maxBodyBytes`. */
+const maxBodyLiteral = (opts: CompilerOptions): number => opts.maxJsonBytes ?? 2 * 1024 * 1024;
 
 /**
  * True when this route should get a native prelude: `nativeRoutes` is on and
@@ -126,7 +127,7 @@ const buildNativeRoutePlan = (route: RouteIR, opts: CompilerOptions): string => 
           JSON.stringify(schemaDocOf(route)?.body ?? {}),
         )}) }`
       : `schemas: {}`,
-    `maxBodyBytes: ${opts.maxJsonBytes ?? 2 * 1024 * 1024}`,
+    `maxBodyBytes: ${maxBodyLiteral(opts)}`,
     `maxQueryBytes: ${1024 * 1024}`,
     `maxCookieBytes: ${8192}`,
     `maxPairs: ${0}`,
@@ -147,7 +148,7 @@ export const emitNativeRouteVar = (
   state.header.push(
     `const ${nativeRouteVar(route)} = createNativeRoute(${buildNativeRoutePlan(route, opts)});`,
   );
-  state.helpers.markCore("createNativeRoute");
+  state.usedCore.add("createNativeRoute");
 };
 
 /** Query validation + `ctx.query` seeding on the already-parsed `__query`. */
@@ -205,10 +206,10 @@ const emitNativeCookieValidation = (
 export const emitNativeValidationPrelude = (
   route: RouteIR,
   opts: CompilerOptions,
-  helpers: Emitter,
+  usedCore: Set<string>,
 ): string[] => {
   if (!nativeRouteEligible(route, opts)) {
-    return emitFullValidationPrelude(route, opts, helpers);
+    return emitFullValidationPrelude(route, opts, usedCore);
   }
 
   const flags = validationFlags(route);
@@ -227,32 +228,31 @@ export const emitNativeValidationPrelude = (
   // every schema-less route as validated.
   const hasValidation = flags.any || route.analysis.hasValidation;
   if (!hasValidation) {
-    return emitNativeUsagePrelude(route, needsQuery, needsCookie, helpers);
+    return emitNativeUsagePrelude(route, needsQuery, needsCookie, usedCore);
   }
 
-  markValidationPreludeHelpers(route, flags.any, helpers, hasPart);
-  helpers.markCore("createNativeRoute");
+  usedCore.add("createNativeRoute");
   if (needsQuery) {
-    helpers.markCore("groupQueryPairs");
-    helpers.markCore("parseQueryFromURL");
+    usedCore.add("groupQueryPairs");
+    usedCore.add("parseQueryFromURL");
   }
   if (needsCookie) {
-    helpers.markCore("cookiePairsToRecord");
-    helpers.markCore("parseCookieString");
+    usedCore.add("cookiePairsToRecord");
+    usedCore.add("parseCookieString");
   }
   if (needsBody) {
-    // The native 422 path throws `validationError`, the 400 path throws
-    // `BodyParseError` (both core/generated imports).
-    helpers.markUsed("validationError");
-    helpers.markCore("BodyParseError");
+    // The native 400/413 paths throw `BodyParseError`; the body read is
+    // bounded by `readBodyBounded` (never an unbounded arrayBuffer).
+    usedCore.add("BodyParseError");
+    usedCore.add("readBodyBounded");
   }
-  if (route.analysis.usage.cookie) helpers.markCore("createLazyCookieJar");
+  if (route.analysis.usage.cookie) usedCore.add("createLazyCookieJar");
 
   const pre: string[] = [emitSchemaConst(route)];
   if (needsQuery) pre.push(`let __query;`);
   if (needsCookie) pre.push(`let __cookies;`);
   if (needsBody) pre.push(`let __bodyValidated = false;`);
-  pre.push(...emitNativeRunBlock(route, flags, needsQuery, needsCookie, needsBody));
+  pre.push(...emitNativeRunBlock(route, opts, flags, needsQuery, needsCookie, needsBody));
   if (needsQuery) {
     pre.push(`if (__query === undefined) {`);
     pre.push(`  __query = parseQueryFromURL(req.url);`);
@@ -265,7 +265,7 @@ export const emitNativeValidationPrelude = (
   }
   pre.push(...emitParamsPrelude(route, flags.hasParamsValidator, hasPart("params")));
   if (needsQuery) pre.push(...emitNativeQueryValidation(route, flags, hasPart));
-  pre.push(...emitHeadersPrelude(route, flags.hasHeadersValidator, hasPart("headers")));
+  pre.push(...emitHeadersPrelude(route, usedCore, flags.hasHeadersValidator, hasPart("headers")));
   if (needsCookie) pre.push(...emitNativeCookieValidation(route, flags, hasPart));
   if (needsBody) {
     // Native validated the body and the handler never reads it → skip the JS
@@ -297,9 +297,9 @@ const emitNativeUsagePrelude = (
   route: RouteIR,
   needsQuery: boolean,
   needsCookie: boolean,
-  helpers: Emitter,
+  usedCore: Set<string>,
 ): string[] => {
-  helpers.markCore("createNativeRoute");
+  usedCore.add("createNativeRoute");
   const pre: string[] = [`const __native = ${nativeRouteVar(route)};`];
   pre.push(`if (__native) {`);
   pre.push(`  const __qIdx = req.url.indexOf("?");`);
@@ -313,12 +313,12 @@ const emitNativeUsagePrelude = (
   pre.push(`  }`);
   pre.push(`  if (__nr && __nr.ok) {`);
   if (needsQuery) {
-    helpers.markCore("NativeQueryParams");
+    usedCore.add("NativeQueryParams");
     pre.push(`    ctx.query = new NativeQueryParams(__nr.query);`);
   }
   if (needsCookie) {
-    helpers.markCore("cookiePairsToRecord");
-    helpers.markCore("createLazyCookieJar");
+    usedCore.add("cookiePairsToRecord");
+    usedCore.add("createLazyCookieJar");
     pre.push(`    const __cookies = cookiePairsToRecord(__nr.cookie);`);
     pre.push(
       `    ctx.cookie = createLazyCookieJar(ctx.set, () => req.headers.get("cookie"), undefined, __cookies);`,
@@ -343,6 +343,7 @@ const emitNativeUsagePrelude = (
  */
 const emitNativeRunBlock = (
   route: RouteIR,
+  opts: CompilerOptions,
   flags: ValidationFlags,
   needsQuery: boolean,
   needsCookie: boolean,
@@ -359,11 +360,16 @@ const emitNativeRunBlock = (
   out.push(`  const __qIdx = req.url.indexOf("?");`);
   out.push(`  let __nr;`);
   if (needsBody) {
+    // Bounded read (content-length pre-check + incremental chunked cap) —
+    // NEVER an unconditional `req.arrayBuffer()`: that buffers up to Bun's
+    // server cap per in-flight request on routes whose real limit is
+    // `maxBodyBytes`. A 413 here propagates exactly like the JS body prelude's
+    // size guard (same BodyParseError shape).
     out.push(
       `  const __bodyBytes = ${
         bodyGuard
-          ? `${bodyGuard} ? new Uint8Array(await req.arrayBuffer()) : new Uint8Array(0)`
-          : `new Uint8Array(await req.arrayBuffer())`
+          ? `${bodyGuard} ? await readBodyBounded(req, ${maxBodyLiteral(opts)}) : new Uint8Array(0)`
+          : `await readBodyBounded(req, ${maxBodyLiteral(opts)})`
       };`,
     );
   }
@@ -379,7 +385,9 @@ const emitNativeRunBlock = (
   out.push(`  }`);
   out.push(`  if (__nr) {`);
   if (needsBody) {
-    // First-failure-wins: 400 = not valid JSON, 422 = failed its schema.
+    // First-failure-wins: 400 = not valid JSON, 422 = failed its schema,
+    // 413 = oversized body. All throw BEFORE any JS parse — matching the JS
+    // prelude's error precedence for the same conditions.
     out.push(`    ${bodyGuard ? `if (${bodyGuard}) {` : "if (true) {"}`);
     out.push(`      if (!__nr.ok) {`);
     out.push(`        if (__nr.errorCode === 400) {`);
@@ -387,6 +395,9 @@ const emitNativeRunBlock = (
     out.push(`        }`);
     out.push(`        if (__nr.errorCode === 422) {`);
     out.push(`          throw validationError(__schema?.body ?? {}, "body");`);
+    out.push(`        }`);
+    out.push(`        if (__nr.errorCode === 413) {`);
+    out.push(`          throw new BodyParseError("Payload too large", 413);`);
     out.push(`        }`);
     out.push(`      }`);
     out.push(`    }`);

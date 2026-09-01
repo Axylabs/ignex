@@ -25,6 +25,14 @@ type ProxyRequestInit = FetchRequestInit & {
 export interface ProxyOptions extends Omit<FetchRequestInit, "body"> {
   timeoutMs?: number;
   body?: FetchRequestInit["body"];
+  /**
+   * Forward the client's original `x-forwarded-for` / `x-forwarded-host` /
+   * `x-forwarded-proto` headers upstream. Default `false`: a client-controlled
+   * `x-forwarded-for` forwarded verbatim is a log/authz poisoning vector —
+   * every downstream hop would trust an attacker-chosen "client IP". Only
+   * enable this when the upstream expects an existing chain YOU control.
+   */
+  preserveForwardedHeaders?: boolean;
 }
 
 /**
@@ -198,6 +206,14 @@ export async function forwardRequest(
   }
 
   const headers = sanitizeRequestHeaders(req.headers);
+
+  // The client is untrusted: strip its forwarded-* claims before the request
+  // crosses the trust boundary (see ProxyOptions.preserveForwardedHeaders).
+  if (!opts.preserveForwardedHeaders) {
+    headers.delete("x-forwarded-for");
+    headers.delete("x-forwarded-host");
+    headers.delete("x-forwarded-proto");
+  }
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.body != null;
 

@@ -20,6 +20,14 @@ export interface SecurityOptions {
   noSniff?: boolean;
   referrerPolicy?: string | false;
   xssFilter?: boolean;
+  /**
+   * Trust the client-supplied `x-forwarded-proto` header when deciding
+   * whether HSTS applies. Default `false` — the header is spoofable, so
+   * HSTS is decided from the actual request scheme unless the app sits
+   * behind a proxy that overwrites it. Matches the framework-wide
+   * `trustProxy` discipline (ctx.ip, rate limiting).
+   */
+  trustProxy?: boolean;
 }
 
 const DEFAULTS: SecurityOptions = {
@@ -36,11 +44,13 @@ const DEFAULTS: SecurityOptions = {
   xssFilter: true,
 };
 
-const isHttpsRequest = (ctx: IgnexContext): boolean => {
-  const forwardedProto = ctx.headers.get("x-forwarded-proto");
+const isHttpsRequest = (ctx: IgnexContext, trustProxy: boolean): boolean => {
+  if (trustProxy) {
+    const forwardedProto = ctx.headers.get("x-forwarded-proto");
 
-  if (forwardedProto?.toLowerCase().includes("https")) {
-    return true;
+    if (forwardedProto?.toLowerCase().includes("https")) {
+      return true;
+    }
   }
 
   // Avoid materializing `new URL(req.url)` (allocation + full parse) just to
@@ -57,6 +67,7 @@ const isHttpsRequest = (ctx: IgnexContext): boolean => {
  */
 export const security = (options: SecurityOptions = {}): IgnexPlugin => {
   const opts = { ...DEFAULTS, ...options };
+  const trustProxy = opts.trustProxy ?? false;
 
   // Pre-bake the per-request-invariant security headers ONCE (frozen array),
   // so the per-response path just iterates pairs instead of re-evaluating
@@ -106,7 +117,7 @@ export const security = (options: SecurityOptions = {}): IgnexPlugin => {
           headers.delete("X-Powered-By");
         }
 
-        if (hsts && isHttpsRequest(ctx)) {
+        if (hsts && isHttpsRequest(ctx, trustProxy)) {
           let value = `max-age=${hsts.maxAge ?? 15552000}`;
 
           if (hsts.includeSubDomains) {

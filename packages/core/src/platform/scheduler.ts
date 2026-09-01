@@ -83,7 +83,9 @@ interface TickHandle {
 }
 
 let jobIdCounter = 0;
-const newJobId = (): string => `sched-${Date.now()}-${++jobIdCounter}`;
+/** Collision-resistant tick-job id (random suffix — unique across processes). */
+const newJobId = (): string =>
+  `sched-${Date.now()}-${++jobIdCounter}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** True when a job named `name` is queued or running (a run is in flight). */
 async function hasInFlight(store: JobStore, name: string): Promise<boolean> {
@@ -261,6 +263,10 @@ function scheduleWithMatcher(expression: string, onTick: () => void): TickHandle
  * If a tick's job is never claimed by a worker within ~1s (single-process
  * apps), run it inline and mark it done. If a `schedule:run` worker claims it
  * first, this no-ops (the worker runs it).
+ *
+ * Claims ONLY this tick's job (`claimOne`) — previously a blind
+ * `claim(1)` could grab ANY due job (e.g. one a worker was about to pick up),
+ * stall it with a 30s lease, then abandon it.
  */
 async function runIfUnclaimed(
   store: JobStore,
@@ -270,17 +276,32 @@ async function runIfUnclaimed(
 ): Promise<void> {
   try {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    const claimed = await store.claim(1, 30_000);
-    const mine = claimed.find((c) => c.id === job.id);
+    const mine = store.claimOne
+      ? await store.claimOne(job.id, 30_000)
+      : (await store.claim(1, 30_000)).find((c) => c.id === job.id);
     if (!mine) return; // a worker claimed it first
+    const owner = mine.leaseOwner ? { owner: mine.leaseOwner } : undefined;
     try {
       await task();
-      await store.complete(mine.id).catch(() => {});
+      // A failed completion write must be VISIBLE — a silent `.catch(() => {})`
+      // here meant the job stayed "running" until lease expiry and could then
+      // double-run.
+      await store.complete(mine.id, owner).catch((err) => {
+        log(
+          `complete write failed for ${job.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     } catch (error) {
       log(`run failed for ${job.name}: ${error instanceof Error ? error.message : String(error)}`);
-      await store.complete(mine.id).catch(() => {});
+      // Record the FAILURE (retry semantics preserved) — previously this path
+      // called `complete`, marking failed runs as successful.
+      await store.fail(mine.id, error, undefined, owner).catch((err) => {
+        log(
+          `fail write failed for ${job.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     }
-  } catch {
-    // claim failed — a worker will handle it
+  } catch (err) {
+    log(`claim failed for ${job.name}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

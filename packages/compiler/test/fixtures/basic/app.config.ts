@@ -2,7 +2,7 @@
 export const plugins = [];
 
 export const lifecycle = {
-  request: [],
+  request: [(ctx) => ctx],
 };
 
 export const server = {

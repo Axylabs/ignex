@@ -10,7 +10,7 @@
 
 import Ajv from "ajv";
 import { defu } from "defu";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import { DiagnosticCodes, type DiagnosticCollector } from "./diagnostics";
 import type { Result } from "./fp";
 import { err, ok } from "./fp";
@@ -43,6 +43,7 @@ const CompilerOptionsSchema = Type.Object(
     minify: Type.Boolean(),
 
     compile: Type.Optional(Type.Boolean()),
+    production: Type.Optional(Type.Boolean()),
     binaryOutfile: Type.Optional(Type.String({ minLength: 1 })),
     bytecode: Type.Optional(Type.Boolean()),
 
@@ -71,7 +72,6 @@ const CompilerOptionsSchema = Type.Object(
 
     hoistConstants: Type.Optional(Type.Boolean()),
     specializeContext: Type.Optional(Type.Boolean()),
-    treeshakeRuntime: Type.Optional(Type.Boolean()),
     routeCache: Type.Optional(Type.Boolean()),
     nativeRoutes: Type.Optional(Type.Boolean()),
 
@@ -79,6 +79,8 @@ const CompilerOptionsSchema = Type.Object(
 
     maxInlineBytes: Type.Optional(Type.Integer({ minimum: 0 })),
     maxTotalInlineBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+
+    heatCapture: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -86,14 +88,15 @@ const CompilerOptionsSchema = Type.Object(
 /**
  * Options that were supported in earlier versions and have been removed.
  * They are accepted with a deprecation warning and ignored, so existing
- * configs do not hard-fail.
+ * configs do not hard-fail. Runtime-helper treeshaking is now inherent to the
+ * linker's bundler (`Bun.build`), so the old knob has no effect.
  */
-const DEPRECATED_OPTIONS: Record<string, string> = {};
+const DEPRECATED_OPTIONS: Record<string, string> = {
+  treeshakeRuntime:
+    "Runtime helpers are always treeshaken by the linker's bundler; the option is a no-op.",
+};
 
 const SCHEMA_KEYS = new Set(Object.keys((CompilerOptionsSchema as any).properties ?? {}));
-
-/** The fully-validated compiler options (schema-typed). */
-export type ValidatedCompilerOptions = Static<typeof CompilerOptionsSchema>;
 
 const ajv = new Ajv({
   allErrors: true,
@@ -115,7 +118,20 @@ export const mergeOptions = (opts: Partial<CompilerOptions>): CompilerOptions =>
   const level = (opts.optimizationLevel ?? DEFAULT_OPTS.optimizationLevel) as OptimizationLevel;
   const preset = optimizationPresets[level] ?? {};
   const base = defu(preset, DEFAULT_OPTS) as CompilerOptions;
-  return defu(opts, base) as CompilerOptions;
+  const merged = defu(opts, base) as CompilerOptions;
+
+  // A production-shaped build (explicit `production`, `compile`, or
+  // `NODE_ENV=production` at build time) defaults to SAFE error responses:
+  // without this, an artifact built in an environment where NODE_ENV is unset
+  // inherits the dev default (`exposeErrorDetails: true`) and ships stack
+  // traces / internal error text to clients. An explicit option always wins.
+  const productionShape =
+    merged.compile === true || merged.production === true || process.env.NODE_ENV === "production";
+  if (productionShape && opts.exposeErrorDetails === undefined) {
+    return { ...merged, exposeErrorDetails: false };
+  }
+
+  return merged;
 };
 
 /**

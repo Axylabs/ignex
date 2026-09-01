@@ -17,7 +17,7 @@ import {
   dockerfileTemplate,
   dockerignoreTemplate,
 } from "../src/templates/ops.js";
-import { parseFlagDocs } from "../src/utils/completion.js";
+import { flagsFromArgs } from "../src/utils/completion.js";
 
 /** Create a throwaway target dir for one test. */
 function tmpTarget(): string {
@@ -479,10 +479,11 @@ describe("ignex ops (command wiring)", () => {
     }
   });
 
-  it("exposes ops targets as shell-completion values", () => {
-    const ops = findCommand("ops");
-    expect(ops).toBeDefined();
-    const flags = parseFlagDocs(ops?.options);
+  it("exposes ops targets as shell-completion values", async () => {
+    expect(findCommand("ops")).toBeDefined();
+    const { loadCommand } = await import("../src/commands/loaders.js");
+    const cmd = await loadCommand("ops");
+    const flags = flagsFromArgs((cmd?.args ?? {}) as never);
     const target = flags.find((f) => f.flag === "--target");
     expect(target?.values).toEqual(["dockerfile", "compose", "caddy", "ci", "docker"]);
   });

@@ -9,7 +9,10 @@ import { toImportPath } from "../codegen/config";
 const tsParamType = (paramNames: readonly string[]): string => {
   if (paramNames.length === 0) return "Record<string, never>";
 
-  const lines = paramNames.map((name) => `    ${name}: string;`);
+  // Quoted keys: a `[param]` segment may contain characters that are not
+  // valid as a bare TS identifier (`[user-id]`, `[2fa]`, `[user name]`) —
+  // quoting keeps the emitted interface syntactically valid for any name.
+  const lines = paramNames.map((name) => `    ${JSON.stringify(name)}: string;`);
   return `{
 ${lines.join("\n")}
   }`;

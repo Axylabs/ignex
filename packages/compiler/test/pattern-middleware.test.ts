@@ -20,42 +20,49 @@ afterEach(() => {
 });
 
 describe("compiled pattern-scoped middleware", () => {
-  it("runs the plugin only for matching pathnames (build → boot → serve)", async () => {
-    const layout: FixtureLayout = materializeFixture("pattern-mw");
-    const result = await buildAsync({
-      routesDir: layout.routesDir,
-      outDir: layout.outDir,
-      outFile: "server.js",
-      appConfig: fixturePath("pattern-mw", "app.config.ts"),
-      minify: false,
-      sourceMap: false,
-      incremental: false,
-      generateTypes: false,
-      generateOpenAPI: false,
-      generateClient: false,
-      precompileValidators: false,
-      precompileSerializers: false,
-    });
-    expect(result.errors).toHaveLength(0);
+  // The generated module calls `Bun.serve` at import time; vitest workers may
+  // run under Node, where that import cannot succeed.
+  const hasBun = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
-    const serverPath = join(layout.outDir, "server.js");
-    writeFileSync(serverPath, result.code);
-    process.env.PORT = String(32700 + Math.floor(Math.random() * 200));
+  it.runIf(hasBun)(
+    "runs the plugin only for matching pathnames (build → boot → serve)",
+    async () => {
+      const layout: FixtureLayout = materializeFixture("pattern-mw");
+      const result = await buildAsync({
+        routesDir: layout.routesDir,
+        outDir: layout.outDir,
+        outFile: "server.js",
+        appConfig: fixturePath("pattern-mw", "app.config.ts"),
+        minify: false,
+        sourceMap: false,
+        incremental: false,
+        generateTypes: false,
+        generateOpenAPI: false,
+        generateClient: false,
+        precompileValidators: false,
+        precompileSerializers: false,
+      });
+      expect(result.errors).toHaveLength(0);
 
-    const { default: server } = (await import(serverPath)) as {
-      default: { port: number; stop(): void };
-    };
-    const base = `http://localhost:${server.port}`;
-    try {
-      const apiRes = await fetch(`${base}/api`);
-      expect(apiRes.status).toBe(200);
-      expect(apiRes.headers.get("x-scoped")).toBe("yes");
+      const serverPath = join(layout.outDir, "server.js");
+      writeFileSync(serverPath, result.code);
+      process.env.PORT = String(32700 + Math.floor(Math.random() * 200));
 
-      const otherRes = await fetch(`${base}/other`);
-      expect(otherRes.status).toBe(200);
-      expect(otherRes.headers.get("x-scoped")).toBeNull();
-    } finally {
-      server.stop();
-    }
-  });
+      const { default: server } = (await import(serverPath)) as {
+        default: { port: number; stop(): void };
+      };
+      const base = `http://localhost:${server.port}`;
+      try {
+        const apiRes = await fetch(`${base}/api`);
+        expect(apiRes.status).toBe(200);
+        expect(apiRes.headers.get("x-scoped")).toBe("yes");
+
+        const otherRes = await fetch(`${base}/other`);
+        expect(otherRes.status).toBe(200);
+        expect(otherRes.headers.get("x-scoped")).toBeNull();
+      } finally {
+        server.stop();
+      }
+    },
+  );
 });

@@ -42,9 +42,12 @@ export const metricsPlugin = (
   const path = options.path ?? "/metrics";
   const token = options.token;
 
-  const requests = metrics.counter("ignex_http_requests_total", {});
-  const errors = metrics.counter("ignex_http_errors_total", {});
-  const duration = metrics.histogram("ignex_http_request_duration_ms", {});
+  // NOTE: one metric NAME must have ONE label shape (Prometheus data model).
+  // The registry enforces this strictly, so the per-request counters carry
+  // their labels here and there is no second unlabeled series with the same
+  // name. Totals are `sum by(name)` on the scraper side.
+  // The duration family auto-creates on first observe (per-route series); no
+  // pre-declaration so /metrics stays free of zero-filled placeholder series.
 
   const authorized = (req: Request): boolean => {
     if (token === undefined) return true;
@@ -80,14 +83,16 @@ export const metricsPlugin = (
       const start = (ctx as unknown as { __metricsStart?: number }).__metricsStart;
       const elapsed = start !== undefined ? performance.now() - start : 0;
       const route = ctx.route ? String(ctx.route) : "unknown";
-      requests.inc();
-      duration.observe(elapsed);
-      const statusCounter = metrics.counter("ignex_http_requests_total", {
-        route,
-        status: String(response.status),
-      });
-      statusCounter.inc();
-      if (response.status >= 500) errors.inc();
+      const status = String(response.status);
+      // Hint-addressed hot lane: the composed hint IS the series address, so
+      // each event costs one Map hit + arithmetic (no label-key building).
+      metrics
+        .counter("ignex_http_requests_total", { route, status }, `${route}\u001f${status}`)
+        .inc();
+      metrics
+        .counter("ignex_http_errors_total", { route, status }, `${route}\u001f${status}e`)
+        .inc(response.status >= 500 ? 1 : 0);
+      metrics.histogram("ignex_http_request_duration_ms", { route }, route).observe(elapsed);
       return response;
     },
   };

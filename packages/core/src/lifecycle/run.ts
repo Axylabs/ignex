@@ -408,10 +408,13 @@ export const runLifecycle = async (
       await observe(lc.trace, "trace");
     }
 
-    // A pre-halt returns the response untouched; otherwise apply the
-    // accumulated `set` mutations (headers/status/cookie) — matches the
-    // compiler-generated `__applySet`, so dev and compiled behave identically.
-    return halted ? (response as Response) : applySet(response as Response, current.set);
+    // Apply the accumulated `set` mutations (headers/status/cookie) on EVERY
+    // finalized response — INCLUDING halts. A guard that writes a cookie (or
+    // header) and then halts must still deliver it: the compiler-generated
+    // pipeline applies `__applySet` on every halt return, so dev and compiled
+    // behave identically. Skipping applySet here silently dropped e.g. the
+    // CSRF bootstrap cookie written right before a 403.
+    return applySet(response as Response, current.set);
   } catch (err) {
     return errorStage(err);
   }

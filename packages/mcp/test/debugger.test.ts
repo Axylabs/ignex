@@ -9,12 +9,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   resolveDebugbarTarget,
   runDebugClientsTool,
+  runDebugDiagnosticsTool,
   runDebugEventPublishTool,
   runDebugEventsTool,
+  runDebugHistoryTool,
   runDebugKtTool,
+  runDebugLogsTool,
+  runDebugMetricsTool,
+  runDebugNovaEventsTool,
   runDebugReplayTool,
   runDebugRequestsTool,
   runDebugRequestTool,
+  runDebugStateTool,
   runDebugSummaryTool,
   runDebugSystemTool,
 } from "../src/debugger.js";
@@ -49,6 +55,29 @@ const fixtures: Array<{ suffix: string; body: unknown }> = [
   },
   { suffix: "/api/events/publish", body: { ok: true, subject: "a.b" } },
   {
+    suffix: "/api/nova/events/clear",
+    body: { ok: true, cleared: true },
+  },
+  {
+    suffix: "/api/nova/events",
+    body: {
+      enabled: true,
+      capacity: 1024,
+      stats: { size: 1, total: 1, inCount: 0, outCount: 1, bytes: 32, byName: { "quote.tick": 1 } },
+      recent: [
+        {
+          seq: 1,
+          ts: 1720000000000,
+          direction: "out.emit",
+          name: "quote.tick",
+          target: "user",
+          key: "u-42",
+          bytes: 32,
+        },
+      ],
+    },
+  },
+  {
     suffix: "/api/events",
     body: {
       enabled: true,
@@ -57,6 +86,78 @@ const fixtures: Array<{ suffix: string; body: unknown }> = [
     },
   },
   { suffix: "/api/system", body: { sampling: true, samples: [] } },
+  {
+    suffix: "/api/diagnostics/gc",
+    body: { ok: true, freedMiB: 3.2, beforeHeapUsedMiB: 40, afterHeapUsedMiB: 36.8 },
+  },
+  {
+    suffix: "/api/diagnostics",
+    body: {
+      verdict: "warning",
+      checkedAt: 1,
+      windowMin: 10,
+      samplesAnalyzed: 600,
+      findings: [
+        {
+          id: "heap-growth",
+          severity: "warning",
+          title: "Heap climbing 0.8 MiB/min",
+          detail: "d",
+          evidence: { slopeMiBPerMin: 0.8 },
+          recommendation: "r",
+        },
+      ],
+      trend: {
+        heapMiBPerMin: 0.8,
+        heapR2: 0.9,
+        heapNowMiB: 120,
+        heapMinMiB: 60,
+        heapMaxMiB: 122,
+        rssMiBPerMin: 0.2,
+        eventLoopP95Ms: 12,
+        activeRequestsMax: 4,
+      },
+    },
+  },
+  {
+    suffix: "/api/state",
+    body: {
+      service: "demo",
+      runtime: { bunVersion: "1.4", uptimeSec: 30 },
+      memory: { rssMiB: 80 },
+      envKeys: ["PATH"],
+      features: { logs: true, metrics: true, persist: true },
+    },
+  },
+  { suffix: "/api/history/h-1", body: { id: "h-1", spans: [{ name: "SELECT" }] } },
+  {
+    suffix: "/api/history",
+    body: {
+      enabled: true,
+      rows: [{ id: "h-1", method: "GET", path: "/old", status: 200, durationMs: 4 }],
+    },
+  },
+  {
+    suffix: "/api/logs",
+    body: {
+      enabled: true,
+      persisted: false,
+      records: [{ ts: 1, level: "warn", message: "cache miss", traceId: "t-9" }],
+      stats: { total: 1, warn: 1, error: 0, info: 0, debug: 0 },
+    },
+  },
+  {
+    suffix: "/api/metrics",
+    body: {
+      startedAt: 0,
+      uptimeSec: 5,
+      totals: { requests: 7, errors: 1 },
+      gauges: {},
+      counters: [],
+      routes: [{ key: "GET /x", requests: 7 }],
+      durationBucketsMs: [10],
+    },
+  },
   {
     suffix: "/api/clients",
     body: {
@@ -69,6 +170,13 @@ const fixtures: Array<{ suffix: string; body: unknown }> = [
 
 /** Match a pathname against the fixture table and write the response. */
 const respond = (pathname: string, res: ServerResponse): void => {
+  if (pathname.endsWith("/api/metrics/prometheus")) {
+    res.setHeader("content-type", "text/plain; version=0.0.4");
+    res.end(
+      '# TYPE ignex_http_requests_total counter\nignex_http_requests_total{route="GET /x"} 7\n',
+    );
+    return;
+  }
   res.setHeader("content-type", "application/json");
   for (const fixture of fixtures) {
     if (pathname.endsWith(fixture.suffix)) {
@@ -175,6 +283,30 @@ describe("debugger tools", () => {
     expect(kt).toContain("how this app works");
   });
 
+  it("nova event trace: lists rows, applies filters, and clears", async () => {
+    const listed = JSON.parse(
+      await runDebugNovaEventsTool({ url: baseUrl, limit: 10, direction: "out.emit" }),
+    ) as {
+      enabled: boolean;
+      stats: { byName: Record<string, number> };
+      recent: Array<{ name: string; key?: string }>;
+    };
+    expect(listed.enabled).toBe(true);
+    expect(listed.stats.byName).toMatchObject({ "quote.tick": 1 });
+    expect(listed.recent[0]?.name).toBe("quote.tick");
+    expect(listed.recent[0]?.key).toBe("u-42");
+    // the query reached the debugbar (limit + direction params)
+    const call = requests.findLast((r) => r.path.includes("/api/nova/events?"));
+    expect(call?.path).toContain("limit=10");
+    expect(call?.path).toContain("direction=out.emit");
+
+    const cleared = JSON.parse(await runDebugNovaEventsTool({ url: baseUrl, clear: true })) as {
+      ok: boolean;
+      cleared: boolean;
+    };
+    expect(cleared).toMatchObject({ ok: true, cleared: true });
+  });
+
   it("degrades to a structured error on failure", async () => {
     const out = await runDebugSummaryTool({ url: "http://127.0.0.1:1/__debugbar" });
     const parsed = JSON.parse(out) as { ok: boolean; error: string };
@@ -187,5 +319,100 @@ describe("debugger tools", () => {
       ok: boolean;
     };
     expect(out.ok).toBe(false);
+  });
+});
+
+describe("observatory tools", () => {
+  it("logs tool passes level/search/trace/persisted filters", async () => {
+    const parsed = JSON.parse(
+      await runDebugLogsTool({
+        url: baseUrl,
+        level: "warn",
+        q: "cache",
+        traceId: "t-9",
+        persisted: true,
+        limit: 25,
+      }),
+    ) as { enabled: boolean; records: Array<{ message: string }> };
+    expect(parsed.enabled).toBe(true);
+    expect(parsed.records[0]?.message).toBe("cache miss");
+    const call = requests.findLast((r) => r.path.includes("/api/logs?"));
+    expect(call?.path).toContain("level=warn");
+    expect(call?.path).toContain("persisted=1");
+    expect(call?.path).toContain("traceId=t-9");
+    expect(call?.path).toContain("limit=25");
+  });
+
+  it("metrics tool returns JSON by default and raw Prometheus text on demand", async () => {
+    const snap = JSON.parse(await runDebugMetricsTool({ url: baseUrl })) as {
+      totals: { requests: number };
+      routes: Array<{ key: string }>;
+    };
+    expect(snap.totals.requests).toBe(7);
+    expect(snap.routes[0]?.key).toBe("GET /x");
+
+    const text = await runDebugMetricsTool({ url: baseUrl, format: "prometheus" });
+    expect(text).toContain("# TYPE ignex_http_requests_total counter");
+    expect(text).toContain('ignex_http_requests_total{route="GET /x"} 7');
+    const call = requests.findLast((r) => r.path.includes("/api/metrics/prometheus"));
+    expect(call?.method).toBe("GET");
+  });
+
+  it("diagnostics tool returns findings and supports forced GC", async () => {
+    const diag = JSON.parse(await runDebugDiagnosticsTool({ url: baseUrl })) as {
+      verdict: string;
+      trend: { heapMiBPerMin: number };
+      findings: Array<{ id: string }>;
+    };
+    expect(diag.verdict).toBe("warning");
+    expect(diag.trend.heapMiBPerMin).toBeCloseTo(0.8);
+    expect(diag.findings[0]?.id).toBe("heap-growth");
+
+    const gc = JSON.parse(await runDebugDiagnosticsTool({ url: baseUrl, gc: true })) as {
+      gc: { freedMiB: number };
+    };
+    expect(gc.gc.freedMiB).toBeCloseTo(3.2);
+    const call = requests.findLast((r) => r.path.includes("/api/diagnostics/gc"));
+    expect(call?.method).toBe("POST");
+  });
+
+  it("state tool returns the app snapshot", async () => {
+    const state = JSON.parse(await runDebugStateTool({ url: baseUrl })) as {
+      service: string;
+      features: { persist: boolean };
+      envKeys: string[];
+    };
+    expect(state.service).toBe("demo");
+    expect(state.features.persist).toBe(true);
+    expect(state.envKeys).toContain("PATH");
+  });
+
+  it("history tool lists rows and fetches single traces", async () => {
+    const rows = JSON.parse(await runDebugHistoryTool({ url: baseUrl, error: true })) as {
+      enabled: boolean;
+      rows: Array<{ id: string }>;
+    };
+    expect(rows.rows[0]?.id).toBe("h-1");
+    const call = requests.findLast((r) => r.path.startsWith("/__debugbar/api/history?"));
+    expect(call?.path).toContain("error=1");
+
+    const detail = JSON.parse(await runDebugHistoryTool({ url: baseUrl, id: "h-1" })) as {
+      spans: Array<{ name: string }>;
+    };
+    expect(detail.spans[0]?.name).toBe("SELECT");
+  });
+
+  it("observatory tools degrade to structured errors on unreachable targets", async () => {
+    for (const run of [
+      () => runDebugLogsTool({ url: "http://127.0.0.1:1/__debugbar" }),
+      () => runDebugMetricsTool({ url: "http://127.0.0.1:1/__debugbar" }),
+      () => runDebugDiagnosticsTool({ url: "http://127.0.0.1:1/__debugbar" }),
+      () => runDebugStateTool({ url: "http://127.0.0.1:1/__debugbar" }),
+      () => runDebugHistoryTool({ url: "http://127.0.0.1:1/__debugbar" }),
+    ]) {
+      const out = JSON.parse(await run()) as { ok: boolean; error: string };
+      expect(out.ok).toBe(false);
+      expect(out.error).toBeTruthy();
+    }
   });
 });

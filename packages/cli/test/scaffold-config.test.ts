@@ -19,16 +19,17 @@ test("ignexConfigTemplate emits the production optimization profile", () => {
   expect(config).toContain("generateClient: true");
   expect(config).toContain("specializeContext: true");
   expect(config).toContain("hoistConstants: true");
-  expect(config).toContain("treeshakeRuntime: true");
   expect(config).toContain("routeCache: true");
   expect(config).toContain('routesDir: "src/routes"');
   expect(config).toContain('outFile: "server.js"');
 });
 
 test("dev help text documents --minify and --sourcemap", async () => {
-  const { commands, renderHelp } = await import("../src/commands/registry.js");
-  const dev = commands.find((c) => c.name === "dev");
-  expect(dev?.options).toContain("--minify");
-  expect(dev?.options).toContain("--sourcemap");
-  expect(renderHelp()).toContain("--minify");
+  const { loadCommand } = await import("../src/commands/loaders.js");
+  const { renderCommandHelp } = await import("../src/usage.js");
+  const dev = await loadCommand("dev");
+  expect(dev).toBeDefined();
+  const help = await renderCommandHelp(dev as never);
+  expect(help).toContain("--minify");
+  expect(help).toContain("--sourcemap");
 });

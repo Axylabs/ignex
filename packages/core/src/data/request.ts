@@ -27,6 +27,7 @@
  * ```
  */
 import type { IgnexContext } from "../http/context";
+import { headersToRecord } from "../http/headers";
 import { validateAsync } from "./schema";
 
 /** Which request part a request object validates. */
@@ -63,7 +64,7 @@ async function extractPart(ctx: IgnexContext, part: RequestPart): Promise<unknow
     case "params":
       return ctx.params;
     case "headers":
-      return Object.fromEntries(ctx.headers.entries());
+      return headersToRecord(ctx.headers);
   }
 }
 

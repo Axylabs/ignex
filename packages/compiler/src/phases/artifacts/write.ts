@@ -3,7 +3,7 @@
  * orchestrator.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../../diagnostics";
 import type { CompilerContext, CompilerOptions, ModuleInfo, RouteIR } from "../../types";
@@ -13,8 +13,25 @@ import { generateOpenApi } from "./openapi";
 import { generateRouteTypes } from "./route-types";
 
 /**
- * Write a generated artifact, reporting a diagnostic on failure instead of
- * throwing (so one bad artifact never aborts the whole build).
+ * Write `content` to `file` ONLY when it differs from what is on disk.
+ * Rewriting byte-identical artifacts churns mtimes on every rebuild — which
+ * wakes watchers, invalidates downstream caches, and makes builds look
+ * dirtier than they are. Returns `true` when a write happened.
+ */
+export const writeIfChanged = (file: string, content: string): boolean => {
+  try {
+    const stat = statSync(file);
+    if (stat.isFile() && readFileSync(file, "utf-8") === content) return false;
+  } catch {
+    // Missing/unreadable — fall through and write.
+  }
+  writeFileSync(file, content);
+  return true;
+};
+
+/**
+ * Write a generated artifact (content-diffed), reporting a diagnostic on
+ * failure instead of throwing (so one bad artifact never aborts the build).
  */
 export const writeGuarded = (
   file: string,
@@ -23,7 +40,7 @@ export const writeGuarded = (
   label: string,
 ): void => {
   try {
-    writeFileSync(file, content);
+    if (!writeIfChanged(file, content)) return;
     ctx.logger.info(`Generated ${label}`);
   } catch (error) {
     ctx.diagnostics.error({

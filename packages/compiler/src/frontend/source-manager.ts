@@ -48,7 +48,16 @@ export class SourceManager {
       return null;
     }
 
-    if (!content || content.length === 0) return null;
+    if (!content || content.length === 0) {
+      // An empty route file produces no route and no handler export — without
+      // a diagnostic the file silently 404s. Tell the user why it vanished.
+      diagnostics?.warn({
+        code: DiagnosticCodes.EmptyRouteFile,
+        message: "Route file is empty — no route will be generated from it.",
+        file: relPath,
+      });
+      return null;
+    }
 
     return this.fromSource(absPath, relPath, content, diagnostics);
   }
@@ -73,7 +82,7 @@ export class SourceManager {
     // so unchanged modules skip re-parsing on incremental builds. A content
     // change misses the cache and parses from source as usual.
     const diskParsed = this.diskCache.get(hashString(content));
-    const parsed = diskParsed ?? parseModule(content, diagnostics);
+    const parsed = diskParsed ?? parseModule(content, diagnostics, { file: relPath });
     const file: SourceFile = {
       path: absPath,
       relPath,

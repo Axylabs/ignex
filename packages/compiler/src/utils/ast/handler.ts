@@ -22,9 +22,6 @@ import { nodeEnd, nodeStart, walk, walkUntil } from "./walk";
 export type { ExtractedHandler };
 
 export const HTTP_WRAPPERS = new Set(["get", "post", "put", "patch", "del", "all"]);
-/** Alias for scanner consumers (a default-export call whose callee is an HTTP
- * helper is a bare route; any OTHER call is a user wrapper). */
-export const HTTP_HELPER_CALLS = HTTP_WRAPPERS;
 
 /**
  * Higher-order route-handler wrappers the compiler recognizes. `withGuards`
@@ -42,12 +39,63 @@ const isHandlerWrapperCall = (node: Node): boolean =>
   (HTTP_WRAPPERS.has(node.callee.name) || HANDLER_WRAPPERS.has(node.callee.name));
 
 /**
+ * True when `node` is handler-shaped (an inline function or an HTTP/wrapper
+ * call) rather than a guards-object argument. Disambiguates the single-arg
+ * `withGuards(handler)` form from the factory `withGuards(guards)` form.
+ */
+const isHandlerShapedArg = (n: Node | null | undefined): boolean =>
+  n != null &&
+  (n.type === "ArrowFunctionExpression" ||
+    n.type === "FunctionExpression" ||
+    (n.type === "CallExpression" &&
+      n.callee?.type === "Identifier" &&
+      (HTTP_WRAPPERS.has(n.callee.name) || HANDLER_WRAPPERS.has(n.callee.name))));
+
+/** Statically evaluate a guards-object argument into a `RouteGuards`. */
+const evaluateGuardsArg = (guardsArg: Node): RouteGuards => {
+  const result = evaluateConstantNode(guardsArg);
+  if (!result.ok || result.value == null || typeof result.value !== "object") {
+    // A guards object was authored but its values are not compile-time
+    // constants. Marking it opaque (instead of silently degrading to `{}`)
+    // lets optimization keep the runtime wrapper — the security-preserving
+    // fallback.
+    return { opaque: true };
+  }
+  const v = result.value as Record<string, unknown>;
+  const guards: RouteGuards = {};
+  let captured = false;
+  if (Array.isArray(v.roles) && v.roles.every((r) => typeof r === "string")) {
+    guards.roles = v.roles as string[];
+    captured = true;
+  }
+  if (Array.isArray(v.permissions) && v.permissions.every((p) => typeof p === "string")) {
+    guards.permissions = v.permissions as string[];
+    captured = true;
+  }
+  if (typeof v.all === "boolean") {
+    guards.all = v.all;
+    captured = true;
+  }
+  if (typeof v.authenticated === "boolean") {
+    guards.authenticated = v.authenticated;
+    captured = true;
+  }
+  // The evaluated literal declared guard-ish fields we could not represent
+  // statically — treat the whole object as opaque rather than dropping them.
+  if (!captured && Object.keys(v).length > 0) guards.opaque = true;
+  return guards;
+};
+
+/**
  * Extract the RBAC guards object from a `withGuards` call (statically
  * evaluated). Supports BOTH forms:
  *   - wrapper form:  `withGuards(handler, guards)`  — guards at argument 1
+ *     (also `withGuards(handler)` — a bare wrapper requires authentication)
  *   - guard factory: `withGuards(guards)`          — guards at argument 0
- * Returns `{}` for a bare call (require authentication only) and `undefined`
- * when the init is not a `withGuards` call.
+ * Returns `{}` for a bare call (require authentication only), `{ opaque: true }`
+ * when a guards object EXISTS but is not statically evaluable (`PERMS.X`
+ * constants — the runtime wrapper must be preserved or authorization would
+ * silently degrade), and `undefined` when the init is not a `withGuards` call.
  */
 export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuards | undefined => {
   if (node?.type !== "CallExpression") return undefined;
@@ -55,23 +103,14 @@ export const extractGuardsFromInit = (node: Node | null | undefined): RouteGuard
   if (callee.type !== "Identifier" || callee.name !== "withGuards") {
     return undefined;
   }
-  const guardsArg = node.arguments?.[1] ?? node.arguments?.[0];
-  if (guardsArg == null) return {};
-  const result = evaluateConstantNode(guardsArg);
-  if (!result.ok || result.value == null || typeof result.value !== "object") {
-    return {};
-  }
-  const v = result.value as Record<string, unknown>;
-  const guards: RouteGuards = {};
-  if (Array.isArray(v.roles) && v.roles.every((r) => typeof r === "string")) {
-    guards.roles = v.roles as string[];
-  }
-  if (Array.isArray(v.permissions) && v.permissions.every((p) => typeof p === "string")) {
-    guards.permissions = v.permissions as string[];
-  }
-  if (typeof v.all === "boolean") guards.all = v.all;
-  if (typeof v.authenticated === "boolean") guards.authenticated = v.authenticated;
-  return guards;
+  const args = node.arguments ?? [];
+  if (args.length === 0) return {};
+  if (args.length >= 2 && args[1] != null) return evaluateGuardsArg(args[1]);
+  // Single-argument form: handler-shaped → bare wrapper; otherwise the
+  // factory form whose argument is the guards object itself.
+  const first = args[0];
+  if (first == null) return {};
+  return isHandlerShapedArg(first) ? {} : evaluateGuardsArg(first);
 };
 
 /**
@@ -104,7 +143,9 @@ const propName = (p: SchemaProp): string | undefined => {
       : undefined;
 };
 
-/** Merge `g` into `acc` (any-of within each group). */
+/** Merge `g` into `acc` (any-of within each group). Opaqueness is sticky:
+ * any merged fragment that could not be statically evaluated keeps the
+ * combined result opaque. */
 const mergeGuards = (acc: RouteGuards | undefined, g: RouteGuards): RouteGuards => {
   if (!acc) return g;
   return {
@@ -120,6 +161,7 @@ const mergeGuards = (acc: RouteGuards | undefined, g: RouteGuards): RouteGuards 
       : acc.authenticated !== undefined
         ? { authenticated: acc.authenticated }
         : {}),
+    ...(g.opaque || acc.opaque ? { opaque: true as const } : {}),
   };
 };
 

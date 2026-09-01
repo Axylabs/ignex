@@ -104,6 +104,8 @@ describe("EdDSA JWT", () => {
     const token = jwtSignEdDsa(
       { sub: "user-1", roles: ["admin"], permissions: ["users:read"] },
       pair.privateKey,
+      // Explicit TTL so the minted token carries exp (the secure default).
+      { ttlSeconds: 3600 },
     );
     expect(token.split(".")).toHaveLength(3);
 
@@ -115,6 +117,19 @@ describe("EdDSA JWT", () => {
     expect(claims.sub).toBe("user-1");
     expect(claims.roles).toEqual(["admin"]);
     expect(claims.permissions).toEqual(["users:read"]);
+  });
+
+  it("rejects non-expiring tokens by default; accepts with requireExp: false", () => {
+    const pair = generateEd25519Keypair();
+    const token = jwtSignEdDsa({ sub: "user-1" }, pair.privateKey);
+    // No ttlSeconds → no exp claim → REJECTED by default (requireExp).
+    expect(jwtVerifyEdDsa(token, pair.publicKey)).toBeNull();
+    // Explicit opt-out accepts it.
+    const claims = jwtVerifyEdDsa(token, pair.publicKey, { requireExp: false }) as Record<
+      string,
+      unknown
+    >;
+    expect(claims.sub).toBe("user-1");
   });
 
   it("injects iat/exp when ttlSeconds is set", () => {

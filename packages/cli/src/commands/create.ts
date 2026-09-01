@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
 import {
   middlewareIndexTemplate,
@@ -47,7 +48,6 @@ import {
   wsExampleTemplate,
 } from "../templates/routes.js";
 import { FEATURE_NAMES, type Feature } from "../types.js";
-import { parseCliArgs } from "../utils/args.js";
 import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, step, success, warn } from "../utils/logger.js";
 import {
@@ -58,6 +58,50 @@ import {
   promptText,
 } from "../utils/prompt.js";
 import { normalizeRuntime } from "../utils/runtime.js";
+import { metaFor } from "./registry.js";
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  name: {
+    type: "positional",
+    required: false,
+    description: "Project name (e.g. my-app)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Parent directory for the new app" },
+  runtime: {
+    type: "string",
+    valueHint: "bun",
+    description: "Runtime (bun only — the generated server requires Bun)",
+  },
+  pm: { type: "string", valueHint: "bun|npm|pnpm|yarn", description: "Package manager" },
+  features: {
+    type: "string",
+    valueHint: "auth,openapi,tests,...",
+    description: "Comma-separated features (or `all` / `none`)",
+  },
+  install: {
+    type: "boolean",
+    default: true,
+    description: "Install dependencies after scaffolding (--no-install to skip)",
+  },
+  git: {
+    type: "boolean",
+    default: true,
+    description: "git init the new app (--no-git to skip)",
+  },
+  yes: { type: "boolean", description: "Skip the feature wizard (use defaults)" },
+  force: { type: "boolean", description: "Overwrite an existing non-empty directory" },
+} satisfies ArgsDef;
+
+export const createCmd = defineCommand({
+  meta: metaFor("create"),
+  args: argsDef,
+  async run(ctx) {
+    await runCreate(ctx.rawArgs);
+  },
+});
+
+export default createCmd;
 
 /**
  * Default `--yes` / interactive features. Includes the baseline plugin set
@@ -339,20 +383,17 @@ interface CreateInputs {
 
 /** Merge CLI flags with wizard answers (TTY) into normalized inputs. */
 async function resolveCreateInputs(
-  values: Record<string, unknown>,
-  positionals: readonly string[],
+  parsed: ReturnType<typeof parseArgs<typeof argsDef>>,
   interactive: boolean,
 ): Promise<CreateInputs | undefined> {
-  let name = positionals[0] ?? (values.name as string | undefined);
-  let runtimeInput = values.runtime as string | undefined;
-  let pmInput = values.pm as string | undefined;
-  let featuresInput = values.features as string | undefined;
-  let install = values.install as boolean | undefined;
-  let git = values.git as boolean | undefined;
-  // Bun's parseArgs turns `--no-x` into the literal key `no-x`; handle the
-  // negation flags explicitly so defaults are never accidentally flipped.
-  if (values["no-install"] === true) install = false;
-  if (values["no-git"] === true) git = false;
+  let name = parsed.name;
+  let runtimeInput = parsed.runtime;
+  let pmInput = parsed.pm;
+  let featuresInput = parsed.features;
+  let install = parsed.install;
+  let git = parsed.git;
+  // citty native boolean negation: `--no-install` → `parsed.install === false`,
+  // `--no-git` → `parsed.git === false`. No literal `no-` keys to inspect.
 
   if (interactive) {
     try {
@@ -387,27 +428,17 @@ async function resolveCreateInputs(
 }
 
 export async function runCreate(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    name: { type: "string" },
-    root: { type: "string" },
-    runtime: { type: "string" },
-    pm: { type: "string" },
-    features: { type: "string" },
-    install: { type: "boolean" },
-    git: { type: "boolean" },
-    yes: { type: "boolean" },
-    force: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
-  const interactive = Boolean(process.stdin.isTTY && !values.yes);
-  const inputs = await resolveCreateInputs(values, positionals, interactive);
+  const interactive = Boolean(process.stdin.isTTY && !parsed.yes);
+  const inputs = await resolveCreateInputs(parsed, interactive);
   if (!inputs) return; // wizard cancelled
   const { name, runtimeInput, pmInput, featuresInput, install, git } = inputs;
 
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);
 
-  const features = parseFeatures(featuresInput ?? (values.yes ? DEFAULT_FEATURES : "none"));
+  const features = parseFeatures(featuresInput ?? (parsed.yes ? DEFAULT_FEATURES : "none"));
 
   if (features.has("refresh") && !features.has("auth")) {
     features.add("auth");
@@ -416,7 +447,7 @@ export async function runCreate(args: string[]): Promise<void> {
 
   // `--root <dir>` targets an explicit parent directory; otherwise the app is
   // scaffolded into a folder named `name` inside the current directory.
-  const baseDir = resolve(values.root ? String(values.root) : process.cwd());
+  const baseDir = resolve(parsed.root ? String(parsed.root) : process.cwd());
   const target = resolve(baseDir, name);
 
   // Reject path traversal / absolute project names so `--name ../x` (or an
@@ -428,7 +459,7 @@ export async function runCreate(args: string[]): Promise<void> {
   }
 
   if (await exists(target)) {
-    if (!(await isDirEmpty(target)) && !values.force) {
+    if (!(await isDirEmpty(target)) && !parsed.force) {
       error(`${name} already exists and is not empty. Use --force to overwrite.`);
       process.exitCode = 1;
       return;

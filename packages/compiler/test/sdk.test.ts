@@ -192,6 +192,43 @@ describe("jsonSchemaToTs", () => {
     );
   });
 
+  it("cuts recursive $ref cycles instead of overflowing the stack", () => {
+    // Regression: a tree schema referencing its own component used to recurse
+    // until RangeError, aborting the whole SDK generation.
+    const node = {
+      type: "object",
+      properties: {
+        value: { type: "string" },
+        children: { type: "array", items: { $ref: "#/components/schemas/Node" } },
+      },
+      required: ["value"],
+    };
+    const out = jsonSchemaToTs({ $ref: "#/components/schemas/Node" }, { resolveRef: () => node });
+    expect(out).toContain("value: string;");
+    expect(out).toContain("children?: Array<unknown>;");
+    expect(() =>
+      jsonSchemaToTs({ $ref: "#/components/schemas/Node" }, { resolveRef: () => node }),
+    ).not.toThrow();
+  });
+
+  it("reuses the same $ref in sibling positions (non-recursive refs stay precise)", () => {
+    const schemas: Record<string, unknown> = {
+      Id: { type: "string" },
+      Pair: {
+        type: "object",
+        properties: {
+          a: { $ref: "#/components/schemas/Id" },
+          b: { $ref: "#/components/schemas/Id" },
+        },
+        required: ["a", "b"],
+      },
+    };
+    const resolve = (ref: string): unknown => schemas[ref.split("/").pop() ?? ""];
+    const out = jsonSchemaToTs({ $ref: "#/components/schemas/Pair" }, { resolveRef: resolve });
+    expect(out).toContain("a: string;");
+    expect(out).toContain("b: string;");
+  });
+
   it("handles additionalProperties and empty objects", () => {
     expect(jsonSchemaToTs({ type: "object", additionalProperties: true })).toBe(
       "Record<string, unknown>",
@@ -202,6 +239,28 @@ describe("jsonSchemaToTs", () => {
       properties: { tags: { type: "object", additionalProperties: { type: "string" } } },
     });
     expect(typed).toContain("tags?: Record<string, string>;");
+  });
+
+  it("emits a Body fallback when a route reads the body with no schema", async () => {
+    // Regression: routes.d.ts reserved Body_* for any usesBody route, but
+    // types.d.ts only declared it when a schema existed — the generated
+    // package imported an undeclared name and failed consumer typechecking.
+    const { emitTypesDts, emitRoutesDts } = await import("../src/sdk/typescript");
+    const route = {
+      method: "POST",
+      path: "/things",
+      paramNames: [],
+      usesBody: true,
+      usesQuery: false,
+      responseType: "json",
+    };
+    const ctx = { openapi: {}, serviceName: "test" } as never;
+    const types = emitTypesDts([route], ctx);
+    const routesDts = emitRoutesDts([route], ctx);
+
+    expect(types).toContain("export type Body_PostThings = Record<string, unknown>;");
+    // The name routes.d.ts imports is actually declared in types.d.ts.
+    expect(routesDts).toContain("Body_PostThings");
   });
 });
 

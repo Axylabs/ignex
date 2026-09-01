@@ -40,7 +40,6 @@ await buildAsync({
 
   specializeContext: true,
   hoistConstants: true,
-  treeshakeRuntime: true,
   routeCache: true,
 
   precompileValidators: true,

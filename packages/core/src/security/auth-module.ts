@@ -30,13 +30,22 @@ import { createEd25519Jwt, createJwt, type Ed25519JwtService, type JwtService } 
 /** How the JWT claim set is shaped at issue time. */
 export type AuthMode = "role" | "permission" | "both";
 
+/** Default issued-token lifetime (1 hour) when `ttlSeconds` is not configured. */
+export const DEFAULT_AUTH_TOKEN_TTL_SECONDS = 3600;
+
 /** Options for {@link createAuthModule}. */
 export interface AuthModuleOptions {
   /** Claim shape: `role`, `permission`, or `both` (default `both`). */
   mode?: AuthMode;
   /** JWT algorithm: `EdDSA` (default, ed25519 keys) or `HS256` (shared secret). */
   algorithm?: "EdDSA" | "HS256";
-  /** Fixed TTL in seconds (injects `iat`/`exp` when positive). */
+  /**
+   * Fixed TTL in seconds for issued tokens (injects `iat`/`exp`). Default
+   * `3600` (1 hour) — issued tokens ALWAYS expire by default; the verifier
+   * rejects non-expiring tokens (`requireExp`), so a config omission can
+   * never silently mint permanent credentials. Pass `0` to opt out
+   * deliberately (verification then needs `requireExp: false` too).
+   */
   ttlSeconds?: number;
   /** `iss` claim injected on sign and enforced on verify. */
   issuer?: string;
@@ -144,7 +153,9 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
   /** Build the JWT service bound to the resolved keys/secret. */
   const buildJwt = (): Ed25519JwtService | JwtService => {
     const common = {
-      ...(options.ttlSeconds !== undefined ? { ttlSeconds: options.ttlSeconds } : {}),
+      // Secure-by-default: issued tokens expire after one hour unless the app
+      // configures an explicit TTL (or opts out with 0 — see AuthModuleOptions).
+      ttlSeconds: options.ttlSeconds ?? DEFAULT_AUTH_TOKEN_TTL_SECONDS,
       ...(options.issuer !== undefined ? { issuer: options.issuer } : {}),
       ...(options.audience !== undefined ? { audience: options.audience } : {}),
     };

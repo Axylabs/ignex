@@ -37,20 +37,30 @@ export interface RateLimiter {
   check(key: string, nowMs?: number): RateCheck;
 }
 
-/** Coarse eviction: drop expired windows, then the oldest key if still over. */
+/**
+ * Amortized eviction: once over `maxEntries`, every overflow insert drops the
+ * OLDEST-inserted key (Map iteration = insertion order), keeping the memory
+ * bound at `maxEntries + 1` in O(1). The full expired-window sweep runs only
+ * every {@link SWEEP_EVERY}-th overflow insert — an O(n) walk paid for by n
+ * inserts, never per insert (the old shape scanned the WHOLE map on every
+ * overflow insert to remove ONE key: a unique-IP flood turned each subsequent
+ * check into a full-map scan — a CPU DoS on top of the memory pin).
+ */
+const SWEEP_EVERY = 256;
+
 function evictIfOver(
   state: Map<string, { windowStart: number; count: number }>,
   maxEntries: number,
   now: number,
   window: number,
+  overflows: number,
 ): void {
   if (state.size <= maxEntries) return;
+  const oldest = state.keys().next().value;
+  if (oldest !== undefined) state.delete(oldest);
+  if (state.size <= maxEntries || overflows % SWEEP_EVERY !== 0) return;
   for (const [k, v] of state) {
     if (now - v.windowStart >= window) state.delete(k);
-  }
-  if (state.size > maxEntries) {
-    const oldest = state.keys().next().value;
-    if (oldest !== undefined) state.delete(oldest);
   }
 }
 
@@ -77,6 +87,8 @@ export const createRateLimiterFallback = (options: RateLimiterOptions): RateLimi
   const maxEntries = Math.max(1, options.maxEntries ?? 1_000_000);
   const window = Math.max(1, Math.floor(windowMs));
   const state = new Map<string, { windowStart: number; count: number }>();
+  // Overflow-insert counter (drives the amortized sweep cadence).
+  let overflows = 0;
 
   return {
     check(key, nowMs = Date.now()) {
@@ -84,8 +96,13 @@ export const createRateLimiterFallback = (options: RateLimiterOptions): RateLimi
       const existing = state.get(key);
 
       if (!existing || now - existing.windowStart >= window) {
-        state.set(key, { windowStart: now, count: 1 });
-        evictIfOver(state, maxEntries, now, window);
+        if (state.has(key) || state.size <= maxEntries) {
+          state.set(key, { windowStart: now, count: 1 });
+        } else {
+          overflows++;
+          evictIfOver(state, maxEntries, now, window, overflows);
+          state.set(key, { windowStart: now, count: 1 });
+        }
         return {
           allowed: limit > 0,
           remaining: Math.max(0, limit - 1),

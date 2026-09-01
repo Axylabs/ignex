@@ -49,20 +49,6 @@ export async function writeScaffold(
 }
 
 /**
- * Take the first positional, or log `message` + set `process.exitCode = 1`
- * and return `""`. The shared "a name is required" guard.
- */
-export function firstPositional(positionals: readonly string[], message: string): string {
-  const value = positionals[0];
-  if (!value) {
-    error(message);
-    process.exitCode = 1;
-    return "";
-  }
-  return value;
-}
-
-/**
  * Resolve a scaffold target directory: `--dir` override → configured value →
  * default. `configured` is a value from the loaded app config (e.g.
  * `modelsDir`, `routesDir`, `hooksDir`).

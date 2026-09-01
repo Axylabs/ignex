@@ -14,6 +14,10 @@
       "!**/.ignex",
       "!**/node_modules",
       "!**/.git",
+      "!.bun-install",
+      "!.npm-tmp-cache",
+      "!.gen-debug-ui-*",
+      "!.dx-eval",
       "!coverage",
       "!repomix-output.txt",
       "!**/project.txt",
@@ -21,7 +25,8 @@
       "!**/views/**/*.html",
       "!**/test/fixtures/client-types",
       "!bench/results",
-      "!**/client-dist"
+      "!**/client-dist",
+      "!packages/core/src/debug/ui/styles.css"
     ]
   },
   "linter": {

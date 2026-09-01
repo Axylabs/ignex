@@ -32,6 +32,7 @@ import type {
 import { createNativeRoute } from "./route";
 import type { NativeRoutePlan } from "./route-wire";
 import { withScratch } from "./scratch";
+import { reportDegradation } from "./telemetry";
 import { encoder } from "./util";
 
 // ── Output wire layout (rust/ingress/output.rs — the canonical source) ──
@@ -576,7 +577,38 @@ export interface NativeIngressRuntime {
   securityHeaders?: ReadonlyArray<[string, string]>;
   /** Output buffer size (bytes). Default 131072. */
   outputBufferSize?: number;
+  /**
+   * Fail-closed mode for native faults (default `false`). When the native
+   * pipeline cannot produce a verdict, `false` degrades to pass-through
+   * (availability first — historical behavior, now reported via telemetry);
+   * `true` rejects the request with 503 so a broken security pipeline can
+   * never silently serve unfiltered traffic. Also settable process-wide via
+   * `IGNEX_INGRESS_FAIL_CLOSED=1`.
+   */
+  failClosed?: boolean;
 }
+
+/** Resolve the effective fail-closed policy (option wins over the env flag). */
+const resolveFailClosed = (failClosed: boolean | undefined): boolean =>
+  failClosed ?? process.env.IGNEX_INGRESS_FAIL_CLOSED === "1";
+
+/** The terminal response used when fail-closed and the native core faults. */
+const failClosedResponse = (): NativePreflightOutcome => ({
+  terminal: true,
+  response: new Response(
+    encoder.encode(
+      JSON.stringify({
+        ok: false,
+        error: { code: "SERVICE_UNAVAILABLE", message: "Security pipeline unavailable" },
+      }),
+    ),
+    {
+      status: 503,
+      headers: { "content-type": "application/json", "retry-after": "1" },
+    },
+  ),
+  result: null,
+});
 
 /** A direct C-ABI ingress pre-flight instance. */
 export interface NativeIngress {
@@ -635,6 +667,11 @@ export const createNativeIngress = (
   const plan = buildIngressHeaderPlan(options);
   const trustEnabled = options.trustProxy === true || options.trustedProxies?.enabled === true;
   const rateEnabled = options.rateLimit != null;
+  // Fail-closed policy: a native core fault rejects (503) instead of
+  // pass-through when enabled — a broken security pipeline must be visible,
+  // not silently disabled. Default stays availability-first (pass-through)
+  // but every fault is now reported through the telemetry sink.
+  const failClosed = resolveFailClosed(runtime.failClosed);
   const securityEntries: ReadonlyArray<[string, string]> = Object.freeze([
     ...(runtime.securityHeaders ?? []),
   ]);
@@ -686,39 +723,51 @@ export const createNativeIngress = (
   };
 
   const runOnce = (request: Request, ip: string | undefined): NativePreflightOutcome => {
-    const methodKind = METHOD_KIND[request.method] ?? METHOD_KIND_UNKNOWN;
-    const headers = packSelectedHeaders(request, plan, methodKind);
-    // ip: the plugin passes `ctx.ip`; default to the empty string (cstring "").
-    const ipStr = ip ?? "";
-    growOutput(L.outDataStart);
-    const w = ffiIng.ingressHandleComponents(
-      inner,
-      methodKind,
-      request.url,
-      ipStr,
-      EMPTY_RID,
-      headers,
-      null,
-      output,
-    );
-    if (w === 0) {
-      // Native failure → non-terminal (the request flow is never broken).
-      return { terminal: false, response: null, result: null };
-    }
-    if (w > output.length) {
-      growOutput(w);
-      const w2 = ffiIng.ingressHandleComponents(
+    // Shared fault outcome: report, then honor the fail-closed policy (a fault
+    // NEVER silently pass-throughs — that hid disabled rate limiting / CORS).
+    const fault = (message: string): NativePreflightOutcome => {
+      reportDegradation("call-failed", "ingress.handle", message);
+      return failClosed ? failClosedResponse() : { terminal: false, response: null, result: null };
+    };
+    /** One native call with the current output buffer → bytes written. */
+    const call = (): number =>
+      ffiIng.ingressHandleComponents(
         inner,
         methodKind,
         request.url,
-        ipStr,
+        ip ?? "",
         EMPTY_RID,
         headers,
         null,
         output,
       );
-      if (w2 === 0 || w2 > output.length) {
-        return { terminal: false, response: null, result: null };
+
+    const methodKind = METHOD_KIND[request.method] ?? METHOD_KIND_UNKNOWN;
+    const headers = packSelectedHeaders(request, plan, methodKind);
+    growOutput(L.outDataStart);
+    let w = call();
+    if (w === 0) {
+      return fault("native ingress returned 0 — security pipeline degraded to pass-through");
+    }
+    if (w < L.outDataStart) {
+      // SHORT WRITE: an incomplete verdict header. Decoding would read STALE
+      // fields out of the POOLED verdict object below — cross-request bleed
+      // of the previous request's status / rate-limit numbers into this
+      // terminal response. Treat exactly like a fault.
+      return fault(
+        `native ingress wrote ${w}B < verdict header ${L.outDataStart}B — treated as fault`,
+      );
+    }
+    if (w > output.length) {
+      growOutput(w);
+      w = call();
+      if (w === 0) {
+        return fault(
+          "native ingress retry after buffer growth failed — security pipeline degraded",
+        );
+      }
+      if (w < L.outDataStart || w > output.length) {
+        return fault(`native ingress retry wrote incomplete verdict (${w}B) — pipeline degraded`);
       }
     }
     const v = decodeVerdict(output, outputView, verdict, L);

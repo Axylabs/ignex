@@ -43,7 +43,13 @@ test("envExampleTemplate derives .env.example from the schema with defaults and 
 test("appConfigTemplate consumes the env module instead of raw process.env", () => {
   const code = appConfigTemplate();
   expect(code).toContain('import { env } from "./config/env.js";');
-  expect(code).toContain('session({ secret: env.SESSION_SECRET || "dev-secret-change-me"');
+  // Scaffold secret: explicit SESSION_SECRET wins; local dev falls back to a
+  // strong per-machine generated value — never a known literal default.
+  expect(code).toContain("session({ secret: env.SESSION_SECRET || devSessionSecret()");
+  expect(code).toContain(
+    'import { debugbar, devSessionSecret, openapi, session } from "@ignex/core";',
+  );
+  expect(code).not.toContain("dev-secret-change-me");
   expect(code).toContain("port: env.PORT,");
   expect(code).not.toContain("process.env");
 });

@@ -3,6 +3,7 @@
  */
 
 import type { CompilerOptions } from "../../types";
+import { emitHeatModule } from "./heat";
 import { indentBody } from "./helpers";
 import type { CodegenState } from "./state";
 
@@ -67,11 +68,30 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   // ? runTimed(...) : runHooks(...)` guards const-fold to the bare calls —
   // zero closures per request on the production needsFull path.
   header.push(`const __TRACE_DEBUG = ${state.traceDebug};`);
+  // Bake the build shape: a production-built artifact stays toolbar-free even
+  // when launched without `NODE_ENV=production` in the environment — dev-only
+  // plugins (debugbar) read this flag and inert-construct themselves.
+  if (state.isProductionBuild) {
+    header.push(`globalThis.__IGNEX_PROD_BUILD = true;`);
+  }
   // Dev error overlay: enabled outside production (the marker is written by
   // `ignex dev` on a failed compile). The fs probe inside __fallback is
-  // skipped entirely in production artifacts (const-folded to false).
-  header.push(`const __DEV_ERROR_MARKER = process.env.NODE_ENV !== "production";`);
+  // skipped entirely in production artifacts (const-folded to false). The
+  // flag is baked from the BUILD shape so a prod-built artifact launched
+  // without `NODE_ENV=production` never pays the per-fallback fs probe.
+  header.push(
+    `const __DEV_ERROR_MARKER = ${
+      state.isProductionBuild ? "false" : 'process.env.NODE_ENV !== "production"'
+    };`,
+  );
   header.push(`const __DEV_OVERLAY_HTML = ${JSON.stringify(DEV_OVERLAY_HTML)};`);
+
+  // Dev-only profile-guided heat capture (`ignex dev`): per-route request
+  // counters flushed to <outDir>/hot-routes.json. Never emitted in
+  // production builds (the option defaults off and is fingerprinted).
+  if (cfg.heatCapture) {
+    header.push(emitHeatModule());
+  }
 
   if (state.hasAppConfig) {
     // Dev-only plugins (the `debugbar()` dashboard) mark themselves with

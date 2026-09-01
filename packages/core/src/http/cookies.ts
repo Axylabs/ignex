@@ -118,6 +118,47 @@ export const parseCookieString = (cookieString: string | null): Record<string, s
 };
 
 /**
+ * Read a SINGLE named cookie from the raw `Cookie` request header — without
+ * materializing a full name → value record.
+ *
+ * Semantics are byte-identical to `parseCookieString(header)[name]`: same
+ * pair splitting, whitespace trim, DQUOTE unwrap and percent-decode, last
+ * value wins on duplicates, and the same DoS guards (8 KB header / 100 pairs).
+ * The point is allocation-free session reads: middleware that only needs one
+ * known cookie (e.g. the session id) no longer forces a full header parse nor
+ * the lazy cookie-jar proxy on requests that carry few or no cookies.
+ *
+ * @param cookieString - The raw `Cookie` header value (or `null`).
+ * @param name - Cookie name to look up (case-sensitive per RFC 6265 §5.4).
+ */
+export const readRequestCookie = (
+  cookieString: string | null,
+  name: string,
+): string | undefined => {
+  if (!cookieString || cookieString.length > MAX_COOKIE_HEADER_BYTES) return undefined;
+
+  let found: string | undefined;
+  let count = 0;
+
+  // Count parity with `cookiePairs`: every part with a non-empty trimmed name
+  // is a pair (a bare `foo` token parses to value ""), guard included.
+  for (const part of cookieString.split(";")) {
+    const eq = part.indexOf("=");
+    const partName = (eq < 0 ? part : part.slice(0, eq)).trim();
+    if (!partName) continue;
+    if (count >= MAX_COOKIES) break;
+    count += 1;
+    if (partName !== name) continue;
+    const raw = part.slice(eq + 1).trim();
+    const unquoted =
+      raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+    found = decodeCookieValue(unquoted);
+  }
+
+  return found;
+};
+
+/**
  * A mutable view of one cookie inside a cookie jar.
  *
  * Reads fall back to the jar entry or the initial options; writes accumulate
@@ -210,8 +251,18 @@ export class Cookie<T = string | undefined> {
     return this;
   }
 
-  remove(): this {
-    this.update({ expires: new Date(0), maxAge: 0, value: "" });
+  /**
+   * Mark the cookie for deletion (expired + empty).
+   *
+   * Browsers match deletion cookies on the full attribute set — most
+   * importantly `path` (which is NOT echoed back in the request's Cookie
+   * header, so it cannot be inferred). A cookie written with
+   * `Path=/` survives a path-less deletion. Pass `attrs` to mirror the
+   * original write attributes (`{ path: "/" }` at minimum for app-wide
+   * cookies; include `domain` when one was set).
+   */
+  remove(attrs?: Partial<ElysiaCookie>): this {
+    this.update({ ...attrs, expires: new Date(0), maxAge: 0, value: "" });
     return this;
   }
 
@@ -243,9 +294,21 @@ export const createCookieJar = (
   if (!set.cookie) set.cookie = Object.create(null) as Record<string, ElysiaCookie>;
   const cookieStore: Record<string, ElysiaCookie> = set.cookie;
 
+  // One Cookie VIEW per key (cached): the instance re-reads the store on
+  // every property access, so caching it is observably identical to
+  // allocating a fresh view per read — minus the object + spread allocation
+  // on the per-request path (session resolution reads ctx.cookie[name]).
+  const views: Record<string, Cookie> = Object.create(null);
+
   return new Proxy(store, {
     get(_, key: string) {
-      return new Cookie(key, cookieStore, { ...initial, ...store[key] });
+      const k = typeof key === "string" ? key : String(key);
+      let view = views[k];
+      if (view === undefined) {
+        view = new Cookie(k, cookieStore, { ...initial });
+        views[k] = view;
+      }
+      return view;
     },
   }) as Record<string, Cookie>;
 };
@@ -293,15 +356,22 @@ export const createLazyCookieJar = (
   };
 
   const target = Object.create(null);
+  // Cached views (see createCookieJar) — one per key, created after the
+  // header parse so the constructor's `value` seed is correct.
+  const views: Record<string, Cookie> = Object.create(null);
 
   return new Proxy(target, {
     get(_, key: string) {
+      if (typeof key !== "string") return undefined;
+      const cached = views[key];
+      if (cached !== undefined) return cached;
       const store = ensureParsed();
-
-      return new Cookie(key, cookieStore, {
+      const view = new Cookie(key, cookieStore, {
         ...initial,
         value: store[key],
       });
+      views[key] = view;
+      return view;
     },
     // Lazy parsing is transparent to enumeration: `Object.keys(ctx.cookie)`
     // / `for…in` trigger a parse and list the received cookie names (matches

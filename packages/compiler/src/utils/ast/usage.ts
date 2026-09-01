@@ -50,6 +50,15 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
 };
 
 /**
+ * Reserved mapping key meaning "this handler uses a pattern the analyzer
+ * cannot enumerate" (rest elements, nested/computed destructuring). Consumers
+ * must assume FULL context usage — an under-approximation here compiles to a
+ * context missing members the handler reads (silent runtime `undefined`s),
+ * so unanalyzable shapes always degrade UP to the full context.
+ */
+export const OPAQUE_MAPPING = "__ignex_opaque__";
+
+/**
  * Build a map `localVariableName → contextProperty (or "__root__")` from a
  * handler's parameter list.
  *
@@ -57,11 +66,38 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
  * - `(ctx) => …`                        → ctx maps to the root
  * - `({ query, params }) => …`          → each destructured key maps to its
  *                                          own context member
+ * - `({ query = {} }) => …`             → defaults unwrap to the binding name
  * - `(ctx, req)`                        → only the first param is the context
  *
- * Nested destructuring and rest elements are deliberately not expanded — they
- * are rare in route handlers and skipping them keeps the mapping trivial.
+ * Anything the analyzer cannot enumerate (rest elements, nested or computed
+ * destructuring) records {@link OPAQUE_MAPPING}, forcing full-context
+ * specialization instead of silently dropping members.
  */
+/** Map one destructured property, or mark the mapping opaque. */
+const mapPatternProperty = (prop: Node, map: Map<string, string>): void => {
+  if (prop.type !== "Property") {
+    map.set(OPAQUE_MAPPING, "__all__");
+    return;
+  }
+  const key = propertyName(prop.key);
+  // `query` or `query = {}` — defaults unwrap to the bound identifier.
+  const bound = prop.value?.type === "AssignmentExpression" ? prop.value.left : prop.value;
+  const local = bound?.type === "Identifier" ? bound.name : undefined;
+  if (key !== undefined && local !== undefined) map.set(local, String(key));
+  else map.set(OPAQUE_MAPPING, "__all__");
+};
+
+/** One parameter of an ObjectPattern — rest elements force opaque. */
+const mapObjectPattern = (param: Node & { type: "ObjectPattern" }, map: Map<string, string>) => {
+  for (const prop of param.properties || []) {
+    if (prop.type === "RestElement") {
+      map.set(OPAQUE_MAPPING, "__all__");
+      continue;
+    }
+    mapPatternProperty(prop as Node, map);
+  }
+};
+
 export function buildContextMapping(params: Pattern[] | undefined): Map<string, string> {
   const map = new Map<string, string>();
   if (!Array.isArray(params)) return map;
@@ -71,13 +107,7 @@ export function buildContextMapping(params: Pattern[] | undefined): Map<string, 
     if (param.type === "Identifier") {
       map.set(param.name, "__root__");
     } else if (param.type === "ObjectPattern") {
-      for (const prop of param.properties || []) {
-        if (prop.type !== "Property") continue;
-        const key = propertyName(prop.key);
-        const local = propertyName(prop.value);
-        if (key !== undefined && local !== undefined) map.set(String(local), String(key));
-        // Nested destructuring not supported for DX simplicity.
-      }
+      mapObjectPattern(param, map);
     }
   }
   return map;
@@ -95,17 +125,109 @@ const memberKey = (node: Expression | undefined): string | undefined => {
   return typeof key === "string" ? key : undefined;
 };
 
-/** Record `const b = ctx.body;`-style aliases for later member/identifier use. */
-const recordAlias = (n: Node, aliases: Map<string, string>, rootNames: Set<string>): void => {
+/** Force every usage flag (the conservative FULL-context outcome). */
+const markFullUsage = (usage: ContextUsage): void => {
+  for (const k of Object.keys(usage) as (keyof ContextUsage)[]) usage[k] = true;
+};
+
+/** Record a single destructured binding into the alias/root registries. */
+const recordDestructuredKey = (prop: Node, aliases: Map<string, string>): "ok" | "opaque" => {
+  if (prop.type === "RestElement") return "opaque";
+  if (prop.type !== "Property") return "opaque";
+  const key = propertyName(prop.key);
+  const bound = prop.value?.type === "AssignmentExpression" ? prop.value.left : prop.value;
+  const local = bound?.type === "Identifier" ? bound.name : undefined;
+  if (key === undefined || local === undefined) return "opaque";
+  // Only whitelist-resolvable keys matter; unknown keys are ignored by
+  // setUsageFlag anyway.
+  aliases.set(local, String(key));
+  return "ok";
+};
+
+/** Assignment aliasing: `b = ctx.body` (alias) or `b = ctx` (re-root). */
+const recordAssignmentAlias = (
+  n: Node & { type: "AssignmentExpression" },
+  aliases: Map<string, string>,
+  rootNames: Set<string>,
+  seen: Set<Node>,
+): void => {
+  if (n.operator !== "=" || n.left?.type !== "Identifier" || seen.has(n)) return;
+  seen.add(n);
+  const right = n.right as Node;
+  if (right.type === "Identifier" && rootNames.has(right.name)) {
+    rootNames.add(n.left.name);
+    return;
+  }
   if (
-    n.type === "VariableDeclarator" &&
-    n.id?.type === "Identifier" &&
-    n.init?.type === "MemberExpression" &&
-    n.init.object?.type === "Identifier" &&
-    rootNames.has(n.init.object.name)
+    right.type === "MemberExpression" &&
+    right.object?.type === "Identifier" &&
+    rootNames.has(right.object.name)
   ) {
-    const alias = memberKey(n.init.property);
+    const alias = memberKey(right.property);
+    if (alias) aliases.set(n.left.name, alias);
+  }
+};
+
+/** Declarator rooted at the context: `const b = ctx[.member]` or `const {…} = ctx`. */
+const recordDeclarator = (
+  n: Node & { type: "VariableDeclarator" },
+  usage: ContextUsage,
+  aliases: Map<string, string>,
+  rootNames: Set<string>,
+): void => {
+  if (!n.init || !n.id) return;
+
+  const init = n.init as Node;
+  const initIsRoot = init.type === "Identifier" && rootNames.has((init as { name: string }).name);
+  const initRootMember =
+    init.type === "MemberExpression" &&
+    init.object?.type === "Identifier" &&
+    rootNames.has(init.object.name);
+
+  if (!initIsRoot && !initRootMember) return;
+
+  // `const b = ctx;` → b is another name for the whole context root.
+  if (n.id.type === "Identifier" && initIsRoot) {
+    rootNames.add(n.id.name);
+    return;
+  }
+  // `const b = ctx.body;` → plain member alias (existing behavior).
+  if (n.id.type === "Identifier" && initRootMember) {
+    const alias = memberKey(init.property);
     if (alias) aliases.set(n.id.name, alias);
+    return;
+  }
+  // Destructuring straight off the root: `const { body, query: q } = ctx;`
+  if (n.id.type === "ObjectPattern" && initIsRoot) {
+    for (const prop of n.id.properties ?? []) {
+      if (recordDestructuredKey(prop as Node, aliases) === "opaque") {
+        markFullUsage(usage);
+        return;
+      }
+    }
+  }
+};
+
+/**
+ * Track context-rooted bindings introduced INSIDE the body:
+ * - `const b = ctx;`            → b becomes an additional root name
+ * - `const b = ctx.body;`       → alias
+ * - `const { body } = ctx;`     → per-key aliases
+ * - `b = ctx.body;`             → assignment aliasing
+ */
+const recordRootBinding = (
+  n: Node,
+  usage: ContextUsage,
+  aliases: Map<string, string>,
+  rootNames: Set<string>,
+  seen: Set<Node>,
+): void => {
+  if (n.type === "AssignmentExpression") {
+    recordAssignmentAlias(n, aliases, rootNames, seen);
+    return;
+  }
+  if (n.type === "VariableDeclarator") {
+    recordDeclarator(n, usage, aliases, rootNames);
   }
 };
 
@@ -175,8 +297,16 @@ const recordCall = (
  */
 export function detectUsage(bodyNode: Node, mapping: Map<string, string>): ContextUsage {
   const usage: ContextUsage = { ...EMPTY_USAGE };
+
+  // Unanalyzable parameter shape — the only sound outcome is full context.
+  if (mapping.has(OPAQUE_MAPPING)) {
+    markFullUsage(usage);
+    return usage;
+  }
+
   const rootNames = new Set<string>();
   const aliases = new Map<string, string>();
+  const seen = new Set<Node>();
 
   for (const [local, prop] of mapping.entries()) {
     if (prop === "__root__") rootNames.add(local);
@@ -184,8 +314,9 @@ export function detectUsage(bodyNode: Node, mapping: Map<string, string>): Conte
   }
 
   walk(bodyNode, (n) => {
-    // Track aliases: `const b = ctx.body;`
-    recordAlias(n, aliases, rootNames);
+    // Track root bindings introduced in the body: aliases, re-roots,
+    // destructuring off ctx, and assignment aliasing.
+    recordRootBinding(n, usage, aliases, rootNames, seen);
     // ctx.foo / alias.foo (computed access with a literal key is supported)
     recordMember(n, usage, aliases, rootNames);
     // Bare identifiers that are aliases: `json({ ok: b })` after `const b = ctx.body;`

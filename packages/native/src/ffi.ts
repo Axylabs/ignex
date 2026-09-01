@@ -23,6 +23,7 @@
  */
 import { createRequire } from "node:module";
 import { getAddonPath, getNative, type NativeAddon } from "./loader";
+import { reportDegradation } from "./telemetry";
 import { toBytes } from "./util";
 
 /** Transport selection for the C-ABI fast path. */
@@ -30,6 +31,15 @@ export type FfiMode = "auto" | "ffi" | "napi";
 
 /** The C-ABI-bound surface (a focused subset of the castrum scalar cores). */
 export interface FfiSurface {
+  /** Fused session seal (undefined when the addon predates the symbols). */
+  sessionSeal?(
+    id: string,
+    dataJson: string,
+    expSecs: bigint | number,
+    secret: string,
+  ): string | null;
+  /** Fused session open (undefined when the addon predates the symbols). */
+  sessionOpen?(token: string, secret: string, out: Uint8Array, outLen: number): number;
   readonly ffiMode: "ffi";
   // hash
   fnv1a64(input: Uint8Array): bigint;
@@ -617,6 +627,14 @@ function bind(): FfiSurface | null {
             "IGNEX_FFI_MODE (or use auto) to fall back to NAPI.",
         );
       }
+      // Auto mode: degrade to NAPI, but never silently — a host where bun:ffi
+      // breaks (e.g. after a Bun upgrade) would otherwise permanently run
+      // ~10-350ns/op slower with zero signal.
+      reportDegradation(
+        "self-test-failed",
+        "ffi.bind",
+        "bun:ffi bind-time self-test failed — C-ABI transport disabled, NAPI owns native ops",
+      );
       return null;
     }
     cached = surface;
@@ -627,6 +645,13 @@ function bind(): FfiSurface | null {
       const cause = err instanceof Error ? `: ${err.message}` : `: ${String(err)}`;
       throw new Error(`IGNEX_FFI_MODE=ffi: failed to bind bun:ffi${cause}`);
     }
+    reportDegradation(
+      "call-failed",
+      "ffi.bind",
+      `bun:ffi dlopen/bind failed — C-ABI transport disabled, NAPI owns native ops${
+        err instanceof Error ? `: ${err.message}` : ""
+      }`,
+    );
     return null;
   }
 }
@@ -870,6 +895,15 @@ export const getFfiRoute = (): FfiRouteSurface | null => {
  * so a castrum build lacking these symbols cannot break the primary surface.
  */
 export interface FfiInstancesSurface {
+  /**
+   * Fused wire-level query validation: RAW query string → JSON → draft-07
+   * validate in ONE crossing. Always bound: returns `false` when the addon
+   * predates the symbol (callers treat false as "use detailed path").
+   * `qs` is a `cstring` ARG — engine-transcoded, zero JS encode.
+   */
+  schemaQueryValidate(inner: number, qs: string): boolean;
+  /** Fused cookie-header variant of {@link schemaQueryValidate}. */
+  schemaCookieValidate(inner: number, header: string): boolean;
   /** SchemaValidator: validate a JSON doc against the compiled schema → 1/0. */
   schemaValidatorValidate(inner: number, doc: Uint8Array): boolean;
   /**
@@ -956,6 +990,8 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
         args: ["u64", "ptr", "usize", "ptr", "usize", "u8"],
         returns: "u8",
       },
+      castrum_query_validate: { args: ["u64", "cstring"], returns: "u8" },
+      castrum_cookie_validate: { args: ["u64", "cstring"], returns: "u8" },
     });
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
     // Partial binding → treat the surface as absent (see getFfiRoute).
@@ -966,7 +1002,14 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
       "castrum_conditional_is_not_modified",
     ] as const;
     if (required.some((name) => typeof s[name] !== "function")) return null;
+    const hasQueryV = typeof s.castrum_query_validate === "function";
+    const hasCookieV = typeof s.castrum_cookie_validate === "function";
+    const queryV = s.castrum_query_validate as (...a: unknown[]) => number;
+    const cookieV = s.castrum_cookie_validate as (...a: unknown[]) => number;
     instancesCached = {
+      schemaQueryValidate: (inner, qs) => (hasQueryV ? Number(queryV(inner, qs)) === 1 : false),
+      schemaCookieValidate: (inner, header) =>
+        hasCookieV ? Number(cookieV(inner, header)) === 1 : false,
       schemaValidatorValidate: (inner, doc) =>
         Number(s.castrum_schema_validator_validate?.(inner, doc, doc.length) ?? 0) === 1,
       templateRender: (inner, context, out) =>
@@ -1095,6 +1138,136 @@ function probeBufferLength(
 }
 
 /** Lazy bind of the ingress C-ABI surface (`null` when absent). */
+
+/**
+ * The metrics-registry C-ABI surface (`castrum_metrics_*`) — caller-owned
+ * registry handle + cstring declare / record_str updates. Bound LAZILY and
+ * OPTIONALLY: `null` when the addon predates these symbols or bun:ffi is
+ * unavailable, so the metrics wrapper falls back to the NAPI class. The
+ * handle is created via `metricsCreate` and must be released with
+ * `metricsDestroy`.
+ */
+export interface FfiMetricsSurface {
+  metricsCreate(): number;
+  metricsCounter(handle: number, name: string, labelKeys: string): number;
+  metricsGauge(handle: number, name: string, labelKeys: string): number;
+  metricsHistogram(handle: number, name: string, labelKeys: string, bucketsCsv: string): number;
+  /** Label VALUES cross as ONE `\u001f`-joined `cstring` ARG (zero encode). */
+  metricsRecordStr(handle: number, series: number, values: string, amount: number): boolean;
+  metricsGaugeSetStr(handle: number, series: number, values: string, value: number): boolean;
+  metricsRender(handle: number, out: Uint8Array): number;
+  metricsSnapshot(handle: number, out: Uint8Array): number;
+  metricsDestroy(handle: number): void;
+  /**
+   * Record N events in ONE crossing. Packed layout:
+   * `[u32 n]{[u32 series][u32 valsLen][vals][f64 amount]}`.
+   * Returns `false` when the addon predates the symbol.
+   */
+  metricsRecordBatch(handle: number, packed: Uint8Array): boolean;
+}
+
+let metricsCached: FfiMetricsSurface | null | undefined;
+
+/** Lazy bind of the metrics C-ABI surface (`null` when absent / pre-symbol addon). */
+export const getFfiMetrics = (): FfiMetricsSurface | null => {
+  if (metricsCached !== undefined) return metricsCached;
+  metricsCached = null;
+  if (process.env.IGNEX_NATIVE === "off") return null;
+
+  const path = getAddonPath();
+  if (!path) return null;
+
+  type DlopenFn = (
+    path: string,
+    symbols: Record<string, { args: readonly string[]; returns: string }>,
+  ) => { symbols: Record<string, (...a: unknown[]) => number | bigint | undefined>; close(): void };
+
+  let dlopen: DlopenFn;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = createRequire(import.meta.url)("bun:ffi") as { dlopen: DlopenFn };
+    dlopen = mod.dlopen;
+  } catch {
+    return null;
+  }
+
+  try {
+    const { symbols } = dlopen(path, {
+      castrum_metrics_create: { args: [], returns: "u64" },
+      castrum_metrics_counter: { args: ["u64", "cstring", "cstring"], returns: "u32" },
+      castrum_metrics_gauge: { args: ["u64", "cstring", "cstring"], returns: "u32" },
+      castrum_metrics_histogram: {
+        args: ["u64", "cstring", "cstring", "cstring"],
+        returns: "u32",
+      },
+      castrum_metrics_record_str: { args: ["u64", "u32", "cstring", "f64"], returns: "u8" },
+      castrum_metrics_gauge_set_str: { args: ["u64", "u32", "cstring", "f64"], returns: "u8" },
+      castrum_metrics_render: { args: ["u64", "ptr", "usize"], returns: "usize" },
+      castrum_metrics_snapshot: { args: ["u64", "ptr", "usize"], returns: "usize" },
+      castrum_metrics_destroy: { args: ["u64"], returns: "void" },
+    });
+    const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
+    const required = [
+      "castrum_metrics_create",
+      "castrum_metrics_counter",
+      "castrum_metrics_record_str",
+      "castrum_metrics_render",
+      "castrum_metrics_snapshot",
+      "castrum_metrics_destroy",
+    ] as const;
+    if (required.some((name) => typeof s[name] !== "function")) return null;
+
+    // Bind-time sanity: create → declare → record → render contains the value.
+    const createFn = s.castrum_metrics_create as (...a: unknown[]) => number | bigint;
+    const probeHandle = Number(createFn());
+    try {
+      const counterFn = s.castrum_metrics_counter as (...a: unknown[]) => number | bigint;
+      const id = Number(counterFn(probeHandle, "__probe_total", ""));
+      if (id === 0xffffffff) return null;
+      const recordFn = s.castrum_metrics_record_str as (...a: unknown[]) => number | bigint;
+      if (!Number(recordFn(probeHandle, id, "", 1))) return null;
+      const buf = new Uint8Array(256);
+      const renderFn = s.castrum_metrics_render as (...a: unknown[]) => number | bigint;
+      const w = Number(renderFn(probeHandle, buf, buf.length));
+      if (w === 0 || !Buffer.from(buf.buffer, 0, w).includes("__probe_total")) return null;
+    } finally {
+      s.castrum_metrics_destroy?.(probeHandle);
+    }
+
+    const createF = s.castrum_metrics_create as (...a: unknown[]) => number | bigint;
+    const counterF = s.castrum_metrics_counter as (...a: unknown[]) => number | bigint;
+    const gaugeF = s.castrum_metrics_gauge as (...a: unknown[]) => number | bigint;
+    const histF = s.castrum_metrics_histogram as (...a: unknown[]) => number | bigint;
+    const recordF = s.castrum_metrics_record_str as (...a: unknown[]) => number | bigint;
+    const gaugeSetF = s.castrum_metrics_gauge_set_str as (...a: unknown[]) => number | bigint;
+    const renderF = s.castrum_metrics_render as (...a: unknown[]) => number | bigint;
+    const snapshotF = s.castrum_metrics_snapshot as (...a: unknown[]) => number | bigint;
+    const destroyF = s.castrum_metrics_destroy as (h: number) => void;
+    metricsCached = {
+      metricsCreate: () => Number(createF()),
+      metricsCounter: (h, name, keys) => Number(counterF(h, name, keys)),
+      metricsGauge: (h, name, keys) => Number(gaugeF(h, name, keys)),
+      metricsHistogram: (h, name, keys, buckets) => Number(histF(h, name, keys, buckets)),
+      metricsRecordStr: (h, series, values, amount) =>
+        Number(recordF(h, series, values, amount)) === 1,
+      metricsGaugeSetStr: (h, series, values, v) => Number(gaugeSetF(h, series, values, v)) === 1,
+      metricsRender: (h, out) => Number(renderF(h, out, out.length)),
+      metricsSnapshot: (h, out) => Number(snapshotF(h, out, out.length)),
+      metricsRecordBatch: (h, packed) => {
+        const f = s.castrum_metrics_record_batch as ((...a: unknown[]) => number) | undefined;
+        return f ? Number(f(h, packed, packed.length)) === 1 : false;
+      },
+      metricsDestroy: (h) => {
+        destroyF(h);
+      },
+    };
+    return metricsCached;
+  } catch {
+    return null;
+  }
+};
+
+/** Lazy bind of the ingress C-ABI surface (null when absent). */
 export const getFfiIngress = (): FfiIngressSurface | null => {
   if (ingressCached !== undefined) return ingressCached;
   ingressCached = null;

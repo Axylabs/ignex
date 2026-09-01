@@ -1,5 +1,6 @@
 /**
- * `ignex queue:work` — run durable background jobs as a worker process.
+ * @fileoverview `ignex queue:work` — run durable background jobs as a worker
+ * process.
  *
  * Laravel's `php artisan queue:work` equivalent. Loads the project's
  * `src/jobs.ts` (which registers job handlers + the durable store) and runs
@@ -15,22 +16,38 @@
  */
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { jobsTemplate } from "../templates/jobs.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
+import { metaFor } from "./registry.js";
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  once: { type: "boolean", description: "Process due jobs once, then exit" },
+  init: { type: "boolean", description: "Scaffold src/jobs.ts when missing" },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+} satisfies ArgsDef;
+
+export const queueWorkCmd = defineCommand({
+  meta: metaFor("queue:work"),
+  args: argsDef,
+  async run(ctx) {
+    await runQueueWork(ctx.rawArgs);
+  },
+});
+
+export default queueWorkCmd;
+
+/** Run `ignex queue:work`. */
 export async function runQueueWork(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    once: { type: "boolean" },
-    init: { type: "boolean" },
-  });
-  const root = resolveRoot(values, positionals);
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+  const root = await resolveProjectRoot(parsed.root);
 
   const jobsPath = join(root, "src", "jobs.ts");
   if (!(await exists(jobsPath))) {
-    if (values.init === true) {
+    if (parsed.init === true) {
       await writeFileEnsuringDir(jobsPath, jobsTemplate());
       success("Created src/jobs.ts — register handlers, then run `ignex queue:work`.");
       return;
@@ -43,7 +60,7 @@ export async function runQueueWork(args: string[]): Promise<void> {
     return;
   }
 
-  const once = values.once === true;
+  const once = parsed.once === true;
   step(once ? "Processing due jobs once" : "Queue worker running (claim loop)");
 
   try {

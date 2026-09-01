@@ -7,6 +7,7 @@
  * - mtime/ETag browser caching
  */
 
+import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, normalize, resolve, sep } from "node:path";
 import { cacheControl } from "../data/cache";
@@ -37,10 +38,29 @@ export interface StreamDownloadOptions {
  *
  * Example:
  *   safeJoin("public", ctx.params.path)
+ *
+ * Symlink-hardened: both the root and the joined target are resolved to their
+ * real paths (when they exist), so a symlink inside the root pointing OUTSIDE
+ * it is rejected — the old purely-lexical check happily served such files.
+ * Non-existent targets keep the lexical resolution (the caller's stat/404
+ * handles them).
  */
 export function safeJoin(root: string, target: string): string {
-  const resolvedRoot = resolve(root);
-  const resolved = resolve(resolvedRoot, normalize(target));
+  let resolvedRoot = resolve(root);
+  try {
+    resolvedRoot = realpathSync(resolvedRoot);
+  } catch {
+    /* missing root — lexical path stands; the caller's stat() reports ENOENT */
+  }
+
+  const lexical = resolve(resolvedRoot, normalize(target));
+
+  let resolved = lexical;
+  try {
+    resolved = realpathSync(lexical);
+  } catch {
+    /* target does not exist yet — nothing to re-resolve */
+  }
 
   if (!resolved.startsWith(resolvedRoot + sep)) {
     throw new ForbiddenError("Invalid file path");
@@ -143,6 +163,10 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
   headers.set("etag", etag);
   headers.set("last-modified", lastModified);
   headers.set("accept-ranges", "bytes");
+  // Content-type comes from the file extension (Bun) or the caller — never
+  // trust it as ground truth for execution decisions in the browser. `nosniff`
+  // stops MIME-sniffing from upgrading a text/unknown upload into script.
+  headers.set("x-content-type-options", "nosniff");
 
   if (opts.download) {
     const filename = typeof opts.download === "string" ? opts.download : basename(path);
@@ -181,6 +205,9 @@ export function streamDownload(stream: ReadableStream, opts: StreamDownloadOptio
   const headers = new Headers({
     "content-type": opts.contentType || "application/octet-stream",
     "cache-control": opts.cacheControl || "no-store",
+    // Same rationale as sendFile: never let the browser sniff around the
+    // declared content type.
+    "x-content-type-options": "nosniff",
   });
 
   if (opts.filename) {

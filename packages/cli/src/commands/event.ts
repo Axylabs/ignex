@@ -13,8 +13,9 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
   EVENT_KINDS,
   type EventKind,
@@ -22,21 +23,52 @@ import {
   eventSummary,
   validateEventName,
 } from "../templates/event.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, step, success } from "../utils/logger.js";
 import { PromptCancelError, promptConfirm, promptSelect, promptText } from "../utils/prompt.js";
+import { emitRealtimeArtifact } from "../utils/realtime-artifact.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
 
+/** True when the raw value is a known event kind. */
 const isKind = (value: string): value is EventKind =>
   (EVENT_KINDS as readonly string[]).includes(value);
 
-/** Resolve the event kind from `--kind`, the positional, or a wizard select. */
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  // Flags mirror the positionals (`ignex event <kind> <name>`); both forms are
+  // accepted and the positional wins when both are given.
+  kind: {
+    type: "string",
+    valueHint: "sse|webhook|bus",
+    description: "Event flow kind (same as the first positional)",
+  },
+  name: {
+    type: "string",
+    description: "Kebab-case event name (same as the second positional)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  force: { type: "boolean", description: "Overwrite existing files" },
+} satisfies ArgsDef;
+
+export const eventCmd = defineCommand({
+  meta: metaFor("event"),
+  args: argsDef,
+  async run(ctx) {
+    await runEvent(ctx.rawArgs);
+  },
+});
+
+export default eventCmd;
+
+/** Resolve the event kind from the positional or a wizard select. */
 async function resolveKind(
-  values: Record<string, unknown>,
-  positionals: readonly string[],
+  parsed: ReturnType<typeof parseArgs> | Record<string, unknown>,
 ): Promise<EventKind | undefined> {
-  const raw = (values.kind as string | undefined) ?? positionals[0];
+  const raw =
+    (parsed.kind as string | undefined) ||
+    ((parsed._ as readonly string[])[0] as string | undefined);
   if (raw !== undefined) {
     if (!isKind(raw)) {
       error(`Unknown event kind "${raw}". Expected one of: ${EVENT_KINDS.join(", ")}.`);
@@ -79,12 +111,11 @@ async function resolveKind(
   return undefined;
 }
 
-/** Resolve the event name from `--name`, the positional, or a wizard input. */
+/** Resolve the event name from the second positional or a wizard input. */
 async function resolveName(
-  values: Record<string, unknown>,
-  positionals: readonly string[],
+  parsed: ReturnType<typeof parseArgs> | Record<string, unknown>,
 ): Promise<string | undefined> {
-  let name = (values.name as string | undefined) ?? positionals[1];
+  let name = (parsed.name as string | undefined) ?? (parsed._ as readonly string[])[1];
   if (!name && process.stdin.isTTY) {
     try {
       name = await promptText({
@@ -112,19 +143,14 @@ async function resolveName(
 }
 
 export async function runEvent(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    kind: { type: "string" },
-    name: { type: "string" },
-    force: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // Positionals are [kind, name], never a project root.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
+  const root = await resolveProjectRoot(parsed.root);
 
-  const kind = await resolveKind(values, positionals);
+  const kind = await resolveKind(parsed);
   if (!kind) return;
-  const name = await resolveName(values, positionals);
+  const name = await resolveName(parsed);
   if (!name) return;
 
   const config = await loadConfig(root);
@@ -140,20 +166,82 @@ export async function runEvent(args: string[]): Promise<void> {
     const target = path.startsWith("routes/")
       ? join(routesDir, path.slice("routes/".length))
       : join(srcDir, path);
-    const ok = await writeScaffold(target, content, { force: Boolean(values.force) });
+    const ok = await writeScaffold(target, content, { force: parsed.force === true });
     wroteAny = wroteAny || ok;
   }
 
   if (wroteAny) {
     success(eventSummary(kind, name));
     if (kind === "bus") {
-      info("Wire the consumer from your app bootstrap (e.g. src/app.config.ts).");
-      info("Add novaPlugin({ port: 3001, inbound: [...] }) to src/app.config.ts plugins.");
+      // The bus flow needs the generated wire stack — make it available
+      // right away: tsconfig include + (best-effort) local SDK generation.
+      await ensureTsconfigSdkInclude(root);
+      await ensureLocalRealtimeSdk(root);
       await maybeInstallNova(root);
+      printBusWiring();
     } else {
       info(`Business logic lives in src/modules/ — routes stay thin.`);
     }
   }
+}
+
+/** Add `.ignex/sdk` to the project's tsconfig `include` (idempotent). */
+async function ensureTsconfigSdkInclude(root: string): Promise<void> {
+  const tsconfigPath = join(root, "tsconfig.json");
+  try {
+    const raw = await readFile(tsconfigPath, "utf-8");
+    const cfg = JSON.parse(raw) as { include?: string[] };
+    const include = cfg.include ?? [];
+    if (!include.includes(".ignex/sdk")) {
+      cfg.include = [...include, ".ignex/sdk"];
+      await writeFile(tsconfigPath, `${JSON.stringify(cfg, null, 2)}\n`);
+      info('Added ".ignex/sdk" to tsconfig include (generated SDK types).');
+    }
+  } catch {
+    info('Tip: add ".ignex/sdk" to your tsconfig include to type the generated SDK.');
+  }
+}
+
+/**
+ * Generate the local realtime SDK (bindings + typed facade) right after
+ * scaffolding, so the emitted route/consumer typecheck immediately.
+ * Best-effort: when @ignex/nova/generate or `flatc` is missing, falls back
+ * to the "run ignex build" instruction (build also regenerates the SDK).
+ */
+async function ensureLocalRealtimeSdk(root: string): Promise<void> {
+  try {
+    const config = await loadConfig(root);
+    const outDir = (config.outDir as string | undefined) ?? ".ignex";
+    const absolute = isAbsolute(outDir) ? outDir : join(root, outDir);
+    if (await emitRealtimeArtifact(root, absolute)) {
+      const { ensureLocalRealtimeSdk: ensureSdk } = await import("../utils/realtime-artifact.js");
+      if (await ensureSdk(root, absolute)) {
+        info(`Generated local realtime SDK in ${join(absolute, "sdk")}.`);
+      }
+    }
+  } catch (err) {
+    info(
+      "Could not generate the local SDK yet — run `ignex build` after adding the plugin " +
+        `(it regenerates the SDK). ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** Print the exact app.config wiring for the bus flow. */
+function printBusWiring(): void {
+  console.log();
+  console.log("Next steps — wire the plugin into src/app.config.ts:");
+  console.log('  1. import { realtimePlugin } from "./realtime.plugin.js";');
+  console.log("  2. add `realtimePlugin` to the `plugins` array.");
+  console.log();
+  console.log("Then: bun run build   (regenerates .ignex/sdk + the compiled server)");
+  console.log("      bun run dev");
+  console.log();
+  console.log(
+    "FE side: the generated SDK (`.ignex/sdk/realtime`) ships `createRealtimeClient(url)` — " +
+      "a typed, pure-JS FlatBuffers client. Publish it for your FE team with " +
+      "`ignex sdk --platform realtime`.",
+  );
 }
 
 /**

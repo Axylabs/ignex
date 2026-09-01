@@ -16,7 +16,7 @@ import { runHooks, runTimed } from "../lifecycle/lifecycle";
 import type { AnySchema, HookContainer } from "../types";
 import type { IgnexContext } from "./context";
 import { parseCookieString } from "./cookies";
-import { applySet } from "./headers";
+import { applySet, headersToRecord } from "./headers";
 import type { RouteSchemas } from "./route";
 
 /** Runtime per-part validation (mirrors the compiled full-context prelude). */
@@ -28,15 +28,13 @@ export const validateSchema = async (
   if (schema.params) await validateAsync(schema.params as AnySchema, ctx.params, "params");
   if (schema.query) {
     const query = parseQueryFromURL(req.url);
-    Object.defineProperty(ctx, "query", { value: query, configurable: true });
+    // Plain assignment through the ctx.query SETTER (~8x the old
+    // Object.defineProperty on this hot path).
+    ctx.query = query as unknown as URLSearchParams;
     await validateAsync(schema.query as AnySchema, query, "query");
   }
   if (schema.headers) {
-    await validateAsync(
-      schema.headers as AnySchema,
-      Object.fromEntries(req.headers.entries()),
-      "headers",
-    );
+    await validateAsync(schema.headers as AnySchema, headersToRecord(req.headers), "headers");
   }
   if (schema.cookie) {
     await validateAsync(

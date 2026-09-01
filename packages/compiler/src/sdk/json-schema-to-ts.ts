@@ -204,17 +204,39 @@ export const jsonSchemaToTs = (schema: unknown, options: JsonSchemaToTsOptions =
     return emitted;
   };
 
+  /**
+   * `$ref`s currently being expanded. TypeScript cannot express anonymous
+   * recursive types, so a cycle (e.g. a tree schema whose `children` items
+   * reference their own component) degrades the RECURSIVE POSITION to
+   * `unknown` — the surrounding structure stays precise and generation
+   * terminates instead of overflowing the stack.
+   */
+  const activeRefs = new Set<string>();
+
+  /** Hard expansion bound for pathologically nested schemas. */
+  const MAX_DEPTH = 64;
+
+  /** Expand one `$ref` with cycle detection (recursive position → unknown). */
+  const emitRef = (ref: string, depth: number): string => {
+    if (activeRefs.has(ref)) return "unknown";
+    const resolved = resolveRef?.(ref);
+    if (resolved === undefined) return "unknown";
+    activeRefs.add(ref);
+    try {
+      return emit(resolved, depth);
+    } finally {
+      activeRefs.delete(ref);
+    }
+  };
+
   const emit = (value: unknown, depth: number): string => {
+    if (depth > MAX_DEPTH) return "unknown";
     if (!isRecord(value)) {
       // `true` (allow anything) / `false` (allow nothing) boolean schemas.
       return value === true ? "unknown" : "never";
     }
 
-    const ref = value.$ref;
-    if (typeof ref === "string") {
-      const resolved = resolveRef?.(ref);
-      return resolved !== undefined ? emit(resolved, depth) : "unknown";
-    }
+    if (typeof value.$ref === "string") return emitRef(value.$ref, depth);
 
     if (value.const !== undefined) return literal(value.const);
 

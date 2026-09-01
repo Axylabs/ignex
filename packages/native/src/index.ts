@@ -19,10 +19,18 @@
 /// <reference lib="dom" />
 
 export {
+  csrfVerifyBatch,
+  hmacSha256Batch,
+  hmacSha256VerifyBatch,
+  signCookieBatch,
+  verifyCookieBatch,
+} from "./batch";
+export {
   aeadDecrypt,
   aeadDecryptFallback,
   aeadEncrypt,
   aeadEncryptFallback,
+  canVerifyPasswordHash,
   csrfToken,
   csrfTokenFallback,
   csrfVerify,
@@ -37,11 +45,14 @@ export {
   jwtVerifyFallback,
   type PasswordHashOptions,
   passwordHash,
+  passwordHashAlgorithm,
   passwordHashFallback,
   passwordVerify,
   passwordVerifyFallback,
   randomToken,
   randomTokenFallback,
+  sessionOpen,
+  sessionSeal,
   signCookie,
   signCookieFallback,
   verifyCookie,
@@ -78,6 +89,7 @@ export {
   type FfiRouteSurface,
   type FfiSurface,
   getFfi,
+  getFfiInstances,
   getFfiMode,
   getFfiRoute,
   isFfiActive,
@@ -152,17 +164,40 @@ export {
   type NativeInitResult,
 } from "./loader";
 export {
+  createMetricsRegistry,
+  createMetricsRegistryFallback,
+  createNativeMetricsRegistry,
+  decodeMetricsSnapshot,
+  type MetricsRegistryLike,
+  type MetricsRegistryOptions,
+  type RegistryCounter,
+  type RegistryHistogram,
+  type RegistrySnapshot,
+} from "./metrics";
+export {
   type NativeRouteHandlerOptions,
   type NativeRouteResponder,
   type NativeRouteSnapshot,
   nativeRouteHandler,
 } from "./native-handler";
-export { packBatch, pairsToObject, readPairsPacked } from "./packed";
+export {
+  PackedWireError,
+  packBatch,
+  pairsToObject,
+  readPairsPacked,
+  unpackBitset,
+  unpackByteItems,
+  unpackPairBatches,
+  unpackU32Array,
+  unpackU64ArrayAsBigInt,
+} from "./packed";
 export {
   brotliCompress,
   brotliDecompress,
+  DEFAULT_MAX_DECOMPRESSED_BYTES,
   gzipCompress,
   gzipDecompress,
+  PayloadTooLargeError,
   sseEncode,
   sseEncodeFallback,
   type WsFrame,
@@ -221,7 +256,12 @@ export {
   type RoutePartKind,
   readRouteResult,
 } from "./route-wire";
-export { backendName, useNative } from "./runtime";
+export {
+  backendName,
+  effectiveImplFor,
+  useNative,
+  warmRuntime,
+} from "./runtime";
 export {
   acquire,
   copyView,
@@ -231,7 +271,26 @@ export {
   release,
   withScratch,
 } from "./scratch";
-export { type ExecutionBackend, OPS, type OpDecision, type OpName, SELECTION } from "./selection";
+export {
+  type ExecutionBackend,
+  OPS,
+  type OpDecision,
+  type OpName,
+  SELECTION,
+  SIZE_GATES,
+  type SizeGate,
+  sizeGateAllowsNative,
+} from "./selection";
+export {
+  type DegradationEvent,
+  type DegradationKind,
+  degradationCounts,
+  degradationTotal,
+  reportDegradation,
+  resetTelemetryRateLimit,
+  setNativeTelemetrySink,
+  type TelemetrySink,
+} from "./telemetry";
 export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export {

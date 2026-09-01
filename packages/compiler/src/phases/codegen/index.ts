@@ -4,49 +4,21 @@
  * The code generator is grouped by concern into focused modules:
  *   ./config      — compile-time options flattened for emission
  *   ./identifiers — generated-identifier naming conventions
- *   ./helpers     — runtime helper registry (dependency-aware pruning)
+ *   ./helpers     — generated runtime helper sources (DCE at link time)
  *   ./decisions   — per-route decisions (constant/cache/inline)
  *   ./state       — shared mutable state threaded through the stages
- *   ./imports     — stage: `@ignex/core` + per-route import assembly
+ *   ./imports     — stage: app-config + per-route import assembly
  *   ./header      — stage: header constants + inlined handlers
  *   ./routes      — stage: per-route handler emission
  *   ./routetable  — stage: Bun route table + 405 lookup
- *   ./server      — stage: server bootstrap + helper pruning + assembly
+ *   ./server      — stage: server bootstrap + core-import assembly
  *
  * `generateServer` composes the stages over a {@link CodegenState} in the
  * fixed order that determines output: imports → header → inlined handlers →
  * route table → server. Consumers import the whole phase from
- * `../phases/codegen` (this facade).
+ * `../phases/codegen` (this facade); the stage modules stay internal.
  */
 
-export { CORE_PATH, type CodegenConfig, getConfig, toImportPath } from "./config";
-export { getCacheConfig, tryNormalizeConstant } from "./decisions";
-export { stageHeader, stageInlinedHandlers } from "./header";
-export { HELPER_SOURCES, HELPERS, indentBody, resolveUsedHelpers } from "./helpers";
-export {
-  allowRegExp,
-  BUN_ALL_METHODS,
-  cacheVar,
-  constantBodyVar,
-  constantInitVar,
-  coreHandlerName,
-  escapeRegExp,
-  handlerImportName,
-  hookIdent,
-  methodHandlerName,
-  routeHandlerName,
-  routeReplyFn,
-  serializerImportName,
-  validatorImportName,
-  wildcardNames,
-} from "./identifiers";
-export { stageImports } from "./imports";
-export { generateRouteCode } from "./routes/generate";
-export { stageRouteTable } from "./routetable";
-export { stageServer } from "./server";
-export { type CodegenState, createCodegenState } from "./state";
-
-import { Emitter } from "../../emitter";
 import type {
   AppConfigInfo,
   CompilerContext,
@@ -70,7 +42,7 @@ export const generateServer = (
   appConfig?: AppConfigInfo,
 ): string => {
   const cfg = getConfig(opts);
-  const state = createCodegenState(cfg, new Emitter());
+  const state = createCodegenState(cfg);
 
   // Compose the emission stages in the fixed order that determines output.
   stageImports(state, routes, modules, hooks, opts, appConfig);
@@ -85,7 +57,10 @@ export const runCodeGen = (
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
-  ctx: CompilerContext,
+  _ctx: CompilerContext,
   appConfig?: AppConfigInfo,
-): string =>
-  ctx.logger.time("codegen", () => generateServer(routes, modules, hooks, opts, appConfig));
+): string => {
+  // Timing is owned by the pipeline stage that calls this (single
+  // `logger.time("codegen")` entry — the phase itself does not re-wrap).
+  return generateServer(routes, modules, hooks, opts, appConfig);
+};

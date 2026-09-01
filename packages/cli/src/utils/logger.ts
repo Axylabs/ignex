@@ -9,10 +9,8 @@ export const green = paint(32);
 export const yellow = paint(33);
 export const blue = paint(34);
 export const cyan = paint(36);
-export const magenta = paint(35);
 export const dim = paint(2);
 export const bold = paint(1);
-export const underline = paint(4);
 
 export function info(message: string): void {
   console.log(`${blue("ℹ")} ${message}`);

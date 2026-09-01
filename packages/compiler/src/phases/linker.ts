@@ -6,10 +6,14 @@
  * - Generated import paths are relative to opts.outDir.
  */
 
-import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions } from "../types";
+import { projectPath } from "../utils/path";
+import { isProductionBuild } from "./analysis/app-config";
+import { debugbarStubRewrite } from "./analysis/dev-only-plugins";
+import { writeIfChanged } from "./artifacts/write";
 
 /** Minimal Bun.build log shape (message + optional source position). */
 interface BunBuildLog {
@@ -78,26 +82,142 @@ const writeRaw = (
     ctx.logger.warn(warning);
   }
 
-  writeFileSync(outPath, code);
-
-  ctx.logger.info(`Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`);
+  // Content-diffed: an identical rebuild must not churn the output file's
+  // mtime (watchers, containers, and downstream SDK tooling all key on it).
+  if (writeIfChanged(outPath, code)) {
+    ctx.logger.info(`Linked → ${outPath} (${(Buffer.byteLength(code) / 1024).toFixed(1)} KB)`);
+  }
 
   return outPath;
 };
 
-/** Run Bun.build, reporting failures as diagnostics. Returns `null` on failure. */
+/**
+ * Extract unresolvable bare specifiers from Bun.build failure logs
+ * (`Could not resolve: "x"`). These become `external` for a single retry, so
+ * an optional/uninstalled dependency referenced by route code degrades to
+ * runtime resolution instead of failing the build.
+ */
+const unresolvedSpecifiers = (logs: readonly BunBuildLog[]): string[] => {
+  const out = new Set<string>();
+  for (const log of logs) {
+    const m = /Could not resolve:\s+"([^"]+)"/.exec(log.message ?? "");
+    if (m?.[1] && !m[1].startsWith(".") && !m[1].startsWith("/")) out.add(m[1]);
+  }
+  return [...out];
+};
+
+/**
+ * Bun.build loader plugin that PREPENDS `globalThis.__IGNEX_PROD_BUILD = true`
+ * to the app-config module in production-shaped builds, and rewrites the
+ * module's `debugbar` import bindings to inert local stubs so the bundler
+ * treeshakes the entire debug graph (dashboard SPA, observatory endpoints,
+ * TraceStore) out of the artifact.
+ *
+ * The assignment must live inside the app-config module itself (not the
+ * generated entry header): ESM import hoisting evaluates the plugins array —
+ * and with it every `debugbar(...)` factory call — before any entry-level
+ * statement runs, so a header flag would always be set too late. Returns
+ * `undefined` when the build is not production-shaped or no app config exists,
+ * so the linker emits no plugin at all.
+ */
+const prodShapeBunPlugin = (
+  appConfigAbs: string,
+  isProdBuild: boolean,
+): {
+  name: string;
+  setup: (build: { onLoad: (o: unknown, cb: unknown) => void }) => void;
+} | null => {
+  if (!isProdBuild || !existsSync(appConfigAbs)) return null;
+  return {
+    name: "ignex-prod-shape",
+    setup(build) {
+      build.onLoad({ filter: /\.(ts|js|tsx|jsx|mts|mjs)$/ }, (args: { path: string }) => {
+        if (args.path !== appConfigAbs) return undefined;
+        const contents = readFileSync(args.path, "utf8");
+        // Stub the dev-only plugin FIRST (offsets are relative to the raw
+        // file), then prepend the runtime shape flag.
+        const rewritten = debugbarStubRewrite(contents) ?? contents;
+        return {
+          contents: `globalThis.__IGNEX_PROD_BUILD = true;\n${rewritten}`,
+          loader: "ts",
+        };
+      });
+    },
+  };
+};
+
+/**
+ * Bundle with externalization retry: when route code references packages that
+ * cannot be resolved at build time (optional/uninstalled deps), externalize
+ * exactly those specifiers and retry. Bun.build surfaces resolution failures
+ * in waves (deeper modules only after shallower ones resolve), so this loops
+ * until success or no NEW unresolved specifiers appear.
+ */
+const bundleWithExternalsRetry = async (
+  build: (options: Record<string, unknown>) => Promise<BunBuildResult>,
+  base: Record<string, unknown>,
+  ctx: CompilerContext,
+): Promise<{ result: BunBuildResult | null; thrown: unknown }> => {
+  const externals = new Set<string>();
+  let result: BunBuildResult | null = null;
+  let thrown: unknown = null;
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    thrown = null;
+    result = null;
+    try {
+      result = (await build({
+        ...base,
+        ...(externals.size > 0 ? { external: [...externals] } : {}),
+      })) as BunBuildResult;
+    } catch (err: unknown) {
+      thrown = err;
+    }
+    if (result?.success) break;
+
+    const missing = [
+      ...new Set([
+        ...(result && !result.success ? unresolvedSpecifiers(result.logs ?? []) : []),
+        ...(thrown !== null
+          ? unresolvedSpecifiers((errorLogs(thrown) as BunBuildLog[] | undefined) ?? [])
+          : []),
+      ]),
+    ].filter((spec) => !externals.has(spec));
+    if (missing.length === 0) break;
+
+    ctx.diagnostics.warn({
+      code: DiagnosticCodes.LinkFailed,
+      message: `Unresolved package${missing.length > 1 ? "s" : ""} externalized (must resolve at runtime): ${missing.join(", ")}`,
+    });
+    for (const spec of missing) externals.add(spec);
+  }
+
+  return { result, thrown };
+};
+
+/** Build the JS artifact, reporting failures as diagnostics. */
 const buildWithFallback = async (
   entryPath: string,
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): Promise<BunBuildResult | null> => {
-  const buildOptions: Record<string, unknown> = {
+  // Production-shaped builds bake their shape into the app-config module so
+  // dev-only plugins (debugbar) inert-construct themselves even when the
+  // artifact is launched without `NODE_ENV=production` in the environment.
+  const appConfigAbs =
+    typeof opts.appConfig === "string" && opts.appConfig.length > 0
+      ? projectPath(opts.appConfig)
+      : projectPath("./src/app.config.ts");
+  const prodShapePlugin = prodShapeBunPlugin(appConfigAbs, isProductionBuild(opts));
+
+  const base: Record<string, unknown> = {
     entrypoints: [entryPath],
     outdir: opts.outDir,
     target: "bun",
     format: "esm",
     minify: opts.minify,
     sourcemap: opts.sourceMap ? "external" : "none",
+    ...(prodShapePlugin ? { plugins: [prodShapePlugin] } : {}),
   };
 
   // `runLinkerAsync` guards `bun?.build` before calling us — capture the
@@ -105,30 +225,25 @@ const buildWithFallback = async (
   const build = bun?.build;
   if (!build) return null;
 
-  try {
-    const result = await build(buildOptions);
-    if (!result.success) {
-      const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
-      rmSync(entryPath, { force: true });
-      ctx.diagnostics.error({
-        code: DiagnosticCodes.LinkFailed,
-        message: `Bun.build failed: ${message}`,
-      });
-      return null;
-    }
-    return result;
-  } catch (err: unknown) {
+  const fail = (message: string): null => {
     rmSync(entryPath, { force: true });
-
-    const details = formatBuildLogs(errorLogs(err));
-
-    ctx.diagnostics.error({
-      code: DiagnosticCodes.LinkFailed,
-      message: `Bun.build threw an exception: ${errorMessage(err)}${details}`,
-    });
-
+    ctx.diagnostics.error({ code: DiagnosticCodes.LinkFailed, message });
     return null;
+  };
+
+  // Bundle everything, externalizing unresolvable packages wave by wave.
+  const { result, thrown } = await bundleWithExternalsRetry(build, base, ctx);
+
+  if (result?.success) return result;
+
+  if (thrown !== null) {
+    const details = formatBuildLogs(errorLogs(thrown));
+    return fail(`Bun.build threw an exception: ${errorMessage(thrown)}${details}`);
   }
+
+  return fail(
+    `Bun.build failed: ${(result?.logs ?? []).map((log) => log.message ?? String(log)).join("\n")}`,
+  );
 };
 
 /** Move the built output (or the entry file) to the final outPath. */
@@ -208,7 +323,9 @@ const buildCompiled = async (
   opts: CompilerOptions,
   ctx: CompilerContext,
 ): Promise<BunBuildResult | null> => {
-  const buildOptions: Record<string, unknown> = {
+  // Standalone binaries embed EVERYTHING (user deps included) — that is their
+  // purpose: deploy without installing Bun or node_modules. No externals.
+  const options: Record<string, unknown> = {
     entrypoints: [entryPath],
     compile: {
       outfile,
@@ -229,7 +346,7 @@ const buildCompiled = async (
   if (!build) return null;
 
   try {
-    const result = await build(buildOptions);
+    const result = await build(options);
     if (!result.success) {
       const message = (result.logs ?? []).map((log) => log.message ?? String(log)).join("\n");
       rmSync(entryPath, { force: true });
@@ -286,11 +403,16 @@ export const runLinkerAsync = async (
     return outPath;
   }
 
-  if (!opts.minify && !opts.sourceMap) {
-    return writeRaw(outPath, code, ctx);
-  }
-
   /**
+   * ALWAYS bundle (dev included): the linker compiles route modules, hooks,
+   * validators/serializers and generated helpers into ONE self-contained
+   * artifact. Bun.build performs treeshaking + dead-code elimination over the
+   * whole module graph, so unreferenced runtime helpers and core exports are
+   * removed by the bundler — no hand-rolled usage tracking anywhere.
+   *
+   * `minify` only controls identifier compression; treeshaking is inherent to
+   * bundling and always on.
+   *
    * IMPORTANT:
    *
    * This entry file must be inside opts.outDir.

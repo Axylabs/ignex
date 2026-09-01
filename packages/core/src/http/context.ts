@@ -12,9 +12,10 @@
 
 import { HttpResponseCache, type HttpResponseCacheOptions } from "../data/cache";
 import { createDataLoader, type DataLoaderFactory } from "../data/dataloader";
+import { createQueryParams } from "../data/query";
 import { NOOP_DEBUG_API } from "../debug/api";
 import type { DebugApi } from "../debug/types";
-import { firstForwardedIp } from "../platform/coerce";
+import { lastForwardedIp } from "../platform/coerce";
 import type { ElysiaCookie, HttpMethod } from "../types";
 import { createLazyBody, type LazyBody, type LazyBodyOptions } from "./body";
 import { type Cookie, createLazyCookieJar } from "./cookies";
@@ -123,9 +124,22 @@ export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B
   proxy(target: string | URL, opts?: ProxyOptions): Promise<Response>;
   forward(target: string | URL, opts?: ProxyOptions): Promise<Response>;
 
+  /**
+   * Cache the response of `factory` keyed by method+URL (+ `vary` headers).
+   *
+   * Requests carrying an `Authorization` header bypass the cache unless
+   * `allowAuthorized: true`; cookie-bearing requests bypass it unless
+   * `vary: ["cookie"]` (per-cookie keys) or `allowCookies: true`. This
+   * prevents authenticated responses from leaking across users through a
+   * shared key.
+   */
   cache(
     factory: () => Promise<Response>,
-    opts?: HttpResponseCacheOptions & { vary?: string[] },
+    opts?: HttpResponseCacheOptions & {
+      vary?: string[];
+      allowAuthorized?: boolean;
+      allowCookies?: boolean;
+    },
   ): Promise<Response>;
 
   /**
@@ -214,7 +228,11 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   private _cookie: Record<string, Cookie<string | undefined>> | undefined;
   private _url: URL | undefined;
   private _path: string | undefined;
-  private _query: URLSearchParams | Record<string, string | string[]> | undefined;
+  private _query:
+    | URLSearchParams
+    | Record<string, string | string[]>
+    | import("../data/query").NativeQueryParams
+    | undefined;
   private _requestId: string | undefined;
   private _ip: string | undefined;
   private _state: Map<string | symbol, unknown> | undefined;
@@ -317,7 +335,7 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     if (this._opts.trustProxy) {
       const forwarded =
         this.req.headers.get("x-real-ip") ??
-        firstForwardedIp(this.req.headers.get("x-forwarded-for"));
+        lastForwardedIp(this.req.headers.get("x-forwarded-for"));
       if (forwarded) {
         this._ip = forwarded;
         return forwarded;
@@ -330,15 +348,15 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
 
   get query(): URLSearchParams {
     if (this._query === undefined) {
-      // Build the search params directly from the query substring instead of
-      // `new URL(req.url).searchParams` — avoids the full URL object parse
-      // (scheme/authority/path) for the ~4% per-request cost the URL paid on
-      // query-reading routes (bench: URLSearchParams(substring) ≈ 1.15× vs
-      // `new URL().searchParams`). HTTP request URLs carry no `#` fragment, so
-      // the substring parse is byte-identical to the URL's searchParams.
+      // Parse the query substring ONCE. `createQueryParams` uses the native
+      // pairs parse + `NativeQueryParams` when the addon is loaded (~4× faster
+      // than URLSearchParams on a 20-parameter query, same read contract) and
+      // falls back to `new URLSearchParams(substring)` otherwise — itself an
+      // optimization over `new URL(url).searchParams` (~1.15×, no full URL
+      // object parse; HTTP request URLs carry no `#` fragment).
       const url = this.req.url;
       const q = url.indexOf("?");
-      this._query = q === -1 ? new URLSearchParams() : new URLSearchParams(url.slice(q + 1));
+      this._query = q === -1 ? new URLSearchParams() : createQueryParams(url.slice(q + 1));
     }
     return this._query as URLSearchParams;
   }

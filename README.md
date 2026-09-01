@@ -405,6 +405,14 @@ The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a
 - ✅ Codegen fix: full-context route core functions now assign (not redeclare) `ctx`, so the catch block hands the REAL context to `__handleError` — compiled error-stage hooks (e.g. plugin `onError`) previously received `undefined` (interpreted parity restored).
 - ✅ Core bug fix: `ctx.set` is now exposed, so cookies/headers set via `ctx.cookie`/`ctx.set` are serialized into responses.
 - ✅ Core bug fix: plugin `onResponse` hooks no longer run on raw (non-`Response`) handler results.
+- ✅ **Native degradation is observable** — every native fault (ingress pipeline, route run, load failure, password-backend downgrade) reports through a telemetry sink (`setNativeTelemetrySink`); the ingress pipeline supports `IGNEX_INGRESS_FAIL_CLOSED=1` (or `runtime.failClosed`) to reject with 503 instead of silently serving unfiltered traffic.
+- ✅ **Decompression-bomb caps everywhere** — JS gzip/brotli fallbacks enforce the same 64 MiB cap as the Rust core (`PayloadTooLargeError`), closing a DoS gap on non-native installs.
+- ✅ **Multi-process-safe durable jobs** — fresh read-modify-write per operation, owner-token leases, per-job claims (`claimOne`), retention pruning, collision-resistant ids across processes, and async-store support (`openStoreJobStore`, enabling Redis-backed queues).
+- ✅ **Atomic shared rate limiting** — `createRedisRateLimitStore()` gives authoritative fixed-window counting across replicas; `onStoreError: "open" | "closed"` makes store-failure policy explicit.
+- ✅ **Readiness probes** — `healthProbe()` / `runReadinessChecks()` separate liveness (`/health`) from dependency-aware readiness (`/ready`, 503 on failure).
+- ✅ Session fast path: fused native seal/open replaces stringify+HMAC two-step; cookies sealed by either path decode on both. The FFI bind + parity self-test now warm at boot instead of spiking the first request.
+- ✅ SQLite/file stores hardened: WAL + busy_timeout for concurrent writers, entry caps with expired-first eviction, optional coalesced file writes.
+- ✅ Generated-server shutdown actually DRAINS (`stop(false)`); interpreted path parity. Scheduler records failures as failures (was: marked completed). Mailer/notification failures are logged, never silently dropped.
 
 ## What Is In Progress / Missing
 
@@ -420,7 +428,7 @@ The Rust NAPI addon (`castrum`) accelerates proven hot paths — hashing (FNV-1a
 ## Current Limitations
 
 - The native addon (`castrum`) must be installed for native acceleration; the pure-TS fallbacks are always functional.
-- Password hashes are KDF-specific (argon2id native / `$scrypt$` fallback) — a hash created on one path verifies only on a path that supports its format.
+- Password hashes are KDF-specific (argon2id native / `$scrypt$` fallback) — a hash created on one path verifies only on a path that supports its format. Downgrades no longer fail silently: `passwordVerify` reports through the telemetry sink and `passwordHashAlgorithm()`/`canVerifyPasswordHash()` let callers detect the split proactively.
 - Templates: the pure-TS fallback supports the common Jinja subset; full Jinja features require the native minijinja renderer.
 - Standard-Schema build-time conversion covers schemas that expose a JSON-schema converter (`toJSONSchema`/`toJsonSchema`) or the zod/valibot vendors; other vendors are validated/serialized at runtime (`IGN_STANDARD_SCHEMA_RUNTIME`).
 - The SQLite job store requires `bun:sqlite`; the file-backed store works everywhere.

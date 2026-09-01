@@ -1,6 +1,10 @@
 /**
- * @fileoverview Codegen: stage 1 — `@ignex/core` import assembly + per-route
- * imports (handlers, validators, serializers, hooks, app config).
+ * @fileoverview Codegen: stage 1 — app-config wiring + per-route imports
+ * (handlers, validators, serializers, hooks).
+ *
+ * The `@ignex/core` import is assembled once in `server.ts` (structural
+ * symbols + `state.usedCore`); the linker's bundler prunes whatever turns out
+ * unused. This stage only emits per-route module imports.
  */
 
 import { existsSync } from "node:fs";
@@ -9,7 +13,6 @@ import { SCHEMA_PARTS } from "../../types";
 import { projectPath } from "../../utils/path";
 import { toImportPath } from "./config";
 import {
-  guardHookEmissions,
   handlerImportName,
   hookIdent,
   serializerImportName,
@@ -23,14 +26,6 @@ import type { CodegenState } from "./state";
 const resolveAppConfigPath = (appConfigPath: string | undefined): string | undefined => {
   if (typeof appConfigPath !== "string" || appConfigPath.length === 0) return undefined;
   return projectPath(appConfigPath);
-};
-
-/** Collect the core names needed by any route that proxies or forwards. */
-const collectProxyCoreNames = (routes: readonly RouteIR[], coreNames: string[]): void => {
-  for (const route of routes) {
-    if (route.analysis.usage.proxy) coreNames.push("proxyRequest");
-    if (route.analysis.usage.forward) coreNames.push("forwardRequest");
-  }
 };
 
 /** Import a WS route's `wsHandler` export for the server's `websocket` option. */
@@ -127,7 +122,7 @@ export const stageImports = (
   opts: CompilerOptions,
   appConfig?: AppConfigInfo,
 ): void => {
-  const { imports, coreNames } = state;
+  const { imports } = state;
 
   const appConfigAbs = resolveAppConfigPath(opts.appConfig);
   state.appConfigAbs = appConfigAbs;
@@ -139,59 +134,7 @@ export const stageImports = (
     ? appConfig.hasActivePlugins || appConfig.hasLifecycle
     : state.hasAppConfig;
   state.traceDebug = appConfig ? appConfig.hasEnabledDebugbar : false;
-
-  coreNames.push(
-    "createContext",
-    "createLazyBody",
-    "parseQueryFromURL",
-    "errorToResponse",
-    "sendFile",
-    "HttpResponseCache",
-    "ValidationError",
-    "BodyParseError",
-    "serializeCookie",
-    "parseCookieString",
-    "createCookieJar",
-    "createLazyCookieJar",
-    "validateAsync",
-    "EMPTY_LIFECYCLE",
-    "runHooks",
-    // Lifecycle-stage instrumentation (debugbar waterfall rows): imported only
-    // when emitted code references them (the final import is pruned per
-    // referenced symbol in `server.ts`).
-    "runTimed",
-    "debugStageEnd",
-    // Per-route native prelude (`routes/native.ts`): pre-baked query/cookie
-    // parse seeds ctx.query/ctx.cookie via the pair→record helpers.
-    "createNativeRoute",
-    "groupQueryPairs",
-    "cookiePairsToRecord",
-    // Usage-only native prelude: ctx.query becomes a URLSearchParams-
-    // compatible facade over the native pairs (no URLSearchParams rebuild).
-    "NativeQueryParams",
-  );
-
-  if (state.hasAppConfig) {
-    coreNames.push(
-      "createPluginContext",
-      "mergeLifeCycle",
-      "pluginsToLifeCycle",
-      "pluginContextToLifecycle",
-    );
-  }
-
-  collectProxyCoreNames(routes, coreNames);
-
-  // RBAC guard hooks reference `hasRole`/`can`/`canAll`/`requireAuthenticated`
-  // from `@ignex/core` — import exactly the names each guarded route needs.
-  for (const route of routes) {
-    for (const g of guardHookEmissions(route)) {
-      const openParen = g.expr.indexOf("(");
-      coreNames.push(openParen < 0 ? g.expr : g.expr.slice(0, openParen));
-    }
-  }
-
-  state.uniqueCore = [...new Set(coreNames)].sort();
+  state.isProductionBuild = appConfig ? appConfig.isProductionBuild : false;
 
   if (state.hasAppConfig && appConfigAbs) {
     imports.add(

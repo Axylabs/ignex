@@ -17,7 +17,7 @@
  *   an X export?" check.
  */
 
-import type { Node } from "./ast-types";
+import { isNode, type Node } from "./ast-types";
 
 /** Node metadata keys that must never be traversed. */
 const SKIP_KEYS = new Set<string>(["parent", "loc", "range", "span", "start", "end"]);
@@ -35,10 +35,6 @@ export const nodeStart = (node: Node | undefined): number | undefined =>
 /** Last node offset (exclusive) for slicing source text. */
 export const nodeEnd = (node: Node | undefined): number | undefined =>
   node?.range?.[1] ?? node?.end ?? node?.span?.[1];
-
-/** True when a value looks like an ESTree node (object with a string `type`). */
-const isNode = (value: unknown): value is Node =>
-  !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
 
 /** Visit every node in a single child slot (array or single node). */
 const forEachChildNode = (

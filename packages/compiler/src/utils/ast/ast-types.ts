@@ -33,11 +33,6 @@ export interface NodePosition {
   };
 }
 
-export interface SourceLocation {
-  start: { line: number; column: number };
-  end: { line: number; column: number };
-}
-
 // ---------------------------------------------------------------------------
 // Expressions
 // ---------------------------------------------------------------------------
@@ -97,6 +92,13 @@ export interface UnaryExpression extends NodePosition {
   operator: string;
   argument: Expression;
   prefix?: boolean;
+}
+
+export interface AssignmentExpression extends NodePosition {
+  type: "AssignmentExpression";
+  operator: string;
+  left: Expression | Identifier;
+  right: Expression;
 }
 
 export interface AwaitExpression extends NodePosition {
@@ -283,6 +285,7 @@ export type Expression =
   | CallExpression
   | NewExpression
   | UnaryExpression
+  | AssignmentExpression
   | AwaitExpression
   | ArrayExpression
   | ObjectExpression

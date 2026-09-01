@@ -13,6 +13,7 @@
  * the guard chain — works in both runtimes).
  */
 import { join, relative } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
   drizzleConfigTemplate,
   drizzleDbTemplate,
@@ -31,11 +32,49 @@ import {
   resourceReadmeTemplate,
   resourceRouteTemplates,
 } from "../templates/resource.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
-import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  name: {
+    type: "positional",
+    required: false,
+    description: "Resource name in PascalCase (e.g. User)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  dir: { type: "string", valueHint: "dir", description: "Override the models directory" },
+  fields: {
+    type: "string",
+    valueHint: "list",
+    description: "Comma-separated fields (name:string, age:integer, ...)",
+  },
+  auth: { type: "boolean", description: 'Pre-wire config.hooks = ["require-auth"]' },
+  rbac: {
+    type: "boolean",
+    description: "Pre-wire withGuards(..., { permissions: [...] }) boilerplate",
+  },
+  force: { type: "boolean", description: "Overwrite existing files" },
+  db: {
+    type: "string",
+    valueHint: "mongo|sql",
+    description: "Data layer (mongo default; sql = Drizzle)",
+  },
+} satisfies ArgsDef;
+
+export const resourceCmd = defineCommand({
+  meta: metaFor("resource"),
+  args: argsDef,
+  async run(ctx) {
+    await runResource(ctx.rawArgs);
+  },
+});
+
+export default resourceCmd;
 
 /**
  * Register `dbPlugin()` in `src/app.config.ts` so the ninox toolkit connects at
@@ -156,32 +195,25 @@ export async function addCollectionToDb(root: string, plural: string): Promise<v
 }
 
 export async function runResource(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    dir: { type: "string" },
-    fields: { type: "string" },
-    auth: { type: "boolean" },
-    rbac: { type: "boolean" },
-    force: { type: "boolean" },
-    db: { type: "string" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // The first positional is the resource *name*, not a root path.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const name = firstPositional(
-    positionals,
-    "Resource name is required (e.g. ignex resource User).",
-  );
-  if (!name) return;
+  const root = await resolveProjectRoot(parsed.root);
+  const name = parsed.name;
+  if (!name) {
+    error("Resource name is required (e.g. ignex resource User).");
+    process.exitCode = 1;
+    return;
+  }
 
-  const dbKind = values.db === "sql" ? "sql" : "mongo";
+  const dbKind = parsed.db === "sql" ? "sql" : "mongo";
   const config = await loadConfig(root);
-  const modelsDir = resolveDir(root, values.dir, config.modelsDir, "src/models");
+  const modelsDir = resolveDir(root, parsed.dir, config.modelsDir, "src/models");
   const routesDir = resolveDir(root, undefined, config.routesDir, "src/routes");
 
   let fields: ModelField[];
   try {
-    fields = parseModelFields(values.fields as string | undefined);
+    fields = parseModelFields(parsed.fields);
   } catch (err) {
     error(err instanceof Error ? err.message : String(err));
     return;
@@ -191,7 +223,7 @@ export async function runResource(args: string[]): Promise<void> {
   const dbPath = join(root, "src", "db.ts");
   const dbSqlPath = join(root, "src", "db-sql.ts");
   const drizzleConfigPath = join(root, "drizzle.config.ts");
-  const opts = { auth: Boolean(values.auth), rbac: Boolean(values.rbac) };
+  const opts = { auth: Boolean(parsed.auth), rbac: Boolean(parsed.rbac) };
 
   step(
     `Scaffolding resource ${name} (${dbKind === "sql" ? "Drizzle/SQLite" : `collection "${plural}"`})`,
@@ -201,7 +233,7 @@ export async function runResource(args: string[]): Promise<void> {
     // ── Drizzle (SQL) path ──────────────────────────────────────────────
     if (
       !(await writeScaffold(modelPath, drizzleModelTemplate(name, fields), {
-        force: Boolean(values.force),
+        force: Boolean(parsed.force),
         overwrite: true,
       }))
     ) {
@@ -214,7 +246,7 @@ export async function runResource(args: string[]): Promise<void> {
     )) {
       // drizzle paths already include the `api/` prefix.
       await writeScaffold(join(routesDir, path), content, {
-        force: Boolean(values.force),
+        force: Boolean(parsed.force),
       });
     }
 
@@ -236,7 +268,7 @@ export async function runResource(args: string[]): Promise<void> {
   // 1. The model (blocking exists/--force gate).
   if (
     !(await writeScaffold(modelPath, modelTemplate(name, fields), {
-      force: Boolean(values.force),
+      force: Boolean(parsed.force),
       overwrite: true,
     }))
   ) {
@@ -246,11 +278,11 @@ export async function runResource(args: string[]): Promise<void> {
   // 2. The CRUD routes under src/routes/api/<plural>/ (best-effort skip).
   for (const { path, content } of resourceRouteTemplates(name, opts)) {
     await writeScaffold(join(routesDir, "api", path), content, {
-      force: Boolean(values.force),
+      force: Boolean(parsed.force),
     });
   }
   await writeScaffold(join(routesDir, "api", plural, "README.md"), resourceReadmeTemplate(name), {
-    force: Boolean(values.force),
+    force: Boolean(parsed.force),
   });
 
   // 2b. The RBAC guard boilerplate (`src/lib/guards.ts`) — generated once,

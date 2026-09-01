@@ -31,15 +31,16 @@ live in `@ignex/core` (functional composition, no classes). Tests use
 |------|---------|
 | Typecheck (root + cli) | `bun run typecheck` / `bun run typecheck:cli` |
 | Quick verify gate | `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict) |
-| Full verify | `bun run verify` (adds `bun test`); `bun run verify:full` (adds coverage, build, smoke, smoke:fallback, check:cache-versions) |
+| Full verify | `bun run verify` (adds tests + check:dead); `bun run verify:full` (adds coverage, build, smoke, smoke:fallback, check:cache-versions) |
 | Tests (all packages, parallel) | `bun run test:parallel` (core/compiler/shared/cli/mcp) |
 | Single package tests | `bunx vitest run packages/<name>/test`; `bun run test:native` / `test:native:real` |
 | Lint / fix | `bun run lint` (oxlint + biome) / `bun run lint:fix` |
+| Dead-code scan | `bun run check:dead` (knip — unused files/exports/deps; config in `knip.json`; part of `verify`) |
 | Build + run app | `bun run build` → `bun run dev` / `bun run start` |
 | Smoke gates | `bun run smoke` (native) + `bun run smoke:fallback` (`IGNEX_NATIVE=off`) |
 | SDK generation | `bun run sdk` / `sdk:push` / `sdk:publish` / `sdk:release` |
 | Benchmarks | `bun run bench`, `bench:native`, `bench:ffi`, `bench:jwt*`, `bench:server*`, `bench:compare` |
-| Native parity checks | `bun run verify:native:route` / `verify:native:ffi` / `verify:aot:rbac` / `verify:cli:resource` |
+| Native parity checks | `bun run verify:native:route` / `verify:native:ffi` / `verify:aot:rbac` / `verify:cli:resource` / `check:native:surface` (vendor/castrum.d.ts ↔ real addon drift) |
 | Secret scan | `bun run scan:secrets` |
 | New package | `bun scripts/new-package.ts` |
 | Regenerate AI scaffold | `bun run gen:ai-map` |
@@ -55,8 +56,11 @@ packages/
                 session), http/ (context, body, proxy, files, sse, ws, route DSL),
                 data/ (cache, dataloader, lru, query, schema, validation),
                 lifecycle/ (hooks, lifecycle, plugin), platform/ (env, config, jobs,
-                errors), content/ (i18n, template), plugins/, debug/ (debugbar),
-                openapi.ts, jobs.ts — barrel exports; subpaths @ignex/core/http|debug|...
+                errors), content/ (i18n, template), plugins/, debug/ (debugbar +
+                observatory: logs, metrics/Prometheus, SQLite history, leak
+                diagnostics; debug/ui/ is a SolidJS + Tailwind SPA compiled
+                ahead of time by scripts/gen-debug-ui.ts), openapi.ts, jobs.ts —
+                barrel exports; subpaths @ignex/core/http|debug|...
   compiler/     AOT: frontend/ (source manager), ir/, phases/ (discovery, analysis,
                 optimization, codegen, linker, artifacts), sdk/, cache.ts
                 (COMPILER_CACHE_VERSION), pipeline.ts, emitter.ts, fp.ts
@@ -82,7 +86,9 @@ docs/           feature docs (see index above) + ai/ (this scaffolding)
    public surfaces; small pure functions in small files, domain folders.
 4. **Vitest, not bun test** — suites under `packages/*/test`; `test:parallel`.
 5. **Docs discipline** — docs must match code; keep `AGENTS.md`/`RULES.md`/
-   skills/TREE in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json (0.1.7).
+   skills/TREE in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json
+   (released: 0.1.7; workspace packages are ahead in `[Unreleased]` — keep
+   CHANGELOG entries flowing, don't let the versions drift silently).
 
 ## Do NOT
 

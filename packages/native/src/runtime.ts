@@ -84,6 +84,36 @@ export const useNative = (op: OpName): boolean =>
   native != null &&
   (SELECTION[op].impl === "castrum" || (getFfiLazy() != null && FFI_WINS.has(op)));
 
+/**
+ * The EFFECTIVE implementation for `op` on this process right now
+ * (`"castrum"` | `"js"`), accounting for the static table AND the live-FFI
+ * overrides. `SELECTION[op].impl` stays the immutable compile-time decision;
+ * this answers "what actually runs" (the two can differ under the C-ABI
+ * transport — queryable here instead of being an invisible divergence).
+ */
+export const effectiveImplFor = (op: OpName): ExecutionBackend =>
+  useNative(op) ? "castrum" : "js";
+
+/**
+ * Eagerly force the lazy C-ABI bind + parity self-test at boot.
+ *
+ * Without this, the bind (~40 assertions incl. Ed25519/AEAD roundtrips) runs
+ * inside the FIRST `useNative()` call — i.e., on the first real request after
+ * every deploy/restart, adding a one-off latency spike to it. Call once during
+ * startup (after `initNative`) to move that cost to load time. Idempotent;
+ * never throws.
+ */
+export const warmRuntime = (): void => {
+  try {
+    getFfiLazy();
+    getPreferred();
+    implCache.clear();
+  } catch {
+    // A failed warmup leaves the lazy path intact — first use will retry.
+    implCache.clear();
+  }
+};
+
 /** Per-op native-handle cache (lazily populated on first `nativeFor`). */
 const implCache = new Map<OpName, NativeAddon | null>();
 

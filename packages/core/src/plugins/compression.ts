@@ -1,12 +1,13 @@
 /**
  * @fileoverview Compression plugin — Bun 1.4 edition.
  *
- * Adds Brotli when available. When the Rust addon is loaded, gzip is done in
- * Rust (buffered) for maximum throughput; the streaming `CompressionStream`
- * path remains the fallback (deflate, brotli, or native unavailable).
+ * Adds Brotli when available. When the Rust addon is loaded, gzip AND brotli
+ * compress in Rust (buffered — the body is already fully materialized at that
+ * point); the streaming `CompressionStream` path remains the fallback
+ * (deflate, or native unavailable / compression failure).
  */
 
-import { gzipCompress, isNativeAvailable } from "@ignex/native";
+import { brotliCompress, gzipCompress, isNativeAvailable } from "@ignex/native";
 import { etagWithEncoding, isCompressible, negotiateEncoding } from "../data/content-encoding";
 import type { IgnexContext } from "../http/context";
 import { appendVary } from "../http/headers";
@@ -43,11 +44,15 @@ try {
 export const compression = (options: CompressionOptions = {}): IgnexPlugin => {
   const { threshold = 1024, filter = isCompressible, native = true } = options;
 
+  // Negotiation order is fixed per process — hoist both variants out of the
+  // request path (the previous per-request literal allocated on every
+  // response, including the vast majority that skip compression entirely).
+  const supported = supportsBrotli ? ["br", "gzip", "deflate"] : ["gzip", "deflate"];
+
   return {
     name: "compression",
 
     onResponse(ctx, response) {
-      const supported = supportsBrotli ? ["br", "gzip", "deflate"] : ["gzip", "deflate"];
       // Sync fast path: decide whether compression applies WITHOUT buffering
       // the body. The common case (no accept-encoding, tiny body, filtered
       // type, already encoded) returns `null` synchronously — no Promise, no
@@ -110,8 +115,12 @@ const serveCompressed = (body: BodyInit, response: Response, headers: Headers): 
 
 /**
  * Async compression path (only reached when compression actually applies):
- * build the headers, buffer the body once for the REAL size (tiny responses
- * are skipped), then gzip via Rust / CompressionStream.
+ * build the headers, then — for known-length bodies — buffer once for the
+ * REAL size (tiny responses are skipped) and gzip via Rust / CompressionStream.
+ * Bodies WITHOUT a `content-length` (streams of unknown size, e.g. proxied
+ * responses or generator-driven endpoints) are compressed INCREMENTALLY via
+ * `CompressionStream` piping: never buffered whole (an unbounded stream would
+ * otherwise hang the response and grow memory without bound).
  */
 async function compressResponse(
   response: Response,
@@ -129,6 +138,16 @@ async function compressResponse(
   const etag = headers.get("etag");
   if (etag) headers.set("etag", etagWithEncoding(etag, encoding));
 
+  const contentLength = Number(response.headers.get("content-length") || "0");
+
+  // Unknown-size stream: incremental compression, bounded memory. The Rust
+  // gzip op needs the full input, so streams use CompressionStream only.
+  if (!contentLength) {
+    const CS = (globalThis as any).CompressionStream;
+    if (typeof CS === "undefined" || !response.body) return response;
+    return serveCompressed(response.body.pipeThrough(new CS(encoding)), response, headers);
+  }
+
   // Buffer the body ONCE so the REAL size is known and tiny responses are
   // skipped — compressing a 36-byte body is pure waste (the re-wrap +
   // gzip path dominates the response cost). This also lets us emit an
@@ -144,10 +163,23 @@ async function compressResponse(
     return serveUncompressed(body, response, headers);
   }
 
-  // Rust gzip fast path (buffered). If compression fails we serve the same
-  // bytes uncompressed.
-  if (native && encoding === "gzip" && isNativeAvailable()) {
-    return compressNativeGzip({ response, headers, body, encoding }, serveUncompressed);
+  // Rust fast path (buffered) for gzip AND brotli: the body is already fully
+  // in memory here, so streaming it through `CompressionStream` (async chunked
+  // Web streams) is pure overhead when the addon can compress synchronously.
+  // If compression fails we serve the same bytes uncompressed.
+  if (native && isNativeAvailable()) {
+    if (encoding === "gzip") {
+      return compressNativeGzip({ response, headers, body, encoding }, serveUncompressed);
+    }
+    if (encoding === "br") {
+      try {
+        const compressed = brotliCompress(body) as unknown as BodyInit;
+        headers.set("content-length", String((compressed as Uint8Array).byteLength));
+        return serveCompressed(compressed, response, headers);
+      } catch {
+        // fall through to the CompressionStream path
+      }
+    }
   }
 
   const CS = (globalThis as any).CompressionStream;

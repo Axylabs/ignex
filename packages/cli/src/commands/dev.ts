@@ -1,16 +1,19 @@
 import { type ChildProcess, spawn as spawnProcess, spawnSync } from "node:child_process";
 import { type FSWatcher, watch } from "node:fs";
 import { relative, resolve } from "node:path";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { buildProject, findServerEntry, writeBuildErrorMarker } from "../utils/compiler.js";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { isValidPort, shouldIgnore } from "../utils/dev.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { checkProjectEnv, reportEnvCheck } from "../utils/env-check.js";
 import { error, formatError, info, step, success, warn } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
+import { openBrowser, waitForServer } from "../utils/open.js";
 import { findPortOwner, killPortOwner } from "../utils/port.js";
 import { isInteractiveTTY, PromptCancelError, promptConfirm } from "../utils/prompt.js";
 import { detectRuntime } from "../utils/runtime.js";
+import { metaFor } from "./registry.js";
 
 /** Debounce window for rebuilds triggered by file events (ms). */
 const REBUILD_DEBOUNCE_MS = 120;
@@ -49,6 +52,7 @@ class DevServer {
   private readonly port: string;
   private readonly shouldSpawn: boolean;
   private readonly killPort: boolean;
+  private readonly openOnReady: boolean;
   private readonly outDir: string;
   private readonly config: Awaited<ReturnType<typeof loadConfig>>;
   private readonly buildArgs: BuildArgs;
@@ -63,6 +67,8 @@ class DevServer {
   private stoppingChild = false;
   private crashRestartAttempts = 0;
   private lastBuildFailed = false;
+  /** `--open` fires once per dev session (first successful spawn). */
+  private opened = false;
 
   constructor(opts: {
     root: string;
@@ -70,6 +76,7 @@ class DevServer {
     port: string;
     shouldSpawn: boolean;
     killPort: boolean;
+    openOnReady: boolean;
     outDir: string;
     config: Awaited<ReturnType<typeof loadConfig>>;
     buildArgs: BuildArgs;
@@ -79,6 +86,7 @@ class DevServer {
     this.port = opts.port;
     this.shouldSpawn = opts.shouldSpawn;
     this.killPort = opts.killPort;
+    this.openOnReady = opts.openOnReady;
     this.outDir = opts.outDir;
     this.config = opts.config;
     this.buildArgs = opts.buildArgs;
@@ -305,6 +313,7 @@ class DevServer {
       this.crashRestartAttempts = 0;
       await writeBuildErrorMarker(this.outDir, null);
       success("Build ok — server is up to date");
+      void this.maybeOpenBrowser();
     } catch (err) {
       this.lastBuildFailed = true;
       error(formatError(err));
@@ -320,6 +329,24 @@ class DevServer {
         this.pending = false;
         await this.buildOnce();
       }
+    }
+  }
+
+  /** Best-effort `--open`: probe the spawned server (http, then https for the
+   * dev TLS certs) and hand the responding URL to the platform opener. Fires
+   * once per session; never fails the dev loop. */
+  private async maybeOpenBrowser(): Promise<void> {
+    if (!this.openOnReady || this.opened || !this.shouldSpawn) return;
+    this.opened = true;
+
+    const base = `localhost:${this.port}`;
+    const httpOk = await waitForServer(`http://${base}`);
+    const url = httpOk ? `http://${base}` : `https://${base}`;
+    if (httpOk || (await waitForServer(`https://${base}`))) {
+      openBrowser(url);
+      info(`Opened ${url} in your browser`);
+    } else {
+      warn(`--open: could not reach ${base} within the timeout — open it manually.`);
     }
   }
 
@@ -420,28 +447,53 @@ class DevServer {
   }
 }
 
-export async function runDev(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    port: { type: "string" },
-    runtime: { type: "string" },
-    spawn: { type: "boolean" },
-    outDir: { type: "string" },
-    routesDir: { type: "string" },
-    minify: { type: "boolean" },
-    sourcemap: { type: "boolean" },
-    verbose: { type: "boolean" },
-    "kill-port": { type: "boolean" },
-  });
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  port: { type: "string", valueHint: "port", description: "Port to run on (default 3000)" },
+  runtime: { type: "string", valueHint: "bun|auto", description: "Runtime to spawn" },
+  spawn: {
+    type: "boolean",
+    default: true,
+    description: "Spawn the server after building (--no-spawn to skip)",
+  },
+  heat: {
+    type: "boolean",
+    default: true,
+    description: "Capture per-route request heat (--no-heat to skip)",
+  },
+  "out-dir": { type: "string", valueHint: "dir", description: "Compiler output directory" },
+  "routes-dir": { type: "string", valueHint: "dir", description: "Routes directory" },
+  minify: { type: "boolean", description: "Minify the emitted server" },
+  sourcemap: { type: "boolean", description: "Emit source maps" },
+  verbose: { type: "boolean", description: "Verbose compiler output" },
+  "kill-port": { type: "boolean", description: "Free the port before starting" },
+  open: { type: "boolean", description: "Open the app in your browser when the server is up" },
+} satisfies ArgsDef;
 
-  const root = resolveRoot(values, positionals);
-  const runtime = detectRuntime(values.runtime as string | undefined);
-  let port = (values.port as string | undefined) ?? process.env.PORT ?? "3000";
-  // In Bun, node:util/parseArgs turns `--no-spawn` into the literal "no-spawn"
-  // key (not `values.spawn === false`), so check it explicitly.
-  const noSpawn = (values as Record<string, unknown>)["no-spawn"] === true;
-  const shouldSpawn = values.spawn !== false && !noSpawn;
-  const killPort = Boolean(values["kill-port"]);
+export const devCmd = defineCommand({
+  meta: metaFor("dev"),
+  args: argsDef,
+  async run(ctx) {
+    await runDev(ctx.rawArgs);
+  },
+});
+
+export default devCmd;
+
+export async function runDev(args: string[]): Promise<void> {
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+
+  const root = await resolveProjectRoot(parsed.root);
+  const runtime = detectRuntime(parsed.runtime);
+  let port = parsed.port ?? process.env.PORT ?? "3000";
+  // citty native boolean negation: `--spawn` → true, `--no-spawn` → false,
+  // absent → default true (same for `heat` / `--no-heat`, dev-only PGO heat
+  // capture). No literal `no-spawn` keys leak into the parsed values.
+  const shouldSpawn = parsed.spawn !== false;
+  const noHeat = parsed.heat === false;
+  const killPort = Boolean(parsed["kill-port"]);
+  const openOnReady = parsed.open === true;
 
   if (!isValidPort(port)) {
     warn(`Invalid port "${port}" — defaulting to 3000`);
@@ -452,7 +504,7 @@ export async function runDev(args: string[]): Promise<void> {
   reportEnvCheck(await checkProjectEnv(root));
 
   const config = await loadConfig(root);
-  const outDir = String(values.outDir ?? config.outDir ?? ".ignex");
+  const outDir = String(parsed["out-dir"] ?? config.outDir ?? ".ignex");
 
   await new DevServer({
     root,
@@ -460,8 +512,12 @@ export async function runDev(args: string[]): Promise<void> {
     port,
     shouldSpawn,
     killPort,
+    openOnReady,
     outDir,
     config,
-    buildArgs: values as BuildArgs,
+    // Dev builds capture per-route request heat (<outDir>/hot-routes.json)
+    // so the next build's analysis can prioritize genuinely hot routes
+    // (inline budget, dedup leader). `--no-heat` opts out.
+    buildArgs: { ...parsed, heatCapture: !noHeat } as BuildArgs,
   }).start();
 }

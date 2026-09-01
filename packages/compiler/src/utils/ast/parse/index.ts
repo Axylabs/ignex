@@ -13,7 +13,6 @@ export {
   estimateNodeCount,
   handlerBodyReferencesImports,
   handlerBodyReferencesModuleScope,
-  importedLocalNames,
   isPlainJavaScriptBody,
   parseModule,
 } from "./module";

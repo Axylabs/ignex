@@ -17,9 +17,22 @@ const outDir = mkdtempSync(join(base, "build-"));
 const routesDir = join(outDir, "routes");
 mkdirSync(routesDir, { recursive: true });
 
+// The app-owned `withGuards` wrapper (the core barrel deliberately does not
+// export it — guard boilerplate lives in the app, see the CLI resource
+// template). Kept OUTSIDE `routesDir` (mirrors the app's `src/lib/guards.ts`)
+// so route indices stay stable. The AOT compiler resolves the conventional
+// name statically and emits the guard chain at build time.
+const libDir = join(outDir, "lib");
+mkdirSync(libDir, { recursive: true });
+writeFileSync(
+  join(libDir, "guards.ts"),
+  `export const withGuards = (handler: unknown, _guards?: unknown) => handler;
+`,
+);
+
 writeFileSync(
   join(routesDir, "protected.get.ts"),
-  `import { withGuards } from "@ignex/core";
+  `import { withGuards } from "../lib/guards";
 import { get } from "@ignex/core/http";
 
 export default withGuards(
@@ -31,7 +44,7 @@ export default withGuards(
 
 writeFileSync(
   join(routesDir, "authed.get.ts"),
-  `import { withGuards } from "@ignex/core";
+  `import { withGuards } from "../lib/guards";
 import { get } from "@ignex/core/http";
 
 export default withGuards(get((ctx) => ctx.json({ ok: true })));
@@ -51,7 +64,6 @@ const result = await buildAsync({
   generateClient: false,
   specializeContext: true,
   hoistConstants: true,
-  treeshakeRuntime: true,
   routeCache: false,
   precompileValidators: false,
   precompileSerializers: false,

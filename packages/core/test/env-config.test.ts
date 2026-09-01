@@ -206,3 +206,24 @@ describe("@ignex/core/env subpath", () => {
     expect(typeof mod.envExampleFromSchema).toBe("function");
   });
 });
+
+describe("writeEnvKeys", () => {
+  it("writes appended keys with owner-only file permissions (0600)", async () => {
+    const { writeEnvKeys } = await import("../src/platform/env.js");
+    const { mkdtempSync, statSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "ignex-env-"));
+    try {
+      const path = join(dir, ".env");
+      const appended = writeEnvKeys({ IGNEX_TEST_KEY_A: "a", IGNEX_TEST_KEY_B: "b" }, path);
+      expect(appended).toBe(2);
+      // Idempotent: existing keys are never rewritten.
+      expect(writeEnvKeys({ IGNEX_TEST_KEY_A: "other" }, path)).toBe(0);
+      const mode = statSync(path).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

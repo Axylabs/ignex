@@ -4,7 +4,7 @@
  * Walks the export graph of every scoped package's `exports` entry points
  * (`packages/{core,shared,compiler,cli,mcp,native}/src/*.ts`) and flags any
  * public symbol (function, class, type, const, enum) that is exported without
- * an attached `/** ... *​/` JSDoc comment directly above its declaration.
+ * an attached JSDoc comment block directly above its declaration.
  *
  * Because packages ship source-only (`exports` point at `src/*.ts`), the JSDoc
  * in `src/` IS the consumer-facing API documentation — this script is the gate

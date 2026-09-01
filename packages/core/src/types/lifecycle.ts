@@ -48,13 +48,3 @@ export const EMPTY_LIFECYCLE: LifeCycleStore = {
   error: [],
   stop: [],
 };
-
-/** OpenAPI operation decoration (summary/description/tags/security/…). */
-export interface DocumentDecoration {
-  summary?: string;
-  description?: string;
-  tags?: string[];
-  deprecated?: boolean;
-  security?: Record<string, string[]>[];
-  [key: string]: unknown;
-}

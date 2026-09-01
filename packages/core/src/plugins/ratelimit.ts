@@ -27,7 +27,7 @@ import {
 import type { IgnexContext } from "../http/context";
 import { reWrapResponse } from "../http/headers";
 import type { IgnexPlugin } from "../lifecycle/plugin";
-import { firstForwardedIp } from "../platform/coerce";
+import { lastForwardedIp } from "../platform/coerce";
 
 /** One-time warning when IP detection is unavailable (see onRequest below). */
 let anonymousWarned = false;
@@ -35,7 +35,7 @@ const warnAnonymousKeyOnce = (): void => {
   if (anonymousWarned) return;
   anonymousWarned = true;
   console.warn(
-    '[ignex] rateLimit: request IP is unavailable (no `server.requestIP` and `trustProxy: false`) — every request keys as "anonymous" and would share ONE bucket, so the limit is being skipped. Enable `trustProxy: true` (or pass a `keyGenerator`) to key per client.',
+    '[ignex] rateLimit: request IP is unavailable (no `server.requestIP` and `trustProxy: false`) — every client keys as the single shared bucket "anonymous", so ONE actor can exhaust everyone\'s budget. Enable `trustProxy: true` (or pass a `keyGenerator`) to key per client.',
   );
 };
 
@@ -46,6 +46,12 @@ const warnAnonymousKeyOnce = (): void => {
  * `data/store` driver or a custom distributed store) to share limits across
  * instances. Sync-capable like the store drivers: `get`/`set` may return
  * plain values or Promises — the plugin branches on `instanceof Promise`.
+ *
+ * ATOMIC shared counting: the read→compute→write flow below is non-atomic —
+ * N replicas sharing one store drift toward `N × maxRequests`. When the store
+ * exposes an atomic fixed-window `incr` (see `createRedisRateLimitStore`),
+ * the plugin uses it INSTEAD for `algorithm: "fixed-window"`, making the
+ * count authoritative across all replicas.
  */
 export interface RateLimitStore {
   /** Read the persisted state for a key (or `undefined` when absent/expired). */
@@ -63,6 +69,12 @@ export interface RateLimitStore {
     state: FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry,
     options?: { ttlMs?: number },
   ): void | Promise<void>;
+  /**
+   * ATOMIC fixed-window increment (optional capability). Implementations
+   * increment the shared counter and start the window TTL on first hit —
+   * no read-then-write race. Present on `createRedisRateLimitStore()`.
+   */
+  incr?(key: string, windowMs: number, now: number): Promise<FixedWindowEntry>;
 }
 
 /** Options for {@link rateLimit}. */
@@ -93,6 +105,14 @@ export interface RateLimitOptions {
    * state machines).
    */
   native?: boolean;
+  /**
+   * Policy when the shared store ERRORS (Redis down, sqlite locked, …).
+   * `"open"` (default): log once and ALLOW — availability over strictness.
+   * `"closed"`: reject with 503 — a broken shared limiter must not silently
+   * disable protection. (Previously store errors produced unhandled promise
+   * rejections with no policy at all.)
+   */
+  onStoreError?: "open" | "closed";
 }
 
 /** Unified rate-limit state carried to `onResponse` for the headers. */
@@ -118,14 +138,17 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
     message = "Too many requests",
     algorithm = "fixed-window",
     native = false,
+    onStoreError = "open",
   } = options;
 
   const defaultKeyGenerator = (ctx: IgnexContext): string => {
     if (trustProxy) {
+      // Rightmost entry: appended by the trusted proxy, so a client cannot
+      // rotate it per request (the leftmost entry is fully spoofable).
       const xff = ctx.headers.get("x-forwarded-for");
 
       if (xff) {
-        return firstForwardedIp(xff) || ctx.ip;
+        return lastForwardedIp(xff) || ctx.ip;
       }
     }
 
@@ -191,7 +214,15 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
       decision = checkFixedWindow(config, base, now);
     }
 
-    store?.set(key, decision.state, { ttlMs: Math.max(0, decision.resetMs - now) });
+    const persist = store?.set(key, decision.state, {
+      ttlMs: Math.max(0, decision.resetMs - now),
+    });
+    if (persist instanceof Promise) {
+      // A failed persistence must not reject into the request path — the
+      // decision for THIS request is already computed; log once so operators
+      // see a degraded limiter.
+      persist.catch((err) => void storeErrorPolicy(err));
+    }
 
     return {
       allowed: decision.allowed,
@@ -205,6 +236,43 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
     if (!state.allowed) return limitResponse(state);
     ctx.setState("__ratelimit", state);
     return ctx;
+  };
+
+  /** One-time store-error warning (the chosen policy must be visible). */
+  let storeErrorWarned = false;
+  /**
+   * Apply the onStoreError policy: returns the 503 Response under
+   * `"closed"`, or `null` to fail open. Never throws.
+   */
+  const storeErrorPolicy = (err: unknown): Response | null => {
+    if (!storeErrorWarned) {
+      storeErrorWarned = true;
+      console.error(
+        `[ignex] rateLimit: shared store failed — applying onStoreError:"${onStoreError}" ` +
+          `policy (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+    if (onStoreError === "closed") {
+      return new Response(JSON.stringify({ error: "Service temporarily unavailable" }), {
+        status: 503,
+        headers: { "content-type": "application/json", "retry-after": "1" },
+      });
+    }
+    return null;
+  };
+
+  const handleStoreError = (ctx: IgnexContext, err: unknown): IgnexContext | Response =>
+    storeErrorPolicy(err) ?? ctx;
+
+  /** ATOMIC fixed-window check via a store that exposes `incr`. */
+  const checkAtomic = async (key: string, now: number): Promise<RateState> => {
+    // `store.incr` is guaranteed present on this path (guarded by caller).
+    const entry = await (store as Required<Pick<RateLimitStore, "incr">>).incr(key, windowMs, now);
+    return {
+      allowed: entry.count <= maxRequests,
+      remaining: Math.max(0, maxRequests - entry.count),
+      resetTime: entry.resetTime,
+    };
   };
 
   return {
@@ -240,14 +308,38 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
         return ctx;
       }
 
-      const stored = store?.get(key);
+      // ATOMIC shared counting: when the store exposes `incr` (Redis et al.)
+      // and the algorithm is fixed-window, skip the racy read→compute→write
+      // and use the authoritative atomic increment.
+      const incr = (store as RateLimitStore | null)?.incr;
+      if (store && typeof incr === "function" && algorithm === "fixed-window") {
+        return Promise.resolve()
+          .then(() => checkAtomic(key, now))
+          .then((state) => finishCheck(ctx, state))
+          .catch((err) => handleStoreError(ctx, err));
+      }
+
+      let stored: ReturnType<NonNullable<RateLimitOptions["store"]>["get"]> | undefined;
+      try {
+        stored = store?.get(key);
+      } catch (err) {
+        return handleStoreError(ctx, err);
+      }
       if (stored instanceof Promise) {
         // Async store (e.g. a shared sqlite/file/custom driver): resolve the
         // state, run the check, then decide — the plugin returns a Promise.
-        return stored.then((value) => finishCheck(ctx, checkWithStore(key, value, now)));
+        // Store errors now hit the policy instead of becoming unhandled
+        // rejections.
+        return stored
+          .then((value) => finishCheck(ctx, checkWithStore(key, value, now)))
+          .catch((err) => handleStoreError(ctx, err));
       }
 
-      return finishCheck(ctx, checkWithStore(key, stored, now));
+      try {
+        return finishCheck(ctx, checkWithStore(key, stored, now));
+      } catch (err) {
+        return handleStoreError(ctx, err);
+      }
     },
 
     onResponse(ctx, response) {

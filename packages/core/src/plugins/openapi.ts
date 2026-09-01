@@ -307,7 +307,20 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     }
   };
 
-  const specResponse = (): Response => jsonResponse(buildSpec());
+  // Memoized SERIALIZED spec: buildSpec caches the document object, but
+  // JSON.stringify ran per request; /openapi.json hits now pay a Map-free
+  // string return. Invalidates with the same route-count key as the doc.
+  let cachedSerializedSpec: { count: number; json: string } | null = null;
+  const specResponse = (): Response => {
+    const doc = buildSpec();
+    const count = router?.listRoutes().length ?? 0;
+    if (cachedSerializedSpec === null || cachedSerializedSpec.count !== count) {
+      cachedSerializedSpec = { count, json: JSON.stringify(doc) };
+    }
+    return new Response(cachedSerializedSpec.json, {
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
+  };
 
   const uiResponse = (): Response =>
     htmlResponse(

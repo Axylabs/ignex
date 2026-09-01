@@ -1,5 +1,6 @@
 /**
- * `ignex factory <Name>` — scaffold a test-data factory for a ninox model.
+ * @fileoverview `ignex factory <Name>` — scaffold a test-data factory for a
+ * ninox model.
  *
  *   ignex factory User --fields "email:string(format email),role:enum(admin,editor)"
  *
@@ -9,32 +10,61 @@
  * and wires into `ignex seed` via a generated `seedFactories` helper.
  */
 import { join } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { factoryTemplate } from "../templates/factory.js";
 import { type ModelField, parseModelFields, pluralize } from "../templates/model.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, step } from "../utils/logger.js";
-import { firstPositional, resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
 
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  name: {
+    type: "positional",
+    required: false,
+    description: "Model name in PascalCase (e.g. User)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  dir: { type: "string", valueHint: "dir", description: "Override the factories directory" },
+  fields: {
+    type: "string",
+    valueHint: "list",
+    description: "Comma-separated fields (same DSL as ignex model)",
+  },
+  force: { type: "boolean", description: "Overwrite an existing factory" },
+} satisfies ArgsDef;
+
+export const factoryCmd = defineCommand({
+  meta: metaFor("factory"),
+  args: argsDef,
+  async run(ctx) {
+    await runFactory(ctx.rawArgs);
+  },
+});
+
+export default factoryCmd;
+
+/** Run `ignex factory`. */
 export async function runFactory(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    dir: { type: "string" },
-    fields: { type: "string" },
-    force: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // The first positional is the model *name*, not a root path.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
-  const name = firstPositional(positionals, "Model name is required (e.g. ignex factory User).");
-  if (!name) return;
+  const root = await resolveProjectRoot(parsed.root);
+  const name = parsed.name;
+  if (!name) {
+    error("Model name is required (e.g. ignex factory User).");
+    process.exitCode = 1;
+    return;
+  }
 
   const config = await loadConfig(root);
-  const factoriesDir = resolveDir(root, values.dir, config.factoriesDir, "src/factories");
+  const factoriesDir = resolveDir(root, parsed.dir, config.factoriesDir, "src/factories");
 
   let fields: ModelField[];
   try {
-    fields = parseModelFields(values.fields as string | undefined);
+    fields = parseModelFields(parsed.fields);
   } catch (err) {
     error(err instanceof Error ? err.message : String(err));
     return;
@@ -44,7 +74,7 @@ export async function runFactory(args: string[]): Promise<void> {
 
   step(`Creating factory for ${name} (src/factories/${plural}.ts)`);
   await writeScaffold(filePath, factoryTemplate(name, fields), {
-    force: Boolean(values.force),
+    force: parsed.force === true,
     overwrite: true,
   });
 }

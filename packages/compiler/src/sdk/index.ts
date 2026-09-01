@@ -3,9 +3,10 @@
  * Ignex SDK pipeline.
  *
  * Flow: {@link generateSdk} loads the compiled app's artifacts
- * (`manifest.json` + `openapi.json` from `outDir`), resolves the requested
- * platforms, and produces one package per platform. {@link writeSdk} writes
- * those packages to disk; {@link packSdk} turns one into an npm tarball.
+ * (`manifest.json` + `openapi.json` from `outDir`, plus the optional
+ * `realtime.json` / `rpc-manifest.json` realtime declarations), resolves the
+ * requested platforms, and produces one package per platform. {@link writeSdk}
+ * writes those packages to disk; {@link packSdk} turns one into an npm tarball.
  *
  * The output is deterministic: same artifacts in → same files out.
  */
@@ -14,8 +15,9 @@ import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { flatbuffersPlatform } from "./flatbuffers";
-import { loadSdkInputs } from "./load";
+import { loadSdkInputs, realtimeInputOf } from "./load";
 import { openapiPlatform } from "./openapi";
+import { realtimePlatform } from "./realtime";
 import type { SdkOptions, SdkPackage, SdkPlatform, SdkPlatformId, SdkResult } from "./types";
 import { typescriptPlatform } from "./typescript";
 
@@ -24,13 +26,14 @@ export const sdkPlatforms: Readonly<Record<string, SdkPlatform>> = {
   typescript: typescriptPlatform,
   openapi: openapiPlatform,
   flatbuffers: flatbuffersPlatform,
+  realtime: realtimePlatform,
 };
 
 /** Default platforms when `options.platforms` is omitted. */
 export const DEFAULT_SDK_PLATFORMS: readonly SdkPlatformId[] = ["typescript"];
 
 const isSdkPlatformId = (value: unknown): value is SdkPlatformId =>
-  value === "typescript" || value === "openapi" || value === "flatbuffers";
+  value === "typescript" || value === "openapi" || value === "flatbuffers" || value === "realtime";
 
 /** Resolve the platform ids for an options object, validating unknowns. */
 const resolvePlatformIds = (options: SdkOptions): readonly SdkPlatformId[] => {
@@ -89,9 +92,10 @@ export const generateSdk = async (options: SdkOptions): Promise<SdkResult> => {
       openapi: inputs.openapi,
       serviceName: inputs.serviceName,
       options: platformOptions,
+      ...(inputs.realtime !== undefined ? { realtime: inputs.realtime } : {}),
     };
     const dir = multi ? join(rootDir, id) : rootDir;
-    packages.push({ platform: id, dir, files: platform.generate(ctx) });
+    packages.push({ platform: id, dir, files: await platform.generate(ctx) });
   }
 
   return { rootDir, packages };
@@ -113,6 +117,49 @@ export const writeSdk = async (options: SdkOptions): Promise<SdkResult> => {
     }
   }
   return result;
+};
+
+/**
+ * Generate AND write ONLY the realtime SDK package — no build artifacts
+ * (`manifest.json`/`openapi.json`) required.
+ *
+ * Exists for the build-ordering bootstrap: the compiled server imports the
+ * generated wire stack, but the full SDK pipeline needs compilation
+ * artifacts — so `ignex build` uses this to emit the realtime SDK BEFORE
+ * compiling (and `ignex event bus` uses it right after scaffolding). The
+ * full `writeSdk` pipeline (typescript/openapi/flatbuffers platforms) still
+ * requires a prior build.
+ *
+ * @param options - `outDir` holding `realtime.json` (+ optional
+ * `rpc-manifest.json`); `packageDir` overrides the SDK root (default
+ * `<outDir>/sdk`).
+ * @returns The written packages (empty when the app declares no realtime
+ * events).
+ */
+export const writeRealtimeSdk = async (options: {
+  outDir: string;
+  packageDir?: string;
+}): Promise<SdkResult> => {
+  const outDir = resolve(options.outDir);
+  const realtime = realtimeInputOf(outDir);
+  const rootDir = resolve(options.packageDir ?? join(outDir, "sdk"));
+  if (realtime === undefined) return { rootDir, packages: [] };
+
+  const ctx = {
+    routes: [],
+    openapi: {},
+    serviceName: "ignex",
+    realtime,
+    options: { ...options, outDir, platforms: ["realtime"] },
+  };
+  const files = await realtimePlatform.generate(ctx as never);
+  const pkg = { platform: "realtime" as const, dir: rootDir, files };
+  for (const file of files) {
+    const abs = join(rootDir, file.path);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, file.content, "utf8");
+  }
+  return { rootDir, packages: [pkg] };
 };
 
 /**

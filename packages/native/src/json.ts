@@ -4,13 +4,10 @@
  */
 import { getFfiInstances } from "./ffi";
 import { nativeFor } from "./runtime";
+import { sizeGateAllowsNative } from "./selection";
 import { fromBytes, toBytes } from "./util";
 
-/** True when the input is well-formed JSON. */
-export const jsonValid = (input: string | Uint8Array): boolean => {
-  const bytes = toBytes(input);
-  const n = nativeFor("jsonValid");
-  if (n) return n.jsonValid(bytes);
+const jsonValidJs = (input: string | Uint8Array, bytes: Uint8Array): boolean => {
   try {
     JSON.parse(typeof input === "string" ? input : fromBytes(bytes));
     return true;
@@ -19,10 +16,25 @@ export const jsonValid = (input: string | Uint8Array): boolean => {
   }
 };
 
+/** True when the input is well-formed JSON. */
+export const jsonValid = (input: string | Uint8Array): boolean => {
+  const bytes = toBytes(input);
+  // Size-gated dispatch (measured crossover — see SIZE_GATES): tiny inputs
+  // lose to the boundary/transcode cost, so JSON.parse takes them; larger
+  // inputs amortize it and go native.
+  if (sizeGateAllowsNative("jsonValid", bytes.length)) {
+    const n = nativeFor("jsonValid");
+    if (n) return n.jsonValid(bytes);
+  }
+  return jsonValidJs(input, bytes);
+};
+
 // ── JSON Schema validation (native-or-null bridge) ──────────────
 
 /** Compiled native JSON-Schema validator (validates, batches, and derives). */
 export interface SchemaValidator {
+  /** Opaque C-ABI handle for fused wire-level ops (0 = unavailable). */
+  innerHandle?: number;
   /** `true` when `input` is a JSON document valid against the compiled schema. */
   validate(input: string | Uint8Array): boolean;
   /** Validate a packed batch of JSON documents → number of valid items. */
@@ -79,6 +91,8 @@ export const createSchemaValidator = (schema: string | Uint8Array): SchemaValida
   const ffiInst = getFfiInstances();
   const inner = ffiInst ? Number(inst.innerPtr()) : 0;
   return {
+    /** Opaque C-ABI handle (0 = unavailable) for fused wire-level ops. */
+    innerHandle: inner,
     validate(input) {
       if (inner && ffiInst) return ffiInst.schemaValidatorValidate(inner, toBytes(input));
       return inst.validate(toBytes(input));

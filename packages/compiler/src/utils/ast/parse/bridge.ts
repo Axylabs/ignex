@@ -10,6 +10,22 @@
 import * as oxcParser from "oxc-parser";
 import type { Program } from "../ast-types";
 
+/**
+ * Info about the most useful parser failure seen while walking the chain.
+ * The FIRST failure recorded is usually the most precise (oxc reports exact
+ * positions); later fallbacks only add "also failed" noise.
+ */
+export interface ParserFailureInfo {
+  readonly message: string;
+  /** Byte offset into the source when the parser reported one. */
+  readonly offset?: number;
+}
+
+/** An Error thrown by {@link parseToAst} carrying a source offset when known. */
+export interface ParseFailureError extends Error {
+  readonly parseOffset?: number;
+}
+
 /** Normalize any parser return shape into a usable Program node. */
 function normalizeAst(result: unknown): Program {
   if (!result) return { type: "Program", body: [] };
@@ -34,13 +50,34 @@ function normalizeAst(result: unknown): Program {
   return ast as unknown as Program;
 }
 
-function tryOxcParser(source: string): unknown | undefined {
+function tryOxcParser(source: string, failures: ParserFailureInfo[]): unknown | undefined {
   const mod = oxcParser as unknown as {
     parseSync?: (arg0: unknown, arg1?: unknown, arg2?: unknown) => unknown;
   };
   const parseSync = mod.parseSync;
 
   if (typeof parseSync !== "function") return undefined;
+
+  /** Record an oxc error entry (message + offset when numeric fields exist). */
+  const recordOxcError = (entry: {
+    message?: string;
+    start?: unknown;
+    span?: { start?: unknown };
+    loc?: { start?: unknown };
+  }): void => {
+    if (failures.length > 0) return; // first failure wins
+    let offset: number | undefined;
+    for (const candidate of [entry.start, entry.span?.start, entry.loc?.start]) {
+      if (typeof candidate === "number" && Number.isFinite(candidate)) {
+        offset = candidate;
+        break;
+      }
+    }
+    failures.push({
+      message: typeof entry.message === "string" ? entry.message : "AST parse error",
+      ...(offset !== undefined ? { offset } : {}),
+    });
+  };
 
   const attempts = [
     () =>
@@ -59,13 +96,21 @@ function tryOxcParser(source: string): unknown | undefined {
     try {
       const result = attempt() as {
         then?: unknown;
-        errors?: Array<{ message?: string }>;
+        errors?: Array<{
+          message?: string;
+          start?: unknown;
+          span?: { start?: unknown };
+          loc?: { start?: unknown };
+        }>;
         program?: unknown;
         ast?: unknown;
       } | null;
 
       if (result && typeof result.then === "function") continue;
-      if (result?.errors?.length) continue;
+      if (result?.errors?.length) {
+        recordOxcError(result.errors[0] ?? {});
+        continue;
+      }
 
       const program = result?.program ?? result?.ast ?? result;
 
@@ -82,7 +127,12 @@ function tryOxcParser(source: string): unknown | undefined {
 }
 
 export function parseToAst(source: string): Program {
-  const oxc = tryOxcParser(source);
+  // Collect the chain's failures so the thrown error names the REAL cause
+  // (e.g. oxc's "Unexpected token" with an offset) instead of a generic
+  // "no parser available" message that masks ordinary typos.
+  const failures: ParserFailureInfo[] = [];
+
+  const oxc = tryOxcParser(source, failures);
   if (oxc) return normalizeAst(oxc);
 
   // Access Bun via globalThis so this module also typechecks under
@@ -135,9 +185,24 @@ export function parseToAst(source: string): Program {
       const result = parser() as { then?: unknown } | undefined;
       if (result && typeof result.then === "function") continue;
       if (result) return normalizeAst(result);
-    } catch {
-      // try next parser
+    } catch (error) {
+      if (failures.length === 0) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({ message: message || "parser failed" });
+      }
     }
+  }
+
+  // Every parser rejected the source — surface the most informative failure
+  // (with its offset, when known) so parse diagnostics can render a real
+  // code frame instead of framing line 1.
+  if (failures.length > 0 && failures[0]) {
+    const { message, offset } = failures[0];
+    const error = new Error(message || "Failed to parse module") as ParseFailureError;
+    if (offset !== undefined) {
+      Object.defineProperty(error, "parseOffset", { value: offset, enumerable: false });
+    }
+    throw error;
   }
 
   throw new Error(

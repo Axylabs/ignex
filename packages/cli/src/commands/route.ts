@@ -2,18 +2,47 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { moduleFileTemplate, modulePathFor, routeWithModuleTemplate } from "../templates/module.js";
 import { routeFileTemplate } from "../templates/route.js";
-import { parseCliArgs, resolveRoot } from "../utils/args.js";
 import { loadConfig } from "../utils/config.js";
+import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, step, success } from "../utils/logger.js";
 import { PromptCancelError, promptConfirm, promptSelect, promptText } from "../utils/prompt.js";
 import { parseRouteInput, ROUTE_METHODS } from "../utils/route.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
+import { metaFor } from "./registry.js";
 
 /** True when the raw input already carries a dot-method suffix (`health.get`). */
 const hasExplicitMethod = (input: string): boolean =>
   /\.(get|post|put|patch|del|delete|all)$/i.test(input.replace(/\.ts$/i, ""));
+
+/** Typed CLI surface shared by parsing and usage rendering. */
+const argsDef = {
+  path: {
+    type: "positional",
+    required: false,
+    description: "Route path (e.g. products/[id].get, health.get)",
+  },
+  root: { type: "string", valueHint: "dir", description: "Project root" },
+  dir: { type: "string", valueHint: "dir", description: "Override routes directory" },
+  method: {
+    type: "string",
+    valueHint: "get|post|put|patch|del|all",
+    description: "HTTP method (inferred from a trailing .post etc.)",
+  },
+  schema: {
+    type: "boolean",
+    description: "Generate TypeBox schema boilerplate (installs typebox if missing)",
+  },
+  named: { type: "boolean", description: "Generate a named-export handler" },
+  module: {
+    type: "boolean",
+    default: true,
+    description: "Scaffold src/modules/<route>.ts + a thin route",
+  },
+  force: { type: "boolean", description: "Overwrite existing files" },
+} satisfies ArgsDef;
 
 /**
  * `ignex route <path>` — scaffold a route file plus its business-logic module.
@@ -23,25 +52,24 @@ const hasExplicitMethod = (input: string): boolean =>
  * the classic single-file route. Interactive mode asks for the path and, when
  * the path carries no method suffix, the HTTP method.
  */
+export const routeCmd = defineCommand({
+  meta: metaFor("route"),
+  args: argsDef,
+  async run(ctx) {
+    await runRoute(ctx.rawArgs);
+  },
+});
+
+export default routeCmd;
+
 export async function runRoute(args: string[]): Promise<void> {
-  const { values, positionals } = parseCliArgs(args, {
-    root: { type: "string" },
-    dir: { type: "string" },
-    method: { type: "string" },
-    schema: { type: "boolean" },
-    named: { type: "boolean" },
-    module: { type: "boolean" },
-    force: { type: "boolean" },
-  });
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
   // The first positional is the route path, not a root path.
-  const root = resolveRoot(values, positionals, { ignorePositionals: true });
+  const root = await resolveProjectRoot(parsed.root);
+  const withModule = parsed.module !== false;
 
-  // Bun's parseArgs turns `--no-module` into the literal "no-module" key.
-  const noModule = (values as Record<string, unknown>)["no-module"] === true;
-  const withModule = values.module === true ? true : !noModule;
-
-  let input = positionals[0];
+  let input = parsed.path;
   const interactive = Boolean(process.stdin.isTTY);
 
   if (!input && interactive) {
@@ -62,7 +90,7 @@ export async function runRoute(args: string[]): Promise<void> {
     return;
   }
 
-  let methodFlag = values.method as string | undefined;
+  let methodFlag = parsed.method;
   if (!methodFlag && !hasExplicitMethod(input) && interactive) {
     try {
       methodFlag = await promptSelect({
@@ -76,55 +104,55 @@ export async function runRoute(args: string[]): Promise<void> {
     }
   }
 
-  const parsed = parseRouteInput(input, methodFlag);
+  const parsedInput = parseRouteInput(input, methodFlag);
 
   const config = await loadConfig(root);
 
-  const routesDir = resolveDir(root, values.dir, config.routesDir, "src/routes");
-  const filePath = join(routesDir, parsed.file);
+  const routesDir = resolveDir(root, parsed.dir, config.routesDir, "src/routes");
+  const filePath = join(routesDir, parsedInput.file);
 
-  step(`Creating ${parsed.method.toUpperCase()} ${parsed.routePath}`);
+  step(`Creating ${parsedInput.method.toUpperCase()} ${parsedInput.routePath}`);
 
   if (withModule) {
     // 1. The business-logic module (src/modules/<route>.ts).
     const modulesDir = resolveDir(root, undefined, config.modulesDir, "src/modules");
-    const modulePath = join(modulesDir, parsed.file);
-    await writeScaffold(modulePath, moduleFileTemplate(parsed), {
-      force: Boolean(values.force),
+    const modulePath = join(modulesDir, parsedInput.file);
+    await writeScaffold(modulePath, moduleFileTemplate(parsedInput), {
+      force: parsed.force === true,
     });
     // 2. The thin route file that calls the module.
     if (
       !(await writeScaffold(
         filePath,
-        routeWithModuleTemplate(parsed, {
-          schema: Boolean(values.schema),
-          named: Boolean(values.named),
+        routeWithModuleTemplate(parsedInput, {
+          schema: parsed.schema === true,
+          named: parsed.named === true,
         }),
-        { force: Boolean(values.force), overwrite: true },
+        { force: parsed.force === true, overwrite: true },
       ))
     ) {
       return;
     }
-    info(`Business logic goes in ${modulePathFor(parsed)} — routes stay thin.`);
+    info(`Business logic goes in ${modulePathFor(parsedInput)} — routes stay thin.`);
   } else if (
     !(await writeScaffold(
       filePath,
-      routeFileTemplate(parsed, {
-        schema: Boolean(values.schema),
-        named: Boolean(values.named),
+      routeFileTemplate(parsedInput, {
+        schema: parsed.schema === true,
+        named: parsed.named === true,
       }),
-      { force: Boolean(values.force), overwrite: true },
+      { force: parsed.force === true, overwrite: true },
     ))
   ) {
     return;
   }
 
-  if (values.schema) {
+  if (parsed.schema === true) {
     info("Schema template uses typebox.");
     await maybeInstallTypebox(root);
   }
 
-  if (values.named) {
+  if (parsed.named === true) {
     info(
       "Route uses a named export (export const httpGet = ...). The compiler accepts both styles.",
     );

@@ -14,7 +14,7 @@
  */
 
 /** Built-in SDK platform identifiers. */
-export type SdkPlatformId = "typescript" | "openapi" | "flatbuffers";
+export type SdkPlatformId = "typescript" | "openapi" | "flatbuffers" | "realtime";
 
 /** A single generated file, relative to its package directory. */
 export interface SdkFile {
@@ -52,6 +52,25 @@ export interface SdkRouteInfo {
 }
 
 /**
+ * Realtime input, loaded from the build artifacts `<outDir>/realtime.json`
+ * (written by `ignex build` from the app's `src/realtime.ts` declarations)
+ * and `<outDir>/rpc-manifest.json` (written by the runtime RPC kit). All
+ * schema values are TypeBox schemas in JSON form.
+ */
+export interface SdkRealtimeInput {
+  /** NATS subject prefix baked into the generated nova bindings. */
+  subjectPrefix: string;
+  /** Named tables/enums referenced by events (`ChatMessage` → schema). */
+  schemas?: Record<string, unknown>;
+  /** App events: name → TypeBox payload schema. */
+  events: Record<string, unknown>;
+  /** Extra transport-internal control events (beyond the standard ones). */
+  controlEvents?: Record<string, unknown>;
+  /** RPC methods from `rpc-manifest.json`: name → TypeBox args schema. */
+  rpcMethods?: Record<string, unknown>;
+}
+
+/**
  * Everything a {@link SdkPlatform} needs to emit its package: the resolved
  * routes, the canonical OpenAPI document, and the normalized SDK options.
  */
@@ -64,6 +83,11 @@ export interface SdkGenerateContext {
   serviceName: string;
   /** Normalized SDK options (name, version, …) shared by all platforms. */
   options: SdkOptions;
+  /**
+   * Realtime declarations (`<outDir>/realtime.json` + `rpc-manifest.json`),
+   * consumed by the realtime platform; absent when the app has none.
+   */
+  realtime?: SdkRealtimeInput;
 }
 
 /**
@@ -77,8 +101,12 @@ export interface SdkPlatform {
   label: string;
   /** One-line description shown in `ignex sdk --help`. */
   description: string;
-  /** Emit the platform's package files (pure — no filesystem access). */
-  generate(ctx: SdkGenerateContext): readonly SdkFile[];
+  /**
+   * Emit the platform's package files (pure — no filesystem access). May be
+   * async when a platform shells out to an optional codegen dependency
+   * (e.g. the realtime platform's `@ignex/nova/generate`).
+   */
+  generate(ctx: SdkGenerateContext): readonly SdkFile[] | Promise<readonly SdkFile[]>;
 }
 
 /** A generated package for one platform. */

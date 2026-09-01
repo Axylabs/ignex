@@ -183,6 +183,10 @@ await app.init();
 app.serve({
   port: PORTS["ignus-native"],
   hostname: "0.0.0.0",
+  // Plain HTTP like every other compare participant (the load generator speaks
+  // http://). Core's TLS default is HTTPS-with-dev-certs since the tls.ts work;
+  // ignus-server.ts pins `false` too.
+  https: false,
   idleTimeout: 30,
   maxRequestBodySize: MAX_BODY_BYTES + 1024,
 });

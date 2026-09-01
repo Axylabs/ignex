@@ -34,11 +34,20 @@ sdk/         SDK generation support
 
 ## CLI (`packages/cli/src/`)
 
-- `index.ts` (entry), `config.ts`, `version.ts`, `route.ts`, `types.ts`,
-  `commands/` (dev/build/route/resource…), `templates/` (scaffold files),
-  `completions/`, `utils/`.
+- Dispatch is a **citty root app**: `index.ts` (entry + unknown-command typo
+  recovery), `app.ts` (root `defineCommand` with lazy subcommands),
+  `usage.ts` (root + per-command help), `commands/registry.ts` (the command
+  table — names/aliases/descriptions/examples, the single source of truth),
+  `commands/loaders.ts` (dynamic imports so `ignex` boots fast).
+- **Every command** is a `defineCommand` with a typed `argsDef` (one source
+  of truth for parsing, help, and completions), exported as the default +
+  a legacy `runX(argv)` entry tests call. `utils/run-def.ts` bridges the two.
 - `ignex route` inspects the route table (verify with
-  `bun run verify:cli:resource`); `ignex dev` runs the watch loop.
+  `bun run verify:cli:resource`); `ignex dev` runs the watch loop
+  (`--no-spawn` to build-only, `--open` to launch the browser).
+- Completions: `utils/completion.ts` derives flags/values from the typed
+  args; the hidden `_complete` command + `completions/` scripts ship it to
+  bash/zsh/fish/powershell/cmd.
 - CLI tests: `bun run test:cli` (`--cwd packages/cli`).
 
 ## Generated artifacts (do not hand-edit)

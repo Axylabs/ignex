@@ -6,14 +6,16 @@
  * instructions in its header). `cmd` prints a clink Lua script, since cmd.exe
  * has no native completion hook.
  */
+import { defineCommand } from "citty";
 import { bashCompletionScript } from "../completions/bash.js";
 import { cmdCompletionScript } from "../completions/cmd.js";
 import { fishCompletionScript } from "../completions/fish.js";
 import { powershellCompletionScript } from "../completions/powershell.js";
 import { zshCompletionScript } from "../completions/zsh.js";
-import { parseCliArgs } from "../utils/args.js";
 import { COMPLETION_SHELLS } from "../utils/completion.js";
 import { error } from "../utils/logger.js";
+import { runDef } from "../utils/run-def.js";
+import { metaFor } from "./registry.js";
 
 const SHELL_SCRIPTS: Record<(typeof COMPLETION_SHELLS)[number], string> = {
   bash: bashCompletionScript,
@@ -23,17 +25,31 @@ const SHELL_SCRIPTS: Record<(typeof COMPLETION_SHELLS)[number], string> = {
   cmd: cmdCompletionScript,
 };
 
-export async function runCompletions(args: string[]): Promise<void> {
-  const { positionals } = parseCliArgs(args, {});
-  const shell = positionals[0];
+export const completionsCmd = defineCommand({
+  meta: metaFor("completions"),
+  args: {
+    shell: {
+      type: "positional",
+      required: false,
+      description: "Shell name (bash, zsh, fish, powershell, cmd)",
+    },
+  },
+  async run({ args }) {
+    const shell = args.shell;
 
-  if (!shell || !(shell in SHELL_SCRIPTS)) {
-    error(
-      `Unknown shell: ${shell ?? "(none provided)"}. Supported: ${COMPLETION_SHELLS.join(", ")}`,
-    );
-    process.exitCode = 1;
-    return;
-  }
+    if (!shell || !(shell in SHELL_SCRIPTS)) {
+      error(
+        `Unknown shell: ${shell ?? "(none provided)"}. Supported: ${COMPLETION_SHELLS.join(", ")}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
 
-  process.stdout.write(SHELL_SCRIPTS[shell as keyof typeof SHELL_SCRIPTS]);
-}
+    process.stdout.write(SHELL_SCRIPTS[shell as keyof typeof SHELL_SCRIPTS]);
+  },
+});
+
+export default completionsCmd;
+
+/** Back-compat entry: raw argv → parsed via citty. */
+export const runCompletions = (args: string[]): Promise<void> => runDef(completionsCmd, args);

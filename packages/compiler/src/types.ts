@@ -7,8 +7,7 @@
  * - added route metadata for future validators/serializers/OpenAPI
  */
 
-import type { ContextUsage, HttpMethod } from "@ignex/shared";
-import { HTTP_METHODS } from "@ignex/shared";
+import type { HttpMethod } from "@ignex/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
 import type { SourceFile } from "./frontend/source-file";
 import type { SourceManager } from "./frontend/source-manager";
@@ -18,7 +17,7 @@ import type { OptimizationLevel } from "./options";
 
 // Re-export the canonical IR route type.
 export type { RouteIR } from "./ir/route";
-export type { ContextUsage, Diagnostic, Logger };
+export type { Diagnostic, Logger };
 /** Info about the discovered app config module (`src/app.config.ts`). */
 export interface AppConfigInfo {
   readonly path: string;
@@ -43,6 +42,14 @@ export interface AppConfigInfo {
    * imports (the plugin still runs; only the automatic stage rows are off).
    */
   readonly hasEnabledDebugbar: boolean;
+  /**
+   * True when this build is production-shaped (`--compile`, or
+   * `NODE_ENV=production` at build time, without `IGNEX_DEBUG=1`). Codegen
+   * bakes it as `globalThis.__IGNEX_PROD_BUILD = true` so dev-only plugins
+   * (debugbar) stay inert even when the artifact is launched without
+   * `NODE_ENV=production` in the runtime environment.
+   */
+  readonly isProductionBuild: boolean;
 }
 
 /**
@@ -57,11 +64,16 @@ export interface RouteGuards {
   all?: boolean;
   /** Require an authenticated user only (default when no roles/permissions). */
   authenticated?: boolean;
+  /**
+   * A guards argument was present but could not be statically evaluated
+   * (e.g. `PERMS.X` imported constants). The static chain is INCOMPLETE —
+   * codegen must preserve the runtime wrapper (never drop it via inlining),
+   * otherwise authorization would silently degrade to authenticated-only.
+   */
+  opaque?: true;
 }
 
 export type { HttpMethod };
-// Shared method vocabulary (single source of truth in @ignex/shared).
-export { HTTP_METHODS };
 
 /**
  * The full compiler options object. Every field is validated + defaulted by
@@ -125,6 +137,29 @@ export interface CompilerOptions {
    */
   readonly bytecode?: boolean;
 
+  /**
+   * Declare this a PRODUCTION-shaped build (same effect as `compile: true` or
+   * `NODE_ENV=production` at build time, without shipping a binary). Unless
+   * `IGNEX_DEBUG=1` opts back in, a production shape
+   *
+   * - eliminates every reachable `debugbar()` (dev-only plugin elimination:
+   *   the toolbar, observatory stack and per-request tracing instrumentation
+   *   are treeshaken out of the artifact),
+   * - restores every AOT optimization the debugbar would have disabled
+   *   (constant hoisting, usage-specialized contexts),
+   * - bakes `globalThis.__IGNEX_PROD_BUILD = true` so the runtime debugbar
+   *   guard stays locked even when launched without `NODE_ENV=production`,
+   * - bakes the TLS policy (`production: true` in `resolveServeTls` — never
+   *   auto-generates dev certificates) and disables the dev build-error
+   *   overlay marker probe,
+   * - defaults `exposeErrorDetails` to `false` (safe error responses unless
+   *   explicitly opted in).
+   *
+   * `ignex build` sets this by default; pass `--dev` for a dev-shaped
+   * artifact. Part of the cache fingerprint.
+   */
+  readonly production?: boolean;
+
   readonly hooksDir?: string;
 
   readonly verbose?: boolean;
@@ -151,7 +186,6 @@ export interface CompilerOptions {
 
   readonly hoistConstants?: boolean;
   readonly specializeContext?: boolean;
-  readonly treeshakeRuntime?: boolean;
   readonly routeCache?: boolean;
 
   /**
@@ -178,6 +212,16 @@ export interface CompilerOptions {
    * are imported instead. Unset (default) = every eligible route is inlined.
    */
   readonly maxTotalInlineBytes?: number;
+
+  /**
+   * Dev-only profile-guided optimization capture: emit a per-route request
+   * counter into the generated server that periodically flushes
+   * `<outDir>/hot-routes.json`. The next build merges the measured frequencies
+   * into `hotnessScore` (inline-budget priority, dedup-leader choice). Off by
+   * default — `ignex dev` turns it on (opt out with `--no-heat`). Production
+   * builds never emit the counter.
+   */
+  readonly heatCapture?: boolean;
 }
 
 /** Per-route `cache-control` configuration (from a route's `config` export). */
@@ -332,7 +376,6 @@ export {
   createDefaultOptions,
   DEFAULT_OPTS,
   FULL_CONTEXT_USAGE,
-  HTTP_METHOD_ALIASES,
   normalizeHttpMethod,
   type OptimizationLevel,
   optimizationPresets,

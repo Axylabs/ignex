@@ -505,6 +505,15 @@ export const createRouter = (): IgnexRouter => {
       ...(localHooks !== undefined ? { config: { ...config, ...localHooks } } : {}),
     };
     registrations.push(reg);
+    // Duplicate method+path: `Bun.serve`'s table keeps the LAST registration
+    // while programmatic dispatch returns the FIRST — the two entry points
+    // would run different handlers for the same route. Warn so the conflict
+    // is surfaced instead of silently diverging.
+    if (registrations.some((r) => r !== reg && r.method === method && r.path === path)) {
+      console.warn(
+        `[ignex] duplicate route registration: ${method} ${path} — the served table uses the LAST handler, dispatch() the FIRST. Remove one of the registrations.`,
+      );
+    }
     // Keep the 405 allow-lists current at registration time so `dispatch` /
     // `fetch` / `optionsHandler` resolve allows without a prior `buildRoutes()`.
     rebuildAllowed();

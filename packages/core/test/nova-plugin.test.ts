@@ -95,13 +95,45 @@ describe("novaPlugin lifecycle", () => {
     expect(plugin.server).toBeNull();
   });
 
-  it("forwards optional options (tls, events, nats, limits)", async () => {
+  it("enables the events layer by default (events: {} passed to createServer)", async () => {
+    stubBun();
+    const createServer = vi.fn(() => fakeServer());
+    const plugin = novaPlugin({
+      port: 3001,
+      loader: async () => ({ createServer }),
+    });
+    const app = createApp({ plugins: [plugin], handler: () => new Response("ok") });
+    await app.init();
+    await flush();
+
+    // The "no events hub bound" footgun: the plugin must enable the events
+    // layer unless the caller explicitly overrides it.
+    const opts = createServer.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.events).toEqual({});
+  });
+
+  it("forwards an explicit events option", async () => {
+    stubBun();
+    const createServer = vi.fn(() => fakeServer());
+    const plugin = novaPlugin({
+      port: 3001,
+      events: { cluster: { nats: true } },
+      loader: async () => ({ createServer }),
+    });
+    const app = createApp({ plugins: [plugin], handler: () => new Response("ok") });
+    await app.init();
+    await flush();
+
+    const opts = createServer.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.events).toEqual({ cluster: { nats: true } });
+  });
+
+  it("forwards optional options (tls, nats, limits)", async () => {
     stubBun();
     const createServer = vi.fn(() => fakeServer());
     const plugin = novaPlugin({
       port: 3001,
       tls: { certFile: "c.pem", keyFile: "k.pem" },
-      events: { cluster: { nats: true } },
       nats: { servers: ["nats://x"] },
       maxConnections: 100,
       maxMessageSize: 4096,
@@ -114,11 +146,54 @@ describe("novaPlugin lifecycle", () => {
 
     const opts = createServer.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(opts.tls).toEqual({ certFile: "c.pem", keyFile: "k.pem" });
-    expect(opts.events).toEqual({ cluster: { nats: true } });
     expect(opts.nats).toEqual({ servers: ["nats://x"] });
     expect(opts.maxConnections).toBe(100);
     expect(opts.maxMessageSize).toBe(4096);
     expect(opts.idleTimeout).toBe(0);
+  });
+
+  it("forwards the trace option and exposes the event trace surface", async () => {
+    stubBun();
+    const handle = Object.assign(fakeServer(), {
+      getEventTrace: vi.fn(() => ({
+        enabled: true,
+        capacity: 1024,
+        stats: {
+          size: 1,
+          total: 1,
+          inCount: 0,
+          outCount: 1,
+          bytes: 32,
+          byName: { quote: 1 },
+          last: null,
+        },
+        recent: [
+          { seq: 1, ts: 1, direction: "out.emit", name: "quote", target: "broadcast", bytes: 32 },
+        ],
+      })),
+      clearEventTrace: vi.fn(),
+    });
+    const createServer = vi.fn(() => handle);
+    const plugin = novaPlugin({
+      port: 3001,
+      trace: { capturePayloadChars: 256 },
+      loader: async () => ({ createServer }),
+    });
+    const app = createApp({ plugins: [plugin], handler: () => new Response("ok") });
+    await app.init();
+    await flush();
+
+    // trace option reaches the nova server
+    const opts = createServer.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.trace).toEqual({ capturePayloadChars: 256 });
+
+    // the running surface exposes the debugger-facing trace API
+    expect(plugin.server?.getEventTrace?.()).toMatchObject({
+      enabled: true,
+      recent: [expect.objectContaining({ name: "quote", direction: "out.emit" })],
+    });
+    plugin.server?.clearEventTrace?.();
+    expect(handle.clearEventTrace).toHaveBeenCalledTimes(1);
   });
 
   it("throws a descriptive error when @ignex/nova is missing", async () => {

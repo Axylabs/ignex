@@ -162,33 +162,37 @@ async function main() {
   console.log("");
 
   const handles: ServerHandle[] = [];
-  for (const kind of servers) {
-    handles.push(await startServer(kind));
-  }
+  try {
+    for (const kind of servers) {
+      handles.push(await startServer(kind));
+    }
 
-  const startTime = Date.now();
+    const startTime = Date.now();
 
-  for (const scenario of scenarios) {
-    for (const handle of handles) {
-      try {
-        await runHttpScenario({
-          scenario,
-          server: handle.kind,
-          port: handle.port,
-        });
-      } catch (err) {
-        console.error(`✗ ${handle.kind} × ${scenario} failed:`, err);
+    for (const scenario of scenarios) {
+      for (const handle of handles) {
+        try {
+          await runHttpScenario({
+            scenario,
+            server: handle.kind,
+            port: handle.port,
+          });
+        } catch (err) {
+          console.error(`✗ ${handle.kind} × ${scenario} failed:`, err);
+        }
       }
     }
-  }
 
-  for (const handle of handles) {
-    handle.proc.kill();
-    console.log(`✗ ${handle.kind} server stopped`);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n✓ All benchmarks complete in ${elapsed}s. Results in ./bench/results/compare/`);
+  } finally {
+    // ALWAYS stop every booted server — a boot failure must not leak
+    // stdio-inheriting processes that wedge the invoking shell.
+    for (const handle of handles) {
+      handle.proc.kill();
+      console.log(`✗ ${handle.kind} server stopped`);
+    }
   }
-
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`\n✓ All benchmarks complete in ${elapsed}s. Results in ./bench/results/compare/`);
 }
 
 main().catch((err) => {

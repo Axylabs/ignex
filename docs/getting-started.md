@@ -112,8 +112,12 @@ bun run test      # vitest
 `ignex build --compile [--binary-outfile NAME]` is the same as `bun run
 compile`: the linker emits a self-contained binary (embeds the Bun runtime,
 bytecode-compiled, `NODE_ENV=production`) that runs without installing Bun.
-Production binary with no `server.tls` configured warns and falls back to
-HTTP/1 — terminate TLS at your proxy or set `server.tls` for HTTPS over TLS.
+`ignex build` is production-shaped by default — dev-only tooling (the
+debugbar dashboard and per-request tracing) is eliminated from the artifact
+even when the build shell has no `NODE_ENV`; pass `--dev` for a dev-shaped
+artifact. Production binary with no `server.tls` configured warns and falls
+back to HTTP/1 — terminate TLS at your proxy or set `server.tls` for HTTPS
+over TLS.
 
 Diagnose a project without building:
 

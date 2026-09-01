@@ -25,7 +25,7 @@
  */
 
 import { ffiBuf, ffiU32 } from "./ffi-read";
-import { readPairsSection } from "./packed";
+import { PackedWireError, readPairsSection } from "./packed";
 import { encoder } from "./util";
 
 /** Magic that identifies a route descriptor (`"ROUT"`). */
@@ -410,6 +410,12 @@ export const readRouteResult = (
   buf: Uint8Array,
   opts: ReadRouteResultOptions = {},
 ): NativeRouteRunResult => {
+  // Fail-fast on a short wire (a lying addon reporting w < 8): decoding would
+  // read garbage — under Bun via raw pointer reads. The route runner's catch
+  // treats any throw as "native result unusable" → JS prelude.
+  if (buf.byteLength < 8) {
+    throw new PackedWireError("route-result", `header needs 8B, wire is ${buf.byteLength}B`);
+  }
   const b = ffiBuf(buf);
   const flags = ffiU32(b, 0);
   const errorCode = ffiU32(b, 4);

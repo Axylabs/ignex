@@ -1,76 +1,16 @@
 /**
  * @fileoverview Codegen: generated runtime helper registry.
  *
- * Dependency-aware pruning of generated boilerplate. `deps` lists other
- * generated helpers a helper references; `core` lists `@ignex/core` symbols a
- * helper needs. Only helpers (and their transitive deps/core imports) that are
- * actually referenced end up in the output.
+ * Every helper is emitted into the server entry UNCONDITIONALLY. Dead helpers
+ * (and their unused `@ignex/core` imports) are removed by the linker's
+ * bundler — `Bun.build` treeshaking drops unreferenced top-level function
+ * declarations and pure arrow consts, so no hand-rolled dependency tables or
+ * usage tracking is maintained here.
  */
 
-import type { Emitter } from "../../emitter";
-
-export interface HelperDef {
-  readonly deps: readonly string[];
-  readonly core: readonly string[];
-}
-
-export const HELPERS: Record<string, HelperDef> = {
-  __withBody: { deps: [], core: [] },
-  jsonReply: { deps: ["__withBody"], core: [] },
-  textReply: { deps: ["__withBody"], core: [] },
-  htmlReply: { deps: ["__withBody"], core: [] },
-  streamReply: { deps: [], core: [] },
-  emptyReply: { deps: [], core: [] },
-  redirectReply: { deps: [], core: [] },
-  statusReply: { deps: [], core: [] },
-  validationError: { deps: [], core: ["ValidationError"] },
-  __applySet: { deps: [], core: ["applySet"] },
-  __finalize: { deps: ["__withBody"], core: [] },
-  __handleError: {
-    deps: ["__applySet"],
-    core: ["errorToResponse", "runHooks", "runTimed"],
-  },
-  __schemaFor: { deps: [], core: [] },
-  __validatePart: { deps: [], core: ["validateAsync"] },
-  __isServerLike: { deps: [], core: [] },
-  __extractParams: { deps: ["__isServerLike"], core: [] },
-  __extractServer: { deps: ["__isServerLike"], core: [] },
-  __wrap: {
-    deps: ["__extractParams", "__extractServer", "__handleError"],
-    core: ["createContext"],
-  },
-  __head: { deps: ["__wrap"], core: [] },
-  __optionsHandler: {
-    deps: ["__wrap", "__allowFor", "__applySet"],
-    core: ["createContext", "runHooks", "debugStageEnd"],
-  },
-  __allowFor: { deps: [], core: [] },
-  __fallback: {
-    deps: ["__wrap", "__optionsHandler", "__allowFor", "__applySet"],
-    core: ["createContext", "runHooks", "runTimed", "debugStageEnd", "applySet"],
-  },
-};
-
-/** Transitive closure of generated helpers that must be emitted. */
-export const resolveUsedHelpers = (e: Emitter): ReadonlySet<string> => {
-  const used = new Set<string>();
-
-  const visit = (name: string): void => {
-    if (used.has(name)) return;
-    used.add(name);
-    for (const dep of HELPERS[name]?.deps ?? []) visit(dep);
-  };
-
-  for (const name of Object.keys(HELPERS)) {
-    if (e.isUsed(name)) visit(name);
-  }
-
-  return used;
-};
-
 /**
- * Source of each generated runtime helper. Helpers are emitted only when the
- * closure of {@link resolveUsedHelpers} includes them.
+ * Source of each generated runtime helper. Emitted unconditionally into the
+ * server entry; the linker's bundler removes whatever no route references.
  */
 export const HELPER_SOURCES: Record<string, string> = {
   __withBody: `const __withBody = (bytes, type, init) => {
@@ -130,7 +70,7 @@ export const HELPER_SOURCES: Record<string, string> = {
     body = result.body;
   }
   status = status ?? 200;
-  const ser = serializers?.[String(status)] ?? serializers?.["200"] ?? serializers?.default;
+  const ser = serializers?.[status] ?? serializers?.["200"] ?? serializers?.default;
   if (ser) return __withBody(__encoder.encode(ser(body)), "application/json; charset=utf-8", { status });
   return reply(body, status === 200 ? undefined : { status });
 };`,
@@ -216,19 +156,68 @@ export const HELPER_SOURCES: Record<string, string> = {
     }
   };
 }`,
+  /**
+   * Static-route wrapper — emitted for routes the compiler proved have NO
+   * wildcard segments. The wildcard block (incl. the per-request
+   * \`new URL(req.url)\` parse) disappears from the generated artifact instead
+   * of being branch-checked at runtime.
+   */
+  __wrapStatic: `function __wrapStatic(handler) {
+  return function (req, a, b) {
+    const params = __extractParams(req, a, b) ?? EMPTY_PARAMS;
+    const onError = (err) => {
+      const ctx = createContext(req, params, __ctxOpts);
+      ctx.server = __extractServer(a, b);
+      return __handleError(err, ctx);
+    };
+    try {
+      const r = handler(req, params, __extractServer(a, b));
+      return r instanceof Promise ? r.catch(onError) : r;
+    } catch (err) {
+      return onError(err);
+    }
+  };
+}`,
+  /**
+   * Static + statically-sync wrapper — for compact/specialized routes whose
+   * core fn is non-async AND cannot resume asynchronously (no hooks, no
+   * validation). No Promise check, no \`.catch\` funnel: the happy path returns
+   * the Response directly; only a synchronous throw pays the error path.
+   */
+  __wrapStaticSync: `function __wrapStaticSync(handler) {
+  return function (req, a, b) {
+    const params = __extractParams(req, a, b) ?? EMPTY_PARAMS;
+    try {
+      return handler(req, params, __extractServer(a, b));
+    } catch (err) {
+      const ctx = createContext(req, params, __ctxOpts);
+      ctx.server = __extractServer(a, b);
+      return __handleError(err, ctx);
+    }
+  };
+}`,
+  // Shared HEAD-response derivation (status + headers, body stripped). Both
+  // auto-HEAD wrappers delegate here so the strip logic exists exactly once.
+  __stripForHead: `async function __stripForHead(res) {
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(null, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}`,
   __head: `function __head(handler, wildcards = [], prefix) {
   const wrapped = __wrap(handler, wildcards, prefix);
-
   return async function (req, a, b) {
-    const res = await wrapped(req, a, b);
-    const headers = new Headers(res.headers);
-    headers.delete("content-length");
-
-    return new Response(null, {
-      status: res.status,
-      statusText: res.statusText,
-      headers,
-    });
+    return __stripForHead(await wrapped(req, a, b));
+  };
+}`,
+  /** Auto-HEAD for static GET routes — no wildcard closure data at all. */
+  __headStatic: `function __headStatic(handler) {
+  const wrapped = __wrapStatic(handler);
+  return async function (req, a, b) {
+    return __stripForHead(await wrapped(req, a, b));
   };
 }`,
   __optionsHandler: `async function __optionsHandler(req, params, server) {
@@ -271,7 +260,12 @@ export const HELPER_SOURCES: Record<string, string> = {
   }
   return undefined;
 }`,
-  __fallback: `async function __fallback(req, server) {
+  __fallback: `let __optionsWrapped;
+const __MISS_BODIES = {
+  404: JSON.stringify({ error: "Not Found", status: 404, code: "NOT_FOUND" }),
+  405: JSON.stringify({ error: "Method Not Allowed", status: 405, code: "METHOD_NOT_ALLOWED" }),
+};
+async function __fallback(req, server) {
   const url = new URL(req.url);
 
   // Dev error overlay: while a build-error marker exists (written by
@@ -288,25 +282,31 @@ export const HELPER_SOURCES: Record<string, string> = {
         const __parsed = JSON.parse(__raw);
         if (typeof __parsed?.message === "string") __message = __parsed.message;
       } catch {}
-      const __body = __DEV_OVERLAY_HTML.replace("__MESSAGE__", __message.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
+      // Function replacer: a string replacer would interpret dollar
+      // substitution patterns ($&, $backtick, $') in the message and corrupt
+      // the overlay (compiler/module messages commonly contain "$&").
+      const __body = __DEV_OVERLAY_HTML.replace("__MESSAGE__", () =>
+        __message.replace(/&/g, "&amp;").replace(/</g, "&lt;"),
+      );
       return new Response(__body, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
     }
   }
 
   if (req.method === "OPTIONS") {
-    return __wrap(__optionsHandler, [])(req, undefined, server);
+    // Memoized once (the wrapper is stateless) — a fresh closure per OPTIONS
+    // request is pure garbage pressure. Static: the synthetic route has no
+    // wildcard segments, so the cheaper static wrapper suffices.
+    return (__optionsWrapped ??= __wrapStatic(__optionsHandler))(req, undefined, server);
   }
 
   const allow = __allowFor(url.pathname);
   const status = allow ? 405 : 404;
-  const code = allow ? "METHOD_NOT_ALLOWED" : "NOT_FOUND";
   const headers = { "content-type": "application/json; charset=utf-8" };
   if (allow) headers.Allow = allow;
 
-  let response = new Response(
-    JSON.stringify({ error: allow ? "Method Not Allowed" : "Not Found", status, code }),
-    { status, headers },
-  );
+  // Body pre-stringified at module load — a route miss (scanner, probe,
+  // stale link) pays no per-hit serialization.
+  let response = new Response(allow ? __MISS_BODIES[405] : __MISS_BODIES[404], { status, headers });
 
   // Run the lifecycle so plugins/hooks (e.g. CORS, security headers) apply to
   // 404/405 responses too — matching interpreted behavior. A throwing hook
