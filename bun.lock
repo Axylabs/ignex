@@ -33,7 +33,7 @@
     },
     "packages/app": {
       "name": "@ignex/app",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@ignex/core": "workspace:*",
         "@ignex/ninox": "^0.1.3",
@@ -49,7 +49,7 @@
     },
     "packages/cli": {
       "name": "@ignex/cli",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "bin": {
         "ignex": "./bin/ignex.js",
       },
@@ -69,7 +69,7 @@
     },
     "packages/compiler": {
       "name": "@ignex/compiler",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@ignex/native": "workspace:*",
         "@ignex/shared": "workspace:*",
@@ -97,7 +97,7 @@
     },
     "packages/core": {
       "name": "@ignex/core",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@ignex/native": "workspace:*",
         "@ignex/shared": "workspace:*",
@@ -122,7 +122,7 @@
     },
     "packages/create": {
       "name": "create-ignex",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "bin": {
         "create-ignex": "./bin/create-ignex.js",
       },
@@ -132,7 +132,7 @@
     },
     "packages/mcp": {
       "name": "@ignex/mcp",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "bin": {
         "ignex-mcp": "./bin/ignex-mcp.js",
       },
@@ -150,7 +150,7 @@
     },
     "packages/native": {
       "name": "@ignex/native",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "devDependencies": {
         "@ignex/test-utils": "workspace:*",
         "typescript": "^7.0.2",
@@ -162,7 +162,7 @@
     },
     "packages/shared": {
       "name": "@ignex/shared",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "devDependencies": {
         "typescript": "^7.0.2",
         "vitest": "^4.1.10",
@@ -170,7 +170,7 @@
     },
     "packages/test-utils": {
       "name": "@ignex/test-utils",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "fast-check": "^4.9.0",
       },
@@ -1294,9 +1294,9 @@
 
     "@modelcontextprotocol/sdk/zod": ["zod@4.5.4", "", {}, "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA=="],
 
-    "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.3", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.3", "tslib": "^2.4.0" }, "bundled": true }, "sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg=="],
+    "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.2", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" }, "bundled": true }, "sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA=="],
 
-    "@tailwindcss/oxide-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
+    "@tailwindcss/oxide-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.11.2", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA=="],
 
     "@tailwindcss/oxide-wasm32-wasi/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.3", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g=="],
 
@@ -1351,6 +1351,8 @@
     "@babel/helper-module-imports/@babel/types/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@7.29.7", "", {}, "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg=="],
 
     "@ignex/app/@ignex/ninox/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@tailwindcss/oxide-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
 
     "@types/ws/@types/node/undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
