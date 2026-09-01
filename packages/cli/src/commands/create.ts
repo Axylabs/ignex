@@ -115,7 +115,7 @@ interface CreateDefaults {
   name?: string;
   runtime?: string;
   pm?: string;
-  features?: string;
+  features?: string | string[];
   install?: boolean;
   git?: boolean;
 }
@@ -164,19 +164,23 @@ async function resolveInteractive(options: CreateDefaults): Promise<Required<Cre
       initial: "bun",
     }));
   const defaultFeatures = DEFAULT_FEATURES.split(",");
-  const features =
+
+  // 1. Get the raw input (could be string, string[], or undefined)
+  const rawFeatures =
     options.features ??
-    (
-      await promptMultiSelect({
-        message: "Features to scaffold",
-        hint: "Space toggles · a selects all · Enter confirms",
-        options: FEATURE_NAMES.map((feature) => ({
-          value: feature,
-          label: FEATURE_LABELS[feature],
-        })),
-        initial: defaultFeatures,
-      })
-    ).join(",");
+    (await promptMultiSelect({
+      message: "Features to scaffold",
+      hint: "Space toggles · a selects all · Enter confirms",
+      options: FEATURE_NAMES.map((feature) => ({
+        value: feature,
+        label: FEATURE_LABELS[feature],
+      })),
+      initial: defaultFeatures,
+    }));
+
+  // 2. Normalize to a single string
+  const features = Array.isArray(rawFeatures) ? rawFeatures.join(",") : rawFeatures;
+
   const install =
     options.install ?? (await promptConfirm({ message: "Install dependencies?", initial: true }));
   const git = options.git ?? (await promptConfirm({ message: "Initialize git?", initial: true }));
@@ -376,7 +380,7 @@ interface CreateInputs {
   name: string;
   runtimeInput?: string;
   pmInput?: string;
-  featuresInput?: string;
+  featuresInput?: string | string[];
   install: boolean;
   git: boolean;
 }
@@ -389,7 +393,13 @@ async function resolveCreateInputs(
   let name = parsed.name;
   let runtimeInput = parsed.runtime;
   let pmInput = parsed.pm;
-  let featuresInput = parsed.features;
+
+  // Explicitly type and cast to handle runtime arrays from duplicate flags (e.g. --features a --features b)
+  let featuresInput: string | string[] | undefined = parsed.features as
+    | string
+    | string[]
+    | undefined;
+
   let install = parsed.install;
   let git = parsed.git;
   // citty native boolean negation: `--no-install` → `parsed.install === false`,
@@ -408,7 +418,7 @@ async function resolveCreateInputs(
       name = resolved.name;
       runtimeInput = resolved.runtime;
       pmInput = resolved.pm;
-      featuresInput = resolved.features;
+      featuresInput = resolved.features; // Now perfectly type-safe
       install = resolved.install;
       git = resolved.git;
     } catch (err) {
@@ -528,31 +538,36 @@ const FEATURE_ALIASES: Record<string, Feature> = {
   test: "tests",
 };
 
-export function parseFeatures(input: string | undefined): Set<Feature> {
+export function parseFeatures(input: string | string[] | undefined): Set<Feature> {
   if (!input) return new Set();
 
-  const normalized = input.trim().toLowerCase();
-
-  if (normalized === "all") {
-    return new Set(FEATURE_NAMES);
-  }
-
-  if (normalized === "none" || normalized === "") {
-    return new Set();
-  }
-
+  // Normalize input to an array of strings
+  const inputs = Array.isArray(input) ? input : [input];
   const out = new Set<Feature>();
 
-  for (const rawToken of normalized.split(",")) {
-    const token = rawToken.trim();
-    if (!token) continue;
+  for (const raw of inputs) {
+    if (!raw) continue;
+    const normalized = String(raw).trim().toLowerCase();
 
-    const feature = FEATURE_ALIASES[token];
+    if (normalized === "all") {
+      return new Set(FEATURE_NAMES);
+    }
 
-    if (feature) {
-      out.add(feature);
-    } else {
-      warn(`Unknown feature: ${token}`);
+    if (normalized === "none" || normalized === "") {
+      continue; // Skip "none" if mixed with other features
+    }
+
+    for (const rawToken of normalized.split(",")) {
+      const token = rawToken.trim();
+      if (!token) continue;
+
+      const feature = FEATURE_ALIASES[token];
+
+      if (feature) {
+        out.add(feature);
+      } else {
+        warn(`Unknown feature: ${token}`);
+      }
     }
   }
 
