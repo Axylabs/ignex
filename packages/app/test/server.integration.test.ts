@@ -23,7 +23,7 @@ beforeAll(async () => {
   BASE = srv.base;
 }, 60_000);
 
-afterAll(() => srv.close());
+afterAll(() => srv?.close());
 
 describe("generated server (integration)", () => {
   it("serves GET /health with a JSON body", async () => {
