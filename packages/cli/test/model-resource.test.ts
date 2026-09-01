@@ -93,6 +93,10 @@ test("dbTemplate emits a live db handle + dbPlugin (connects lazily at boot)", (
   expect(code).toContain('await db.createSchema("gigs");');
   expect(code).toContain("await service.closeConnections();");
   expect(code).not.toContain("export const db = service.db.primaryClient;");
+  // The connection URL is mapped through the validated env config, not a raw
+  // process.env read — so users don't wire MONGO_URL by hand.
+  expect(code).toContain('import { env } from "./config/env.js";');
+  expect(code).toContain("dbUrl: env.MONGO_URL");
 });
 
 test("modelTemplate emits a schema-first ninox model", () => {
@@ -223,9 +227,13 @@ describe("runResource target layout", () => {
     cwd = process.cwd();
     dir = mkdtempSync(join(tmpdir(), "ignex-cli-resource-"));
     process.chdir(dir);
+    // Scaffold commands run their package manager on missing deps; keep the
+    // package.json-edit behavior hermetic here (no network in tests).
+    process.env.IGNEX_NO_INSTALL = "1";
   });
 
   afterAll(() => {
+    delete process.env.IGNEX_NO_INSTALL;
     process.chdir(cwd);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -245,6 +253,13 @@ describe("runResource target layout", () => {
 
     // The pre-fix behaviour wrote everything under ./gig/src — must not happen.
     expect(existsSync(join(dir, "gig", "src"))).toBe(false);
+
+    // First db.ts creation wires MONGO_URL into the validated env config so
+    // the user doesn't have to set it up by hand.
+    const envTs = join(dir, "src", "config", "env.ts");
+    expect(existsSync(envTs)).toBe(true);
+    expect(readFileSync(envTs, "utf8")).toContain("MONGO_URL");
+    expect(readFileSync(join(dir, ".env.example"), "utf8")).toContain("MONGO_URL=");
   });
 
   test("registers dbPlugin() into an existing generated app.config.ts (idempotent)", async () => {
@@ -280,9 +295,10 @@ export const server = {
     expect(wired).toContain("  dbPlugin(),");
     expect(wired.match(/dbPlugin\(\)/g)).toHaveLength(1);
 
-    // The ninox toolkit + typebox get added to dependencies.
+    // The ninox toolkit + mongodb + typebox get added to dependencies.
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
     expect(pkg.dependencies["@ignex/ninox"]).toBe("latest");
+    expect(pkg.dependencies.mongodb).toBe("latest");
     expect(pkg.dependencies.typebox).toBe("latest");
 
     // Running a second resource must not duplicate the plugin/import or deps.
@@ -292,5 +308,27 @@ export const server = {
     expect(again.match(/from ".\/db.js"/g)).toHaveLength(1);
     const pkg2 = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
     expect(pkg2.dependencies["@ignex/ninox"]).toBe("latest");
+    expect(pkg2.dependencies.mongodb).toBe("latest");
+  });
+
+  test("--db sql wires DATABASE_URL into the env config on first db-sql.ts", async () => {
+    // db.ts already exists from the Mongo tests — the SQL path is independent.
+    await runResource(["sqlgig", "--db", "sql"]);
+
+    const envTs = join(dir, "src", "config", "env.ts");
+    expect(existsSync(envTs)).toBe(true);
+    const envSource = readFileSync(envTs, "utf8");
+    // MONGO_URL from the earlier resource stays; DATABASE_URL is added.
+    expect(envSource).toContain("MONGO_URL");
+    expect(envSource).toContain("DATABASE_URL");
+    expect(readFileSync(join(dir, ".env.example"), "utf8")).toContain("DATABASE_URL=");
+
+    const dbSql = readFileSync(join(dir, "src", "db-sql.ts"), "utf8");
+    expect(dbSql).toContain('import { env } from "./config/env.js";');
+    expect(dbSql).toContain("env.DATABASE_URL");
+
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg.dependencies["drizzle-orm"]).toBe("latest");
+    expect(pkg.dependencies["drizzle-kit"]).toBe("latest");
   });
 });

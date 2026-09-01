@@ -81,12 +81,14 @@ export type New${Type} = typeof ${plural}.$inferInsert;
 /** `src/db-sql.ts` — the shared drizzle client (lazy). */
 export const drizzleDbTemplate = (): string => `import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { env } from "./config/env.js";
 
-// SQLite via bun:sqlite (zero-config, file-backed). Point DATABASE_URL at your
-// file, e.g. DATABASE_URL=./data/app.db. For Postgres swap the driver:
+// SQLite via bun:sqlite (zero-config, file-backed). The file path is the
+// validated DATABASE_URL from src/config/env.ts (wired automatically when this
+// file is first generated). For Postgres swap the driver:
 //   import { drizzle } from "drizzle-orm/node-postgres";
-//   export const db = drizzle(process.env.DATABASE_URL!);
-const sqlite = new Database(process.env.DATABASE_URL ?? "./data/app.db");
+//   export const db = drizzle(env.DATABASE_URL!);
+const sqlite = new Database(env.DATABASE_URL ?? "./data/app.db");
 sqlite.exec("PRAGMA journal_mode = WAL;");
 
 export const db = drizzle(sqlite);

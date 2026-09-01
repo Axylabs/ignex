@@ -224,15 +224,17 @@ export const dbTemplate = (name: string): string => {
   const plural = pluralize(name);
   return `import { createMongoToolkit, defineCollections } from "@ignex/ninox";
 import type { IgnexPlugin } from "@ignex/core";
+import { env } from "./config/env.js";
 import { ${plural} } from "./models/${plural}.js";
 
 // Toolkit = service (connections, CRUD manager, cache, migrations). Extend the
 // collections map as you scaffold more models (ignex resource <Name>).
 //
-// The connection URL is read from MONGO_URL (ninox's default — see
-// .env.example), or set dbUrl on the primary definition to override.
+// The connection URL is the validated MONGO_URL from src/config/env.ts (wired
+// automatically when this file is first generated — see .env.example). Point
+// it at your cluster in .env, or override per-client via dbUrl.
 export const { service, migrations } = createMongoToolkit(
-  { primary: { name: "app", collections: defineCollections(${plural}) } },
+  { primary: { name: "app", dbUrl: env.MONGO_URL, collections: defineCollections(${plural}) } },
   {
     cacheWatch: true,
     // Versioned schema migrations live in src/migrations (ignex migrate up).

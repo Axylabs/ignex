@@ -28,6 +28,7 @@ import {
   pluralize,
 } from "../templates/model.js";
 import { loadConfig } from "../utils/config.js";
+import { wireDbEnv } from "../utils/db-env.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, step } from "../utils/logger.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
@@ -119,10 +120,14 @@ export async function runHotRoute(args: string[]): Promise<void> {
   );
 
   // 4. The DB bootstrap. Once src/db.ts exists it is NEVER regenerated (that
-  // would drop other collections) — new resources are merged in instead.
+  // would drop other collections) — new resources are merged in instead. On
+  // FIRST creation, wire MONGO_URL into the env config so the generated db.ts
+  // resolves its connection URL from env.ts.
   if (!(await writeScaffold(dbPath, dbTemplate(name)))) {
     info(`Skipped ${relative(process.cwd(), dbPath)} (already exists).`);
     await addCollectionToDb(root, plural);
+  } else {
+    await wireDbEnv(root, "mongo");
   }
 
   // 5. Wire dbPlugin() into src/app.config.ts so the toolkit connects at boot,

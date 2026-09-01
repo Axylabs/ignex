@@ -63,6 +63,10 @@ describe("drizzleDbTemplate / drizzleConfigTemplate", () => {
     expect(db).toContain('from "drizzle-orm/bun-sqlite"');
     expect(db).toContain("new Database(");
     expect(db).toContain("PRAGMA journal_mode = WAL");
+    // The client reads the URL from the validated env config (wired on first
+    // creation by `ignex resource --db sql`), not a raw process.env read.
+    expect(db).toContain('import { env } from "./config/env.js";');
+    expect(db).toContain("env.DATABASE_URL");
 
     const cfg = drizzleConfigTemplate();
     expect(cfg).toContain('from "drizzle-kit"');

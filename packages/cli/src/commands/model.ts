@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { type ModelField, modelTemplate, parseModelFields, pluralize } from "../templates/model.js";
 import { loadConfig } from "../utils/config.js";
+import { ensureDeps } from "../utils/deps.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, step } from "../utils/logger.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
@@ -72,4 +73,7 @@ export async function runModel(args: string[]): Promise<void> {
     force: parsed.force === true,
     overwrite: true,
   });
+
+  // The generated model imports @ignex/ninox — make sure it's installed.
+  await ensureDeps(root, ["@ignex/ninox"]);
 }

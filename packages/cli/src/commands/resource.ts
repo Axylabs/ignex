@@ -33,6 +33,8 @@ import {
   resourceRouteTemplates,
 } from "../templates/resource.js";
 import { loadConfig } from "../utils/config.js";
+import { wireDbEnv } from "../utils/db-env.js";
+import { ensureDeps } from "../utils/deps.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, info, step, success } from "../utils/logger.js";
@@ -127,31 +129,17 @@ export async function wireDbPlugin(root: string): Promise<void> {
 }
 
 /** Dependencies the generated models/routes import but `ignex create` may omit. */
-const RESOURCE_DEPS = ["@ignex/ninox", "typebox"] as const;
+const RESOURCE_DEPS = ["@ignex/ninox", "mongodb", "typebox"] as const;
 
 /**
- * Add `@ignex/ninox` (toolkit) and `typebox` (route param schemas) to
- * `package.json` dependencies when missing — otherwise a freshly scaffolded
- * resource imports modules that aren't installed and the app can't build.
- * No-op when there's no package.json (or deps already present).
+ * Ensure the packages a generated resource imports are installed: `@ignex/ninox`
+ * (toolkit), `mongodb` (`ObjectId` is imported directly by the `:id` routes)
+ * and `typebox` (param/body schemas). Runs the project's package manager when
+ * possible; always leaves the `package.json` edit behind. No-op when there's no
+ * package.json (or deps already present).
  */
 export async function ensureResourceDeps(root: string): Promise<void> {
-  const pkgPath = join(root, "package.json");
-  if (!(await exists(pkgPath))) return;
-
-  let pkg: { dependencies?: Record<string, string> };
-  try {
-    pkg = JSON.parse(await readTextFile(pkgPath)) as { dependencies?: Record<string, string> };
-  } catch {
-    return; // unparseable package.json — leave it alone
-  }
-  if (!pkg.dependencies) pkg.dependencies = {};
-  const deps = pkg.dependencies;
-  const added = RESOURCE_DEPS.filter((dep) => !deps[dep]);
-  if (added.length === 0) return;
-  for (const dep of added) deps[dep] = "latest";
-  await writeFileEnsuringDir(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  success(`Added ${added.join(", ")} to package.json dependencies.`);
+  await ensureDeps(root, RESOURCE_DEPS);
 }
 
 /**
@@ -220,7 +208,6 @@ export async function runResource(args: string[]): Promise<void> {
   }
   const plural = pluralize(name);
   const modelPath = join(modelsDir, `${plural}.ts`);
-  const dbPath = join(root, "src", "db.ts");
   const dbSqlPath = join(root, "src", "db-sql.ts");
   const drizzleConfigPath = join(root, "drizzle.config.ts");
   const opts = { auth: Boolean(parsed.auth), rbac: Boolean(parsed.rbac) };
@@ -251,9 +238,11 @@ export async function runResource(args: string[]): Promise<void> {
     }
 
     // db-sql.ts + drizzle.config.ts are idempotent (never overwrite a custom
-    // client once present).
-    await writeScaffold(dbSqlPath, drizzleDbTemplate());
+    // client once present). On FIRST creation, wire DATABASE_URL into the env
+    // config so the generated client resolves its URL from env.ts.
+    const dbSqlCreated = await writeScaffold(dbSqlPath, drizzleDbTemplate());
     await writeScaffold(drizzleConfigPath, drizzleConfigTemplate());
+    if (dbSqlCreated) await wireDbEnv(root, "sql");
 
     // Install drizzle-orm + typebox (imported by the generated files).
     await ensureDrizzleDeps(root);
@@ -291,11 +280,10 @@ export async function runResource(args: string[]): Promise<void> {
   await writeGuardsBoilerplate(root);
 
   // 3. The DB bootstrap. Once src/db.ts exists it is NEVER regenerated (that
-  // would drop other collections) — new resources are merged in instead.
-  if (!(await writeScaffold(dbPath, dbTemplate(name)))) {
-    info(`Skipped ${relative(process.cwd(), dbPath)} (already exists).`);
-    await addCollectionToDb(root, plural);
-  }
+  // would drop other collections) — new resources are merged in instead. On
+  // FIRST creation, MONGO_URL is wired into the env config so the generated
+  // db.ts resolves its connection URL there.
+  await bootstrapMongoDb(root, name, plural);
 
   // 3b. Wire dbPlugin() into src/app.config.ts so the toolkit connects at boot.
   await wireDbPlugin(root);
@@ -313,22 +301,28 @@ export async function runResource(args: string[]): Promise<void> {
   }
 }
 
-/** Install drizzle-orm (the generated SQL resource imports it). */
-async function ensureDrizzleDeps(root: string): Promise<void> {
-  const pkgPath = join(root, "package.json");
-  try {
-    const pkg = JSON.parse(await readTextFile(pkgPath)) as {
-      dependencies?: Record<string, string>;
-    };
-    const deps = pkg.dependencies ?? {};
-    const added = ["drizzle-orm", "drizzle-kit"].filter((dep) => !deps[dep]);
-    if (added.length === 0) return;
-    for (const dep of added) deps[dep] = "latest";
-    await writeFileEnsuringDir(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-    success(`Added ${added.join(", ")} to package.json dependencies.`);
-  } catch {
-    info("Add manually: bun add drizzle-orm drizzle-kit");
+/**
+ * Bootstrap `src/db.ts` for the Mongo path. Once it exists it is NEVER
+ * regenerated (that would drop other collections) — new resources are merged
+ * in instead. On FIRST creation, MONGO_URL is wired into the env config
+ * (src/config/env.ts + .env.example) so the generated db.ts resolves its
+ * connection URL from the validated env.
+ */
+async function bootstrapMongoDb(root: string, name: string, plural: string): Promise<void> {
+  const dbPath = join(root, "src", "db.ts");
+  if (await writeScaffold(dbPath, dbTemplate(name))) {
+    await wireDbEnv(root, "mongo");
+    return;
   }
+  info(`Skipped ${relative(process.cwd(), dbPath)} (already exists).`);
+  await addCollectionToDb(root, plural);
+}
+
+/** Ensure the packages a generated SQL resource imports are installed
+ *  (drizzle-orm + drizzle-kit for the model/client/config, typebox for the
+ *  route body schemas). */
+async function ensureDrizzleDeps(root: string): Promise<void> {
+  await ensureDeps(root, ["drizzle-orm", "drizzle-kit", "typebox"]);
 }
 
 /** Write the app's guard boilerplate (src/lib/guards.ts) once, never overwrite. */

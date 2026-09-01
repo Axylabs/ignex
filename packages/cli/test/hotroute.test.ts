@@ -95,9 +95,13 @@ describe("runHotRoute target layout", () => {
     cwd = process.cwd();
     dir = mkdtempSync(join(tmpdir(), "ignex-cli-hotroute-"));
     process.chdir(dir);
+    // Scaffold commands run their package manager on missing deps; keep the
+    // package.json-edit behavior hermetic here (no network in tests).
+    process.env.IGNEX_NO_INSTALL = "1";
   });
 
   afterAll(() => {
+    delete process.env.IGNEX_NO_INSTALL;
     process.chdir(cwd);
     rmSync(dir, { recursive: true, force: true });
   });
