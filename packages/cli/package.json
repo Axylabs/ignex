@@ -24,6 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clack/prompts": "^1.7.0",
     "@ignex/compiler": "workspace:*",
     "@ignex/core": "workspace:*",
     "@ignex/mcp": "workspace:*",

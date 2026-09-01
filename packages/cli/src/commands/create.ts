@@ -170,7 +170,6 @@ async function resolveInteractive(options: CreateDefaults): Promise<Required<Cre
     options.features ??
     (await promptMultiSelect({
       message: "Features to scaffold",
-      hint: "Space toggles · a selects all · Enter confirms",
       options: FEATURE_NAMES.map((feature) => ({
         value: feature,
         label: FEATURE_LABELS[feature],

@@ -365,7 +365,6 @@ async function resolveServices(
     () =>
       promptMultiSelect({
         message: "Which infra services should docker compose include?",
-        hint: "Space toggles · a selects all · Enter confirms",
         options: [
           { value: "mongo", label: "MongoDB", hint: "ninox data store (MONGO_URL)" },
           { value: "redis", label: "Redis", hint: "cache / sessions (REDIS_URL)" },
