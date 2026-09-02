@@ -4,11 +4,11 @@
  */
 
 import { isNativeAvailable } from "@ignex/native";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nativePreflight } from "../src/index.js";
 import { compression } from "../src/plugins/compression.js";
 import { cors } from "../src/plugins/cors.js";
-import { logger } from "../src/plugins/logger.js";
+import { createLogger, logger } from "../src/plugins/logger.js";
 import { rateLimit } from "../src/plugins/ratelimit.js";
 import { security } from "../src/plugins/security.js";
 import { session } from "../src/plugins/session.js";
@@ -309,6 +309,28 @@ describe("logger", () => {
     });
     await app.handler(req("/"));
     expect(info).not.toHaveBeenCalled();
+  });
+});
+
+describe("createLogger", () => {
+  const origLogLevel = process.env.LOG_LEVEL;
+
+  afterEach(() => {
+    if (origLogLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = origLogLevel;
+  });
+
+  it("defaults to info and honors the LOG_LEVEL env", () => {
+    expect(createLogger().level).toBe("info");
+
+    process.env.LOG_LEVEL = "debug";
+    expect(createLogger().level).toBe("debug");
+  });
+
+  it("lets an explicit level win over the environment", () => {
+    process.env.LOG_LEVEL = "debug";
+    expect(createLogger({ level: "warn" }).level).toBe("warn");
+    expect(createLogger({ level: "error" }).level).toBe("error");
   });
 });
 

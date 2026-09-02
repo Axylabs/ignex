@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
+import { loggerLibTemplate } from "../templates/logger.js";
 import {
   middlewareIndexTemplate,
   middlewareLogRequestsTemplate,
@@ -126,7 +127,7 @@ const FEATURE_LABELS: Record<Feature, string> = {
   rateLimit: "Rate limiting",
   security: "Security headers",
   compression: "Compression",
-  logger: "Request logging",
+  logger: "Logging (access logs + global log)",
   middleware: "Global middleware",
   openapi: "OpenAPI docs",
   files: "File uploads",
@@ -236,6 +237,14 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
       path: "src/plugins/index.ts",
       when: (f) => hasPluginFeatures(f),
       content: () => pluginsTemplate(opts),
+    },
+    {
+      // Global app logger (`log` importable from any route/hook/service) —
+      // ships with the `logger` access-log feature so app logs and access
+      // logs share the same level/redaction config.
+      path: "src/lib/logger.ts",
+      when: "logger",
+      content: () => loggerLibTemplate(),
     },
     { path: "src/ws.example.ts", when: "ws", content: () => wsExampleTemplate() },
     {

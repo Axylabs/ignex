@@ -4,12 +4,12 @@
 > Do not edit by hand — regenerate after structural changes. The
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
-- monorepo: `ignex` v0.1.11 (private, workspaces: packages/*)
+- monorepo: `ignex` v0.1.26 (private, workspaces: packages/*)
 - root scripts (74): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
 
 ## packages/ (workspace)
 
-### `@ignex/app` v0.1.11 · test: `vitest run`
+### `@ignex/app` v0.1.26 · test: `vitest run`
 
 ```
 packages/app/
@@ -32,11 +32,10 @@ packages/app/
 │  ├─ hot-routes.json
 │  ├─ manifest.json
 │  ├─ observatory.db
-│  ├─ observatory.db-shm
-│  ├─ observatory.db-wal
 │  ├─ openapi.json
 │  ├─ routes.d.ts
-│  └─ server.js
+│  ├─ server.js
+│  └─ server.js.map
 ├─ src/
 │  ├─ config/
 │  │  └─ env.ts
@@ -167,7 +166,7 @@ packages/app/
 └─ vitest.config.ts
 ```
 
-### `@ignex/cli` v0.1.11 · test: `vitest run`
+### `@ignex/cli` v0.1.26 · test: `vitest run`
 
 ```
 packages/cli/
@@ -183,9 +182,11 @@ packages/cli/
 │  │  ├─ doctor.ts
 │  │  ├─ event.ts
 │  │  ├─ factory.ts
+│  │  ├─ help.ts
 │  │  ├─ hook.ts
 │  │  ├─ hotroute.ts
 │  │  ├─ info.ts
+│  │  ├─ loaders.ts
 │  │  ├─ mcp.ts
 │  │  ├─ migrate.ts
 │  │  ├─ model.ts
@@ -214,6 +215,7 @@ packages/cli/
 │  │  ├─ hook.ts
 │  │  ├─ hotroute.ts
 │  │  ├─ jobs.ts
+│  │  ├─ logger.ts
 │  │  ├─ middleware.ts
 │  │  ├─ model.ts
 │  │  ├─ module.ts
@@ -229,22 +231,31 @@ packages/cli/
 │  │  ├─ compiler.ts
 │  │  ├─ completion.ts
 │  │  ├─ config.ts
+│  │  ├─ db-env.ts
+│  │  ├─ deps.ts
 │  │  ├─ dev.ts
+│  │  ├─ discover-root.ts
 │  │  ├─ env-check.ts
 │  │  ├─ fs.ts
 │  │  ├─ logger.ts
 │  │  ├─ native.ts
+│  │  ├─ open.ts
 │  │  ├─ port.ts
 │  │  ├─ prompt.ts
 │  │  ├─ realtime-artifact.ts
+│  │  ├─ realtime-merge.ts
 │  │  ├─ route.ts
+│  │  ├─ run-def.ts
 │  │  ├─ runtime.ts
 │  │  ├─ scaffold.ts
+│  │  ├─ suggest.ts
 │  │  └─ terminal.ts
+│  ├─ app.ts
 │  ├─ config.ts
 │  ├─ index.ts
 │  ├─ route.ts
 │  ├─ types.ts
+│  ├─ usage.ts
 │  └─ version.ts
 ├─ test/
 │  ├─ auth-templates.test.ts
@@ -263,6 +274,7 @@ packages/cli/
 │  ├─ hook.test.ts
 │  ├─ hotroute.test.ts
 │  ├─ jobs.test.ts
+│  ├─ logger-template.test.ts
 │  ├─ middleware.test.ts
 │  ├─ migrate-seed.test.ts
 │  ├─ model-resource.test.ts
@@ -272,6 +284,7 @@ packages/cli/
 │  ├─ port.test.ts
 │  ├─ prompt.test.ts
 │  ├─ realtime-artifact.test.ts
+│  ├─ realtime-merge.test.ts
 │  ├─ registry.test.ts
 │  ├─ route-list.test.ts
 │  ├─ route.test.ts
@@ -288,7 +301,7 @@ packages/cli/
 └─ vitest.config.ts
 ```
 
-### `@ignex/compiler` v0.1.11 · test: `vitest run`
+### `@ignex/compiler` v0.1.26 · test: `vitest run`
 
 ```
 packages/compiler/
@@ -506,7 +519,7 @@ packages/compiler/
 └─ vitest.config.ts
 ```
 
-### `@ignex/core` v0.1.11 · test: `vitest run`
+### `@ignex/core` v0.1.26 · test: `vitest run`
 
 ```
 packages/core/
@@ -792,7 +805,7 @@ packages/core/
 └─ vitest.config.ts
 ```
 
-### `create-ignex` v0.1.11 · test: `vitest run`
+### `create-ignex` v0.1.26 · test: `vitest run`
 
 ```
 packages/create/
@@ -805,7 +818,7 @@ packages/create/
 └─ vitest.config.ts
 ```
 
-### `@ignex/mcp` v0.1.11 · test: `vitest run`
+### `@ignex/mcp` v0.1.26 · test: `vitest run`
 
 ```
 packages/mcp/
@@ -825,7 +838,7 @@ packages/mcp/
 └─ vitest.config.ts
 ```
 
-### `@ignex/native` v0.1.11 · test: `vitest run`
+### `@ignex/native` v0.1.26 · test: `vitest run`
 
 ```
 packages/native/
@@ -891,7 +904,7 @@ packages/native/
 └─ vitest.config.ts
 ```
 
-### `@ignex/shared` v0.1.11 · test: `vitest run`
+### `@ignex/shared` v0.1.26 · test: `vitest run`
 
 ```
 packages/shared/
@@ -916,7 +929,7 @@ packages/shared/
 └─ README.md
 ```
 
-### `@ignex/test-utils` v0.1.11
+### `@ignex/test-utils` v0.1.26
 
 ```
 packages/test-utils/
@@ -987,6 +1000,7 @@ docs/
 ├─ debugbar.md
 ├─ deployment.md
 ├─ drivers.md
+├─ dx-improvement-plan.md
 ├─ elysia-test-port.md
 ├─ getting-started.md
 ├─ native-acceleration.md

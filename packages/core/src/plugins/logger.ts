@@ -11,9 +11,21 @@ import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link logger}. */
 export interface LoggerOptions {
+  /** Minimum level to emit. Defaults to `LOG_LEVEL`, then `"info"`. */
   level?: string;
+  /** Inject an existing pino logger instead of creating one. */
   logger?: PinoLogger;
+  /** Skip access-log emission for a request (returning `true` silences it). */
   skip?: (ctx: IgnexContext) => boolean;
+}
+
+/** Options for {@link createLogger}. */
+export interface CreateLoggerOptions {
+  /**
+   * Minimum level to emit. Defaults to `process.env.LOG_LEVEL`, then
+   * `"info"`.
+   */
+  level?: string;
 }
 
 const REDACT_PATHS = [
@@ -23,17 +35,36 @@ const REDACT_PATHS = [
   "headers.cookie",
 ] as const;
 
-/**
- * Create a pino logger with safe defaults.
- */
-const createPinoLogger = (options: LoggerOptions): PinoLogger => {
-  if (options.logger) return options.logger;
+/** Resolve the effective level: explicit option → `LOG_LEVEL` → `"info"`. */
+const resolveLevel = (level: string | undefined): string =>
+  level ?? process.env.LOG_LEVEL ?? "info";
 
-  return pino({
-    level: options.level ?? "info",
+/**
+ * Create a standalone pino logger with ignex's hardened defaults: no `base`
+ * line and sensitive-header redaction.
+ *
+ * Shared factory behind both the `logger()` access-log plugin and the global
+ * app logger scaffolded at `src/lib/logger.ts`, so every line honors the same
+ * level and redaction rules.
+ *
+ * @param options - Minimum level (`LOG_LEVEL` env is the default).
+ * @returns A configured pino logger.
+ */
+export const createLogger = (options: CreateLoggerOptions = {}): PinoLogger =>
+  pino({
+    level: resolveLevel(options.level),
     base: null,
     redact: [...REDACT_PATHS],
   });
+
+/**
+ * The plugin's pino instance: an injected logger wins, otherwise one is
+ * created from {@link createLogger} (only passing `level` when defined —
+ * `exactOptionalPropertyTypes`).
+ */
+const createPinoLogger = (options: LoggerOptions): PinoLogger => {
+  if (options.logger) return options.logger;
+  return options.level === undefined ? createLogger() : createLogger({ level: options.level });
 };
 
 /**

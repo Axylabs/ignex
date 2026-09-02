@@ -171,6 +171,22 @@ same `plugins` array. Global hooks go in a `lifecycle` export:
 export const lifecycle = { beforeHandle: [logRequests(), markResponse()] };
 ```
 
+### Logging anywhere (global `log`)
+
+Scaffolded apps ship `src/lib/logger.ts` — a global pino logger you can import
+from any route, hook, model or service (works in dev and production):
+
+```ts
+import { log } from "../lib/logger.js";
+
+log.info("order created", { orderId, total });
+log.error(err, "payment failed");
+```
+
+Levels come from the validated `LOG_LEVEL` env (`debug | info | warn | error`,
+default `info`). When nothing imports `log`, the bundler tree-shakes it out of
+the compiled server. Request-level access logs stay on the `logger()` plugin.
+
 ### HTTPS by default
 
 `server.https` defaults to `true`, so ignex enables TLS at startup:

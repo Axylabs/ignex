@@ -442,7 +442,12 @@ export {
   type ReadinessReport,
   runReadinessChecks,
 } from "./plugins/health";
-export { type LoggerOptions, logger } from "./plugins/logger";
+export {
+  type CreateLoggerOptions,
+  createLogger,
+  type LoggerOptions,
+  logger,
+} from "./plugins/logger";
 export {
   createOtlpExporter,
   type MetricsPluginOptions,
