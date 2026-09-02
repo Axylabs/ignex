@@ -173,19 +173,33 @@ export const lifecycle = { beforeHandle: [logRequests(), markResponse()] };
 
 ### Logging anywhere (global `log`)
 
-Scaffolded apps ship `src/lib/logger.ts` — a global pino logger you can import
-from any route, hook, model or service (works in dev and production):
+Scaffolded apps ship `src/lib/logger.ts` — a global logger you can import from
+any route, hook, model or service (works in dev and production). It is
+**variadic and type-aware**: pass any mix of strings, numbers, plain objects
+(JSON) and `Error`s in a single call:
 
 ```ts
 import { log } from "../lib/logger.js";
 
-log.info("order created", { orderId, total });
-log.error(err, "payment failed");
+log.info("order created", { orderId, total }); // string + JSON fields
+log.debug("cached", cacheKey);                 // scalars
+log.error(new Error("boom"), "payment failed"); // errors
+
+const reqLog = log.child({ requestId });       // per-request bindings
+reqLog.warn("slow query", { ms: 412 });
 ```
 
-Levels come from the validated `LOG_LEVEL` env (`debug | info | warn | error`,
-default `info`). When nothing imports `log`, the bundler tree-shakes it out of
-the compiled server. Request-level access logs stay on the `logger()` plugin.
+- **Pretty in dev, JSON in prod.** Output is ANSI-colored, human-readable in
+  development and compact pino JSON in production (log pipelines parse it
+  as-is). Override per instance via `createAppLogger({ pretty, color })`.
+- **Levels** come from the validated `LOG_LEVEL` env (`debug | info | warn |
+  error`, default `info`); `log.setLevel()` works at runtime.
+- **Extendable**: inject your own pino logger, add `base` fields or extra
+  `redact` paths through `createAppLogger()`.
+- **Tree-shaking**: when nothing imports `log`, the bundler drops it out of
+  the compiled server.
+
+Request-level access logs stay on the `logger()` plugin.
 
 ### HTTPS by default
 

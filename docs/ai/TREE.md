@@ -4,12 +4,12 @@
 > Do not edit by hand — regenerate after structural changes. The
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
-- monorepo: `ignex` v0.1.26 (private, workspaces: packages/*)
+- monorepo: `ignex` v0.1.27 (private, workspaces: packages/*)
 - root scripts (74): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
 
 ## packages/ (workspace)
 
-### `@ignex/app` v0.1.26 · test: `vitest run`
+### `@ignex/app` v0.1.27 · test: `vitest run`
 
 ```
 packages/app/
@@ -166,7 +166,7 @@ packages/app/
 └─ vitest.config.ts
 ```
 
-### `@ignex/cli` v0.1.26 · test: `vitest run`
+### `@ignex/cli` v0.1.27 · test: `vitest run`
 
 ```
 packages/cli/
@@ -301,7 +301,7 @@ packages/cli/
 └─ vitest.config.ts
 ```
 
-### `@ignex/compiler` v0.1.26 · test: `vitest run`
+### `@ignex/compiler` v0.1.27 · test: `vitest run`
 
 ```
 packages/compiler/
@@ -519,7 +519,7 @@ packages/compiler/
 └─ vitest.config.ts
 ```
 
-### `@ignex/core` v0.1.26 · test: `vitest run`
+### `@ignex/core` v0.1.27 · test: `vitest run`
 
 ```
 packages/core/
@@ -675,6 +675,7 @@ packages/core/
 │  │  ├─ scheduler.ts
 │  │  └─ sqlite.ts
 │  ├─ plugins/
+│  │  ├─ app-logger.ts
 │  │  ├─ auth-module.ts
 │  │  ├─ auth.ts
 │  │  ├─ compression.ts
@@ -805,7 +806,7 @@ packages/core/
 └─ vitest.config.ts
 ```
 
-### `create-ignex` v0.1.26 · test: `vitest run`
+### `create-ignex` v0.1.27 · test: `vitest run`
 
 ```
 packages/create/
@@ -818,7 +819,7 @@ packages/create/
 └─ vitest.config.ts
 ```
 
-### `@ignex/mcp` v0.1.26 · test: `vitest run`
+### `@ignex/mcp` v0.1.27 · test: `vitest run`
 
 ```
 packages/mcp/
@@ -838,7 +839,7 @@ packages/mcp/
 └─ vitest.config.ts
 ```
 
-### `@ignex/native` v0.1.26 · test: `vitest run`
+### `@ignex/native` v0.1.27 · test: `vitest run`
 
 ```
 packages/native/
@@ -904,7 +905,7 @@ packages/native/
 └─ vitest.config.ts
 ```
 
-### `@ignex/shared` v0.1.26 · test: `vitest run`
+### `@ignex/shared` v0.1.27 · test: `vitest run`
 
 ```
 packages/shared/
@@ -929,7 +930,7 @@ packages/shared/
 └─ README.md
 ```
 
-### `@ignex/test-utils` v0.1.26
+### `@ignex/test-utils` v0.1.27
 
 ```
 packages/test-utils/

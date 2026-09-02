@@ -28,15 +28,18 @@ export interface CreateLoggerOptions {
   level?: string;
 }
 
-const REDACT_PATHS = [
+/** Sensitive paths redacted from every pino line (see {@link createLogger}). */
+export const REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   "headers.authorization",
   "headers.cookie",
 ] as const;
 
-/** Resolve the effective level: explicit option → `LOG_LEVEL` → `"info"`. */
-const resolveLevel = (level: string | undefined): string =>
+/**
+ * Resolve the effective level: explicit option → `LOG_LEVEL` → `"info"`.
+ */
+export const resolveLevel = (level: string | undefined): string =>
   level ?? process.env.LOG_LEVEL ?? "info";
 
 /**

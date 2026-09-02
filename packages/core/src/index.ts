@@ -420,6 +420,11 @@ export {
   type Scheduler,
   type SchedulerOptions,
 } from "./platform/scheduler";
+export {
+  type AppLogger,
+  type AppLoggerOptions,
+  createAppLogger,
+} from "./plugins/app-logger";
 // ── plugins ─────────────────────────────────────────────────────
 export {
   auth,

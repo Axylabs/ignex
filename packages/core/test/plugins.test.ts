@@ -6,6 +6,7 @@
 import { isNativeAvailable } from "@ignex/native";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nativePreflight } from "../src/index.js";
+import { createAppLogger } from "../src/plugins/app-logger.js";
 import { compression } from "../src/plugins/compression.js";
 import { cors } from "../src/plugins/cors.js";
 import { createLogger, logger } from "../src/plugins/logger.js";
@@ -331,6 +332,118 @@ describe("createLogger", () => {
     process.env.LOG_LEVEL = "debug";
     expect(createLogger({ level: "warn" }).level).toBe("warn");
     expect(createLogger({ level: "error" }).level).toBe("error");
+  });
+});
+
+describe("createAppLogger", () => {
+  it("merges plain objects and joins scalars in one variadic call", () => {
+    const info = vi.fn();
+    const log = createAppLogger({
+      logger: {
+        level: "info",
+        debug: vi.fn(),
+        info,
+        warn: vi.fn(),
+        error: vi.fn(),
+        child: vi.fn(),
+      } as never,
+    });
+    log.info("order", 42, { orderId: 7 });
+    expect(info).toHaveBeenCalledWith({ orderId: 7 }, "order 42");
+  });
+
+  it("renders a single object as structured fields", () => {
+    const info = vi.fn();
+    const log = createAppLogger({
+      logger: {
+        level: "info",
+        debug: vi.fn(),
+        info,
+        warn: vi.fn(),
+        error: vi.fn(),
+        child: vi.fn(),
+      } as never,
+    });
+    log.info({ orderId: 7, total: 12.5 });
+    expect(info).toHaveBeenCalledWith({ orderId: 7, total: 12.5 }, "");
+  });
+
+  it("attaches errors under the err field next to the message", () => {
+    const error = vi.fn();
+    const log = createAppLogger({
+      logger: {
+        level: "info",
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error,
+        child: vi.fn(),
+      } as never,
+    });
+    log.error(new Error("boom"), "failed");
+    const [fields, msg] = error.mock.calls[0] as [Record<string, unknown>, string];
+    expect((fields.err as { message: string }).message).toBe("boom");
+    expect(msg).toBe("failed");
+  });
+
+  it("child() binds context onto a new leveled logger", () => {
+    const child = vi.fn(() => ({
+      level: "info",
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(),
+    }));
+    const log = createAppLogger({
+      logger: {
+        level: "info",
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        child,
+      } as never,
+    });
+    const scoped = log.child({ requestId: "abc" });
+    scoped.info("hello");
+    expect(child).toHaveBeenCalledWith({ requestId: "abc" });
+  });
+
+  it("setLevel() updates the current level", () => {
+    let current = "info";
+    const fake = {
+      get level() {
+        return current;
+      },
+      set level(v: string) {
+        current = v;
+      },
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(),
+    };
+    const log = createAppLogger({ logger: fake as never });
+    log.setLevel("warn");
+    expect(fake.level).toBe("warn");
+    expect(log.level).toBe("warn");
+  });
+
+  it("pretty mode renders human-readable lines to stdout", () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const log = createAppLogger({ pretty: true, color: false, level: "info" });
+      log.info("order created", { orderId: 7 });
+      const out = write.mock.calls.map((c) => String(c[0])).join("");
+      expect(out).toContain("INFO");
+      expect(out).toContain("order created");
+      expect(out).toContain('"orderId": 7');
+      expect(out).not.toContain('"level":30');
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 

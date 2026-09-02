@@ -31,13 +31,14 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Global app logger in the scaffold.** The `logger` feature now also ships
-  `src/lib/logger.ts` — a pino-backed `log` importable from any route/hook/
-  model/service (`log.info("order created", { orderId })`), leveled by the
-  validated `LOG_LEVEL` env, and tree-shaken out of the compiled server when
-  nothing imports it. `@ignex/core` exports the shared `createLogger()`
-  factory behind both the app logger and the `logger()` access-log plugin
-  (same hardened defaults + `LOG_LEVEL` handling).
+- **Extendable global app logger in the scaffold.** The `logger` feature now
+  ships `src/lib/logger.ts` — an app-facing `log` facade importable from any
+  route/hook/model/service, backed by `@ignex/core`'s `createAppLogger()`:
+  variadic and type-aware (`log.info("order", 42, { orderId })` — plain
+  objects become structured fields, `Error`s attach under `err`), pretty
+  ANSI output in development vs. pino JSON in production, `child()` scoping,
+  an injectable pino logger, and tree-shaken out of the compiled server when
+  nothing imports it. Level comes from the validated `LOG_LEVEL` env.
 - **Typed server-side realtime facade** in the generated SDK
   (`realtime/server.ts`): `emit`/`emitToUser`/`emitToGroup`/`emitToClient`/
   `emitToTopic`/`on`/`once`/`off` typed against the app's events — no more

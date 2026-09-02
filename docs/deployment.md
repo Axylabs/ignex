@@ -198,9 +198,9 @@ otlp.start();            // push on an interval (stop() on shutdown)
 - Access logs: the `logger` plugin emits structured pino lines
   (`requestId/method/path/route/status/durationMs/ip`).
 - App logs: scaffolded `src/lib/logger.ts` gives every route/hook/service a
-  global `log` built by the same factory (hardened pino defaults). Set
-  `LOG_LEVEL` (`debug|info|warn|error`) once — access and app logs honor it
-  together.
+  variadic global `log` (`log.info("order", { orderId })`) — pretty ANSI
+  output in development, pino JSON in production. Set `LOG_LEVEL`
+  (`debug|info|warn|error`) once — access and app logs honor it together.
 - The debugbar is DEV-ONLY; it self-disables in production and its per-request
   cost is a single boolean check.
 

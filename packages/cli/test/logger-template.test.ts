@@ -24,12 +24,14 @@ test("parseFeatures resolves logger", () => {
   expect(parseFeatures("logger")).toEqual(new Set(["logger"]));
 });
 
-test("loggerLibTemplate exports a pino-backed global log from @ignex/core", () => {
+test("loggerLibTemplate exports the extendable app logger from @ignex/core", () => {
   const code = loggerLibTemplate();
-  expect(code).toContain('import { createLogger } from "@ignex/core";');
+  expect(code).toContain('import { createAppLogger } from "@ignex/core";');
   expect(code).toContain('import { env } from "../config/env.js";');
-  expect(code).toContain("export const log = createLogger({ level: env.LOG_LEVEL });");
-  expect(code).toContain("LOG_LEVEL");
+  expect(code).toContain("export const log = createAppLogger({");
+  expect(code).toContain("level: env.LOG_LEVEL,");
+  expect(code).toContain('pretty: env.NODE_ENV !== "production",');
+  expect(code).toContain("createAppLogger");
 });
 
 test("ignex create writes src/lib/logger.ts when the logger feature is selected", async () => {
@@ -48,7 +50,7 @@ test("ignex create writes src/lib/logger.ts when the logger feature is selected"
 
     const file = join(base, "demo/src/lib/logger.ts");
     expect(existsSync(file)).toBe(true);
-    expect(readFileSync(file, "utf8")).toContain("createLogger");
+    expect(readFileSync(file, "utf8")).toContain("createAppLogger");
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
