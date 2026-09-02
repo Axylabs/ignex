@@ -100,10 +100,12 @@ ignex event bus order        # typed in-process event bus + publish route + cons
   (`src/modules/events/<name>.get.ts`) that yields `SSEMessage` events.
 - **webhook** — a receiver route that parses the JSON body and hands it to
   `handle<Name>Event(payload)` in `src/modules/hooks/<name>.post.ts`.
-- **bus** — `src/lib/events.ts` (typed `on`/`off`/`emit`/`listenerCount`), a
-  publish route (`POST /events/emit.<name>`) and an example consumer module.
-  Pair with the NATS service from `ignex ops compose` for cross-service
-  streaming.
+- **bus** — the wire contract (`src/realtime.ts`), a pre-wired `novaPlugin`
+  (`src/realtime.plugin.ts`), `src/lib/events.ts` (typed
+  `on`/`emit`/`emitToUser` facade), a publish route (`POST /events/emit.<name>`)
+  and an example consumer in `src/realtime/consumers/` that the compiled
+  server auto-registers after the hub binds. Pair with the NATS service from
+  `ignex ops compose` for cross-service streaming.
 
 ## Hot routes (`ignex hotroute`)
 

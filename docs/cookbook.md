@@ -336,9 +336,12 @@ emitToUser("u-42", "order.update", { orderId: "o-1" });
   from the generated SDK — `client.on("quote", cb)` / `client.send("chat", …)`
   are typed against YOUR events; decode is pure JS (FlatBuffers), no FFI.
 - **Scaffold**: `ignex event bus <name>` emits `src/realtime.ts`, a pre-wired
-  `src/realtime.plugin.ts`, a publish route, and an example consumer — it also
-  updates `tsconfig` include and generates the local SDK (offers to install
-  `@ignex/nova`; codegen needs `flatc` on PATH).
+  `src/realtime.plugin.ts`, a publish route, and an auto-registered example
+  consumer in `src/realtime/consumers/` — the compiled server imports it and
+  calls its default-exported `register()` right after `novaPlugin` binds, so
+  no manual consumer wiring is needed. It also updates `tsconfig` include and
+  generates the local SDK (offers to install `@ignex/nova`; codegen needs
+  `flatc` on PATH).
 - Install: `bun add @ignex/nova` (+ `@sinclair/typebox` for the contract).
 
 ## Mail & notifications

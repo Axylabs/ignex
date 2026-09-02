@@ -3,8 +3,8 @@
  *
  *   sse      → SSE stream endpoint (server → clients) + producer module
  *   webhook  → webhook receiver (clients → server, receives event data) + module
- *   bus      → typed in-process event bus (src/lib/events.ts) + publish route
- *              + example consumer module
+ *   bus      → typed realtime event bus (src/lib/events.ts) + publish route
+ *              + auto-registered consumer (src/realtime/consumers/)
  *
  * The module holds the business logic; the route file stays a thin HTTP layer
  * (the AOT compiler requires the handler to stay inline in the route module).
@@ -163,8 +163,10 @@ export function eventBusLibTemplate(): string {
  *
  * The facade is typed against YOUR events (no casts) and backed by the
  * module-global hub, which novaPlugin binds at boot. Handlers must be
- * registered AFTER the hub binds (e.g. from a plugin placed after
- * realtimePlugin in app.config.ts).
+ * registered AFTER the hub binds — the easiest path is dropping a module
+ * under src/realtime/consumers/ that default-exports register(): the
+ * compiled server imports it and calls register() automatically after the
+ * plugin init loop (no manual post-realtimePlugin plugin needed).
  */
 export * from "../../.ignex/sdk/realtime/server.js";
 `;
@@ -189,23 +191,30 @@ export default post(async (ctx) => {
 `;
 }
 
-/** `src/modules/events/<name>.consumer.ts` — example bus consumer. */
+/**
+ * `src/realtime/consumers/<name>.consumer.ts` — auto-loaded bus consumer.
+ *
+ * Lives in the conventional realtime-consumers dir the compiler auto-registers
+ * (default `src/realtime/consumers`): the compiled server imports every module
+ * there and calls its default-exported `register()` right after `novaPlugin`
+ * binds the events hub at boot — no manual post-`realtimePlugin` plugin and no
+ * ordering footgun. `register()` may be async.
+ */
 export function eventBusConsumerTemplate(name: string): string {
   const eventName = `${name}.created`;
-  const fn = `start${pascalFromKebab(name)}Consumers`;
   return `import { on } from "../../lib/events.js";
 
 /**
- * Example consumer for the "${eventName}" channel.
+ * Auto-loaded consumer for the "${eventName}" channel.
  *
- * \`on()\` registers with the hub novaPlugin binds at boot — so call
- * \`${fn}()\` AFTER the app starts, e.g. from a plugin placed after
- * realtimePlugin in src/app.config.ts:
+ * \`on()\` registers with the hub \`novaPlugin\` binds at boot. Because this
+ * file lives in \`src/realtime/consumers/\`, the compiled server imports it
+ * and calls its default-exported \`register()\` automatically (right after
+ * the plugin init loop) — dropping the file here is all the wiring needed.
  *
- *   const consumers = { name: "${name}-consumers", version: "0.0.0",
- *                       async init() { ${fn}(); } };
+ * Payload is typed against src/realtime.ts: { id: string; at: number }.
  */
-export function ${fn}(): void {
+export default function register(): void {
   on("${eventName}", async (payload) => {
     // payload is typed: { id: string; at: number }
     console.log("${eventName}", payload);
@@ -236,7 +245,7 @@ export function eventFiles(
         { path: "realtime.plugin.ts", content: eventBusPluginTemplate(name) },
         { path: "lib/events.ts", content: eventBusLibTemplate() },
         { path: `routes/events/emit.${name}.post.ts`, content: eventBusEmitRouteTemplate(name) },
-        { path: `modules/events/${name}.consumer.ts`, content: eventBusConsumerTemplate(name) },
+        { path: `realtime/consumers/${name}.consumer.ts`, content: eventBusConsumerTemplate(name) },
       ];
   }
 }
@@ -252,8 +261,9 @@ export function eventSummary(kind: EventKind, name: string): string {
       return (
         `Typed realtime events scaffolded: src/realtime.ts (wire contract, declares "${name}.created") + ` +
         `src/realtime.plugin.ts (pre-wired novaPlugin) + publish route POST /events/emit.${name} + ` +
-        `example consumer. Add realtimePlugin to src/app.config.ts, then \`ignex build\` regenerates ` +
-        `the local SDK (.ignex/sdk) with the typed FE client + server facade.`
+        `an auto-registered consumer in src/realtime/consumers/${name}.consumer.ts. Add realtimePlugin ` +
+        `to src/app.config.ts, then \`ignex build\` regenerates the local SDK (.ignex/sdk) and the ` +
+        `compiled server auto-loads the consumer (no manual wiring).`
       );
   }
 }

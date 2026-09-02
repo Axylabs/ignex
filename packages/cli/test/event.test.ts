@@ -115,11 +115,13 @@ describe("bus templates", () => {
     expect(code).toContain("RealtimeEventPayloads");
   });
 
-  it("consumer module subscribes to the channel and returns void", () => {
+  it("consumer auto-registers: default-exports register() subscribing to the channel", () => {
     const code = eventBusConsumerTemplate("order");
     expect(code).toContain('on("order.created"');
-    expect(code).toContain("startOrderConsumers");
-    expect(code).toContain("): void {");
+    expect(code).toContain("export default function register(): void");
+    expect(code).toContain('from "../../lib/events.js"');
+    expect(code).toContain("src/realtime/consumers");
+    expect(code).not.toContain("startOrderConsumers");
     expect(code).not.toContain("return off;");
   });
 });
@@ -141,14 +143,14 @@ describe("eventFiles", () => {
     ]);
   });
 
-  it("scaffolds bus contract + plugin + lib + emit route + consumer", () => {
+  it("scaffolds bus contract + plugin + lib + emit route + auto-loaded consumer", () => {
     const files = eventFiles("bus", "order");
     expect(files.map((f) => f.path)).toEqual([
       "realtime.ts",
       "realtime.plugin.ts",
       "lib/events.ts",
       "routes/events/emit.order.post.ts",
-      "modules/events/order.consumer.ts",
+      "realtime/consumers/order.consumer.ts",
     ]);
   });
 });
@@ -189,14 +191,18 @@ describe("ignex event (command wiring)", () => {
     }
   });
 
-  it("scaffolds the event bus + emit route + consumer", async () => {
+  it("scaffolds the event bus + emit route + auto-loaded consumer", async () => {
     const dir = tmpTarget();
     try {
       await runEvent(["bus", "order", "--root", dir]);
 
       expect(existsSync(join(dir, "src/lib/events.ts"))).toBe(true);
       expect(existsSync(join(dir, "src/routes/events/emit.order.post.ts"))).toBe(true);
-      expect(existsSync(join(dir, "src/modules/events/order.consumer.ts"))).toBe(true);
+      const consumerPath = join(dir, "src/realtime/consumers/order.consumer.ts");
+      expect(existsSync(consumerPath)).toBe(true);
+      const consumer = readFileSync(consumerPath, "utf8");
+      expect(consumer).toContain("export default function register(): void");
+      expect(existsSync(join(dir, "src/modules/events/order.consumer.ts"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

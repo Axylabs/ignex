@@ -5,7 +5,8 @@
  *   ignex event sse orders               → SSE stream at GET /events/orders
  *   ignex event webhook orders           → webhook receiver at POST /hooks/orders
  *   ignex event bus order                → typed event bus + publish route +
- *                                          example consumer module
+ *                                          auto-registered consumer
+ *                                          (src/realtime/consumers/)
  *
  * Every flow scaffolds the business logic into `src/modules/` (or
  * `src/lib/events.ts` for the bus) and keeps the route file a thin HTTP layer.
@@ -233,6 +234,10 @@ function printBusWiring(): void {
   console.log("Next steps — wire the plugin into src/app.config.ts:");
   console.log('  1. import { realtimePlugin } from "./realtime.plugin.js";');
   console.log("  2. add `realtimePlugin` to the `plugins` array.");
+  console.log();
+  console.log("The example consumer under src/realtime/consumers/ auto-registers:");
+  console.log("`ignex build` calls its register() after novaPlugin binds the hub —");
+  console.log("no extra consumer plugin is needed.");
   console.log();
   console.log("Then: bun run build   (regenerates .ignex/sdk + the compiled server)");
   console.log("      bun run dev");

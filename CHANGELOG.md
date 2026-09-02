@@ -41,6 +41,14 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   (`plugin.server.events`), removing the "no events hub bound" footgun.
 - `compiler/sdk` exports `writeRealtimeSdk` (+ `realtimeInputOf`) for
   realtime-only SDK generation without build artifacts.
+- **Backend event consumers auto-register.** `ignex event bus <name>` now
+  scaffolds its example consumer into the conventional `src/realtime/consumers/`
+  dir (default `realtimeConsumersDir`) as a module default-exporting
+  `register()`; the compiled server imports every module there and calls
+  `register()` right after the plugin-init loop (guarded on a `nova` plugin
+  being present), so receiving events in the backend needs no manual
+  post-`realtimePlugin` plugin or ordering — the scaffolded consumer is no
+  longer a hand-wired `start…Consumers()` module under `src/modules/events/`.
 
 ### Changed
 
