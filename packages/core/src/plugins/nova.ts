@@ -183,9 +183,28 @@ export interface NovaEventsHandle {
   off(name: string, handler?: (payload: unknown, ctx: unknown) => void): void;
   emit(name: string, payload: unknown, target?: { type: string; [k: string]: unknown }): void;
   emitToUser(userId: string, name: string, payload: unknown): void;
+  /**
+   * Deliver to the user on EVERY instance/service sharing the cluster mesh
+   * (full mesh, no presence routing). Requires @ignex/nova >= 0.1.7.
+   */
+  emitToUserAnywhere(userId: string, name: string, payload: unknown): void;
   emitToClient(clientId: string, name: string, payload: unknown): void;
   emitToTopic(topic: string, name: string, payload: unknown): void;
   emitToGroup(group: string, name: string, payload: unknown): void;
+
+  /** A connection known on ANOTHER instance/service (cluster presence). */
+  remoteClients(): Array<{
+    clientId: string;
+    instanceId: string;
+    userId?: string;
+    lastSeen: number;
+  }>;
+  /**
+   * Cluster-wide clients of a user from the shared-state registry (Redis) —
+   * the "where is this user right now" answer across instances/services.
+   * Resolves [] when no shared state store is configured.
+   */
+  clusterUserClients(userId: string): Promise<Array<{ instanceId: string; clientId: string }>>;
 }
 
 /** Error thrown when `@ignex/nova` is not installed but a plugin needs it. */

@@ -247,6 +247,19 @@ describe("realtime platform", () => {
       expect(server).toContain("export const emitToUser = <K extends RealtimeEventName>(");
       expect(server).toContain("export const on = <K extends RealtimeEventName>(");
       expect(server).toContain("_emit(name as never, payload as never)");
+      // Handler ctx is typed (not `unknown`) so `ctx.client`/`ctx.source` give
+      // the sender's identity — attribution is a first-class, type-safe part
+      // of the facade. Context/client/source types are re-exported for typing.
+      expect(server).toContain(
+        'import type { EventClient, EventContext, EventSource } from "@ignex/nova/events"',
+      );
+      expect(server).toContain("export type RealtimeEventContext = EventContext;");
+      expect(server).toContain("export type RealtimeEventHandler<K extends RealtimeEventName> =");
+      expect(server).toContain("ctx: RealtimeEventContext");
+      expect(server).not.toContain("ctx: unknown");
+      // Full-mesh cross-service user emit is part of the facade.
+      expect(server).toContain("export const emitToUserAnywhere = <K extends RealtimeEventName>(");
+      expect(server).toContain("_emitToUserAnywhere(userId, name as never, payload as never)");
 
       // package.json: naming + subpath exports + pinned deps.
       const pkgJson = JSON.parse(files.get("package.json") ?? "{}") as {
@@ -261,7 +274,7 @@ describe("realtime platform", () => {
       expect(pkgJson.exports["./client"]).toBe("./realtime/client.gen.ts");
       expect(pkgJson.exports["./server"]).toBe("./realtime/server.ts");
       expect(pkgJson.exports["./rpc"]).toBe("./realtime/rpc.gen.ts");
-      expect(pkgJson.dependencies["@ignex/nova"]).toBe("^0.1.1");
+      expect(pkgJson.dependencies["@ignex/nova"]).toBe("^0.1.7");
       expect(pkgJson.dependencies["@sinclair/typebox"]).toBe("^0.34.0");
     },
   );
