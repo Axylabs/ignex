@@ -688,3 +688,91 @@ export interface KnowledgeOptions {
   readonly lifecycle?: Record<string, number>;
   readonly plugins?: string[];
 }
+
+/* ============================================================================
+ * Events panel — the unified event buffer (NATS pub/sub + nova/WS realtime).
+ *
+ * The debugbar's Events view is a single buffer that interleaves two
+ * transports so you can see, side by side, what your app SENT and what it
+ * RECEIVED over the wire:
+ *   - `nats` — messages published / received over the NATS bus
+ *     (`NatsEventTracker`, tracked push-style into its ring).
+ *   - `nova` — events that fired in the app's typed realtime transport
+ *     (`@ignex/nova`): server→client emits/publishes, client→server inbound,
+ *     cluster-sync and NATS-bridge inbound. Read from nova's own trace ring
+ *     via the `data.nova` probe.
+ *
+ * Contract served by `GET /api/events` and rendered by `ui/views/events.tsx`.
+ * ==========================================================================*/
+
+/** Transport an event-buffer row came from. */
+export type DebugEventSource = "nats" | "nova";
+
+/** One row in the unified Events panel buffer. */
+export interface DebugEventRow {
+  /** Stable id within the buffer (`ev-…` for nats, `nv-<seq>` for nova). */
+  readonly id: string;
+  /** Epoch ms when the event was recorded. */
+  readonly ts: number;
+  readonly source: DebugEventSource;
+  /** `out` = this process sent it, `in` = this process received it. */
+  readonly direction: "in" | "out";
+  /**
+   * Precise kind behind the direction pill:
+   * nats → `publish` | `message`; nova → `publish` | `emit` | `client`
+   * (received from a WS client) | `remote` | `bridge`.
+   */
+  readonly kind: string;
+  /** Subject (nats) or wire event name (nova), e.g. `orders.created`. */
+  readonly name: string;
+  /** Nova target key (user/topic/group/client id) when addressed. */
+  readonly key?: string;
+  /** Truncated JSON payload preview (`""` when capture is off or empty). */
+  readonly payload: string;
+  /** Wire size in bytes. */
+  readonly size: number;
+  /** Error message when the send/recv failed, else null. */
+  readonly error: string | null;
+}
+
+/** Per-source summary for the unified Events panel header. */
+export interface DebugEventSourceInfo {
+  /** True when the source is wired and producing data. */
+  readonly present: boolean;
+  /** Human label: `NATS bus` | `Nova realtime (WS)`. */
+  readonly label: string;
+  /** NATS connection state (nats only). */
+  readonly connected?: boolean;
+  readonly status?: string;
+  /** Retained rows in the buffer/ring (≤ capacity). */
+  readonly size: number;
+  /** Rows written since the buffer started. */
+  readonly total: number;
+  readonly in: number;
+  readonly out: number;
+  readonly errors: number;
+  readonly bytes: number;
+  /** Per-subject (nats) / per-event (nova) counts over the window. */
+  readonly byName: Record<string, number>;
+  /**
+   * Nova only: whether the ring is capturing truncated JSON payload previews
+   * (`undefined` for nats, which always stores payloads).
+   */
+  readonly captures?: boolean;
+  /** Present when the source could not be probed: guidance text. */
+  readonly hint?: string;
+}
+
+/** `GET /api/events` — the unified Events panel payload. */
+export interface DebugEventsPayload {
+  /** True when at least one source is wired (NATS and/or nova). */
+  readonly enabled: boolean;
+  /** Shown when NOTHING is wired: how to turn on either source. */
+  readonly hint?: string;
+  readonly sources: {
+    readonly nats: DebugEventSourceInfo | null;
+    readonly nova: DebugEventSourceInfo | null;
+  };
+  /** Interleaved rows, newest first, capped by `limit`. */
+  readonly recent: DebugEventRow[];
+}

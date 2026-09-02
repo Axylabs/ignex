@@ -34,13 +34,14 @@ live tail is visible without staring at timestamps, thin scrollbars,
   tooltips, expandable rows), **Queries**, **Headers** (redacted), **Body**
   (pretty JSON, copy), **Error** (stack, copy) and **Replay** (inline result).
 - **Jobs** — status cards (queued/running/completed/failed) + recent-jobs table.
-- **Events** — NATS event-queue tracking: stats (published/received/errors),
-  a live payload table with subject filtering, and a publish composer for
-  probe events.
-- **Nova** — what fired in the app's nova FlatBuffer realtime transport
-  (emits, publishes, client/remote/bridge inbound), newest first, with
-  per-event counts and frame sizes. Wire it by passing the running nova
-  handle to the debugbar:
+- **Events** — the unified event buffer: NATS pub/sub (published vs
+  received, probe composer) **and** your app's nova realtime/WS traffic
+  (server→client emits/publishes = **sent**; client→server/remote/bridge
+  frames = **received**) in one table. Every row has an in/out direction
+  pill, a source tag (NATS/NOVA), the precise kind, the wire event name + target
+  key, byte size and a payload preview — so an end-to-end flow is traceable
+  in one place. Wire the realtime side by passing the running nova handle to
+  the debugbar:
   ```ts
   const nova = novaPlugin({ port: 3001 });
   export const plugins = [
@@ -48,6 +49,11 @@ live tail is visible without staring at timestamps, thin scrollbars,
     nova,
   ];
   ```
+  Add `novaPlugin({ trace: { capturePayloadChars: 400 } })` to see truncated
+  JSON payload previews on the nova rows. Fire events for testing from the
+  same view: NATS probe publishes **and** realtime emits
+  (`POST /api/nova/events/emit`) — broadcast, or targeted to a user/group/
+  topic/client — so consumers can be exercised without leaving the dashboard.
 - **Clients** — published SDK + FlatBuffers frontend clients with local
   versions and git tags (`sdk-v*`) — tagged ✓ vs local-only.
 - **AI** — the compact `ai/summary` snapshot plus a copy-paste MCP config so
@@ -180,7 +186,11 @@ it, and doesn't. Three layers guarantee that:
    elimination inputs), so a production build can never poison the dev cache
    with eliminated routes — and vice versa. A dev build after a prod build
    still ships the full-context pipeline for a kept `debugbar()`.
-
+The compiled-server tests assert this concretely: a `production: true` build
+contains **no** debugbar code — not the dashboard SPA, not the observatory
+endpoints, and not the Events panel's tooling (the unified-buffer merge and
+the manual `nova/events/emit` fire path are part of the same eliminated
+graph).
 Verify it yourself: build with `NODE_ENV=production`, boot, and `GET
 /__debugbar/` returns 404 with normal routes unaffected.
 
@@ -226,8 +236,9 @@ debugbar({
     maxAgeSec: 7 * 24 * 3600,   // retention window
     maxRows: 100_000,           // hard per-table cap
   },
-  // Nova (FlatBuffer realtime transport) probe — what fired, for the Nova
-  // panel + the MCP `debug-nova-events` tool + the AI summary's nova block.
+  // Nova (FlatBuffer realtime transport) probe — what fired (sent/received),
+  // shown in the Events panel's realtime section + the MCP `debug-nova-events`
+  // tool + the AI summary's nova block.
   data: { nova: () => nova.server },
 })
 ```
@@ -505,24 +516,49 @@ runtime facts (Bun/platform/pid/uptime), memory breakdown, environment
 variable **names** (values are never exposed), route/plugin inventory, store
 sizes and feature flags.
 
-## NATS event tracking (Events panel)
+## Event buffer (Events panel)
 
-With `nats` configured (or `$NATS_URL` set), the debugbar tracks your
-event-queue traffic:
+The **Events** view is a single in-memory buffer that interleaves two
+transports so you can see, side by side, what the app **sent** and what it
+**received** over the wire:
 
-- **Events** view — stat cards (window total, published vs received, errors,
-  bytes), a live table (time, direction, subject, size, truncated payload),
-  per-subject filtering, and a **publish composer** to send probe events
-  (`orders.created` + JSON payload → `POST /api/events/publish`) so you can
-  test consumers without leaving the dashboard.
-- **Inbound tracking** — the tracker subscribes to `subjects` (default
-  `events.>`) and records every matching message with its payload.
-- **Outbound tracking** — publishes made through the tracker (dashboard
-  composer, `NatsEventTracker` in your app) are recorded, including failures
-  (server down, not connected) so the panel always shows *what happened*.
-- **Resilient** — a missing/broken NATS server never crashes the app: boot
-  logs the connection status, failures become error events, and the tracker
-  reconnects with backoff.
+- **NATS bus** (when `nats` is configured or `$NATS_URL` is set) — the
+  zero-dependency tracker subscribes to `subjects` (default `events.>`) and
+  records every matching message; publishes made through the tracker
+  (dashboard composer, `NatsEventTracker` in your app) are recorded too,
+  **including failures** (server down, not connected), so the panel always
+  shows *what happened*. Resilient: a missing/broken NATS server never
+  crashes the app; failures become error rows and the tracker reconnects with
+  backoff.
+- **Nova realtime (WS)** (when `data.nova` is wired, see the *Events* feature
+  above) — read from the nova transport's own trace ring: `out.emit` /
+  `out.publish` rows (what the server sent to clients) and `in.client` /
+  `in.remote` / `in.bridge` rows (what the server received from a WS client,
+  a peer instance, or the NATS bridge), newest first, with per-event counts
+  and frame sizes. Payload previews appear when the ring captures them
+  (`novaPlugin({ trace: { capturePayloadChars } })`); otherwise the panel
+  shows a hint with the exact option.
+
+In the view: stat cards per source (events, sent/received, errors, bytes), a
+live table (time, in/out direction pill, source tag NATS/NOVA, event/subject +
+→ target key, size, truncated payload), a free-text filter across both
+sources, a source filter (All/NATS/Nova), and **clear buffer**, which drops
+both the NATS rows and the nova trace ring.
+
+**Firing events for testing** (no `curl`, no leaving the dashboard):
+
+- **NATS** — the **publish composer** sends probe events (`orders.created` +
+  JSON payload → `POST /api/events/publish`) and records the attempt
+  (including failures) in the buffer.
+- **Realtime (nova)** — the **emit composer** fires a wire event against the
+  running nova server → `POST /api/nova/events/emit` with
+  `{ name, payload?, target? }`. `target` is blank for a broadcast emit or
+  `user:u-42` / `group:premium` / `topic:room` / `client:c-1` to target one
+  recipient. It routes through nova's events hub, so **server-side consumers
+  and subscribed clients both receive it** — perfect for checking a
+  `recive-fe`-style consumer end to end. Unregistered event names surface
+  the hub's error back in the composer. (Requires the events layer, which
+  `novaPlugin` enables by default.)
 
 ## Published clients (Clients panel)
 
@@ -575,7 +611,7 @@ Tools (the dashboard's **AI** view shows this config + the tool list):
 | `debug-diagnostics` | leak findings with evidence + recommendations; `gc: true` forces a collection first |
 | `debug-state` | application/process snapshot (memory, env names, features) |
 | `debug-history` | SQLite-persisted traces across restarts (filters + single-trace reconstruction) |
-| `debug-events` / `debug-event-publish` | inspect the NATS queue, publish probe events |
+| `debug-events` / `debug-event-publish` | inspect the unified event buffer (NATS + realtime, sent + received), publish NATS probe events |
 | `debug-system` | CPU/RSS/heap/event-loop profile |
 | `debug-clients` | published SDK + client state (local version, git tags) |
 | `debug-kt` | the "how this app works" markdown — instant onboarding |
@@ -698,9 +734,12 @@ All under `{path}` (default `/__debugbar`):
 | `GET /api/kt` | knowledge markdown + structured knowledge |
 | `GET /api/sdks` | published-SDK metadata (enriched with git tags) |
 | `GET /api/clients?refresh=` | published SDK + frontend clients (local + git tags) |
-| `GET /api/events?limit=&subject=` | NATS event stats + recent events |
-| `POST /api/events/publish` | publish a probe event `{ subject, payload }` |
-| `POST /api/events/clear` | clear the event buffer |
+| `GET /api/events?limit=&direction=&q=` | unified event buffer: NATS + nova/WS stats and interleaved recent rows (source, in/out, kind, event/subject, size, payload) |
+| `POST /api/events/publish` | publish a NATS probe event `{ subject, payload }` |
+| `POST /api/events/clear` | clear the event buffer (NATS rows + nova trace ring) |
+| `GET /api/nova/events?limit=&direction=&name=` | raw nova transport trace (sent/received rows) |
+| `POST /api/nova/events/clear` | drop the nova trace ring rows |
+| `POST /api/nova/events/emit` | fire a realtime event manually `{ name, payload?, target? }` (`target` = `user:u-42` / `group:` / `topic:` / `client:`, blank = broadcast) |
 | `GET /api/ai/summary` | compact AI-facing snapshot (errors, slow traces, events, clients, observatory verdict) |
 | `POST /api/stream/ticket` | mint a single-use, short-TTL ticket authorizing one stream connection |
 | `GET /api/stream?ticket=` | Server-Sent-Events revision stream (per-domain mutation counters; falls back to polling when unavailable) |

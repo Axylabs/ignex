@@ -272,9 +272,13 @@ describe("production build keeps AOT optimizations", () => {
     // The TLS policy never auto-generates dev certs in a prod-shaped artifact.
     expect(result.code).toContain("production: true,\n  certDir:");
     // The import-binding stub treeshakes the debug graph out of the bundle:
-    // no dashboard SPA (tailwind CSS string), no observatory endpoints.
+    // no dashboard SPA (tailwind CSS string), no observatory endpoints — and
+    // none of the debugger's event tooling (the unified event buffer + the
+    // manual realtime "emit" endpoint) ships inside the production artifact.
     expect(result.code).not.toContain("tailwindcss");
     expect(result.code).not.toContain("createEndpointTable");
+    expect(result.code).not.toContain("nova/events/emit");
+    expect(result.code).not.toContain("Nova realtime (WS)");
   });
 
   it("bakes __TRACE_DEBUG from whether a debugbar is kept for the build", async () => {

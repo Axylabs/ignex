@@ -180,7 +180,13 @@ const apiPayload = (url: string): unknown => {
     };
   if (url.includes("/api/jobs")) return { enabled: false };
   if (url.includes("/api/routes")) return { enabled: false };
-  if (url.includes("/api/events")) return { enabled: false, stats: null, recent: [] };
+  if (url.includes("/api/events"))
+    return {
+      enabled: false,
+      hint: "No event source wired.",
+      sources: { nats: null, nova: null },
+      recent: [],
+    };
   if (url.includes("/api/nova/events")) return { enabled: false };
   if (url.includes("/api/clients")) return { enabled: true, count: 0, gitError: null, clients: [] };
   if (url.includes("/api/ai/summary"))

@@ -6,14 +6,109 @@
 
 import type { IgnexContext } from "../../../http/context";
 import type { IgnexRouter } from "../../../http/router";
+import type { NovaEventTrace, NovaEventTraceRow } from "../../../plugins/nova";
 import { buildAppKnowledge, formatKnowledgeMarkdown } from "../../kt";
 import { analyzeSamples } from "../../leaks";
 import { renderMarkdownHtml } from "../../markdown";
+import type { NatsEventSummary, NatsEventTracker } from "../../nats-tracker";
 import { json } from "../../respond";
 import { buildAppState } from "../../state";
-import type { AiDebugSummary, AppKnowledge, KnowledgeOptions, RequestTrace } from "../../types";
+import type {
+  AiDebugSummary,
+  AppKnowledge,
+  DebugEventRow,
+  DebugEventSourceInfo,
+  DebugEventsPayload,
+  KnowledgeOptions,
+  RequestTrace,
+} from "../../types";
 import type { HandlerDeps, NovaProbeHandle } from "../types";
 import { clampLimit, numberParam } from "./data-panels";
+
+/* ── unified Events panel (NATS + nova/WS realtime) ─────────────────────── */
+
+/** Shown when neither source is wired. */
+const EVENTS_OFF_HINT =
+  "No event source wired. NATS: set NATS_URL or debugbar({ nats: { url } }). " +
+  "Realtime (WS): register novaPlugin and pass debugbar({ data: { nova: () => nova.server } }).";
+
+/** Map one NATS tracker row into the unified event-buffer row. */
+const toNatsRow = (e: NatsEventSummary): DebugEventRow => ({
+  id: e.id,
+  ts: e.ts,
+  source: "nats",
+  direction: e.direction,
+  kind: e.direction === "out" ? "publish" : "message",
+  name: e.subject,
+  payload: e.payload,
+  size: e.size,
+  error: e.error,
+});
+
+/** Map one nova trace row into the unified event-buffer row. */
+const toNovaRow = (r: NovaEventTraceRow): DebugEventRow => ({
+  id: `nv-${r.seq}`,
+  ts: r.ts,
+  source: "nova",
+  direction: r.direction.startsWith("in.") ? "in" : "out",
+  kind: r.direction.includes(".") ? r.direction.slice(r.direction.indexOf(".") + 1) : r.direction,
+  name: r.name,
+  ...(r.key !== undefined && r.key !== "" ? { key: r.key } : {}),
+  payload: r.payload ?? "",
+  size: r.bytes,
+  error: null,
+});
+
+/** Per-source summary block for NATS. */
+const natsSourceInfo = (tracker: NatsEventTracker): DebugEventSourceInfo => {
+  const st = tracker.stats();
+  return {
+    present: st.enabled,
+    label: "NATS bus",
+    connected: st.connected,
+    status: st.status,
+    // NATS keeps one counter: retained rows (no lifetime-writes total).
+    size: st.total,
+    total: st.total,
+    in: st.in,
+    out: st.out,
+    errors: st.errors,
+    bytes: st.bytes,
+    byName: st.bySubject,
+  };
+};
+
+/** Read + shape the nova trace ring into the per-source summary block. */
+const novaSourceInfo = (trace: NovaEventTrace | null): DebugEventSourceInfo | null => {
+  if (trace === null) return null;
+  const st = trace.stats;
+  return {
+    present: trace.enabled,
+    label: "Nova realtime (WS)",
+    size: st.size,
+    total: st.total,
+    in: st.inCount,
+    out: st.outCount,
+    errors: 0,
+    bytes: st.bytes,
+    byName: st.byName,
+    // Payload previews only exist when the ring captures them — signal the
+    // UI to offer the novaPlugin trace option when they're absent.
+    captures: trace.recent.some((r) => r.payload !== undefined),
+  };
+};
+
+/** Resolve + read the wired nova trace (null when absent/broken — never throws). */
+const readNovaTrace = (handle: NovaProbeHandle, limit = 100): NovaEventTrace | null => {
+  try {
+    if (typeof handle.getEventTrace !== "function") return null;
+    const trace = handle.getEventTrace({ limit }) as unknown as NovaEventTrace;
+    if (typeof trace !== "object" || trace === null) return null;
+    return trace;
+  } catch {
+    return null;
+  }
+};
 
 /** Assemble the KT payload (knowledge + markdown + sanitized HTML). */
 export const createKtData =
@@ -172,27 +267,59 @@ export const novaHandle = (deps: HandlerDeps): NovaProbeHandle | null => {
   }
 };
 
-/** `GET /api/events` — NATS event stats + recent events. */
+/** `GET /api/events` — unified event buffer (NATS + nova/WS realtime). */
 export const createEventsHandler =
   (deps: HandlerDeps) =>
   (ctx: IgnexContext): Response => {
+    const limit = clampLimit(numberParam(ctx, "limit"), 100, 500);
     const tracker = deps.state.nats;
-    if (tracker === null) {
+    const handle = novaHandle(deps);
+    const trace = handle === null ? null : readNovaTrace(handle, limit);
+    const nats = tracker === null ? null : natsSourceInfo(tracker);
+    const nova = novaSourceInfo(trace);
+
+    if (nats === null && nova === null) {
       return json({
         enabled: false,
-        hint: "NATS not configured — set NATS_URL or debugbar({ nats: { url } }).",
-        stats: null,
+        hint: EVENTS_OFF_HINT,
+        sources: { nats: null, nova: null },
         recent: [],
-      });
+      } satisfies DebugEventsPayload);
     }
-    const subject = ctx.url.searchParams.get("subject") ?? undefined;
-    const direction = ctx.url.searchParams.get("direction") ?? undefined;
-    const listOptions: { limit: number; subject?: string; direction?: "in" | "out" } = {
-      limit: clampLimit(numberParam(ctx, "limit"), 100, 500),
-    };
-    if (subject !== undefined) listOptions.subject = subject;
-    if (direction === "in" || direction === "out") listOptions.direction = direction;
-    return json({ enabled: true, stats: tracker.stats(), recent: tracker.list(listOptions) });
+
+    const dirRaw = ctx.url.searchParams.get("direction");
+    const dirFilter: "in" | "out" | undefined =
+      dirRaw === "in" || dirRaw === "out" ? dirRaw : undefined;
+    // One free-text needle sweeps both sources (nats subject OR nova event name).
+    const needle = (
+      ctx.url.searchParams.get("subject") ??
+      ctx.url.searchParams.get("name") ??
+      ctx.url.searchParams.get("q") ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    const rows: DebugEventRow[] = [];
+    if (tracker !== null) for (const e of tracker.list({ limit })) rows.push(toNatsRow(e));
+    if (trace !== null) for (const r of trace.recent.slice(0, limit)) rows.push(toNovaRow(r));
+
+    const recent = rows
+      .filter((r) => dirFilter === undefined || r.direction === dirFilter)
+      .filter(
+        (r) =>
+          needle === "" ||
+          r.name.toLowerCase().includes(needle) ||
+          (r.key ?? "").toLowerCase().includes(needle),
+      )
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, limit);
+
+    return json({
+      enabled: true,
+      sources: { nats, nova },
+      recent,
+    } satisfies DebugEventsPayload);
   };
 
 /** `POST /api/events/publish` — publish a probe event through NATS. */
@@ -223,9 +350,17 @@ export const createEventPublishHandler =
     });
   };
 
-/** `POST /api/events/clear` — drop the retained event buffer. */
+/** `POST /api/events/clear` — drop the retained event buffer (NATS + nova). */
 export const createEventsClearHandler = (deps: HandlerDeps) => (): Response => {
   deps.state.nats?.clear();
+  const handle = novaHandle(deps);
+  if (handle !== null && typeof handle.clearEventTrace === "function") {
+    try {
+      handle.clearEventTrace();
+    } catch {
+      /* a broken probe must not fail the clear */
+    }
+  }
   return json({ ok: true, cleared: true });
 };
 
@@ -261,6 +396,124 @@ export const createNovaClearHandler = (deps: HandlerDeps) => (): Response => {
   handle.clearEventTrace();
   return json({ ok: true, cleared: true });
 };
+
+/** Target kinds the emit composer accepts, mapped to events-hub methods. */
+const NOVA_EMIT_METHODS = {
+  user: "emitToUser",
+  group: "emitToGroup",
+  topic: "emitToTopic",
+  client: "emitToClient",
+} as const;
+
+/** A targeted events-hub emit: (recipient key, event name, payload). */
+type NovaEmitFn = (recipient: string, name: string, payload: unknown) => void;
+
+/**
+ * Parse the optional `type:key` emit target. Returns the parsed target (a
+ * `null` type = broadcast) or a `{ error }` result.
+ */
+const parseNovaEmitTarget = (
+  raw: string | null,
+): { error: string } | { type: keyof typeof NOVA_EMIT_METHODS | null; key: string | null } => {
+  if (raw === null) return { type: null, key: null };
+  const sep = raw.indexOf(":");
+  const head = sep === -1 ? raw : raw.slice(0, sep);
+  const rest = sep === -1 ? null : raw.slice(sep + 1);
+  if (!(head in NOVA_EMIT_METHODS)) {
+    return {
+      error: `unknown target "${head}" — use user|group|topic|client (e.g. user:u-42) or leave empty to broadcast`,
+    };
+  }
+  if (rest === null || rest === "") {
+    return { error: `target "${head}" needs a key, e.g. "${head}:value"` };
+  }
+  return { type: head as keyof typeof NOVA_EMIT_METHODS, key: rest };
+};
+
+/**
+ * Execute one manual emit against the wired nova handle. Never throws: hub
+ * rejections (e.g. an unregistered event name) become the error result.
+ */
+const executeNovaEmit = (
+  handle: NovaProbeHandle,
+  name: string,
+  payload: unknown,
+  type: keyof typeof NOVA_EMIT_METHODS | null,
+  key: string | null,
+): { ok: true; note: string } | { ok: false; error: string } => {
+  const events = handle.events;
+  try {
+    if (type !== null && key !== null) {
+      const method = NOVA_EMIT_METHODS[type];
+      const fn = events?.[method] as NovaEmitFn | undefined;
+      if (typeof fn !== "function") {
+        return {
+          ok: false,
+          error: `nova events hub exposes no ${method} — is the events layer enabled? (broadcast emit still works)`,
+        };
+      }
+      fn(key, name, payload);
+      return { ok: true, note: `emitted ${name} → ${type} ${key}` };
+    }
+    if (typeof events?.emit === "function") {
+      events.emit(name, payload);
+      return { ok: true, note: `emitted ${name} (broadcast)` };
+    }
+    if (typeof handle.publish === "function") {
+      handle.publish(name, payload);
+      return { ok: true, note: `published ${name} (transport — no events hub)` };
+    }
+    return {
+      ok: false,
+      error: "nova handle exposes no emit/publish surface — check the wired novaPlugin",
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+};
+
+/**
+ * `POST /api/nova/events/emit` — fire a realtime event MANUALLY for testing.
+ *
+ * Body `{ name, payload?, target? }` where `target` is `""`/absent for a
+ * broadcast emit, or `"user:u-42"` / `"group:premium"` / `"topic:room"` /
+ * `"client:c-1"` to target one recipient. Routes through the nova events hub
+ * (so server-side consumers AND subscribed clients receive it) and falls back
+ * to the transport `publish` when the events layer is absent. Everything here
+ * is dev-only — eliminated from production-shaped builds with the debugbar.
+ */
+export const createNovaEmitHandler =
+  (deps: HandlerDeps) =>
+  async (ctx: IgnexContext): Promise<Response> => {
+    const handle = novaHandle(deps);
+    if (handle === null) {
+      return json(
+        {
+          ok: false,
+          error: "nova not wired — pass data.nova: () => novaPlugin.server to debugbar()",
+        },
+        400,
+      );
+    }
+    let body: { name?: unknown; payload?: unknown; target?: unknown };
+    try {
+      body = (await ctx.req.json()) as { name?: unknown; payload?: unknown; target?: unknown };
+    } catch {
+      return json(
+        { ok: false, error: "Invalid JSON body — expected { name, payload?, target? }" },
+        400,
+      );
+    }
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (name === "") return json({ ok: false, error: "Missing event name" }, 400);
+    const rawTarget =
+      typeof body.target === "string" && body.target.trim() !== "" ? body.target.trim() : null;
+    const target = parseNovaEmitTarget(rawTarget);
+    if ("error" in target) return json({ ok: false, error: target.error }, 400);
+    const result = executeNovaEmit(handle, name, body.payload ?? {}, target.type, target.key);
+    if (!result.ok) return json({ ok: false, error: result.error }, 400);
+    return json({ ok: true, name, note: result.note });
+  };
 
 /** `GET /api/ai/summary` — compact AI-facing debug snapshot. */
 export const createAiSummaryHandler =

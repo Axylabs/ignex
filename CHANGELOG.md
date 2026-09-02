@@ -59,6 +59,33 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   run no longer leaves a consumer or emit route referencing an event the
   typed facade doesn't know (the `TS2345` drift seen when scaffolding a
   second bus into an app that already declared an event).
+- **Debugbar Events panel: realtime (WS) traffic joined the event buffer**
+  (`@ignex/core`). The Events view is now a **unified buffer** that
+  interleaves NATS pub/sub rows and the nova transport's trace rows, so you
+  can see what the app **sent** (server→client emits/publishes) and what it
+  **received** (frames from a WS client, a remote instance, or the NATS
+  bridge) side by side in one place:
+  - Every row shows an in/out direction pill, a source tag (NATS/NOVA), the
+    precise kind (`publish`/`emit`/`client`/`remote`/`bridge`), the wire
+    event name + → target key, byte size and a payload preview; stat cards
+    are per source, filtering covers both sources, and `✕ clear buffer` drops
+    both the NATS rows and the nova trace ring (`GET /api/events` +
+    `POST /api/events/clear`).
+  - Wire it with `debugbar({ data: { nova: () => nova.server } })` next to
+    your `novaPlugin`, and `novaPlugin({ trace: { capturePayloadChars } })` to
+    get payload previews (the panel surfaces a hint when capture is off). See
+    `docs/debugbar.md`.
+- **Debugbar Events panel: fire realtime events manually for testing**
+  (`@ignex/core`). The view gains an **Emit realtime event (nova)** composer
+  next to the NATS publish composer — type a wire event name + JSON payload
+  (optionally a `user:u-42` / `group:` / `topic:` / `client:` target) and
+  `POST /api/nova/events/emit` routes it through the nova events hub, so
+  **server-side consumers AND subscribed clients receive it** (a broadcast
+  emit, or targeted). Unregistered names surface the hub error back in the
+  composer. Same dev-only lifecycle as the rest of the debugbar: the new
+  endpoint + UI live inside the debugbar's serving graph, which a
+  production-shaped build eliminates (the compiled-server tests now assert the
+  production artifact contains no `nova/events/emit` / event-buffer code).
 
 ### Changed
 

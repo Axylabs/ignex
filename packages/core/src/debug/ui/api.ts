@@ -12,6 +12,7 @@ import type { TraceSummary } from "../store";
 import type {
   AiDebugSummary,
   AppKnowledge,
+  DebugEventsPayload,
   DiagnosticsReport,
   HistoryTraceSummary,
   LogLevel,
@@ -226,28 +227,31 @@ export const getJobs = (): Promise<JobsPanel> => getJson<JobsPanel>("/jobs");
 export const getRoutes = (): Promise<{ enabled: boolean; routes: RouteRow[] }> =>
   getJson("/routes");
 
-/** `GET /api/events` — NATS tracker panel. */
-export const getEvents = (
-  q?: string,
-): Promise<{
-  enabled: boolean;
-  hint?: string;
-  stats: Record<string, unknown> | null;
-  recent: Array<{
-    ts: number;
-    direction: "in" | "out";
-    subject: string;
-    size: number;
-    payload?: string;
-    error?: string | null;
-  }>;
-}> => getJson(`/events?limit=250${q ? `&subject=${encodeURIComponent(q)}` : ""}`);
+/** `GET /api/events` — the unified event buffer (NATS + nova realtime). */
+export const getEvents = (limit = 250): Promise<DebugEventsPayload> =>
+  getJson<DebugEventsPayload>(`/events?limit=${limit}`);
 
-/** `POST /api/events/publish` — publish a probe event. */
+/** `POST /api/events/publish` — publish a NATS probe event. */
 export const publishEvent = (
   subject: string,
   payload: unknown,
 ): Promise<{ ok: boolean; error?: string }> => postJson("/events/publish", { subject, payload });
+
+/**
+ * `POST /api/nova/events/emit` — fire a realtime event manually for testing.
+ * `target` is `"user:u-42"` / `"group:g"` / `"topic:t"` / `"client:c"` or
+ * blank/undefined for a broadcast emit.
+ */
+export const emitNovaEvent = (
+  name: string,
+  payload: unknown,
+  target?: string,
+): Promise<{ ok: boolean; error?: string; note?: string }> =>
+  postJson("/nova/events/emit", {
+    name,
+    payload,
+    ...(target !== undefined && target !== "" ? { target } : {}),
+  });
 
 /** `POST /api/events/clear` — drop the event buffer. */
 export const clearEvents = (): Promise<{ ok: boolean }> => postJson("/events/clear");

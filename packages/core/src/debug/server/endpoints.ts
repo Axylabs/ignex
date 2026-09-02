@@ -24,6 +24,7 @@ import {
   createJobsHandler,
   createKtData,
   createNovaClearHandler,
+  createNovaEmitHandler,
   createNovaEventsHandler,
   createRoutesHandler,
   createSdksHandler,
@@ -232,6 +233,12 @@ export const createEndpointTable = (
       pattern: "nova/events/clear",
       auth: "gate",
       handle: () => createNovaClearHandler(deps)(),
+    },
+    {
+      methods: ["POST"],
+      pattern: "nova/events/emit",
+      auth: "gate",
+      handle: async (ctx) => await createNovaEmitHandler(deps)(ctx),
     },
     {
       methods: ["GET"],

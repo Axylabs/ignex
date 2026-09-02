@@ -309,14 +309,14 @@ export const createMcpServer = (): McpServer => {
   register(
     "debug-events",
     {
-      title: "Debugbar: NATS event queue",
+      title: "Debugbar: event buffer (NATS + realtime)",
       description:
-        "List recent NATS events tracked by the debugbar (published + received) with per-subject stats. Filter by subject. Payloads are truncated.",
+        "List recent events from the unified debugbar event buffer: NATS pub/sub AND nova realtime/WS traffic (published/sent + received), each row tagged with source, in/out direction, kind, event/subject, target, size and truncated payload. Filter by subject/event name. For the raw nova transport trace use debug-nova-events.",
       inputSchema: {
         url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
         token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),
-        limit: z.number().optional().describe("Max rows (1-200, default 50)"),
-        subject: z.string().optional().describe("Filter by subject prefix"),
+        limit: z.number().optional().describe("Max rows (1-500, default 50)"),
+        subject: z.string().optional().describe("Filter by NATS subject or nova event name"),
       },
     },
     async (args) => ({

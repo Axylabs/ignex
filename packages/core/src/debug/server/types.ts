@@ -63,13 +63,8 @@ export interface DebugbarState {
 export interface DataProviders {
   jobs?: { list(): Promise<Array<{ name: string; status: string; runAt: number }>> };
   routes?: () => Promise<Array<{ method: string; path: string; file: string }>>;
-  nova?: () =>
-    | {
-        getEventTrace?(options?: { limit?: number; direction?: string; name?: string }): unknown;
-        clearEventTrace?(): void;
-      }
-    | null
-    | undefined;
+  /** Running nova server handle (trace ring + optional manual emit). */
+  nova?: () => NovaProbeHandle | null | undefined;
 }
 
 /** Everything a serving-layer handler needs. */
@@ -80,8 +75,31 @@ export interface HandlerDeps {
   readonly dispatch?: (req: Request) => Promise<Response>;
 }
 
-/** Minimal duck-typed nova handle the debugbar reads via `data.nova`. */
+/**
+ * Minimal duck-typed nova handle the debugbar reads via `data.nova`.
+ *
+ * The trace surface (`getEventTrace`/`clearEventTrace`) powers the Events
+ * panel's realtime section; the optional `events` hub / `publish` surface
+ * powers the panel's manual "emit event" composer for testing consumers.
+ * Everything here is dev-only — reachable only through the debugbar plugin,
+ * which a production-shaped build eliminates.
+ */
 export interface NovaProbeHandle {
   getEventTrace?(options?: { limit?: number; direction?: string; name?: string }): unknown;
   clearEventTrace?(): void;
+  /**
+   * Optional typed events hub (nova's events layer, on by default). Present
+   * when the app's `novaPlugin` enables events — used to FIRE events manually
+   * (server-side consumers + subscribed clients).
+   */
+  events?: {
+    /** Broadcast to everyone subscribed to `name` (and server consumers). */
+    emit?(name: string, payload?: unknown): void;
+    emitToUser?(userId: string, name: string, payload?: unknown): void;
+    emitToGroup?(groupId: string, name: string, payload?: unknown): void;
+    emitToTopic?(topic: string, name: string, payload?: unknown): void;
+    emitToClient?(clientId: string, name: string, payload?: unknown): void;
+  };
+  /** Transport-level fan-out to sockets subscribed to `name` (fallback). */
+  publish?(name: string, payload: unknown): void;
 }

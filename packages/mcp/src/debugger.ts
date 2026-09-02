@@ -142,7 +142,7 @@ export const runDebugReplayTool = async (args: {
   }
 };
 
-/** List recent NATS events (with optional subject filter). */
+/** List recent events from the unified debugbar event buffer (NATS + realtime). */
 export const runDebugEventsTool = async (args: {
   url?: string;
   token?: string;
