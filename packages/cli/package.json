@@ -1,6 +1,6 @@
 {
   "name": "@ignex/cli",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "CLI for Ignex: build, watch, scaffold routes and apps",
   "type": "module",
   "license": "MIT",
