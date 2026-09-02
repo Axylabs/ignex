@@ -49,6 +49,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   being present), so receiving events in the backend needs no manual
   post-`realtimePlugin` plugin or ordering — the scaffolded consumer is no
   longer a hand-wired `start…Consumers()` module under `src/modules/events/`.
+- **`ignex event bus` is now interactive and additive.** Instead of blindly
+  scaffolding the full stack on every run, the wizard asks what to generate
+  (consumer-only, consumer + publish route, or publish route only — with
+  optimized defaults: full stack on a fresh app, consumer on an existing
+  contract) and always asks for the event name. When `src/realtime.ts`
+  already exists, a new event is **merged into the existing contract**
+  (`cli/utils/realtime-merge.ts`) rather than skipped/overwritten — a second
+  run no longer leaves a consumer or emit route referencing an event the
+  typed facade doesn't know (the `TS2345` drift seen when scaffolding a
+  second bus into an app that already declared an event).
 
 ### Changed
 

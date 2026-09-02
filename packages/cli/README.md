@@ -104,7 +104,11 @@ ignex event bus order        # typed in-process event bus + publish route + cons
   (`src/realtime.plugin.ts`), `src/lib/events.ts` (typed
   `on`/`emit`/`emitToUser` facade), a publish route (`POST /events/emit.<name>`)
   and an example consumer in `src/realtime/consumers/` that the compiled
-  server auto-registers after the hub binds. Pair with the NATS service from
+  server auto-registers after the hub binds. Once a contract exists the
+  wizard **asks what to generate** (consumer-only, + publish route, publish
+  route only), asks for the **event name**, and **merges new events into the
+  existing contract** instead of overwriting — so repeated runs stay typed
+  and never break existing events. Pair with the NATS service from
   `ignex ops compose` for cross-service streaming.
 
 ## Hot routes (`ignex hotroute`)

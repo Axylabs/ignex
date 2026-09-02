@@ -339,9 +339,12 @@ emitToUser("u-42", "order.update", { orderId: "o-1" });
   `src/realtime.plugin.ts`, a publish route, and an auto-registered example
   consumer in `src/realtime/consumers/` — the compiled server imports it and
   calls its default-exported `register()` right after `novaPlugin` binds, so
-  no manual consumer wiring is needed. It also updates `tsconfig` include and
-  generates the local SDK (offers to install `@ignex/nova`; codegen needs
-  `flatc` on PATH).
+  no manual consumer wiring is needed. When `src/realtime.ts` already exists
+  the wizard asks what to generate (e.g. just a consumer for an existing
+  event), prompts for the event name, and **merges new events into the
+  contract additively** (no overwrites, no stale event names). It also
+  updates `tsconfig` include and generates the local SDK (offers to install
+  `@ignex/nova`; codegen needs `flatc` on PATH).
 - Install: `bun add @ignex/nova` (+ `@sinclair/typebox` for the contract).
 
 ## Mail & notifications

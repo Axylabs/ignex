@@ -20,15 +20,22 @@ import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
   EVENT_KINDS,
   type EventKind,
+  eventBusConsumerTemplate,
+  eventBusEmitRouteTemplate,
+  eventBusLibTemplate,
+  eventBusPluginTemplate,
+  eventBusRealtimeTemplate,
   eventFiles,
   eventSummary,
   validateEventName,
+  validateRealtimeEventName,
 } from "../templates/event.js";
 import { loadConfig } from "../utils/config.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, info, step, success } from "../utils/logger.js";
 import { PromptCancelError, promptConfirm, promptSelect, promptText } from "../utils/prompt.js";
 import { emitRealtimeArtifact } from "../utils/realtime-artifact.js";
+import { mergeEventIntoRealtimeSource } from "../utils/realtime-merge.js";
 import { resolveDir, writeScaffold } from "../utils/scaffold.js";
 import { metaFor } from "./registry.js";
 
@@ -158,12 +165,28 @@ export async function runEvent(args: string[]): Promise<void> {
   const srcDir = join(root, "src");
   const routesDir = resolveDir(root, undefined, config.routesDir, "src/routes");
 
-  step(`Scaffolding ${kind} flow "${name}"`);
+  if (kind === "bus") {
+    const wroteAny = await scaffoldBus({
+      root,
+      srcDir,
+      routesDir,
+      flowName: name,
+      force: parsed.force === true,
+    });
+    if (wroteAny) {
+      // The bus flow needs the generated wire stack — make it available
+      // right away: tsconfig include + (best-effort) local SDK generation.
+      await ensureTsconfigSdkInclude(root);
+      await ensureLocalRealtimeSdk(root);
+      await maybeInstallNova(root);
+      printBusWiring();
+    }
+    return;
+  }
 
+  step(`Scaffolding ${kind} flow "${name}"`);
   let wroteAny = false;
   for (const { path, content } of eventFiles(kind, name)) {
-    // Bus files live in src/lib + src/modules; route files resolve against the
-    // configured routes dir so custom layouts keep working.
     const target = path.startsWith("routes/")
       ? join(routesDir, path.slice("routes/".length))
       : join(srcDir, path);
@@ -173,17 +196,204 @@ export async function runEvent(args: string[]): Promise<void> {
 
   if (wroteAny) {
     success(eventSummary(kind, name));
-    if (kind === "bus") {
-      // The bus flow needs the generated wire stack — make it available
-      // right away: tsconfig include + (best-effort) local SDK generation.
-      await ensureTsconfigSdkInclude(root);
-      await ensureLocalRealtimeSdk(root);
-      await maybeInstallNova(root);
-      printBusWiring();
-    } else {
-      info(`Business logic lives in src/modules/ — routes stay thin.`);
-    }
+    info(`Business logic lives in src/modules/ — routes stay thin.`);
   }
+}
+
+/** What subset of the bus the user asked to scaffold. */
+type BusAction = "full" | "consumer" | "consumer-emit" | "emit";
+
+/** Narrow a prompt result to a known bus action. */
+const isBusAction = (value: string): value is BusAction =>
+  value === "full" || value === "consumer" || value === "consumer-emit" || value === "emit";
+
+/** Quoted object keys in a realtime contract source (≈ declared event names). */
+const eventKeysOf = (source: string): string[] => {
+  const keys: string[] = [];
+  const re = /^\s*"([a-z0-9][a-z0-9.-]*)":/gm;
+  for (const match of source.matchAll(re)) {
+    const key = match[1];
+    if (key !== undefined) keys.push(key);
+  }
+  return keys;
+};
+
+/** Shorten an absolute path for console output (root-relative when possible). */
+const shortPath = (root: string, target: string): string => {
+  const rel = target.startsWith(root) ? target.slice(root.length + 1) : target;
+  return rel.startsWith("src/") || rel.startsWith(".ignex/") ? rel : target;
+};
+
+/**
+ * Scaffold the realtime event bus. Unlike the sse/webhook flows this one is
+ * INTERACTIVE and ADDITIVE, because it edits the single-source wire contract:
+ *
+ * - First bus in the app (no `src/realtime.ts`) → scaffolds the full stack
+ *   (contract + pre-wired plugin + typed facade + consumer + publish route).
+ * - Later buses ASK what to generate (consumer-only / + publish route /
+ *   publish route only) with optimized defaults, always ASK for the event
+ *   name, and MERGE the event into the existing contract instead of skipping
+ *   or overwriting — so a second run never leaves a consumer/emit-route
+ *   referencing an event the typed facade doesn't know (the TS2345 footgun).
+ * - Non-interactive runs pick sensible defaults (full on a fresh app, add
+ *   consumer + publish route on an existing one) so scripting stays safe.
+ */
+/** Resolve which subset of the bus to generate (ask or sensible default). */
+async function chooseBusAction(hasContract: boolean, flowName: string): Promise<BusAction> {
+  if (!hasContract) return "full";
+  if (!process.stdin.isTTY) return "consumer-emit";
+  const picked = await promptSelect({
+    message: "What do you want to scaffold?",
+    options: [
+      {
+        value: "consumer",
+        label: "Consumer only",
+        hint: "auto-registered listener in src/realtime/consumers/",
+      },
+      {
+        value: "consumer-emit",
+        label: "Consumer + publish route",
+        hint: `listener + POST /events/emit.${flowName}`,
+      },
+      {
+        value: "emit",
+        label: "Publish route only",
+        hint: `POST /events/emit.${flowName}`,
+      },
+    ],
+    initial: "consumer",
+  });
+  let action = isBusAction(picked) ? picked : "consumer";
+  if (action === "consumer") {
+    const withRoute = await promptConfirm({
+      message: `Also scaffold a publish route (POST /events/emit.${flowName})?`,
+      initial: false,
+    });
+    if (withRoute) action = "consumer-emit";
+  }
+  return action;
+}
+
+/** Ask for the event name; non-TTY derives the classic `<flow>.created`. */
+async function chooseBusEventName(
+  contractPath: string,
+  hasContract: boolean,
+  defaultEvent: string,
+): Promise<string> {
+  if (!process.stdin.isTTY) return defaultEvent;
+  if (hasContract) {
+    const existing = eventKeysOf(await readFile(contractPath, "utf8"));
+    if (existing.length > 0) info(`Existing events: ${existing.join(", ")}`);
+  }
+  return promptText({
+    message: "Event name (e.g. order.created, chat.message)?",
+    initial: defaultEvent,
+    validate: (value) =>
+      value.length === 0 ? "Event name is required." : validateRealtimeEventName(value),
+  });
+}
+
+/**
+ * Merge `eventName` into an existing contract. Returns how the merge went:
+ * "changed" (entry added), "present" (already declared), or "unparseable"
+ * (contract shape not recognized — nothing was touched).
+ */
+async function ensureEventInContract(
+  contractPath: string,
+  eventName: string,
+  root: string,
+): Promise<"changed" | "present" | "unparseable"> {
+  const source = await readFile(contractPath, "utf8");
+  const merged = mergeEventIntoRealtimeSource(source, eventName);
+  if (merged.reason === "unparseable") {
+    error(
+      `Could not add "${eventName}" to src/realtime.ts (unsupported shape) — ` +
+        "add it to realtime.events manually, then re-run.",
+    );
+    return "unparseable";
+  }
+  if (merged.added) {
+    await writeFile(contractPath, merged.source, "utf8");
+    info(`Registered "${eventName}" in ${shortPath(root, contractPath)}.`);
+    return "changed";
+  }
+  return "present";
+}
+
+async function scaffoldBus(opts: {
+  root: string;
+  srcDir: string;
+  routesDir: string;
+  flowName: string;
+  force: boolean;
+}): Promise<boolean> {
+  const { root, srcDir, routesDir, flowName, force } = opts;
+  const contractPath = join(srcDir, "realtime.ts");
+  const hasContract = existsSync(contractPath);
+
+  const action = await chooseBusAction(hasContract, flowName);
+  const defaultEvent = `${flowName}.created`;
+  const eventName = await chooseBusEventName(contractPath, hasContract, defaultEvent);
+
+  const wantsConsumer = action === "full" || action === "consumer" || action === "consumer-emit";
+  const wantsEmit = action === "full" || action === "emit" || action === "consumer-emit";
+
+  step(`Scaffolding bus "${flowName}" (event "${eventName}")`);
+  const writes: boolean[] = [];
+
+  if (!hasContract) {
+    // First bus: contract + pre-wired plugin + typed facade.
+    writes.push(
+      await writeScaffold(
+        join(srcDir, "realtime.ts"),
+        eventBusRealtimeTemplate(flowName, eventName),
+        { force },
+      ),
+    );
+    writes.push(
+      await writeScaffold(join(srcDir, "realtime.plugin.ts"), eventBusPluginTemplate(flowName), {
+        force,
+      }),
+    );
+    writes.push(
+      await writeScaffold(join(srcDir, "lib", "events.ts"), eventBusLibTemplate(), { force }),
+    );
+  } else {
+    // Additive merge so the consumer/route typecheck — never overwrite.
+    const merged = await ensureEventInContract(contractPath, eventName, root);
+    if (merged === "unparseable") return false;
+    writes.push(merged === "changed");
+  }
+
+  if (wantsConsumer) {
+    const target = join(srcDir, "realtime", "consumers", `${flowName}.consumer.ts`);
+    writes.push(
+      await writeScaffold(target, eventBusConsumerTemplate(flowName, eventName), { force }),
+    );
+  }
+  if (wantsEmit) {
+    const target = join(routesDir, "events", `emit.${flowName}.post.ts`);
+    writes.push(
+      await writeScaffold(target, eventBusEmitRouteTemplate(flowName, eventName), { force }),
+    );
+  }
+
+  if (!writes.some((ok) => ok)) {
+    info("Nothing new to scaffold — files already exist (use --force to overwrite).");
+    return false;
+  }
+
+  success(
+    `Bus scaffolded — event "${eventName}"` +
+      (hasContract ? " (added to the existing contract)" : " (new contract)") +
+      `, flow "${flowName}".`,
+  );
+  if (wantsConsumer) {
+    const consumerPath = join(srcDir, "realtime", "consumers", `${flowName}.consumer.ts`);
+    info(`  consumer: ${shortPath(root, consumerPath)} (auto-registers on ignex build)`);
+  }
+  if (wantsEmit) info(`  publish route: POST /events/emit.${flowName}`);
+  return true;
 }
 
 /** Add `.ignex/sdk` to the project's tsconfig `include` (idempotent). */
@@ -228,16 +438,16 @@ async function ensureLocalRealtimeSdk(root: string): Promise<void> {
   }
 }
 
-/** Print the exact app.config wiring for the bus flow. */
+/** Print the app.config wiring + next steps for the bus flow. */
 function printBusWiring(): void {
   console.log();
-  console.log("Next steps — wire the plugin into src/app.config.ts:");
+  console.log("First time wiring the realtime plugin? Add it to src/app.config.ts once:");
   console.log('  1. import { realtimePlugin } from "./realtime.plugin.js";');
   console.log("  2. add `realtimePlugin` to the `plugins` array.");
   console.log();
-  console.log("The example consumer under src/realtime/consumers/ auto-registers:");
-  console.log("`ignex build` calls its register() after novaPlugin binds the hub —");
-  console.log("no extra consumer plugin is needed.");
+  console.log("Consumers under src/realtime/consumers/ auto-register on build —");
+  console.log("`ignex build` calls each register() after novaPlugin binds the hub,");
+  console.log("so no extra consumer plugin is needed.");
   console.log();
   console.log("Then: bun run build   (regenerates .ignex/sdk + the compiled server)");
   console.log("      bun run dev");

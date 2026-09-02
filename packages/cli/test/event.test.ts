@@ -22,6 +22,7 @@ import {
   eventWebhookRouteTemplate,
   pascalFromKebab,
   validateEventName,
+  validateRealtimeEventName,
 } from "../src/templates/event.js";
 
 /** Create a throwaway project dir for one test. */
@@ -126,6 +127,48 @@ describe("bus templates", () => {
   });
 });
 
+describe("realtime event-name validation", () => {
+  it("accepts dotted and kebab event names", () => {
+    expect(validateRealtimeEventName("chat.message")).toBeUndefined();
+    expect(validateRealtimeEventName("order-created.created")).toBeUndefined();
+    expect(validateRealtimeEventName("recive-fe.created")).toBeUndefined();
+    expect(validateRealtimeEventName("orders")).toBeUndefined();
+  });
+
+  it("rejects invalid event names", () => {
+    expect(validateRealtimeEventName("Order.created")).toBeTruthy();
+    expect(validateRealtimeEventName("chat message")).toBeTruthy();
+    expect(validateRealtimeEventName("chat.message!")).toBeTruthy();
+    expect(validateRealtimeEventName("")).toBeTruthy();
+  });
+});
+
+describe("bus templates take an explicit event name", () => {
+  it("consumer subscribes to the given event, not the flow-derived default", () => {
+    const code = eventBusConsumerTemplate("order", "chat.message");
+    expect(code).toContain('on("chat.message"');
+    expect(code).not.toContain('on("order.created"');
+  });
+
+  it("emit route publishes the given event", () => {
+    const code = eventBusEmitRouteTemplate("order", "chat.message");
+    expect(code).toContain('emit("chat.message", payload);');
+    expect(code).not.toContain('"order.created"');
+  });
+
+  it("contract declares the given event but keeps the flow subject prefix", () => {
+    const code = eventBusRealtimeTemplate("order", "chat.message");
+    expect(code).toContain('"chat.message": Type.Object(');
+    expect(code).toContain('subjectPrefix: "order"');
+  });
+
+  it("defaults to the flow-derived <name>.created event", () => {
+    expect(eventBusConsumerTemplate("order")).toContain('on("order.created"');
+    expect(eventBusEmitRouteTemplate("order")).toContain('emit("order.created"');
+    expect(eventBusRealtimeTemplate("order")).toContain('"order.created"');
+  });
+});
+
 describe("eventFiles", () => {
   it("scaffolds sse module + route", () => {
     const files = eventFiles("sse", "orders");
@@ -203,6 +246,32 @@ describe("ignex event (command wiring)", () => {
       const consumer = readFileSync(consumerPath, "utf8");
       expect(consumer).toContain("export default function register(): void");
       expect(existsSync(join(dir, "src/modules/events/order.consumer.ts"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("second bus run merges a new event into the existing contract (no TS2345 drift)", async () => {
+    const dir = tmpTarget();
+    try {
+      await runEvent(["bus", "order", "--root", dir]);
+      await runEvent(["bus", "recive-fe", "--root", dir]);
+
+      const contract = readFileSync(join(dir, "src/realtime.ts"), "utf8");
+      expect(contract).toContain('"order.created"');
+      expect(contract).toContain('"recive-fe.created"');
+
+      const consumer = readFileSync(
+        join(dir, "src/realtime/consumers/recive-fe.consumer.ts"),
+        "utf8",
+      );
+      expect(consumer).toContain('on("recive-fe.created"');
+      expect(existsSync(join(dir, "src/routes/events/emit.recive-fe.post.ts"))).toBe(true);
+
+      // Re-running the same event is idempotent — no duplicate registry key.
+      await runEvent(["bus", "recive-fe", "--root", dir]);
+      const again = readFileSync(join(dir, "src/realtime.ts"), "utf8");
+      expect(again.match(/"recive-fe\.created"/g)).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

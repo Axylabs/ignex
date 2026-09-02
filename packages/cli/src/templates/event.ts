@@ -22,6 +22,18 @@ export function validateEventName(name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Validate a realtime EVENT name (the wire-contract key, e.g. `order.created`
+ * or `order-created.created`). Dotted and kebab segments are both allowed —
+ * event names routinely carry a `domain.action` shape.
+ */
+export function validateRealtimeEventName(name: string): string | undefined {
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(name)) {
+    return "Use a lowercase event name with dotted/kebab segments (e.g. order.created, chat.message).";
+  }
+  return undefined;
+}
+
 /** PascalCase helper for export names ("order-created" → "OrderCreated"). */
 export const pascalFromKebab = (name: string): string =>
   name
@@ -88,8 +100,7 @@ export default post(async (ctx) => {
 }
 
 /** `src/realtime.ts` — the app's single wire-contract file (bus flow). */
-export function eventBusRealtimeTemplate(name: string): string {
-  const eventName = `${name}.created`;
+export function eventBusRealtimeTemplate(name: string, eventName = `${name}.created`): string {
   return `/**
  * Realtime wire contract — the single source of truth for typed events.
  *
@@ -173,8 +184,7 @@ export * from "../../.ignex/sdk/realtime/server.js";
 }
 
 /** `src/routes/events/emit.<name>.post.ts` — publish route for the bus. */
-export function eventBusEmitRouteTemplate(name: string): string {
-  const eventName = `${name}.created`;
+export function eventBusEmitRouteTemplate(name: string, eventName = `${name}.created`): string {
   return `import { post } from "@ignex/core/http";
 import { emit } from "../../lib/events.js";
 import type { RealtimeEventPayloads } from "../../lib/events.js";
@@ -200,8 +210,7 @@ export default post(async (ctx) => {
  * binds the events hub at boot — no manual post-`realtimePlugin` plugin and no
  * ordering footgun. `register()` may be async.
  */
-export function eventBusConsumerTemplate(name: string): string {
-  const eventName = `${name}.created`;
+export function eventBusConsumerTemplate(name: string, eventName = `${name}.created`): string {
   return `import { on } from "../../lib/events.js";
 
 /**
