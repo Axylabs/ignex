@@ -229,6 +229,7 @@ const runCodegenPhase = (
       opts,
       ctx,
       analysis.appConfig,
+      analysis.realtimeConsumers ?? [],
     );
 
     ctx.logger.info("codegen complete", {

@@ -86,6 +86,13 @@ export interface CodegenState {
   constantGets: Set<string>;
 
   /**
+   * Import names of discovered realtime consumer modules (default-export
+   * `register()`). Populated by the imports stage; the header stage emits the
+   * registration call AFTER the plugin init loop (novaPlugin bound the hub).
+   */
+  realtimeConsumerRefs: string[];
+
+  /**
    * Pre-built static `Response` consts keyed by TABLE-BOUND handler name
    * (`methodHandlerName`). When present, pass 2 binds the frozen Response
    * VALUE directly into Bun's native routes table — Bun then serves the route
@@ -119,4 +126,5 @@ export const createCodegenState = (cfg: CodegenConfig): CodegenState => ({
   wrapVariants: new Map(),
   constantGets: new Set(),
   staticResponses: new Map(),
+  realtimeConsumerRefs: [],
 });

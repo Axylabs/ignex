@@ -115,6 +115,23 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
     throw new Error("[ignex] plugin boot failed for " + __name + ": " + (__err instanceof Error ? __err.message : String(__err)), { cause: __err });
   }
 }`);
+    if (state.realtimeConsumerRefs.length > 0) {
+      // Auto-registered realtime consumers (src/realtime/consumers): each
+      // module default-exports register(). Called AFTER plugin init so the
+      // novaPlugin events hub is already bound — no manual post-realtimePlugin
+      // plugin required. A user can still register their own handlers.
+      header.push(
+        `const __novaPlugin = __appPlugins.find((__p) => __p != null && typeof __p === "object" && __p.name === "nova");`,
+      );
+      header.push(`if (__novaPlugin) {`);
+      header.push(`  for (const __consumer of [${state.realtimeConsumerRefs.join(", ")}]) {`);
+      header.push(
+        `    const __register = typeof __consumer === "function" ? __consumer : __consumer != null && typeof __consumer === "object" && typeof __consumer.default === "function" ? __consumer.default : __consumer != null && typeof __consumer === "object" && typeof __consumer.register === "function" ? __consumer.register : undefined;`,
+      );
+      header.push(`    if (typeof __register === "function") await __register();`);
+      header.push(`  }`);
+      header.push(`}`);
+    }
     header.push(
       `const __pluginLC = mergeLifeCycle(pluginContextToLifecycle(__pluginContext), pluginsToLifeCycle(__appPlugins));`,
     );

@@ -121,6 +121,7 @@ export const stageImports = (
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
   appConfig?: AppConfigInfo,
+  realtimeConsumers: readonly string[] = [],
 ): void => {
   const { imports } = state;
 
@@ -168,5 +169,15 @@ export const stageImports = (
     emitValidatorImports(route, imports);
     emitSerializerImports(route, imports);
     emitHookImports(route, hooks, opts, imports);
+  }
+
+  // Realtime consumers are imported so the header stage can call each one's
+  // default-exported `register()` after novaPlugin init (the events hub is
+  // bound by then). They are plain modules — not routes, not analyzed.
+  let consumerIdx = 0;
+  for (const consumer of realtimeConsumers) {
+    const ref = `__realtimeConsumer_${consumerIdx++}`;
+    imports.add(`import ${ref} from ${JSON.stringify(toImportPath(consumer, opts))};`);
+    state.realtimeConsumerRefs.push(ref);
   }
 };

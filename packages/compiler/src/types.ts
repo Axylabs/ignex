@@ -162,6 +162,16 @@ export interface CompilerOptions {
 
   readonly hooksDir?: string;
 
+  /**
+   * Directory (relative to the app root or absolute) whose source files are
+   * auto-registered as realtime consumers after `novaPlugin` binds the events
+   * hub at boot. Each file default-exports `register()` (async allowed).
+   * Default `"src/realtime/consumers"`. A new user drops a file there and the
+   * compiled server calls its `register()` after the hub is up — no manual
+   * post-`realtimePlugin` plugin needed.
+   */
+  readonly realtimeConsumersDir?: string;
+
   readonly verbose?: boolean;
   readonly enableAccessLog?: boolean;
   readonly enableTraceHeaders?: boolean;
@@ -310,6 +320,13 @@ export interface DiscoveryResult {
   readonly modules: readonly ModuleInfo[];
   /** Source manager owning every read + parsed source file for this build. */
   readonly sources: SourceManager;
+  /**
+   * Absolute paths of realtime consumer modules (default-export `register()`),
+   * discovered under `realtimeConsumersDir`. Imported by the generated server
+   * and registered after `novaPlugin` init. Absent for callers that don't
+   * discover them.
+   */
+  readonly realtimeConsumers?: readonly string[];
 }
 
 /** The output of the analysis phase. */
@@ -318,6 +335,8 @@ export interface AnalysisResult {
   readonly modules: readonly ModuleInfo[];
   readonly hooks: ReadonlyMap<string, HookDef>;
   readonly appConfig?: AppConfigInfo;
+  /** Realtime consumer module paths passed through from discovery. */
+  readonly realtimeConsumers?: readonly string[];
 }
 
 /** Counters describing what the optimization phase changed. */

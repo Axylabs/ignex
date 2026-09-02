@@ -40,12 +40,13 @@ export const generateServer = (
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
   appConfig?: AppConfigInfo,
+  realtimeConsumers: readonly string[] = [],
 ): string => {
   const cfg = getConfig(opts);
   const state = createCodegenState(cfg);
 
   // Compose the emission stages in the fixed order that determines output.
-  stageImports(state, routes, modules, hooks, opts, appConfig);
+  stageImports(state, routes, modules, hooks, opts, appConfig, realtimeConsumers);
   stageHeader(state, opts);
   stageInlinedHandlers(state);
   stageRouteTable(state, routes, opts);
@@ -59,8 +60,9 @@ export const runCodeGen = (
   opts: CompilerOptions,
   _ctx: CompilerContext,
   appConfig?: AppConfigInfo,
+  realtimeConsumers: readonly string[] = [],
 ): string => {
   // Timing is owned by the pipeline stage that calls this (single
   // `logger.time("codegen")` entry — the phase itself does not re-wrap).
-  return generateServer(routes, modules, hooks, opts, appConfig);
+  return generateServer(routes, modules, hooks, opts, appConfig, realtimeConsumers);
 };

@@ -48,6 +48,7 @@ const CompilerOptionsSchema = Type.Object(
     bytecode: Type.Optional(Type.Boolean()),
 
     hooksDir: Type.Optional(Type.String({ minLength: 1 })),
+    realtimeConsumersDir: Type.Optional(Type.String({ minLength: 1 })),
 
     verbose: Type.Optional(Type.Boolean()),
     enableAccessLog: Type.Optional(Type.Boolean()),

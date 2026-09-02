@@ -134,6 +134,7 @@ export const runAnalysis = (
     routes: routesWithHotness,
     modules,
     hooks,
+    ...(discovery.realtimeConsumers ? { realtimeConsumers: discovery.realtimeConsumers } : {}),
     ...(appConfig ? { appConfig } : {}),
   };
 };

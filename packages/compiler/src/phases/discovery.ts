@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { DiagnosticCodes, type DiagnosticCollector, errorMessage } from "../diagnostics";
 import { type SourceFile, SourceManager } from "../frontend";
 import type { CompilerContext, CompilerOptions, DiscoveryResult } from "../types";
+import { projectPath } from "../utils/path";
 
 // File-based routing convention decoding lives in the IR lowering layer.
 export { parseRouteFilename } from "../ir/lower";
@@ -149,9 +150,21 @@ export const runDiscovery = (
     if (mod) modules.push(mod);
   }
 
+  // Realtime consumers (auto-registered after novaPlugin binds the events hub):
+  // conventional dir next to `src/realtime.ts`, e.g. `src/realtime/consumers`.
+  // The files are imported (not analyzed as routes) so each module's
+  // default-exported `register()` can be called once the hub is up. An absent
+  // dir scans to an empty list.
+  const realtimeConsumersDir = projectPath(opts.realtimeConsumersDir ?? "src/realtime/consumers");
+  const realtimeConsumers: string[] = [];
+  for (const rel of scanDirectory(realtimeConsumersDir, "", ctx.diagnostics)) {
+    realtimeConsumers.push(join(realtimeConsumersDir, rel));
+  }
+
   ctx.logger.info(`Discovered ${files.length} files, ${modules.length} modules`, {
     routesDir: opts.routesDir,
+    ...(realtimeConsumers.length > 0 ? { realtimeConsumers: realtimeConsumers.length } : {}),
   });
 
-  return { files, modules, sources: manager };
+  return { files, modules, sources: manager, realtimeConsumers };
 };

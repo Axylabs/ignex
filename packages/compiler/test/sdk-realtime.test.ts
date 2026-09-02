@@ -226,13 +226,17 @@ describe("realtime platform", () => {
       expect(rpc).toContain("20_000");
       expect(rpc).toContain("keyof RpcMethodArgs & string");
 
-      // Barrel re-exports the framework-owned modules (+ the wire stack).
+      // Barrel re-exports the framework-owned modules (+ the wire stack) but
+      // NOT the server-only facade — the root stays browser-safe. Re-exporting
+      // ./server would drag @ignex/nova/events (and its node:module/ioredis
+      // loader) into browser bundles, crashing with "createRequire is not a
+      // function". Server code imports the facade from the ./server subpath.
       const index = files.get("realtime/index.ts") ?? "";
       expect(index).toContain('from "./schema"');
       expect(index).toContain('from "./payloads.gen"');
       expect(index).toContain('from "./client.gen"');
       expect(index).toContain('from "./rpc.gen"');
-      expect(index).toContain('from "./server"');
+      expect(index).not.toContain('from "./server"');
 
       // Typed server-side facade: emit/on/emitToUser typed against app events.
       const server = files.get("realtime/server.ts") ?? "";
@@ -255,6 +259,7 @@ describe("realtime platform", () => {
       expect(pkgJson.version).toBe("2.0.0");
       expect(pkgJson.exports["."]).toBe("./realtime/index.ts");
       expect(pkgJson.exports["./client"]).toBe("./realtime/client.gen.ts");
+      expect(pkgJson.exports["./server"]).toBe("./realtime/server.ts");
       expect(pkgJson.exports["./rpc"]).toBe("./realtime/rpc.gen.ts");
       expect(pkgJson.dependencies["@ignex/nova"]).toBe("^0.1.1");
       expect(pkgJson.dependencies["@sinclair/typebox"]).toBe("^0.34.0");

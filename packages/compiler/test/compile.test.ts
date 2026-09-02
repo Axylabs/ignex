@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
@@ -31,6 +31,41 @@ describe("compile (end-to-end)", () => {
     expect(existsSync(join(layout.outDir, "routes.d.ts"))).toBe(true);
     expect(existsSync(join(layout.outDir, "openapi.json"))).toBe(true);
     expect(existsSync(join(layout.outDir, "manifest.json"))).toBe(true);
+  });
+
+  it("auto-registers realtime consumers from the conventional dir", async () => {
+    const layout = materializeFixture("basic");
+    // Consumers live under <realtimeConsumersDir>; each default-exports register().
+    // App modules are kept as external relative imports by the linker (resolved
+    // at runtime by bun — same as route handlers), so assert on the emitted
+    // import + registration block rather than an inlined body.
+    const consumersDir = join(layout.outDir, "realtime", "consumers");
+    mkdirSync(consumersDir, { recursive: true });
+    writeFileSync(
+      join(consumersDir, "order-created.ts"),
+      "export default function register(): void {}\n",
+    );
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+      realtimeConsumersDir: consumersDir,
+    });
+
+    expect(result.errors).toHaveLength(0);
+    // The generated server imports each discovered consumer module.
+    expect(result.code).toContain("__realtimeConsumer_0");
+    expect(result.code).toContain('./realtime/consumers/order-created"');
+    // Registration is emitted AFTER the plugin init loop, guarded on a
+    // novaPlugin (plugin `name === "nova"`) being present at boot.
+    expect(result.code).toContain('__p.name === "nova"');
+    expect(result.code).toMatch(/if \(__novaPlugin\) \{/);
+    // Nothing auto-registers when no consumer directory exists.
+    const plain = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+    expect(plain.errors).toHaveLength(0);
+    expect(plain.code).not.toContain("__realtimeConsumer_0");
   });
 
   it("emits the HTTPS TLS bootstrap (resolveServeTls)", async () => {
