@@ -102,7 +102,7 @@ describe("persistent parse cache", () => {
     const b = serializeSourceFiles(sm.all());
     expect(a).toBe(b);
     const parsed = JSON.parse(a);
-    expect(parsed.version).toBe("5");
+    expect(parsed.version).toBe("6");
     expect(parsed.modules).toHaveLength(2);
     expect(parsed.modules[0].hash).toBe(hashString(sm.all()[0].content));
   });
