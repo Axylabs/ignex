@@ -30,7 +30,8 @@
     },
     "packages/test-utils": {},
     "packages/core": {
-      "entry": ["src/debug/ui/index.tsx"]
+      "entry": ["src/debug/ui/index.tsx"],
+      "ignoreDependencies": ["@ignex/nova"]
     }
   },
   "ignoreBinaries": ["oha", "builder.ts", "demo", "flatc"],
