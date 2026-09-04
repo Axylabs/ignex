@@ -30,7 +30,12 @@
       "@ignex/test-utils": ["./packages/test-utils/src/index.ts"],
       "castrum": ["./packages/native/src/vendor/castrum.d.ts"],
       "nodemailer": ["./packages/core/src/vendor/nodemailer.d.ts"],
-      "ioredis": ["./packages/core/src/vendor/ioredis.d.ts"]
+      "ioredis": ["./packages/core/src/vendor/ioredis.d.ts"],
+      "@ignex/ninox": ["./packages/core/src/vendor/ninox.d.ts"],
+      "@ignex/nova": ["./packages/core/src/vendor/nova.d.ts"],
+      "@ignex/nova/client": ["./packages/core/src/vendor/nova.d.ts"],
+      "@ignex/nova/events": ["./packages/core/src/vendor/nova.d.ts"],
+      "@ignex/nova/server": ["./packages/core/src/vendor/nova.d.ts"]
     },
     "noUncheckedIndexedAccess": true
   },
