@@ -1,6 +1,6 @@
 {
   "name": "ignex",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -85,25 +85,25 @@
   "devDependencies": {
     "@babel/core": "^8.0.1",
     "@babel/preset-typescript": "^8.0.1",
-    "@biomejs/biome": "^2.5.9",
+    "@biomejs/biome": "^2.5.12",
     "@elysia/cors": "^1.4.2",
-    "@ignex/nova": "link:@ignex/nova",
+    "@ignex/nova": "^0.1.7",
     "@tailwindcss/cli": "^4.3.3",
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.0",
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",
     "ajv": "^8.20.0",
     "babel-preset-solid": "^1.9.15",
     "drizzle-orm": "^0.45.2",
-    "elysia": "^1.4.29",
+    "elysia": "^1.4.30",
     "expect-type": "^1.4.0",
     "fast-check": "^4.9.0",
-    "happy-dom": "^20.11.6",
-    "jose": "^6.2.9",
-    "knip": "^6.32.2",
-    "lefthook": "^2.1.10",
+    "happy-dom": "^20.14.0",
+    "jose": "^6.2.11",
+    "knip": "^6.34.0",
+    "lefthook": "^2.1.12",
     "oxc-parser": "^0.140.0",
-    "oxlint": "^1.79.0",
+    "oxlint": "^1.81.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
@@ -111,8 +111,5 @@
   "engines": {
     "bun": ">=1.4"
   },
-  "dependencies": {},
-  "overrides": {
-    "@ignex/ninox": "file:/home/adeel/poc/ignex-mongodb"
-  }
+  "dependencies": {}
 }

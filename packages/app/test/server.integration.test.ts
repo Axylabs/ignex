@@ -8,6 +8,7 @@
  */
 
 import { createRequire } from "node:module";
+import { createConnection } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type BootedServer, bootServer } from "./helpers/boot";
 
@@ -15,10 +16,11 @@ const APP_DIR = new URL("../", import.meta.url).pathname;
 
 /**
  * The reference app (packages/app) imports the external `@ignex/ninox`
- * MongoDB toolkit, which is `bun link`-ed from the sibling ignex-mongodb
- * repo in full local-dev setups. Without that link the AOT build cannot
- * resolve it — skip this suite so an app-less monorepo checkout still
- * verifies cleanly.
+ * MongoDB toolkit (`bun link`-ed from the sibling ignex-mongodb repo in full
+ * local-dev setups, or resolved from the registry otherwise). When the
+ * package — or a live MongoDB the app's `dbPlugin` connects to at boot — is
+ * unavailable, skip this suite so a standalone monorepo checkout verifies
+ * cleanly.
  */
 const hasNinox = (() => {
   try {
@@ -29,16 +31,32 @@ const hasNinox = (() => {
   }
 })();
 
-describe.runIf(hasNinox)("generated server (integration)", () => {
+/** Probe whether a MongoDB is listening on localhost:27017 (the app default). */
+const hasLocalMongo = await new Promise<boolean>((resolve) => {
+  const socket = createConnection({ host: "127.0.0.1", port: 27017 });
+  const done = (ok: boolean): void => {
+    socket.destroy();
+    resolve(ok);
+  };
+  socket.setTimeout(800);
+  socket.once("connect", () => done(true));
+  socket.once("timeout", () => done(false));
+  socket.once("error", () => done(false));
+});
+
+describe.runIf(hasNinox && hasLocalMongo)("generated server (integration)", () => {
   let BASE = "";
   let srv: BootedServer;
 
   beforeAll(async () => {
-    // The example app serves HTTPS by default (auto-generated dev certs), so
-    // the harness polls and hits it over https with TLS verification disabled.
+    // The app is AOT-compiled in its production shape (builder.ts), which never
+    // auto-generates dev certs — so boot over plain HTTP and poll http://.
     // Allow well beyond the harness's readiness window — under full-suite
-    // parallelism a cold HTTPS boot can be slow.
-    srv = await bootServer(APP_DIR, { protocol: "https" });
+    // parallelism a cold boot (Mongo connect + compile-if-needed) can be slow.
+    srv = await bootServer(APP_DIR, {
+      protocol: "http",
+      env: { IGNEX_HTTPS: "0" },
+    });
     BASE = srv.base;
   }, 60_000);
 
