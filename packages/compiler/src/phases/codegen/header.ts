@@ -103,6 +103,16 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
       `const __appPlugins = (__appConfig.plugins ?? []).filter((__p) => !(__p != null && typeof __p === "object" && __p.__ignexDevOnly === true));`,
     );
     header.push(`const __pluginContext = createPluginContext();`);
+    // Resolve the server config + TLS BEFORE plugin boot so every plugin's
+    // `init` hook logs scheme-correct endpoint URLs (see http/serve-boot.ts).
+    header.push(`const __serverCfg = __appConfig.server ?? {};`);
+    header.push(`const __serveTls = resolveServeTls(__serverCfg, {
+  production: ${state.isProductionBuild ? "true" : 'process.env.NODE_ENV === "production"'},
+  certDir: (import.meta.dir || process.cwd()) + "/certs",
+});`);
+    header.push(
+      `setServeBootInfo({ protocol: __serveTls.protocol, port: Number(process.env.PORT ?? __serverCfg.port ?? 3000), hostname: __serverCfg.hostname });`,
+    );
     // A throwing plugin must fail boot with a clear, attributable error (not a
     // cryptic module-load failure / unhandled rejection).
     header.push(`for (const __p of __appPlugins) {
@@ -139,10 +149,15 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
     header.push(
       `const __lc = mergeLifeCycle(mergeLifeCycle(EMPTY_LIFECYCLE, __pluginLC), __userLC);`,
     );
-    header.push(`const __serverCfg = __appConfig.server ?? {};`);
   } else {
     header.push(`const __lc = EMPTY_LIFECYCLE;`);
     header.push(`const __serverCfg = {};`);
+    // Config-less servers still resolve TLS (HTTPS-by-default policy); the
+    // result feeds the bootstrap below. No boot info broadcast — no plugins.
+    header.push(`const __serveTls = resolveServeTls(__serverCfg, {
+  production: ${state.isProductionBuild ? "true" : 'process.env.NODE_ENV === "production"'},
+  certDir: (import.meta.dir || process.cwd()) + "/certs",
+});`);
   }
 
   // Static default response headers (security headers, wildcard CORS) from the

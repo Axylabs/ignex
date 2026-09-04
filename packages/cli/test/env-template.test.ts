@@ -47,11 +47,36 @@ test("appConfigTemplate consumes the env module instead of raw process.env", () 
   // strong per-machine generated value — never a known literal default.
   expect(code).toContain("session({ secret: env.SESSION_SECRET || devSessionSecret()");
   expect(code).toContain(
-    'import { debugbar, devSessionSecret, openapi, session } from "@ignex/core";',
+    'import {\n  debugbar,\n  devSessionSecret,\n  openapi,\n  session,\n  type ServerConfig,\n} from "@ignex/core";',
   );
+  // The `server` export is typed with the public ServerConfig interface.
+  expect(code).toContain("export const server: ServerConfig = {");
   expect(code).not.toContain("dev-secret-change-me");
   expect(code).toContain("port: env.PORT,");
   expect(code).not.toContain("process.env");
+});
+
+test("appConfigTemplate defaults to HTTPS and emits plain HTTP when https: false", () => {
+  expect(appConfigTemplate()).toContain("https: true");
+  // HTTP/2 is opt-in — off by default.
+  expect(appConfigTemplate()).not.toMatch(/^ {2}h2: true,/m);
+
+  const http = appConfigTemplate({ https: false });
+  expect(http).toContain("https: false");
+  // The resolved `ServerConfig` type stays regardless of the transport choice.
+  expect(http).toContain("export const server: ServerConfig = {");
+  expect(http).not.toMatch(/^ {2}h2: true,/m);
+});
+
+test("appConfigTemplate opts into HTTP/2 when h2 is enabled over HTTPS", () => {
+  const h2 = appConfigTemplate({ https: true, h2: true });
+  expect(h2).toMatch(/^ {2}https: true,/m);
+  expect(h2).toMatch(/^ {2}h2: true,/m);
+
+  // h2 only makes sense over TLS — an HTTP-only scaffold never emits it.
+  const http = appConfigTemplate({ https: false, h2: true });
+  expect(http).toContain("https: false");
+  expect(http).not.toMatch(/^ {2}h2: true,/m);
 });
 
 test("envRouteTemplate reads validated env values via the env module", () => {

@@ -8,6 +8,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`server.h2` now actually enables HTTP/2.** Bun ≥1.4.1 accepts the
+  `http2` option in `Bun.serve` — the old `h2` key was silently ignored, so
+  the config knob was a no-op. Both the AOT bootstrap and interpreted
+  `createApp().serve()` now map `server.h2` (alias `server.http2`) to Bun's
+  `http2: true`, gated to TLS (ALPN — h2 clients get HTTP/2, the rest
+  HTTP/1.1).
+- **Scaffold console URLs reflect plain HTTP.** Plugin boot logs (debugbar,
+  openapi) now derive their origin from the resolved serve protocol instead of
+  guessing `https` from `NODE_ENV`, so a `server.https: false` app logs
+  `http://…` everywhere — in the compiled server and the interpreted
+  `createApp().serve()` path alike.
 - **`ignex event bus` output now compiles and runs out of the box** (DX
   dogfood findings — see `docs/dx-improvement-plan.md`):
   - Scaffolds the wire contract (`src/realtime.ts`), a pre-wired
@@ -31,6 +42,13 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ignex create` asks for HTTPS + HTTP/2, HTTPS, or HTTP.** The wizard
+  gains a `Protocol` question (`https` default; `--protocol https2` adds
+  HTTP/2 over TLS, `--protocol http` opts into plain HTTP/1) and the
+  generated `src/app.config.ts` types its `server` export with the new public
+  `ServerConfig` interface from `@ignex/core`, so every server knob is
+  discoverable and type-checked. The `openapi()` plugin also logs its
+  docs/spec URLs at boot (`[ignex] openapi: <origin>/openapi — …`).
 - **Extendable global app logger in the scaffold.** The `logger` feature now
   ships `src/lib/logger.ts` — an app-facing `log` facade importable from any
   route/hook/model/service, backed by `@ignex/core`'s `createAppLogger()`:

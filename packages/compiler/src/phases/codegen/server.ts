@@ -33,6 +33,7 @@ const APP_CONFIG_CORE = [
   "mergeLifeCycle",
   "pluginsToLifeCycle",
   "pluginContextToLifecycle",
+  "setServeBootInfo",
 ] as const;
 
 /**
@@ -83,22 +84,17 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   fetch: __fallback,
 };`);
 
-  // HTTPS by default: `Bun.serve` needs a `tls` block for TLS, so
-  // `resolveServeTls` guarantees one (user certs, or auto-generated dev certs)
-  // unless `server.https: false`. In production with no certs it warns and
-  // falls back to HTTP/1. Dev certs are cached under `<outDir>/certs`
-  // (relative to the emitted file, so the output stays machine-independent).
-  // The production decision is BAKED from the build shape: a prod-shaped
-  // artifact must never attempt mkcert/openssl auto-generation on a machine
-  // that happens to launch it without NODE_ENV set — it warns and serves
-  // HTTP/1 (TLS terminates at the proxy). Dev-shaped builds keep the runtime
-  // env read so `ignex dev`-style flows behave exactly as before.
-  functions.push(`const __serveTls = resolveServeTls(__serverCfg, {
-  production: ${state.isProductionBuild ? "true" : 'process.env.NODE_ENV === "production"'},
-  certDir: (import.meta.dir || process.cwd()) + "/certs",
-});
-if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;
-if (__serverCfg.h2 && __serveTls.tls) __serveOptions.h2 = true;`);
+  // HTTPS by default: `resolveServeTls` ran in the header (BEFORE plugin boot,
+  // so plugin init logs print scheme-correct URLs) and guarantees a `tls`
+  // block unless `server.https: false`. In production with no certs it warns
+  // and falls back to HTTP/1; the production decision is BAKED from the build
+  // shape so a prod artifact never auto-generates certs at launch. The
+  // resolved `__serveTls` const feeds the serve options here.
+  //
+  // HTTP/2: `server.h2` / `server.http2` (alias) maps to Bun.serve's `http2`
+  // option (Bun ≥1.4.1 negotiates h2 over TLS via ALPN). Only set over TLS.
+  functions.push(`if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;
+if ((__serverCfg.http2 ?? __serverCfg.h2) && __serveTls.tls) __serveOptions.http2 = true;`);
 
   // WS handler wiring: inject the core default frame ceiling when the app
   // config didn't set `maxPayloadLength` (spread AFTER so an explicit value

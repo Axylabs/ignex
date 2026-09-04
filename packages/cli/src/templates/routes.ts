@@ -532,10 +532,14 @@ export function homeTemplate(): string {
 }
 
 export function appConfigTemplate(
-  options: { middleware?: boolean; plugins?: boolean } = {},
+  options: { middleware?: boolean; plugins?: boolean; https?: boolean; h2?: boolean } = {},
 ): string {
   const middleware = options.middleware ?? false;
   const hasPlugins = options.plugins ?? false;
+  // HTTPS by default; the create wizard (--protocol https2|https|http) picks the
+  // transport. HTTP/2 (h2) is an HTTPS-only opt-in — Bun >=1.4.1.
+  const https = options.https ?? true;
+  const h2 = (options.h2 ?? false) && https;
   const middlewareImports = middleware
     ? `import { middleware } from "./middleware/index.js";
 import { logRequests, markResponse } from "./middleware/log-requests.js";
@@ -560,8 +564,34 @@ export const lifecycle = {
 
   // The selected `--features` plugins (cors/rateLimit/security/compression/
   // logger) come from ./plugins/index.js (spread as appPlugins below); debugbar
-  // + session + openapi are the baseline every scaffold gets.
-  return `${middlewareImports}${pluginsImport}import { debugbar, devSessionSecret, openapi, session } from "@ignex/core";
+  // + session + openapi are the baseline every scaffold gets. `server` is typed
+  // with the public `ServerConfig` interface so every knob is discoverable and
+  // checked (see @ignex/core's http/tls.ts).
+  const serverComment = https
+    ? `  // HTTPS by default (requires TLS). In dev, ignex auto-generates a local
+  // certificate (mkcert -> openssl) and caches it under .ignex/certs; set
+  // tls: { certFile, keyFile } to use your own certs, or https: false
+  // for plain HTTP/1 — or add h2: true to serve HTTP/2 over TLS.`
+    : `  // Plain HTTP/1 — no TLS (selected at scaffold time). To serve HTTPS, set
+  // https: true: in dev ignex auto-generates a local certificate (mkcert ->
+  // openssl) cached under .ignex/certs; set tls: { certFile, keyFile } to use
+  // your own certs. Add h2: true alongside https: true for HTTP/2 over TLS.`;
+
+  const serverBody = [
+    "  port: env.PORT,",
+    serverComment,
+    `  https: ${https ? "true" : "false"}${https && h2 ? "," : ""}`,
+    ...(https && h2
+      ? [`  h2: true, // HTTP/2 over TLS (ALPN) — Bun >=1.4.1; server.http2 works too`]
+      : []),
+  ].join("\n");
+  return `${middlewareImports}${pluginsImport}import {
+  debugbar,
+  devSessionSecret,
+  openapi,
+  session,
+  type ServerConfig,
+} from "@ignex/core";
 import { env } from "./config/env.js";
 
 export const plugins = [
@@ -580,13 +610,8 @@ ${pluginsSpread}${middlewareSpread}  // Developer dashboard (request waterfall, 
   openapi()
 ];
 ${lifecycle}
-export const server = {
-  port: env.PORT,
-  // HTTPS by default (requires TLS). In dev, ignex auto-generates a local
-  // certificate (mkcert -> openssl) and caches it under .ignex/certs; set
-  // tls: { certFile, keyFile } to use your own certs, or https: false
-  // for plain HTTP/1.
-  https: true
+export const server: ServerConfig = {
+${serverBody}
 };
 `;
 }

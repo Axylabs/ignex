@@ -45,8 +45,11 @@ ignex create api --root ../ --features auth,openapi
 ```
 
 Run `ignex create` with no arguments for the interactive wizard: pick the
-project name, package manager, and feature set (checkbox multi-select) instead
-of typing comma-separated features.
+project name, package manager, **transport (HTTPS + HTTP/2, HTTPS, or plain
+HTTP)**, and feature set (checkbox multi-select) instead of typing
+comma-separated features. Non-interactive runs default to HTTPS; pass
+`--protocol https2` for HTTPS + HTTP/2 over TLS or `--protocol http` for plain
+HTTP/1.
 
 ## Routes with business-logic modules (`ignex route`)
 

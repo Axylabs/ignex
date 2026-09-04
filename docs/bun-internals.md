@@ -37,7 +37,7 @@ Measured on `Bun v1.4.0-canary` (Linux), 2026-08-20, 5 interleaved trials.
 | `Bun.env` | `process.env` | 0.96× | keep | `process.env` stays (parity, no churn). |
 | `Bun.semver.satisfies` | manual range compare | **1.11×** | **swap** | CLI `doctor` version checks when Bun present. |
 | `Bun.peek` | promise passthrough | 0.86× | keep | No fast-path benefit measured. |
-| `Bun.serve({ h2 })` | HTTP/1.1-only TLS | feature | **feature (opt-in)** | Add `server.h2` config; emit `h2` when TLS is on. Default off → no behavior change. |
+| `Bun.serve({ http2 })` | `h2` config was a silent no-op (HTTP/1.1 only) | — | **feature (opt-in)** | Bun ≥1.4.1 serves HTTP/2 over TLS (ALPN). `server.h2` (alias `server.http2`) → Bun's `http2` option, gated to TLS. Default off → no behavior change. |
 
 ## Rules applied
 

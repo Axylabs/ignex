@@ -80,6 +80,11 @@ const argsDef = {
     valueHint: "auth,openapi,tests,...",
     description: "Comma-separated features (or `all` / `none`)",
   },
+  protocol: {
+    type: "string",
+    valueHint: "https2|https|http",
+    description: "Transport: https2 (TLS + HTTP/2), https (TLS, default) or http (plain)",
+  },
   install: {
     type: "boolean",
     default: true,
@@ -117,6 +122,7 @@ interface CreateDefaults {
   runtime?: string;
   pm?: string;
   features?: string | string[];
+  protocol?: string;
   install?: boolean;
   git?: boolean;
 }
@@ -166,6 +172,26 @@ async function resolveInteractive(options: CreateDefaults): Promise<Required<Cre
     }));
   const defaultFeatures = DEFAULT_FEATURES.split(",");
 
+  const protocol =
+    options.protocol ??
+    (await promptSelect({
+      message: "Protocol",
+      options: [
+        {
+          value: "https2",
+          label: "HTTPS + HTTP/2",
+          hint: "TLS + HTTP/2 (ALPN) — Bun 1.4.1+",
+        },
+        {
+          value: "https",
+          label: "HTTPS",
+          hint: "TLS — HTTP/1.1 (add h2: true later for HTTP/2)",
+        },
+        { value: "http", label: "HTTP", hint: "plain HTTP/1 — no TLS" },
+      ],
+      initial: "https",
+    }));
+
   // 1. Get the raw input (could be string, string[], or undefined)
   const rawFeatures =
     options.features ??
@@ -184,7 +210,7 @@ async function resolveInteractive(options: CreateDefaults): Promise<Required<Cre
   const install =
     options.install ?? (await promptConfirm({ message: "Install dependencies?", initial: true }));
   const git = options.git ?? (await promptConfirm({ message: "Initialize git?", initial: true }));
-  return { name, runtime, pm, features, install, git };
+  return { name, runtime, pm, features, protocol, install, git };
 }
 
 /** One planned scaffold file: target-relative `path` + a content factory. */
@@ -312,6 +338,8 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
         appConfigTemplate({
           middleware: features.has("middleware"),
           plugins: hasPluginFeatures(features),
+          https: opts.https,
+          h2: opts.h2,
         }),
     },
     { path: "src/views/layout.html", when: "templates", content: () => layoutTemplate() },
@@ -389,6 +417,7 @@ interface CreateInputs {
   runtimeInput?: string;
   pmInput?: string;
   featuresInput?: string | string[];
+  protocolInput?: string;
   install: boolean;
   git: boolean;
 }
@@ -401,6 +430,7 @@ async function resolveCreateInputs(
   let name = parsed.name;
   let runtimeInput = parsed.runtime;
   let pmInput = parsed.pm;
+  let protocolInput = parsed.protocol;
 
   // Explicitly type and cast to handle runtime arrays from duplicate flags (e.g. --features a --features b)
   let featuresInput: string | string[] | undefined = parsed.features as
@@ -420,6 +450,7 @@ async function resolveCreateInputs(
         runtime: runtimeInput,
         pm: pmInput,
         features: featuresInput,
+        protocol: protocolInput,
         install,
         git,
       });
@@ -427,6 +458,7 @@ async function resolveCreateInputs(
       runtimeInput = resolved.runtime;
       pmInput = resolved.pm;
       featuresInput = resolved.features; // Now perfectly type-safe
+      protocolInput = resolved.protocol;
       install = resolved.install;
       git = resolved.git;
     } catch (err) {
@@ -440,6 +472,7 @@ async function resolveCreateInputs(
     runtimeInput,
     pmInput,
     featuresInput,
+    protocolInput,
     install: install ?? false,
     git: git ?? false,
   };
@@ -451,10 +484,11 @@ export async function runCreate(args: string[]): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && !parsed.yes);
   const inputs = await resolveCreateInputs(parsed, interactive);
   if (!inputs) return; // wizard cancelled
-  const { name, runtimeInput, pmInput, featuresInput, install, git } = inputs;
+  const { name, runtimeInput, pmInput, featuresInput, protocolInput, install, git } = inputs;
 
   const runtime = normalizeRuntime(runtimeInput);
   const pm = normalizePm(pmInput, runtime);
+  const protocol = normalizeProtocol(protocolInput);
 
   const features = parseFeatures(featuresInput ?? (parsed.yes ? DEFAULT_FEATURES : "none"));
 
@@ -491,6 +525,8 @@ export async function runCreate(args: string[]): Promise<void> {
     runtime,
     pm,
     features,
+    https: protocol !== "http",
+    h2: protocol === "https2",
   };
 
   await scaffoldFiles(target, opts);
@@ -501,6 +537,28 @@ export async function runCreate(args: string[]): Promise<void> {
   // absolute path when the app lives outside the current directory.
   const rel = relative(process.cwd(), target) || ".";
   printNextSteps(rel.startsWith("..") ? target : rel, install, pm, name);
+}
+
+/**
+ * Normalize the `--protocol` value.
+ *
+ * `https2` (also `http2`/`h2`) = HTTPS + HTTP/2 over TLS; `https` = HTTPS with
+ * HTTP/1.1 (the default); `http` = plain HTTP. Anything else falls back to
+ * `https`.
+ */
+type ProtocolChoice = "https2" | "https" | "http";
+
+function normalizeProtocol(input: string | undefined): ProtocolChoice {
+  switch (input?.trim().toLowerCase()) {
+    case "https2":
+    case "http2":
+    case "h2":
+      return "https2";
+    case "http":
+      return "http";
+    default:
+      return "https";
+  }
 }
 
 function normalizePm(input: string | undefined, runtime: "bun" | "node"): string {

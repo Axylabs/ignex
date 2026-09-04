@@ -35,9 +35,9 @@ export interface BootOptions {
   /** Bind port. Defaults to an OS-assigned free port (collision-free across suites). */
   port?: number;
   /**
-   * Base URL scheme. Use `"https"` when the app serves HTTP/2 by default
+   * Base URL scheme. Use `"https"` when the app serves HTTPS by default
    * (ignex's default — TLS with auto-generated dev certs). Defaults to
-   * `"http"` (fixtures that set `server.http2: false`).
+   * `"http"` (fixtures that set `server.https: false`).
    */
   protocol?: "http" | "https";
   /** Extra environment variables for the server process. */
@@ -65,7 +65,7 @@ const BUILD_LOCK = ".ignex-build.lock";
 
 /**
  * Every generated-server suite talks to a locally-bound dev server that may
- * serve HTTP/2 over a self-signed cert (ignex's default). The vitest worker
+ * serve HTTPS over a self-signed cert (ignex's default). The vitest worker
  * runs on Node (undici fetch), which rejects self-signed certs and ignores
  * Bun's per-request `tls: { rejectUnauthorized: false }` — so disable TLS
  * verification for the worker once. This only affects the test process.

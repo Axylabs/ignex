@@ -258,6 +258,12 @@ export {
   type RouteRegistration,
   type RouterMethod,
 } from "./http/router";
+export {
+  bootOrigin,
+  getServeBootInfo,
+  type ServeBootInfo,
+  setServeBootInfo,
+} from "./http/serve-boot";
 export { formatSSE, type SSEMessage, type SSEOptions, sse } from "./http/sse";
 export {
   type ServeStaticAppOptions,
@@ -273,6 +279,7 @@ export {
   type ResolvedTls,
   type ResolveTlsOptions,
   resolveServeTls,
+  type ServerConfig,
   type ServerProtocolConfig,
   type ServerTlsConfig,
 } from "./http/tls";

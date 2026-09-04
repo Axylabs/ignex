@@ -20,6 +20,7 @@ import {
   type IgnexServer,
 } from "../http/context";
 import type { IgnexRouter } from "../http/router";
+import { setServeBootInfo } from "../http/serve-boot";
 import {
   DEFAULT_SERVER_IDLE_TIMEOUT,
   resolveServeTls,
@@ -100,10 +101,12 @@ export interface AppOptions {
 /**
  * Options for {@link IgnexApp.serve}.
  *
- * `port`, `hostname`, `https`, `tls` and `certDir` are typed and handled by
- * ignex (including the HTTPS-by-default TLS resolution); every other key is
- * passed through to `Bun.serve` untyped (`websocket`, `maxRequestBodySize`,
- * `reusePort`, `headers`, `idleTimeout`, …). When `idleTimeout` is not set,
+ * `port`, `hostname`, `https`, `h2`/`http2`, `tls` and `certDir` are typed
+ * and handled by ignex (including the HTTPS-by-default TLS resolution and the
+ * HTTP/2-over-TLS opt-in, which maps to Bun.serve's `http2` option); every
+ * other key is passed through to `Bun.serve` untyped (`websocket`,
+ * `maxRequestBodySize`, `reusePort`, `headers`, `idleTimeout`, …). When
+ * `idleTimeout` is not set,
  * `DEFAULT_SERVER_IDLE_TIMEOUT` (10s — Bun's documented HTTP default) is
  * applied so keep-alive behavior is deterministic; it governs HTTP
  * connections only (WebSockets carry their own `idleTimeout`). When
@@ -118,8 +121,14 @@ export type ServeOptions = Record<string, unknown> & {
   hostname?: string;
   /** Serve HTTPS over TLS. Default `true`; set `false` for plain HTTP/1. */
   https?: boolean;
-  /** Enable HTTP/2 (requires TLS). Opt-in; default HTTP/1.1. */
+  /**
+   * Serve HTTP/2 alongside HTTP/1.1 on the TLS port (ALPN). Requires TLS;
+   * maps to Bun.serve's `http2` option (Bun ≥1.4.1). `http2` is accepted as
+   * an alias.
+   */
   h2?: boolean;
+  /** Alias of `h2` matching Bun.serve's option name (`http2: true`). */
+  http2?: boolean;
   /** TLS cert/key file paths. Omit in dev to auto-generate local certs. */
   tls?: ServerTlsConfig;
   /** Directory for generated dev certs (default `.ignex/certs`). */
@@ -328,6 +337,8 @@ export const createApp = (options: AppOptions): IgnexApp => {
         port = 3000,
         hostname = "0.0.0.0",
         https,
+        h2,
+        http2,
         tls,
         certDir,
         idleTimeout,
@@ -346,7 +357,14 @@ export const createApp = (options: AppOptions): IgnexApp => {
       const resolvedTls = resolveServeTls(protocolCfg, {
         production: process.env.NODE_ENV === "production",
       });
+      // Publish the resolved origin BEFORE plugin init hooks run so plugin
+      // boot logs (debugbar, openapi) print scheme-correct URLs.
+      setServeBootInfo({ protocol: resolvedTls.protocol, port, hostname });
       const tlsOpts = resolvedTls.tls ? { tls: resolvedTls.tls } : {};
+      // HTTP/2 (alias `h2`/`http2`) requires TLS and maps to Bun.serve's
+      // `http2` option — Bun ≥1.4.1 negotiates h2 over the TLS port via ALPN.
+      // Only ever set alongside TLS (parity with the AOT-compiled bootstrap).
+      const http2Opt = (http2 ?? h2) === true && resolvedTls.tls ? { http2: true } : {};
       const bun = (globalThis as { Bun?: unknown }).Bun;
       if (!bun) {
         throw new Error("createApp().serve() requires Bun; use handler() elsewhere");
@@ -378,6 +396,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
             ...(resolvedLimits.websocket !== undefined
               ? { websocket: resolvedLimits.websocket }
               : {}),
+            ...http2Opt,
             ...tlsOpts,
             ...rest,
           }
@@ -390,6 +409,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
             ...(resolvedLimits.websocket !== undefined
               ? { websocket: resolvedLimits.websocket }
               : {}),
+            ...http2Opt,
             ...tlsOpts,
             ...rest,
           };

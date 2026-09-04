@@ -223,10 +223,12 @@ export const server = {
 
 - Force plain HTTP/1: `server.https: false`, or `IGNEX_HTTPS=0` for CI/tooling.
 - TLS serves HTTP/1.1 by default. Opt into **HTTP/2** with `server.h2: true`
-  (compiled and interpreted paths both forward it to `Bun.serve`). HTTP/3 is
-  still not available from `Bun.serve`, so for h3 put **Caddy** in front — it
-  auto-provisions real certs (Let's Encrypt) and terminates h2/h3 for clients
-  while proxying to Bun:
+  (alias `server.http2: true` — both map to Bun.serve's `http2` option). On
+  Bun ≥1.4.1 the TLS port then negotiates h2 via ALPN: clients that offer
+  `h2` (browsers, `curl --http2`) get HTTP/2, everything else HTTP/1.1.
+  HTTP/3 is still not available from `Bun.serve`, so for h3 put **Caddy** in
+  front — it auto-provisions real certs (Let's Encrypt) and terminates h2/h3
+  for clients while proxying to Bun:
 
   ```caddyfile
   example.com {

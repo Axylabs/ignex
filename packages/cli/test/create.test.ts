@@ -110,6 +110,63 @@ describe("ignex create --root", () => {
     }
   });
 
+  it("wires the --protocol http/https choice into the typed server config", async () => {
+    const base = tmpParent();
+    try {
+      // Plain HTTP selected → server.https: false (typed with ServerConfig).
+      await runCreate([
+        "http-app",
+        "--root",
+        base,
+        "--features",
+        "none",
+        "--protocol",
+        "http",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+      const httpConfig = readFileSync(join(base, "http-app", "src/app.config.ts"), "utf8");
+      expect(httpConfig).toContain("export const server: ServerConfig = {");
+      expect(httpConfig).toContain("https: false");
+      expect(httpConfig).not.toMatch(/^ {2}h2: true,/m);
+
+      // Default (no --protocol) stays HTTPS (HTTP/1.1 over TLS).
+      await runCreate([
+        "https-app",
+        "--root",
+        base,
+        "--features",
+        "none",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+      const httpsConfig = readFileSync(join(base, "https-app", "src/app.config.ts"), "utf8");
+      expect(httpsConfig).toContain("https: true");
+      expect(httpsConfig).not.toMatch(/^ {2}h2: true,/m);
+
+      // HTTPS + HTTP/2 opts into `h2: true` (mapped to Bun.serve's http2).
+      await runCreate([
+        "h2-app",
+        "--root",
+        base,
+        "--features",
+        "none",
+        "--protocol",
+        "https2",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+      const h2Config = readFileSync(join(base, "h2-app", "src/app.config.ts"), "utf8");
+      expect(h2Config).toMatch(/^ {2}https: true,/m);
+      expect(h2Config).toMatch(/^ {2}h2: true,/m);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("rejects path-traversal project names even with --root", async () => {
     const base = tmpParent();
     const originalExitCode = process.exitCode;

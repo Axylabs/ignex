@@ -40,6 +40,7 @@ import { SystemProfiler } from "../debug/system";
 import { beginTrace, enterTraceContext, setTracingEnabled, type Trace } from "../debug/tracer";
 import type { IgnexContext } from "../http/context";
 import type { IgnexRouter } from "../http/router";
+import { bootOrigin } from "../http/serve-boot";
 import type { IgnexPlugin } from "../lifecycle/plugin";
 
 /** Options for {@link debugbar}. */
@@ -322,9 +323,10 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
 
     init() {
       if (!state.enabled || state.closed) return;
-      const port = process.env.PORT ?? "3000";
-      const scheme = process.env.NODE_ENV === "production" ? "http" : "https";
-      state.bootUrl = `${scheme}://localhost:${port}${state.path}/`;
+      // The origin comes from the serve framework (protocol/port/hostname
+      // resolved before plugin boot), so a plain-HTTP server logs http:// —
+      // never a guessed https. Falls back to env heuristics outside a server.
+      state.bootUrl = `${bootOrigin()}${state.path}/`;
       console.log(
         `[ignex] debugbar: ${state.bootUrl} — waterfall + replay, logs, metrics (Prometheus), leak diagnostics, SQLite history, NATS events, KT docs (debug mode)`,
       );

@@ -25,7 +25,7 @@ bun run dev
 What you get:
 
 - `src/routes/` — file-system routes (`index.get.ts` → `GET /`, `products/[id].get.ts` → `GET /products/:id`)
-- `src/app.config.ts` — plugins (debugbar, session, openapi, plus any selected features), lifecycle, server port
+- `src/app.config.ts` — plugins (debugbar, session, openapi, plus any selected features), lifecycle, and a **typed** `server` config (`ServerConfig` — HTTPS or plain HTTP per the wizard)
 - `src/config/env.ts` — validated environment config (a TypeBox schema + `defineEnv`) and `.env.example` derived from it
 - `src/lib/auth.ts` + auth routes (register / login / me) when you pass `--features auth`
 - `ignex.config.mjs` — compiler profile (optimization level, artifact toggles)
@@ -45,23 +45,42 @@ Rust addon is active:
 ℹ Native: off (pure-TS fallback)  # still fully functional
 ```
 
-**HTTPS by default.** The server config (`src/app.config.ts`) sets
-`server.https: true`, so ignex enables TLS at startup. In development it
-auto-generates a local certificate (mkcert → openssl fallback) and caches it
-under `.ignex/certs`, logging where it came from:
+**HTTPS, HTTPS + HTTP/2, or HTTP — you choose at scaffold time.** The create
+wizard asks a `Protocol` question (`https` by default; pass `--protocol https2`
+for HTTPS + HTTP/2 over TLS, `--protocol http` for plain HTTP/1). The
+generated `src/app.config.ts` types its `server` export with the public
+`ServerConfig` interface from `@ignex/core`, so every knob is discoverable and
+type-checked:
+
+```ts
+export const server: ServerConfig = {
+  port: env.PORT,
+  https: true, // or false for plain HTTP/1
+  h2: true, // HTTP/2 over TLS (ALPN) — Bun ≥1.4.1; server.http2: true also works
+};
+```
+
+With HTTPS, ignex enables TLS at startup. In development it auto-generates a
+local certificate (mkcert → openssl fallback) and caches it under
+`.ignex/certs`, logging where it came from. With `h2: true`, Bun serves
+HTTP/2 on that same TLS port — clients that offer `h2` during ALPN (browsers,
+`curl --http2`) get HTTP/2, everyone else gets HTTP/1.1, so existing
+HTTP/1.1 tooling keeps working (WebSocket `upgrade()` is HTTP/1.1-only). The
+server also logs the base and OpenAPI URLs at boot — with the scheme you chose
+(plain HTTP logs `http://…`):
 
 ```
 [ignex] HTTPS enabled with a locally-trusted dev certificate (mkcert) from …/.ignex/certs.
 ignex listening on https://localhost:3000
+[ignex] openapi: https://localhost:3000/openapi — API docs UI (spec at https://localhost:3000/openapi.json)
 ```
 
 - No mkcert/openssl? It warns and **falls back to HTTP/1** — nothing breaks.
 - Supply your own certs with `server.tls: { certFile, keyFile }`, or force plain
-  HTTP/1 with `server.https: false` (or `IGNEX_HTTPS=0` for CI/tooling).
-- Note: `Bun.serve` currently serves HTTP/1.1 over TLS; for true HTTP/2 /
-  HTTP/3 termination, put **Caddy** (or nginx/Cloudflare) in front — Caddy
-  auto-provisions real certs and speaks h2/h3 to clients while proxying HTTP/1.1
-  to Bun.
+  HTTP/1 later with `server.https: false` (or `IGNEX_HTTPS=0` for CI/tooling).
+- Bun ≥1.4.1 supports HTTP/2 in `Bun.serve` (experimental). HTTP/3 (QUIC) and
+  managed public certificates are a different story — put **Caddy** (or
+  nginx/Cloudflare) in front for HTTP/3 and auto-provisioned certs.
 
 ## 3. Your first route
 

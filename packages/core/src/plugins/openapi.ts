@@ -27,6 +27,7 @@
 
 import type { IgnexContext } from "../http/context";
 import type { IgnexRouter, RouteRegistration } from "../http/router";
+import { bootOrigin } from "../http/serve-boot";
 import type { IgnexPlugin } from "../lifecycle/plugin";
 import {
   generateOpenAPI,
@@ -373,9 +374,24 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     return ctx;
   };
 
+  const uiEnabled = typeof path === "string" && provider !== null;
+
   return {
     name: "openapi",
     routes: registerRoutes,
     onRequest,
+    /**
+     * Log the docs endpoints at boot (AOT and interpreted alike). The origin
+     * is the resolved serve origin (scheme-correct: http for plain-HTTP
+     * servers), with the pre-boot env heuristic as fallback.
+     */
+    init() {
+      const origin = bootOrigin();
+      console.log(
+        uiEnabled
+          ? `[ignex] openapi: ${origin}${path} — API docs UI (spec at ${origin}${specPath})`
+          : `[ignex] openapi: OpenAPI spec at ${origin}${specPath}`,
+      );
+    },
   };
 };

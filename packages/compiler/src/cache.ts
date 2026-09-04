@@ -38,7 +38,7 @@ import { projectPath } from "./utils/path";
  * websocket handlers get an injected default `maxPayloadLength`; graceful
  * shutdown (SIGTERM/SIGINT drain) emitted for config-less apps too.
  */
-export const COMPILER_CACHE_VERSION = "0.9.6";
+export const COMPILER_CACHE_VERSION = "0.9.8";
 
 const CACHE_FILE = ".ignex-cache.json";
 

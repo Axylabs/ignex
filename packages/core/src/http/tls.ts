@@ -20,6 +20,7 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { WebSocketHandler } from "../types/http";
 
 /** User-facing TLS configuration (file paths) for the `server` app config. */
 export interface ServerTlsConfig {
@@ -37,12 +38,44 @@ export interface ServerTlsConfig {
 export interface ServerProtocolConfig {
   /** Serve HTTPS over TLS. Default `true`; set `false` for plain HTTP/1. */
   https?: boolean;
-  /** Enable HTTP/2 (requires TLS). Opt-in; default HTTP/1.1. */
+  /**
+   * Serve HTTP/2 alongside HTTP/1.1 on the TLS port (ALPN — clients that
+   * offer `h2` get HTTP/2, everyone else HTTP/1.1). Requires TLS. Maps to
+   * Bun.serve's `http2` option, which Bun ≥1.4.1 supports (experimental);
+   * `server.http2: true` is accepted as an alias.
+   */
   h2?: boolean;
+  /** Alias of `h2` matching Bun.serve's option name (`http2: true`). */
+  http2?: boolean;
   /** Explicit TLS cert/key config. Omit in dev to auto-generate local certs. */
   tls?: ServerTlsConfig;
   /** Directory for generated dev certificates (default `.ignex/certs`). */
   certDir?: string;
+}
+
+/**
+ * The `server` export of an app config (`src/app.config.ts`).
+ *
+ * The AOT compiler bootstrap and the interpreted `createApp().serve()` share
+ * this shape: `port`, `hostname`, `https`, `h2`, `tls` and `certDir` are
+ * handled by ignex; the remaining keys map to `Bun.serve` options. Every
+ * field is optional — defaults apply at boot.
+ */
+export interface ServerConfig extends ServerProtocolConfig {
+  /** Listen port. `PORT` env wins at boot when set; otherwise this (default 3000). */
+  port?: number;
+  /** Bind hostname. Default `0.0.0.0` (Bun's `Bun.serve` default). */
+  hostname?: string;
+  /** `SO_REUSEPORT` — multiple processes sharing one port. Default `false`. */
+  reusePort?: boolean;
+  /** Per-request body ceiling in bytes (default {@link DEFAULT_MAX_REQUEST_BODY_SIZE}, 64 MiB). */
+  maxRequestBodySize?: number;
+  /** HTTP keep-alive idle timeout in seconds (default 10; `0` disables). */
+  idleTimeout?: number;
+  /** Static response headers applied to every response via Bun's default-header sink. */
+  headers?: Readonly<Record<string, string>>;
+  /** Server-level websocket handler config (when no route overrides it). */
+  websocket?: WebSocketHandler;
 }
 
 /** Options for {@link resolveServeTls}. */

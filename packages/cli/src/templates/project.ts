@@ -6,6 +6,10 @@ export interface ProjectTemplateOptions {
   runtime: "bun";
   pm: string;
   features: Set<Feature>;
+  /** Serve HTTPS over TLS (default) or plain HTTP/1 — wired into `server.https`. */
+  https: boolean;
+  /** Serve HTTP/2 over TLS too (ALPN) — only meaningful when `https`; Bun ≥1.4.1. */
+  h2: boolean;
 }
 
 const PLUGIN_FEATURES: Feature[] = ["cors", "rateLimit", "security", "compression", "logger"];
