@@ -8,10 +8,21 @@
  * exercise the wrapper directly against a synthetic ignex trace.
  */
 
+import { existsSync } from "node:fs";
 import { createContext } from "@ignex/core";
 import * as debugMod from "@ignex/core/debug";
-import { describe, expect, test } from "vitest";
-import { traceDbOp } from "../../../../ignex-mongodb/src/service/trace-db-op.ts";
+import { beforeAll, describe, expect, test } from "vitest";
+
+/**
+ * `traceDbOp` lives in the EXTERNAL ignex-mongodb repo (a sibling checkout at
+ * `../../..`, `bun link`-ed in full local-dev setups). Skip this suite when
+ * that repo is not present so a standalone monorepo checkout verifies cleanly.
+ */
+const TRACE_DB_OP_MODULE = new URL(
+  "../../../../ignex-mongodb/src/service/trace-db-op.ts",
+  import.meta.url,
+);
+const hasTraceDbOp = existsSync(TRACE_DB_OP_MODULE);
 
 const noopLogger = {
   debug: () => {},
@@ -19,6 +30,18 @@ const noopLogger = {
   warn: () => {},
   error: () => {},
 };
+
+interface TraceDbOpMeta {
+  collection: string;
+  db: string;
+  op: string;
+}
+
+type TraceDbOp = <T>(
+  logger: typeof noopLogger,
+  meta: TraceDbOpMeta,
+  operation: () => Promise<T>,
+) => Promise<T>;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -35,7 +58,13 @@ const withTrace = async <T>(fn: (trace: { toJSON(): unknown }) => Promise<T>): P
   }
 };
 
-describe("traceDbOp (ignex-debugbar integration)", () => {
+describe.runIf(hasTraceDbOp)("traceDbOp (ignex-debugbar integration)", () => {
+  let traceDbOp: TraceDbOp;
+
+  beforeAll(async () => {
+    const mod = (await import(TRACE_DB_OP_MODULE.href)) as { traceDbOp?: unknown };
+    traceDbOp = mod.traceDbOp as TraceDbOp;
+  });
   test("passes through without an active trace (returns the result)", async () => {
     const result = await traceDbOp(
       noopLogger,

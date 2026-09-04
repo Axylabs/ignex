@@ -6,26 +6,43 @@
  * harness (compile-if-missing + spawn + readiness poll) so every integration
  * suite boots the same way.
  */
+
+import { createRequire } from "node:module";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type BootedServer, bootServer } from "./helpers/boot";
 
 const APP_DIR = new URL("../", import.meta.url).pathname;
 
-let BASE = "";
-let srv: BootedServer;
+/**
+ * The reference app (packages/app) imports the external `@ignex/ninox`
+ * MongoDB toolkit, which is `bun link`-ed from the sibling ignex-mongodb
+ * repo in full local-dev setups. Without that link the AOT build cannot
+ * resolve it — skip this suite so an app-less monorepo checkout still
+ * verifies cleanly.
+ */
+const hasNinox = (() => {
+  try {
+    createRequire(import.meta.url).resolve("@ignex/ninox");
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
-beforeAll(async () => {
-  // The example app serves HTTP/2 by default (auto-generated dev certs), so
-  // the harness polls and hits it over https with TLS verification disabled.
-  // Allow well beyond the harness's readiness window — under full-suite
-  // parallelism a cold HTTPS boot can be slow.
-  srv = await bootServer(APP_DIR, { protocol: "https" });
-  BASE = srv.base;
-}, 60_000);
+describe.runIf(hasNinox)("generated server (integration)", () => {
+  let BASE = "";
+  let srv: BootedServer;
 
-afterAll(() => srv?.close());
+  beforeAll(async () => {
+    // The example app serves HTTPS by default (auto-generated dev certs), so
+    // the harness polls and hits it over https with TLS verification disabled.
+    // Allow well beyond the harness's readiness window — under full-suite
+    // parallelism a cold HTTPS boot can be slow.
+    srv = await bootServer(APP_DIR, { protocol: "https" });
+    BASE = srv.base;
+  }, 60_000);
 
-describe("generated server (integration)", () => {
+  afterAll(() => srv?.close());
   it("serves GET /health with a JSON body", async () => {
     const res = await fetch(`${BASE}/health`);
     expect(res.status).toBe(200);

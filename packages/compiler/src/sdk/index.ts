@@ -176,8 +176,13 @@ export const packSdk = (packageDir: string): string => {
       `npm pack failed in ${dir}: ${result.stderr?.trim() || result.error?.message || "unknown error"}`,
     );
   }
-  const parsed = JSON.parse(result.stdout) as { filename?: string }[];
-  const filename = parsed[0]?.filename;
+  const parsed = JSON.parse(result.stdout) as
+    | { filename?: string }[]
+    | Record<string, { filename?: string }>;
+  // `npm pack --json` historically printed an ARRAY; npm >= 12 prints an
+  // object keyed by package id. Accept both shapes.
+  const entry = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
+  const filename = entry?.filename;
   if (filename === undefined) {
     throw new Error(`npm pack produced no tarball in ${dir}`);
   }

@@ -5,9 +5,25 @@
  */
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { generateSdk, sdkPlatforms, writeSdk } from "../src/index.js";
+
+/**
+ * The generated codec imports the official `flatbuffers` runtime. It is only a
+ * dependency of the GENERATED package, so the monorepo test environment may
+ * not have it installed (it arrives transitively via the linked
+ * `@ignex/nova` repo) — skip the live round-trip when it is unavailable.
+ */
+const hasFlatbuffers = (() => {
+  try {
+    createRequire(import.meta.url).resolve("flatbuffers");
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 /** Minimal compiled-artifact fixture (manifest.json + openapi.json). */
 const FIXTURE_ARTIFACTS = {
@@ -153,46 +169,49 @@ describe("flatbuffers platform", () => {
     expect(types).toContain("Response_PostPets");
   });
 
-  it("writes a working codec that round-trips envelopes on the real runtime", async () => {
-    const root = tmpArtifacts();
-    const result = await writeSdk({
-      outDir: root,
-      packageDir: join(root, "out"),
-      name: "@acme/petshop-client",
-      version: "1.2.3",
-      platforms: ["flatbuffers"],
-    });
-    const codecPath = join(result.packages[0]?.dir ?? "", "dist", "codec.js");
-    expect(existsSync(codecPath)).toBe(true);
+  it.runIf(hasFlatbuffers)(
+    "writes a working codec that round-trips envelopes on the real runtime",
+    async () => {
+      const root = tmpArtifacts();
+      const result = await writeSdk({
+        outDir: root,
+        packageDir: join(root, "out"),
+        name: "@acme/petshop-client",
+        version: "1.2.3",
+        platforms: ["flatbuffers"],
+      });
+      const codecPath = join(result.packages[0]?.dir ?? "", "dist", "codec.js");
+      expect(existsSync(codecPath)).toBe(true);
 
-    const codec = (await import(codecPath)) as {
-      encodeRequest(req: unknown): Uint8Array;
-      decodeRequest(bytes: Uint8Array): unknown;
-      encodeResponse(res: unknown): Uint8Array;
-      decodeResponse(bytes: Uint8Array): unknown;
-      encodeApiRoutes(routes: unknown[]): Uint8Array;
-      decodeApiRoutes(bytes: Uint8Array): unknown[];
-    };
+      const codec = (await import(codecPath)) as {
+        encodeRequest(req: unknown): Uint8Array;
+        decodeRequest(bytes: Uint8Array): unknown;
+        encodeResponse(res: unknown): Uint8Array;
+        decodeResponse(bytes: Uint8Array): unknown;
+        encodeApiRoutes(routes: unknown[]): Uint8Array;
+        decodeApiRoutes(bytes: Uint8Array): unknown[];
+      };
 
-    const req = {
-      method: "POST",
-      path: "/pets/:id",
-      params: { id: "42" },
-      query: { x: "1" },
-      body: { name: "rex héllo ✓" },
-    };
-    const dec = codec.decodeRequest(codec.encodeRequest(req)) as typeof req;
-    expect(dec).toEqual(req);
+      const req = {
+        method: "POST",
+        path: "/pets/:id",
+        params: { id: "42" },
+        query: { x: "1" },
+        body: { name: "rex héllo ✓" },
+      };
+      const dec = codec.decodeRequest(codec.encodeRequest(req)) as typeof req;
+      expect(dec).toEqual(req);
 
-    const res = { status: 201, ok: true, error: "", bodyJson: '{"id":"p-1"}', traceId: "t-1" };
-    expect(codec.decodeResponse(codec.encodeResponse(res))).toEqual(res);
-    const err = { status: 404, ok: false, error: "not found", bodyJson: "", traceId: "" };
-    expect(codec.decodeResponse(codec.encodeResponse(err))).toEqual(err);
+      const res = { status: 201, ok: true, error: "", bodyJson: '{"id":"p-1"}', traceId: "t-1" };
+      expect(codec.decodeResponse(codec.encodeResponse(res))).toEqual(res);
+      const err = { status: 404, ok: false, error: "not found", bodyJson: "", traceId: "" };
+      expect(codec.decodeResponse(codec.encodeResponse(err))).toEqual(err);
 
-    const routes = [
-      { method: "GET", path: "/health", args: "none" },
-      { method: "POST", path: "/pets", args: "body" },
-    ];
-    expect(codec.decodeApiRoutes(codec.encodeApiRoutes(routes))).toEqual(routes);
-  });
+      const routes = [
+        { method: "GET", path: "/health", args: "none" },
+        { method: "POST", path: "/pets", args: "body" },
+      ];
+      expect(codec.decodeApiRoutes(codec.encodeApiRoutes(routes))).toEqual(routes);
+    },
+  );
 });
