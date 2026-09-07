@@ -11,8 +11,8 @@
  * output-affecting change since the last release tag is accompanied by a
  * cache-version bump.
  *
- * Usage: `bun scripts/check-cache-versions.ts` (run by scripts/publish.ts before
- * bump/commit; also useful standalone in CI / pre-push).
+ * Usage: `bun scripts/check-cache-versions.ts` (run by the canonical release
+ * script before bump/commit; also useful standalone in CI / pre-push).
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";

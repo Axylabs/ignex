@@ -1,0 +1,11 @@
+{
+  "product": "ignex",
+  "type": "workspace",
+  "packageDir": "packages",
+  "dependencyScope": "@ignex/",
+  "lockfile": "bun",
+  "verify": ["bun run verify"],
+  "checks": ["bun run check:cache-versions"],
+  "postBump": ["bun install"],
+  "publish": { "strategy": "local", "manager": "bun" }
+}

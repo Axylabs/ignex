@@ -4,6 +4,14 @@ Ignex uses a source-only, Bun-first monorepo. This document is the checklist for
 cutting a release. Every package is versioned independently
 (`packages/*/package.json`) with a shared root version bump as a convenience.
 
+> **Shared canonical flow.** All four product repos — `ignex`, `castrum`,
+> `@ignex/ninox` and `@ignex/nova` — release through ONE flow: the canonical
+> `scripts/release.ts` driven by a per-repo `.release.json`. This repo is the
+> canonical home of the script; the sibling repos carry identical copies (castrum
+> reformats its copy to its single-quote Biome style) configured by their own
+> `.release.json` (verify commands, version files like `Cargo.toml`/`CHANGELOG`,
+> and the npm publish strategy: `local` vs `ci`/tag-push).
+
 ## Pre-release checklist
 
 1. **Bump the compiler cache version** if any generated-code path changed:
@@ -88,8 +96,9 @@ npm publish --workspace packages/cli
   in the repo `.npmrc` is a live credential — if one is present, rotate it at
   https://www.npmjs.com/settings/<user>/tokens and delete the line (the file is
   gitignored, but a leaked token is a leak regardless).
-- CI has no npm publish job by design; releases are manual via
-  `scripts/publish.ts` (`bun run release:dry` / `release:bump` / `release`). If
+- CI has no npm publish job by design; releases are manual via the shared
+  canonical flow `scripts/release.ts` + `.release.json` (`bun run release:dry` /
+  `release:bump` (`--no-publish`) / `release`). If
   a CI publish job is ever added, wire the token via a GitHub secret +
   `NODE_AUTH_TOKEN` (never a file).
 

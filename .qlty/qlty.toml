@@ -1,0 +1,75 @@
+# Qlty configuration for the ignex monorepo.
+#
+# qlty is the long-term code-quality umbrella for this repo: it complements the
+# repo's own gates (oxlint + biome + knip run via `bun run lint` /
+# `check:dead`) by adding maintainability smells (complexity/duplication),
+# GitHub Actions hardening (actionlint/zizmor), secret scanning (trufflehog)
+# and markdown linting — all through one tool.
+#
+# Managed locally:  `qlty plugins update && qlty install`
+# Run everything:   `qlty check`   |   staged-only hook: `qlty check --upstream`
+# Docs: https://qlty.sh/d/config
+config_version = "0"
+
+exclude_patterns = [
+  "*_min.*",
+  "*-min.*",
+  "*.min.*",
+  "**/.yarn/**",
+  "**/*.d.ts",
+  "**/assets/**",
+  "**/bower_components/**",
+  "**/build/**",
+  "**/cache/**",
+  "**/coverage/**",
+  "**/db/**",
+  "**/deps/**",
+  "**/dist/**",
+  "**/extern/**",
+  "**/external/**",
+  "**/generated/**",
+  "**/Godeps/**",
+  "**/gradlew/**",
+  "**/mvnw/**",
+  "**/node_modules/**",
+  "**/protos/**",
+  "**/seed/**",
+  "**/target/**",
+  "**/templates/**",
+  "**/testdata/**",
+  "**/vendor/**",
+]
+
+test_patterns = [
+  "**/test/**",
+  "**/spec/**",
+  "**/*.test.*",
+  "**/*.spec.*",
+  "**/*_test.*",
+  "**/*_spec.*",
+  "**/test_*.*",
+  "**/spec_*.*",
+]
+
+[smells]
+mode = "comment"
+
+[[source]]
+name = "default"
+default = true
+
+# ── Linters ─────────────────────────────────────────────────────────────────
+# oxc (oxlint) gives a second pair of eyes on top of the repo's native
+# oxlint + biome gates (`bun run lint`). qlty manages its own pinned copy.
+[[plugin]]
+name = "oxc"
+
+# ── Security & CI hygiene ──────────────────────────────────────────────────
+[[plugin]]
+name = "actionlint"
+
+[[plugin]]
+name = "zizmor"
+
+[[plugin]]
+name = "trufflehog"

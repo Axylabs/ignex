@@ -109,4 +109,4 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   castrum, link it into `packages/native`; when testing local `@ignex/nova`,
   link it into `packages/core` (optional peer). See
   `docs/ai/LOCAL_DEV.md`. Never publish from a linked tree; CI/releases
-  resolve from the registry (`scripts/publish.ts`).
+  resolve from the registry (`scripts/release.ts`).

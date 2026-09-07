@@ -118,7 +118,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
     records are dropped.
   - `hashFile` distinguishes deleted ("missing") from unreadable files.
   - New `scripts/check-cache-versions.ts` (+ `check:cache-versions`, lefthook
-    pre-push, publish.ts pre-flight `--no-cache-check` to bypass) fails a
+    pre-push, and the canonical release's `checks` step) fails a
     release if output-affecting files changed without a cache-version bump.
     `MODULES_CACHE_VERSION` bumped 1→2 for the persist changes.
 
@@ -185,13 +185,14 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 
 Bun is pinned via `env.BUN_VERSION` (was `latest`) — bump deliberately.
 
-### Release (`scripts/publish.ts`)
+### Release (canonical `scripts/release.ts` + `.release.json`)
 
-- `bun run release:dry` / `bun run release:bump` / `bun run release`.
-- Pre-flights: `check-cache-versions` (skip `--no-cache-check`), npm auth/scope
-  (`checkPublishAccess`, skip `--no-check`), `verify` gate, lockfile-version
-  verification (`verifyLockfileVersions` — bun.lock caches workspace versions;
-  publish.ts deletes it before install). See `docs/release-process.md`.
+- `bun run release:dry` / `bun run release:bump` (`--no-publish`) / `bun run release`.
+- Pre-flights: `check-cache-versions` (a `.release.json` `checks` step; skip with
+  `--no-pack`), npm auth, the `verify` gate, and bun.lock workspace-version
+  verification (the release script regenerates bun.lock after a bump — bun
+  caches workspace versions in bun.lock, so a stale lockfile would rewrite
+  `workspace:*` deps to the old version). See `docs/release-process.md`.
 
 ---
 
@@ -243,5 +244,5 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
    2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
    `castrum@0.9.1` is already published on npm and resolves via
    `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
-   `bun scripts/publish.ts` with a real `NPM_TOKEN` to release the monorepo
+   `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo
    packages (manual step — no credentials in this environment).

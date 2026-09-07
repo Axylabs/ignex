@@ -80,5 +80,5 @@ bun link @ignex/core --save       # also writes "link:@ignex/core" into package.
 
 Publishing a consumer whose dependencies are `link:` entries ships symlinks,
 not packages. Releases always run against registry versions (CI re-verifies
-with a clean install; `scripts/publish.ts` handles monorepo releases). Keep
+with a clean install; `scripts/release.ts` + `.release.json` handle releases). Keep
 `bun link` strictly local.
