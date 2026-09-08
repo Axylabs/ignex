@@ -28,8 +28,14 @@ const GITHUB_TOKEN = /ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,}/g;
 /** AWS access key id + (optional, same line) secret key. */
 const AWS_KEY = /(AKIA|ASIA)[A-Z0-9]{16}(.*?[A-Za-z0-9/+=]{40})?/g;
 
-/** Private key material — any PEM PRIVATE KEY block. */
-const PEM_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----|-----BEGIN OPENSSH PRIVATE KEY-----/g;
+/**
+ * Private key material — any PEM PRIVATE KEY block (RSA/EC/DSA/OPENSSH…).
+ * NOTE: deliberately a single generic alternative. The char class `[A-Z ]*`
+ * already matches `OPENSSH `, and a plain `-----BEGIN OPENSSH PRIVATE
+ * KEY-----` literal here would make the scanner flag its OWN source (the
+ * bracketed class in the source text cannot match itself, so this stays clean).
+ */
+const PEM_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
 
 /** Common well-known secret prefixes (Stripe, Slack, SendGrid, Twilio, …). */
 const KNOWN_PREFIX =
