@@ -31,7 +31,13 @@ runs:
       shell: bash
       run: |
         cd castrum
-        bun install --frozen-lockfile
+        # Not `--frozen-lockfile`: a pinned castrum revision's own bun.lock can
+        # drift from its package.json (e.g. an `overrides` bump committed
+        # without regenerating the lock). This is a throwaway, build-only
+        # checkout that is never committed, so let bun reconcile the lock and
+        # then build the addon (the Rust build is governed by Cargo.lock, not
+        # the JS lock).
+        bun install
         bun run build
 
     # Locate the addon generically — the binary name varies by target triple
