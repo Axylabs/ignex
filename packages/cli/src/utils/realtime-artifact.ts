@@ -14,8 +14,16 @@
  *   schemas: { ChatMessage: Type.Object({ ... }) }, // optional named tables
  *   events: { "chat.message": ChatMessage },        // required, non-empty
  *   controlEvents: {},                              // optional extra control events
+ *   clientToServer: ["chat.message"],               // optional — events a CLIENT may send (server `on`)
+ *   serverToClient: ["chat.message"],               // optional — events the SERVER may send (emit* / client `on`)
  * };
  * ```
+ *
+ * Directional lists are OPTIONAL: when absent, every event may flow both ways
+ * (the historical, undirected behaviour — back-compat). When present a list
+ * is authoritative for that direction: `on(...)` only accepts
+ * `clientToServer` names, and `emit*`/`ctx.emit*`/client `on` only
+ * `serverToClient` names.
  *
  * This module serializes it to `<outDir>/realtime.json`; the runtime RPC kit
  * may additionally write `<outDir>/rpc-manifest.json`
@@ -31,12 +39,44 @@ import { pathToFileURL } from "node:url";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/**
+ * Validate an optional directional event-name list. Entries must be strings
+ * that name a declared `realtime.events` member; returns `undefined` when the
+ * field is absent (meaning “all events may flow this way”).
+ */
+const directionalNamesOf = (
+  sourcePath: string,
+  value: unknown,
+  field: "clientToServer" | "serverToClient",
+  declared: readonly string[],
+): string[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((n) => typeof n !== "string")) {
+    throw new Error(
+      `${sourcePath}: \`realtime.${field}\` must be an array of event-name strings ` +
+        `(${field === "clientToServer" ? "events a client may send" : "events the server may send"}).`,
+    );
+  }
+  for (const name of value) {
+    if (!declared.includes(name)) {
+      throw new Error(
+        `${sourcePath}: \`realtime.${field}\` lists "${name}", which is not declared in \`realtime.events\`.`,
+      );
+    }
+  }
+  return value as string[];
+};
+
 /** The serialized `realtime.json` artifact (fixed key order for determinism). */
 interface RealtimeArtifact {
   subjectPrefix: string;
   schemas?: Record<string, unknown>;
   events: Record<string, unknown>;
   controlEvents?: Record<string, unknown>;
+  /** Optional: events a CLIENT may send (server may `on`). Defaults to all events. */
+  clientToServer?: string[];
+  /** Optional: events the SERVER may send (`emit*` / client `on`). Defaults to all events. */
+  serverToClient?: string[];
 }
 
 const errorMessage = (error: unknown): string =>
@@ -132,6 +172,22 @@ export const emitRealtimeArtifact = async (root: string, outDir: string): Promis
     }
     artifact.controlEvents = declaration.controlEvents;
   }
+
+  const declaredNames = Object.keys(events);
+  const clientToServer = directionalNamesOf(
+    sourcePath,
+    declaration.clientToServer,
+    "clientToServer",
+    declaredNames,
+  );
+  if (clientToServer !== undefined) artifact.clientToServer = clientToServer;
+  const serverToClient = directionalNamesOf(
+    sourcePath,
+    declaration.serverToClient,
+    "serverToClient",
+    declaredNames,
+  );
+  if (serverToClient !== undefined) artifact.serverToClient = serverToClient;
 
   await mkdir(outDir, { recursive: true });
   const target = join(outDir, "realtime.json");

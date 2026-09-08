@@ -108,6 +108,13 @@ export function eventBusRealtimeTemplate(name: string, eventName = `${name}.crea
  * (\`ignex sdk --platform realtime\`) derives the FlatBuffers wire stack, the
  * typed client, and the server-side typed facade from it. Extend \`events\`
  * with any other event name → TypeBox schema pair.
+ *
+ * OPTIONAL — separate SENDING from RECEIVING (tighter types, better
+ * autocomplete): list which events flow which way. An event omitted from a
+ * list may still flow both ways (the historical behaviour):
+ *
+ *   clientToServer: ["${eventName}"],  // events clients SEND → server \`on()\`
+ *   serverToClient: ["${eventName}"],  // events the SERVER sends → \`emit*\` / client \`on()\`
  */
 import { Type } from "@sinclair/typebox";
 
@@ -120,6 +127,9 @@ export const realtime = {
     }),
   },
   controlEvents: {},
+  // Uncomment to restrict directions (optional):
+  // clientToServer: ["${eventName}"],
+  // serverToClient: ["${eventName}"],
 };
 `;
 }
@@ -222,6 +232,10 @@ export function eventBusConsumerTemplate(name: string, eventName = `${name}.crea
  * the plugin init loop) — dropping the file here is all the wiring needed.
  *
  * Payload is typed against src/realtime.ts: { id: string; at: number }.
+ *
+ * This is the RECEIVE side: \`on()\` handles a CLIENT→SERVER event. To push an
+ * event OUT to clients use the \`emit*()\` helpers — those only accept
+ * server→client events (realtime.ts \`serverToClient\`), see lib/events.ts.
  */
 export default function register(): void {
   on("${eventName}", async (payload) => {

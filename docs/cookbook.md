@@ -325,8 +325,17 @@ import { Type } from "@sinclair/typebox";
 export const realtime = {
   subjectPrefix: "myapp",
   events: {
+    // the payload registry (single source of truth for the wire)
     "chat.message": Type.Object({ to: Type.String(), body: Type.String() }),
+    "chat.delivered": Type.Object({ id: Type.String() }),
+    "order.update": Type.Object({ orderId: Type.String() }),
   },
+  // OPTIONAL — separate SENDING from RECEIVING for stricter typing:
+  //   server on()/client.send() accept only clientToServer names;
+  //   server emit*/client.on()  accept only serverToClient names.
+  // An event omitted from a list may still flow both ways (default).
+  clientToServer: ["chat.message"],
+  serverToClient: ["chat.delivered", "order.update"],
 };
 ```
 
@@ -364,9 +373,28 @@ on("chat.message", (payload, ctx) => {
 emitToUser("u-42", "order.update", { orderId: "o-1" });
 ```
 
+### Sending vs receiving is typed
+
+Every helper is bound to one direction, so you can't `on()` an event the
+server is supposed to broadcast, nor `emit*` one the client should send:
+
+- **Server receives** (`clientToServer`): register with `on`/`once`/`off` —
+  e.g. `on("chat.message", …)`. The `ctx` you get also carries reply helpers
+  (`ctx.emit*`) that only accept server→client events.
+- **Server sends** (`serverToClient`): `emit`/`emitToClient`/`emitToUser`/
+  `emitToGroup`/`emitToTopic`/`emitToUserAnywhere` (and `ctx.emit*`).
+- **Clients mirror it**: `client.send(...)` takes only `clientToServer` names;
+  `client.on(...)` only `serverToClient` names.
+
+When a list is omitted every event may flow both ways (back-compat), so one
+bus event can still be consumed by a server `on()` and broadcast with `emit()`
+— the split only kicks in once you list an event in either direction.
+
 - **Clients** (browser + Bun): `createRealtimeClient("ws://host:3001/ws")`
-  from the generated SDK — `client.on("quote", cb)` / `client.send("chat", …)`
-  are typed against YOUR events; decode is pure JS (FlatBuffers), no FFI.
+  from the generated SDK — `client.on("chat.delivered", cb)` /
+  `client.send("chat.message", …)` are typed against YOUR events and
+  direction-aware (subscribe to server→client, send only client→server);
+  decode is pure JS (FlatBuffers), no FFI.
 - **Scaffold**: `ignex event bus <name>` emits `src/realtime.ts`, a pre-wired
   `src/realtime.plugin.ts`, a publish route, and an auto-registered example
   consumer in `src/realtime/consumers/` — the compiled server imports it and

@@ -77,6 +77,13 @@ const FIXTURE_RPC_MANIFEST = {
   },
 };
 
+/** Realtime declarations with explicit directional lists (send vs receive). */
+const DIRECTED_REALTIME = {
+  ...FIXTURE_REALTIME,
+  clientToServer: ["chat.send"], // clients send this → server `on`s it
+  serverToClient: ["chat.message"], // server sends this → clients subscribe
+};
+
 const tmpDirs: string[] = [];
 const tmpArtifacts = (extra: Record<string, string> = {}): string => {
   const dir = mkdtempSync(join(process.cwd(), ".sdk-rt-test-"));
@@ -106,7 +113,30 @@ describe("realtime input loading", () => {
     ]);
     expect(inputs.realtime?.schemas).toEqual(FIXTURE_REALTIME.schemas);
     expect(inputs.realtime?.controlEvents).toEqual({});
+    // No directional lists in this fixture → back-compat: not restricted.
+    expect(inputs.realtime?.clientToServer).toBeUndefined();
+    expect(inputs.realtime?.serverToClient).toBeUndefined();
     expect(inputs.realtime?.rpcMethods).toEqual(FIXTURE_RPC_MANIFEST.methods);
+  });
+
+  it("parses optional clientToServer/serverToClient lists when present", () => {
+    const outDir = tmpArtifacts({
+      "realtime.json": JSON.stringify({
+        ...FIXTURE_REALTIME,
+        clientToServer: ["chat.send"],
+        serverToClient: ["chat.message"],
+      }),
+    });
+    const inputs = loadSdkInputs(outDir);
+    expect(inputs.realtime?.clientToServer).toEqual(["chat.send"]);
+    expect(inputs.realtime?.serverToClient).toEqual(["chat.message"]);
+  });
+
+  it("rejects a malformed directional list", () => {
+    const outDir = tmpArtifacts({
+      "realtime.json": JSON.stringify({ ...FIXTURE_REALTIME, clientToServer: "chat.send" }),
+    });
+    expect(() => loadSdkInputs(outDir)).toThrow(/clientToServer/);
   });
 
   it("omits rpcMethods when rpc-manifest.json is absent", () => {
@@ -206,6 +236,14 @@ describe("realtime platform", () => {
       expect(payloads).toContain('"chat.send": {');
       expect(payloads).toContain("orderId: string;");
       expect(payloads).toContain('"me.get": {');
+      // Directional aliases default to every event when the contract declares
+      // no clientToServer/serverToClient lists (back-compat: both ways).
+      expect(payloads).toContain(
+        'export type ClientToServerEventName = "chat.send" | "chat.message";',
+      );
+      expect(payloads).toContain(
+        'export type ServerToClientEventName = "chat.send" | "chat.message";',
+      );
 
       // Schema consts carry the serialized registries.
       const schema = files.get("realtime/schema.ts") ?? "";
@@ -220,6 +258,10 @@ describe("realtime platform", () => {
       expect(client).toContain(
         "export type RealtimeEventName = keyof RealtimeEventPayloads & string",
       );
+      // Client API separates the directions too: subscribe to server→client
+      // events, send only client→server events.
+      expect(client).toContain("on<K extends ServerToClientEventName>(");
+      expect(client).toContain("send<K extends ClientToServerEventName>(");
       const rpc = files.get("realtime/rpc.gen.ts") ?? "";
       expect(rpc).toContain("export class RpcError extends Error");
       expect(rpc).toContain('send("rpc.request", { id, method, payload: JSON.stringify(args) })');
@@ -239,26 +281,44 @@ describe("realtime platform", () => {
       expect(index).not.toContain('from "./server"');
 
       // Typed server-side facade: emit/on/emitToUser typed against app events.
+      // This fixture has NO directional lists → back-compat default: every
+      // event may flow both ways (the unions equal the full set), yet the API
+      // still separates RECEIVE (on → ClientToServerEventName) from SEND
+      // (emit*/ctx.emit* → ServerToClientEventName).
       const server = files.get("realtime/server.ts") ?? "";
       expect(server).toContain('from "@ignex/nova/events"');
       expect(server).toContain(
         "export type RealtimeEventName = keyof RealtimeEventPayloads & string",
       );
-      expect(server).toContain("export const emitToUser = <K extends RealtimeEventName>(");
-      expect(server).toContain("export const on = <K extends RealtimeEventName>(");
+      expect(server).toContain("export const emitToUser = <K extends ServerToClientEventName>(");
+      expect(server).toContain("export const on = <K extends ClientToServerEventName>(");
       expect(server).toContain("_emit(name as never, payload as never)");
-      // Handler ctx is typed (not `unknown`) so `ctx.client`/`ctx.source` give
-      // the sender's identity — attribution is a first-class, type-safe part
-      // of the facade. Context/client/source types are re-exported for typing.
+      // Handler ctx is app-typed (not nova's built-in market-data registry):
+      // ctx.emitToClient / ctx.emit / ctx.emitToUser only accept THIS app's
+      // server→client events, so autocomplete never offers quote/trade/
+      // portfolio demo events. Attribution stays first-class.
       expect(server).toContain(
-        'import type { EventClient, EventContext, EventSource } from "@ignex/nova/events"',
+        'import type { EmitTarget, EventClient, EventSource } from "@ignex/nova/events"',
       );
-      expect(server).toContain("export type RealtimeEventContext = EventContext;");
-      expect(server).toContain("export type RealtimeEventHandler<K extends RealtimeEventName> =");
+      expect(server).toContain("export interface RealtimeEventContext {");
+      expect(server).toContain("readonly source: EventSource;");
+      expect(server).toContain("readonly client?: EventClient;");
+      expect(server).toContain(
+        "emitToClient<K extends ServerToClientEventName>(\n    clientId: string,\n    name: K,\n    payload: RealtimeEventPayloads[K],\n  ): void;",
+      );
+      expect(server).toContain(
+        "emit<K extends ServerToClientEventName>(\n    name: K,\n    payload: RealtimeEventPayloads[K],\n    target?: EmitTarget,\n  ): void;",
+      );
+      expect(server).not.toContain("RealtimeEventContext = EventContext;");
+      expect(server).toContain(
+        "export type RealtimeEventHandler<K extends ClientToServerEventName> =",
+      );
       expect(server).toContain("ctx: RealtimeEventContext");
       expect(server).not.toContain("ctx: unknown");
       // Full-mesh cross-service user emit is part of the facade.
-      expect(server).toContain("export const emitToUserAnywhere = <K extends RealtimeEventName>(");
+      expect(server).toContain(
+        "export const emitToUserAnywhere = <K extends ServerToClientEventName>(",
+      );
       expect(server).toContain("_emitToUserAnywhere(userId, name as never, payload as never)");
 
       // package.json: naming + subpath exports + pinned deps.
@@ -276,6 +336,47 @@ describe("realtime platform", () => {
       expect(pkgJson.exports["./rpc"]).toBe("./realtime/rpc.gen.ts");
       expect(pkgJson.dependencies["@ignex/nova"]).toBe("^0.1.7");
       expect(pkgJson.dependencies["@sinclair/typebox"]).toBe("^0.34.0");
+    },
+  );
+
+  it.skipIf(!flatcAvailable)(
+    "restricts send vs receive to the declared clientToServer/serverToClient sets",
+    async () => {
+      const outDir = tmpArtifacts({
+        "realtime.json": JSON.stringify(DIRECTED_REALTIME),
+        "rpc-manifest.json": JSON.stringify(FIXTURE_RPC_MANIFEST),
+      });
+      const result = await generateSdk({
+        outDir,
+        packageDir: join(outDir, "out"),
+        name: "@acme/petshop-realtime-sdk",
+        version: "2.0.0",
+        platforms: ["realtime"],
+      });
+      const pkg = result.packages[0];
+      if (pkg === undefined) throw new Error("no package");
+      const files = new Map(pkg.files.map((f) => [f.path, f.content]));
+
+      // Directional unions are authoritative when lists are present.
+      const payloads = files.get("realtime/payloads.gen.ts") ?? "";
+      expect(payloads).toContain('export type ClientToServerEventName = "chat.send";');
+      expect(payloads).toContain('export type ServerToClientEventName = "chat.message";');
+      // Neither union leaks the other direction's event.
+      expect(payloads).not.toContain('ClientToServerEventName = "chat.send" | "chat.message";');
+      expect(payloads).not.toContain('ServerToClientEventName = "chat.send" | "chat.message";');
+
+      // Server facade: on() only accepts client-sent events; emit* only
+      // server-sent events.
+      const server = files.get("realtime/server.ts") ?? "";
+      expect(server).toContain("export const on = <K extends ClientToServerEventName>(");
+      expect(server).toContain("export const emitToClient = <K extends ServerToClientEventName>(");
+      expect(server).toContain("export const emit = <K extends ServerToClientEventName>(");
+
+      // Generated client mirrors it: subscribe to server→client, send only
+      // client→server.
+      const client = files.get("realtime/client.gen.ts") ?? "";
+      expect(client).toContain("on<K extends ServerToClientEventName>(");
+      expect(client).toContain("send<K extends ClientToServerEventName>(");
     },
   );
 

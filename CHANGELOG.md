@@ -62,6 +62,21 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `emitToTopic`/`on`/`once`/`off` typed against the app's events — no more
   `as never` casts for custom event names in routes/jobs/plugins. Re-exported
   from the package barrel and from the scaffolded `src/lib/events.ts`.
+- **Realtime events separate SENDING from RECEIVING.** `src/realtime.ts`
+  accepts optional `clientToServer` / `serverToClient` event-name lists over
+  the shared `events` registry (absent list = every event flows both ways, so
+  existing undirected contracts are unchanged). The generated SDK enforces the
+  split at the type level — server `on`/`once`/`off` only accept
+  `clientToServer` events, server `emit*` and `ctx.emit*` only
+  `serverToClient` events, and the generated client mirrors it
+  (`client.send` → client→server, `client.on` → server→client) via new
+  `ClientToServerEventName` / `ServerToClientEventName` aliases — so event
+  autocomplete and payload types never mix directions.
+- **Handler `ctx` in the generated realtime facade is app-typed.** The `ctx`
+  passed to `on()` no longer exposes nova's built-in market-data registry: its
+  reply helpers (`ctx.emit`, `ctx.emitToClient`, `ctx.emitToUser`, …) are typed
+  against the app's own server→client events, so autocomplete never offers
+  `quote`/`trade`/`portfolio` demo events that don't exist in the app.
 - **`novaPlugin` enables the events layer by default** (`events: {}` unless
   overridden) and exposes the events hub on the typed plugin surface
   (`plugin.server.events`), removing the "no events hub bound" footgun.

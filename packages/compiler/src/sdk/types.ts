@@ -66,6 +66,16 @@ export interface SdkRealtimeInput {
   events: Record<string, unknown>;
   /** Extra transport-internal control events (beyond the standard ones). */
   controlEvents?: Record<string, unknown>;
+  /**
+   * Optional: events a CLIENT may send to the server (server may `on` them,
+   * client `send`s them). Absent → every `events` entry (back-compat).
+   */
+  clientToServer?: readonly string[];
+  /**
+   * Optional: events the SERVER may send to clients (`emit*` / `ctx.emit*`,
+   * client `on`s them). Absent → every `events` entry (back-compat).
+   */
+  serverToClient?: readonly string[];
   /** RPC methods from `rpc-manifest.json`: name → TypeBox args schema. */
   rpcMethods?: Record<string, unknown>;
 }

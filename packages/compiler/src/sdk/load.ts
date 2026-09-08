@@ -71,6 +71,15 @@ const schemaRecordOf = (value: unknown, field: string, file: string): Record<str
   return value;
 };
 
+/** Read an optional directional event-name list; undefined when absent. */
+const stringListOf = (value: unknown, field: string, file: string): string[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((n) => typeof n !== "string")) {
+    throw new Error(`${file}: "${field}" must be an array of event-name strings.`);
+  }
+  return value as string[];
+};
+
 /**
  * Build the {@link SdkRealtimeInput} from `<outDir>/realtime.json`, merging
  * method schemas from `<outDir>/rpc-manifest.json` when present.
@@ -101,6 +110,10 @@ export const realtimeInputOf = (outDir: string): SdkRealtimeInput | undefined =>
   if (doc.controlEvents !== undefined) {
     input.controlEvents = schemaRecordOf(doc.controlEvents, "controlEvents", "realtime.json");
   }
+  const clientToServer = stringListOf(doc.clientToServer, "clientToServer", "realtime.json");
+  if (clientToServer !== undefined) input.clientToServer = clientToServer;
+  const serverToClient = stringListOf(doc.serverToClient, "serverToClient", "realtime.json");
+  if (serverToClient !== undefined) input.serverToClient = serverToClient;
 
   const manifest = readOptionalJson(outDir, "rpc-manifest.json");
   if (manifest !== undefined) {
