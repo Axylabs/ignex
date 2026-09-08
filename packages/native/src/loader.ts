@@ -172,6 +172,11 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
  *    directly, for projects outside a linked tree.
  */
 const findCastrumDir = (): string | null =>
+  // When IGNEX_NATIVE_PATH points at a `.node` built from a local castrum
+  // checkout, resolve that SAME checkout's package dir first — the TS
+  // integration layer (createPipeline / MetricsRegistry …) must match the
+  // loaded addon, not a registry copy that may have drifted from it.
+  castrumFromOverride() ??
   castrumFromOwnPackage() ??
   castrumFromSymlink() ??
   // Workspace castrum BEFORE the generic ancestor `node_modules` walk. In a
@@ -238,6 +243,30 @@ const resolveCastrumEntryPath = (dir: string): string | null => {
   } catch {
     return null;
   }
+};
+
+/**
+ * Resolve the castrum package dir hosting `IGNEX_NATIVE_PATH`'s `.node`
+ * (native-prep builds castrum from source and points the override into that
+ * checkout). Walks up from the addon to the nearest dir with a resolvable
+ * package entry, so the TS integration layer used by the surface gate and
+ * `createNativePipeline` comes from the identical revision as the loaded
+ * addon. Returns `null` for standalone `.node` files or when the override is
+ * unset — those keep the registry/hoisted resolution below.
+ */
+const castrumFromOverride = (): string | null => {
+  const override = process.env.IGNEX_NATIVE_PATH;
+  if (typeof override !== "string" || !override.endsWith(".node")) return null;
+  let dir = dirname(override);
+  for (let i = 0; i < 16; i++) {
+    if (existsSync(join(dir, "package.json")) && resolveCastrumEntryPath(dir) !== null) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
 };
 
 /** Load a Node-API `.node` binary via require (required for napi modules). */

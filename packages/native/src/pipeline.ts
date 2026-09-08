@@ -13,7 +13,7 @@
  * castrum's internal types.
  */
 
-import { loadCastrumModule } from "./loader";
+import { isNativeAvailable, loadCastrumModule } from "./loader";
 import { reportDegradation } from "./telemetry";
 
 /** Normalized result of a native pre-flight pipeline run. */
@@ -168,6 +168,14 @@ export interface NativePipelineOptions {
 export const createNativePipeline = async (
   pipelineOptions: NativePipelineOptions = {},
 ): Promise<NativePipeline | null> => {
+  // The Rust addon is the product's single availability authority for native
+  // pre-flight (plugins/native.ts no-ops on `isNativeAvailable()`). Without it
+  // we must NOT hand back a pipeline built from whatever castrum module
+  // happens to be importable — that would silently run a pipeline that the
+  // rest of the runtime treats as unavailable (and defeats the native-parity
+  // gate). Never throws: report and return null.
+  if (!isNativeAvailable()) return null;
+
   const mod = await loadPipelineModule();
   if (!mod) return null;
 

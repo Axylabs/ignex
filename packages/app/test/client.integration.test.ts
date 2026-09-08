@@ -10,15 +10,46 @@
  * actually works against compiled code: params, JSON bodies, header merging,
  * ROUTES-key access, and error throwing on non-2xx.
  */
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawnSync } from "node:child_process";
 import { cpSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type BootedServer, bootServer, MATRIX_FIXTURE } from "./helpers/boot.js";
 
 /** Throwaway build dir, sibling to the committed matrix fixture. */
 const E2E_DIR = join(MATRIX_FIXTURE, "..", ".client-e2e");
+
+/** How long to wait for the booted server process to actually exit. */
+const CHILD_EXIT_TIMEOUT_MS = 5000;
+/** rmSync retry budget around transient Windows EBUSY/EPERM handle locks. */
+const REMOVE_ATTEMPTS = 10;
+const REMOVE_RETRY_DELAY_MS = 100;
+
+/**
+ * Remove a directory, retrying around transient Windows errors. `rmdir` fails
+ * with EBUSY/EPERM while a just-killed child process still holds the directory
+ * as its cwd (or AV is scanning freshly-written build output) — the OS
+ * releases the handle a moment after the process actually exits.
+ */
+const removeDir = async (dir: string): Promise<void> => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= REMOVE_ATTEMPTS; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as { code?: string }).code;
+      const transient =
+        code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY" || code === "EACCES";
+      if (!transient) break;
+      await delay(REMOVE_RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+};
 
 type ApiClient = {
   [path: string]: { [method: string]: (...args: unknown[]) => Promise<unknown> };
@@ -49,7 +80,8 @@ let server: BootedServer;
 let createApiClient: (baseUrl?: string, init?: RequestInit) => ApiClient;
 
 beforeAll(async () => {
-  rmSync(E2E_DIR, { recursive: true, force: true });
+  // Retry in case a previous interrupted run left a child still holding E2E_DIR.
+  await removeDir(E2E_DIR);
   cpSync(join(MATRIX_FIXTURE, "src"), join(E2E_DIR, "src"), { recursive: true });
   cpSync(join(MATRIX_FIXTURE, "builder.ts"), join(E2E_DIR, "builder.ts"));
 
@@ -68,9 +100,20 @@ beforeAll(async () => {
   server = await bootServer(E2E_DIR);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // `close()` only *signals* the child (`proc.kill`); on Windows termination
+  // — and the release of the child's cwd (E2E_DIR) — is asynchronous. Wait for
+  // the server to actually exit before removing E2E_DIR, or rmdir races a
+  // still-live process → EBUSY.
+  const proc: ChildProcess | undefined = server?.proc;
   server?.close();
-  rmSync(E2E_DIR, { recursive: true, force: true });
+  if (proc !== undefined) {
+    const deadline = Date.now() + CHILD_EXIT_TIMEOUT_MS;
+    while (Date.now() < deadline && proc.exitCode === null && proc.signalCode === null) {
+      await delay(25);
+    }
+  }
+  await removeDir(E2E_DIR);
 });
 
 describe("generated client against compiled server (E2E)", () => {

@@ -38,12 +38,17 @@ runs:
     # (linux-x64-gnu, darwin-arm64, win32-x64-msvc, …). MSYS bash on Windows
     # reports POSIX /d/... paths that the Windows-native Bun cannot dlopen, so
     # translate to a native absolute path (D:\...) before exporting it.
+    # Castrum's own addon is written into the checkout (package dir / dist),
+    # NOT under its node_modules — a bare `find` can surface a transitive dep's
+    # binary FIRST (e.g. node_modules/@napi-rs/tar-*/tar.*.node), which is NOT
+    # the castrum addon and breaks every native gate (loader sees a foreign
+    # surface and reports the addon as unavailable).
     - name: Locate addon & export IGNEX_NATIVE_PATH
       shell: bash
       run: |
-        ADDON="$(find castrum -name '*.node' -type f | head -1)"
+        ADDON="$(find castrum -name '*.node' -type f -not -path '*/node_modules/*' | head -1)"
         if [ -z "$ADDON" ]; then
-          echo "::error::No .node addon produced by castrum build on ${RUNNER_OS}"
+          echo "::error::No castrum .node addon produced by 'bun run build' on ${RUNNER_OS} (only transitive node_modules binaries present)"
           exit 1
         fi
         ADDON_PATH="$(pwd)/${ADDON}"
