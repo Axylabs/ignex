@@ -30,6 +30,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { type AddressInfo, createServer as createNetServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 export interface BootOptions {
   /** Bind port. Defaults to an OS-assigned free port (collision-free across suites). */
@@ -72,8 +73,14 @@ const BUILD_LOCK = ".ignex-build.lock";
  */
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-/** Absolute path to the request-handling matrix fixture app. */
-export const MATRIX_FIXTURE = new URL("../fixtures/matrix", import.meta.url).pathname;
+/**
+ * Absolute path to the request-handling matrix fixture app.
+ *
+ * `fileURLToPath` (not `URL.pathname`) so Windows drive letters survive: a
+ * `file:///D:/…` URL's `.pathname` is `/D:/…` — a root-relative path that,
+ * once joined, corrupts into a doubled `D:\D:\…` prefix under `node:path`.
+ */
+export const MATRIX_FIXTURE = fileURLToPath(new URL("../fixtures/matrix", import.meta.url));
 
 /** Run the fixture's AOT build (`bun builder.ts`). */
 const runBuild = (appDir: string): void => {

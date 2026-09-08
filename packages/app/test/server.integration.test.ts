@@ -9,10 +9,12 @@
 
 import { createRequire } from "node:module";
 import { createConnection } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type BootedServer, bootServer } from "./helpers/boot";
 
-const APP_DIR = new URL("../", import.meta.url).pathname;
+// fileURLToPath (not URL.pathname) — the latter drops Windows drive letters.
+const APP_DIR = fileURLToPath(new URL("../", import.meta.url));
 
 /**
  * The reference app (packages/app) imports the external `@ignex/ninox`

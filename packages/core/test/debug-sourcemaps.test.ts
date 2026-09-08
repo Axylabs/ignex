@@ -137,18 +137,25 @@ describe("parseFrameLocation", () => {
 
 /* ── resolver with injected loader (no fs) ──────────────────────────────── */
 
+// The frame parser (FRAME_RE) and these fixtures assert POSIX absolute paths
+// ("…/app/.ignex/server.js" → source "…/app/src/…"). On Windows, a rootless
+// posix path is current-drive-relative, and real drive-letter paths can't be
+// parsed at all (documented: "Windows drive letters are out of scope"), so
+// remapping assertions only hold on POSIX.
+const isWin = process.platform === "win32";
+
 describe("createSourceFrameResolver (injected loader)", () => {
   const resolver = createSourceFrameResolver({
     loadMap: (mapPath) => (mapPath.endsWith("server.js.map") ? fixtureMap() : null),
   });
 
-  it("rewrites bundle frames to original TS positions (human 1-based)", () => {
+  it.skipIf(isWin)("rewrites bundle frames to original TS positions (human 1-based)", () => {
     // column 101 → 0-based 100 → seg3 (db.ts line 16 col 3 → human 17:4).
     const out = resolver.remapFrame("    at handler (/app/.ignex/server.js:1:101)");
     expect(out).toBe("    at handler (/app/src/lib/db.ts:17:4)");
   });
 
-  it("keeps the frame prefix intact for mid-line columns", () => {
+  it.skipIf(isWin)("keeps the frame prefix intact for mid-line columns", () => {
     const out = resolver.remapFrame("    at fn (/app/.ignex/server.js:1:31)");
     expect(out).toBe("    at fn (/app/src/routes/users/[id].get.ts:12:4)");
   });
@@ -183,7 +190,7 @@ describe("createSourceFrameResolver (real .map files)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("reads <bundle>.js.map next to the frame's file", () => {
+  it.skipIf(isWin)("reads <bundle>.js.map next to the frame's file", () => {
     const resolver = createSourceFrameResolver();
     // column 16 → 0-based 15 → seg1 → line 9+1=10, col 14+1=15. The source
     // resolves ABSOLUTE against the map's directory.
@@ -203,7 +210,7 @@ describe("createSourceFrameResolver (real .map files)", () => {
 /* ── tracer wiring ──────────────────────────────────────────────────────── */
 
 describe("tracer sourcemap wiring", () => {
-  it("remaps errorStack and span origins through the shared resolver", async () => {
+  it.skipIf(isWin)("remaps errorStack and span origins through the shared resolver", async () => {
     setSharedSourceFrames(
       createSourceFrameResolver({
         loadMap: (p) => (p.endsWith("server.js.map") ? fixtureMap() : null),

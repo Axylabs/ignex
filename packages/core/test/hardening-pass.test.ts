@@ -378,7 +378,9 @@ describe("sse backpressure", () => {
     const reader = (res.body as ReadableStream<unknown>).getReader();
     await reader.read(); // first frame delivered; then never read again
     // Sustained backlog (>1000 queued frames ≈ >1s of 1ms waits) → teardown.
-    await vi.waitFor(() => expect(done).toBe(true), { timeout: 8000, interval: 50 });
+    // Generous headroom: coarse Windows timers + coverage overhead stretch the
+    // 1ms ticks, so this asserts the teardown itself, not scheduler speed.
+    await vi.waitFor(() => expect(done).toBe(true), { timeout: 15_000, interval: 50 });
     await reader.cancel().catch(() => {});
   });
 });

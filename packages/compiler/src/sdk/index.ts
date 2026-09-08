@@ -170,7 +170,13 @@ export const writeRealtimeSdk = async (options: {
  */
 export const packSdk = (packageDir: string): string => {
   const dir = resolve(packageDir);
-  const result = spawnSync("npm", ["pack", "--json"], { cwd: dir, encoding: "utf8" });
+  // npm ships as `npm.cmd` on Windows — CreateProcess cannot launch a .cmd
+  // without a shell, so a bare `spawnSync("npm", …)` ENOENTs there.
+  const result = spawnSync("npm", ["pack", "--json"], {
+    cwd: dir,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
   if (result.status !== 0 || result.error !== undefined) {
     throw new Error(
       `npm pack failed in ${dir}: ${result.stderr?.trim() || result.error?.message || "unknown error"}`,

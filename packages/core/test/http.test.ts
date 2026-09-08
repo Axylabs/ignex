@@ -5,7 +5,7 @@
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { isNotModified } from "../src/http/conditional.js";
 import {
@@ -45,7 +45,10 @@ describe("route DSL head/options", () => {
 
 describe("safeJoin", () => {
   it("resolves nested paths within the root", () => {
-    expect(safeJoin("/var/public", "img/logo.png")).toBe(join("/var/public", "img", "logo.png"));
+    // Expected via `resolve` (not `join`): safeJoin resolves the root to an
+    // absolute path, which gains a drive prefix on Windows while `join` does
+    // not — a bare POSIX-root comparison would only ever hold on POSIX.
+    expect(safeJoin("/var/public", "img/logo.png")).toBe(resolve("/var/public", "img", "logo.png"));
   });
 
   it("blocks path traversal", () => {

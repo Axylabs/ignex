@@ -77,12 +77,15 @@ export const sse = (
        * when the backlog persists — the connection is effectively dead at
        * that point and the generator's timers/loops must be released.
        */
+      // Sustained backlog with zero drain progress for this long → treat the
+      // consumer as gone. Measured in WALL time, not 1ms-timer ticks: coarse
+      // OS timers (e.g. ~15ms clamps on Windows) would otherwise stretch a
+      // "~1s teardown" to 15s+ and leak the generator's timers/loops there.
+      const BACKPRESSURE_GRACE_MS = 1000;
       const waitDrained = async (): Promise<boolean> => {
-        let waits = 0;
+        const deadline = Date.now() + BACKPRESSURE_GRACE_MS;
         while (!stopped && !signal?.aborted && (controller.desiredSize ?? 1) <= 0) {
-          // ~1s of sustained backlog (1ms × 1000) with zero drain progress:
-          // treat the consumer as gone.
-          if (++waits > 1000) return false;
+          if (Date.now() >= deadline) return false;
           await new Promise((r) => setTimeout(r, 1));
         }
         return true;

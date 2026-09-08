@@ -221,7 +221,11 @@ describe("writeEnvKeys", () => {
       // Idempotent: existing keys are never rewritten.
       expect(writeEnvKeys({ IGNEX_TEST_KEY_A: "other" }, path)).toBe(0);
       const mode = statSync(path).mode & 0o777;
-      expect(mode).toBe(0o600);
+      // Owner-only POSIX perms (0o600) can't be expressed on Windows — the
+      // mode bits stay at the platform default there, so assert them on POSIX.
+      if (process.platform !== "win32") {
+        expect(mode).toBe(0o600);
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

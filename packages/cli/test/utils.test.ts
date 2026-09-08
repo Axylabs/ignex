@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseCliArgs, resolveRoot } from "../src/utils/args.js";
 import { CONFIG_FILES, loadConfig } from "../src/utils/config.js";
@@ -35,18 +35,18 @@ describe("parseCliArgs", () => {
 
 describe("resolveRoot", () => {
   it("prefers --root, then positional, then cwd", () => {
-    expect(resolveRoot({ root: "/a" }, ["/b"])).toBe("/a");
-    expect(resolveRoot({}, ["/b"])).toBe("/b");
+    expect(resolveRoot({ root: "/a" }, ["/b"])).toBe(resolve("/a"));
+    expect(resolveRoot({}, ["/b"])).toBe(resolve("/b"));
     expect(resolveRoot({}, [])).toBe(process.cwd());
   });
 
   it("resolves relative roots to absolute", () => {
-    expect(resolveRoot({}, ["subdir"]).startsWith("/")).toBe(true);
+    expect(isAbsolute(resolveRoot({}, ["subdir"]))).toBe(true);
   });
 
   it("ignorePositionals skips the name positional (model/resource/route)", () => {
     expect(resolveRoot({}, ["gig"], { ignorePositionals: true })).toBe(process.cwd());
-    expect(resolveRoot({ root: "/a" }, ["gig"], { ignorePositionals: true })).toBe("/a");
+    expect(resolveRoot({ root: "/a" }, ["gig"], { ignorePositionals: true })).toBe(resolve("/a"));
     expect(resolveRoot({}, [], { ignorePositionals: true })).toBe(process.cwd());
   });
 });
