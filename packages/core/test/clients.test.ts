@@ -106,11 +106,22 @@ describe("ClientRegistry", () => {
           .toISOString()
           .replace("T", " ")
           .replace(/\.\d+Z$/, " +0000");
-      const update = spawnSync("git", ["tag", "-f", name, "-m", name], {
-        cwd: dir,
-        encoding: "utf8",
-        env: { ...process.env, GIT_COMMITTER_DATE: date },
-      });
+      const update = spawnSync(
+        "git",
+        ["-c", "user.email=t@t", "-c", "user.name=t", "tag", "-f", name, "-m", name],
+        {
+          cwd: dir,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            GIT_COMMITTER_DATE: date,
+            GIT_COMMITTER_NAME: "t",
+            GIT_COMMITTER_EMAIL: "t@t",
+            GIT_AUTHOR_NAME: "t",
+            GIT_AUTHOR_EMAIL: "t@t",
+          },
+        },
+      );
       if (update.status !== 0) throw new Error(update.stderr);
       void fmt;
     };
