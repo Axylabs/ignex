@@ -19,13 +19,17 @@ env:
   BUN_VERSION: 1.4.2
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
-  # `^0.9.1` production install (a parity pass proved nothing about what users
+  # `^0.9.4` production install (a parity pass proved nothing about what users
   # actually get). Pinned to the exact revision every gate here was validated
-  # against (tag v0.9.3). To move: bump BOTH this and
+  # against (tag v0.9.4, commit 0952d6e). v0.9.4 is the first release with the
+  # native sharded `MetricsRegistry` (rust/metrics) that the ignex stub and
+  # `createNativeMetricsRegistry` require — the earlier v0.9.3-era pin
+  # (0d8e4e8) lacked it, so `check:native:surface` failed and native metrics
+  # were never exercised in CI. To move: bump BOTH this and
   # packages/native/package.json's optionalDependency deliberately, run
   # `bun run verify:native:ffi && bun run verify:native:route` locally first,
   # and keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
-  CASTRUM_REF: 0d8e4e84a96420e5dfcc2e6528a7c80303d200bf
+  CASTRUM_REF: 0952d6ed34550d29e747b4f2cdf167b58a203a00
 
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely

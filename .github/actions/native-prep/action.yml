@@ -1,6 +1,6 @@
 name: "Build castrum addon (native prep)"
 description: >-
-  Check out the PINNED castrum (Axylabs/flux-rs) revision, install stable Rust,
+  Check out the PINNED castrum (Axylabs/castrum) revision, install stable Rust,
   build the NAPI addon from source, then export IGNEX_NATIVE_PATH for the rest
   of the job. Shared by every native lane so the pinned-revision policy and the
   cross-platform path handling live in exactly one place.
@@ -17,7 +17,7 @@ runs:
       with:
         # Never the floating default branch — see the CASTRUM_REF comment in the
         # workflows for the bump procedure.
-        repository: Axylabs/flux-rs
+        repository: Axylabs/castrum
         ref: ${{ inputs.castrum-ref }}
         path: castrum
         persist-credentials: false

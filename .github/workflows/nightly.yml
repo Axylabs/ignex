@@ -25,8 +25,9 @@ concurrency:
 env:
   BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
-  # the nightly sweep must exercise the SAME addon production installs.
-  CASTRUM_REF: 0d8e4e84a96420e5dfcc2e6528a7c80303d200bf
+  # the nightly sweep must exercise the SAME addon production installs
+  # (registry ^0.9.4 == tag v0.9.4, commit 0952d6e).
+  CASTRUM_REF: 0952d6ed34550d29e747b4f2cdf167b58a203a00
 
 jobs:
   native-parity:
