@@ -188,6 +188,10 @@ Bun is pinned via `env.BUN_VERSION` (was `latest`) — bump deliberately.
 ### Release (canonical `scripts/release.ts` + `.release.json`)
 
 - `bun run release:dry` / `bun run release:bump` (`--no-publish`) / `bun run release`.
+- Changed-package selection: with `"selectChanged": true` in `.release.json`
+  (this repo), a release bumps + publishes only packages changed since the last
+  `v*` tag plus their dependents; `--all` forces a full release and `--packages`
+  picks a manual subset. `release:dry` shows the planned set.
 - Pre-flights: `check-cache-versions` (a `.release.json` `checks` step; skip with
   `--no-pack`), npm auth, the `verify` gate, and bun.lock workspace-version
   verification (the release script regenerates bun.lock after a bump — bun

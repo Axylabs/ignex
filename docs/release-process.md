@@ -10,7 +10,10 @@ cutting a release. Every package is versioned independently
 > canonical home of the script; the sibling repos carry identical copies (castrum
 > reformats its copy to its single-quote Biome style) configured by their own
 > `.release.json` (verify commands, version files like `Cargo.toml`/`CHANGELOG`,
-> and the npm publish strategy: `local` vs `ci`/tag-push).
+> the npm publish strategy: `local` vs `ci`/tag-push, and the optional
+> `selectChanged` changed-package selection). When syncing the updated script to
+> a sibling repo, copy `scripts/release.ts` (and the new `.release.json` keys)
+> from here.
 
 ## Pre-release checklist
 
@@ -63,10 +66,36 @@ the `file:` overrides as needed).
    (`packages/*/package.json`). Keep semver:
    - `0.x` — breaking changes are allowed between minors while pre-1.0.
 
+## Which packages get released
+
+Workspace releases publish **only the packages that changed since the last
+release tag, plus anything that (transitively) depends on them** — unchanged
+packages keep their current version and are **not** re-published. The base for
+the comparison is the most recent `v*` release tag reachable from `HEAD`
+(`git tag --merged HEAD`), so the very first release publishes everything.
+
+Opt in with `"selectChanged": true` in `.release.json` (this repo does) or pass
+`--changed` for a one-off run. Selection precedence:
+
+- `--packages <name>` — manual subset + dependents (unchanged behavior).
+- `--all` — release **every** workspace package (old behavior; overrides
+  `selectChanged` and is useful for a forced full release).
+- `--changed` — force changed-package selection when the config has not opted in.
+- otherwise, with `selectChanged`, only the changed packages + dependents.
+
+If nothing has changed since the last tag the release aborts with a hint
+(re-run with `--all` for a full release, or `--packages <name>` for a manual
+subset). `bun run release:dry` prints the exact planned package set before
+anything is bumped or published.
+
+Example: after tag `v0.1.32`, if only `@ignex/cli` and `@ignex/compiler`
+changed, `bun run release` bumps and publishes `@ignex/compiler`, `@ignex/cli`
+and their dependents (`@ignex/mcp`, `create-ignex`) — not the whole workspace.
+
 ## Tag & publish
 
-Publish order (dependency order): `@ignex/shared` → `@ignex/native` →
-`@ignex/core` → `@ignex/compiler` → `@ignex/cli` → `@ignex/mcp`.
+The publish order below (dependency order) applies to whatever set the release
+selected — by default only changed packages + dependents (see above).
 
 ```sh
 # 1. Commit with a conventional message

@@ -3,6 +3,7 @@
   "type": "workspace",
   "packageDir": "packages",
   "dependencyScope": "@ignex/",
+  "selectChanged": true,
   "lockfile": "bun",
   "verify": ["bun run verify"],
   "checks": ["bun run check:cache-versions"],

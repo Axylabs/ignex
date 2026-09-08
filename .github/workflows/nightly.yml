@@ -49,7 +49,9 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # stable
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+        with:
+          toolchain: stable
 
       - name: Install ignex dependencies
         run: bun install --frozen-lockfile
@@ -123,7 +125,9 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # stable
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+        with:
+          toolchain: stable
 
       - name: Install ignex dependencies
         run: bun install --frozen-lockfile

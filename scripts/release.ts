@@ -18,6 +18,13 @@
  *                  `--publish` is passed for a `ci`-strategy product)
  *   6. git       — commit + tag v<version> (+ push with `--push`)
  *
+ * Workspace releases select which packages to release as follows: an explicit
+ * `--packages <name>` subset wins; otherwise `--all` releases every package;
+ * otherwise, when the product opts in with `selectChanged` in `.release.json`
+ * (or `--changed` is passed), only packages whose files changed since the most
+ * recent `v*` release tag are released, plus anything that transitively depends
+ * on them. Unchanged packages keep their current version and are not published.
+ *
  * `ci`-strategy products (castrum) skip local publish by default: pushing the
  * `v*` tag is what triggers the CI multi-platform publish.
  *
@@ -35,6 +42,8 @@
  *   bun run release --no-publish        # bump + git only (never local publish)
  *   bun run release --publish           # force a local publish (ci-strategy)
  *   bun run release --packages shared   # workspace: bump subset + dependents
+ *   bun run release --changed           # workspace: release only packages changed since the last v* tag (+ dependents)
+ *   bun run release --all               # workspace: release every package (overrides selectChanged)
  *   bun run release --push              # also push branch + tags
  *   bun run release --yes               # skip the confirmation prompt
  *   bun run release --allow-dirty       # skip the clean-tree check
@@ -69,6 +78,8 @@ interface ReleaseConfig {
   type: "workspace" | "single";
   packageDir?: string;
   dependencyScope?: string;
+  /** Workspace releases: only packages changed since the last `v*` tag (+ dependents). */
+  selectChanged?: boolean;
   lockfile?: "bun";
   verify: string[];
   checks?: string[];
@@ -118,6 +129,10 @@ interface CliArgs {
   access: string;
   otp: string | null;
   packageFilter: string[] | null;
+  /** Force a workspace release of only changed packages (+ dependents). */
+  changed: boolean;
+  /** Force a workspace release of every package (overrides selectChanged). */
+  all: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,6 +271,8 @@ function parseCli(argv: string[]): CliArgs {
         ?.split(",")
         .map((s) => s.trim())
         .filter(Boolean) ?? null,
+    changed: has("changed"),
+    all: has("all") || has("all-packages"),
   };
 }
 
@@ -439,6 +456,44 @@ function publishOrder(packages: PkgInfo[]): PkgInfo[] {
     .filter((pkg) => !ordered.includes(pkg.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   return [...ordered.map((name) => byName.get(name) as PkgInfo), ...remaining];
+}
+
+/* ------------------------------------------------------------------ */
+/* Changed-package detection (since the last release tag)              */
+/* ------------------------------------------------------------------ */
+
+/** A framework release tag (v0.1.32 …). Excludes `sdk-v*`/other tag shapes. */
+const RELEASE_TAG = /^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+function compareTagVersions(a: string, b: string): number {
+  const pa = (a.slice(1).split(/[-+]/)[0] ?? "").split(".");
+  const pb = (b.slice(1).split(/[-+]/)[0] ?? "").split(".");
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (Number(pa[i]) || 0) - (Number(pb[i]) || 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+/** Newest `v*` release tag reachable from HEAD, or null when none exists yet. */
+function lastReleaseTag(): string | null {
+  const tags = capture("git", ["tag", "--merged", "HEAD", "--list", "v*"])
+    .split("\n")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag !== "" && RELEASE_TAG.test(tag))
+    .sort(compareTagVersions);
+  return tags[tags.length - 1] ?? null;
+}
+
+/** True when the package directory differs between the release tag and HEAD. */
+function changedSinceTag(base: string | null, relDir: string): boolean {
+  if (base === null) {
+    return true; // no prior release — everything is new.
+  }
+  return capture("git", ["diff", "--name-only", base, "HEAD", "--", relDir]) !== "";
 }
 
 function selectTargets(args: CliArgs, allPackages: PkgInfo[]): PkgInfo[] {
@@ -655,14 +710,50 @@ function publishModeLabel(args: CliArgs, cfg: ReleaseConfig): string {
   return "CI (tag push)";
 }
 
-function printPlan(args: CliArgs, cfg: ReleaseConfig, current: string, next: string): void {
+function printPlan(args: CliArgs, cfg: ReleaseConfig, ctx: ReleaseContext): void {
   const gitLabel = `${args.commit ? "commit" : "skip"}${args.tag ? " + tag" : ""}${args.push ? " + push" : ""}`;
-  printBox([
+  const lines = [
     `${cfg.product} release`,
-    `  version  ${current} → ${next} ${versionBumpLabel(args)}`,
+    `  version  ${ctx.currentVersion} → ${ctx.nextVersion} ${versionBumpLabel(args)}`,
     `  publish  ${publishModeLabel(args, cfg)}`,
     `  git      ${gitLabel}`,
-  ]);
+  ];
+  if (ctx.selected !== null) {
+    lines.push(`  packages ${selectionLabel(ctx.mode, ctx.baseTag, ctx.selected)}`);
+  }
+  printBox(lines);
+}
+
+/* ------------------------------------------------------------------ */
+/* Workspace package selection                                          */
+/* ------------------------------------------------------------------ */
+
+type SelectMode = "all" | "changed" | "filtered";
+
+/** How the workspace package set is chosen for a release. */
+function selectMode(args: CliArgs, cfg: ReleaseConfig): SelectMode {
+  if (args.packageFilter !== null) {
+    return "filtered"; // an explicit --packages subset wins.
+  }
+  if (args.all) {
+    return "all"; // --all forces every package.
+  }
+  if (args.changed || cfg.selectChanged === true) {
+    return "changed"; // only packages changed since the last release tag (+ dependents).
+  }
+  return "all"; // default when the product has not opted in.
+}
+
+function selectionLabel(mode: SelectMode, baseTag: string | null, selected: PkgInfo[]): string {
+  const count = `${selected.length} package${selected.length === 1 ? "" : "s"}`;
+  const names = selected.map((pkg) => pkg.name).join(", ");
+  if (mode === "changed") {
+    return `changed since ${baseTag ?? "(no prior release tag)"} → ${count}: ${names}`;
+  }
+  if (mode === "filtered") {
+    return `--packages subset → ${count}: ${names}`;
+  }
+  return `all → ${count}: ${names}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -670,6 +761,8 @@ function printPlan(args: CliArgs, cfg: ReleaseConfig, current: string, next: str
 interface ReleaseContext {
   currentVersion: string;
   nextVersion: string;
+  mode: SelectMode;
+  baseTag: string | null;
   selected: PkgInfo[] | null;
   publishingLocally: boolean;
 }
@@ -685,12 +778,31 @@ function resolveContext(
     cfg.type === "workspace"
       ? discoverPackages(cfg.packageDir ?? "packages", cfg.dependencyScope ?? "")
       : null;
-  const selected =
-    workspace === null ? null : expandDependents(selectTargets(args, workspace), workspace);
+  const mode = selectMode(args, cfg);
+  let baseTag: string | null = null;
+  let selected: PkgInfo[] | null = null;
+  if (workspace !== null) {
+    let targets: PkgInfo[];
+    if (mode === "filtered") {
+      targets = selectTargets(args, workspace);
+    } else if (mode === "changed") {
+      baseTag = lastReleaseTag();
+      targets = workspace.filter((pkg) => changedSinceTag(baseTag, pkg.relDir));
+      if (targets.length === 0) {
+        die(
+          `no packages changed since ${baseTag ?? "the last release"} — nothing to release. ` +
+            "Pass --all to release every package or --packages <name> for a manual subset.",
+        );
+      }
+    } else {
+      targets = workspace;
+    }
+    selected = expandDependents(targets, workspace);
+  }
   const publishingLocally = args.noPublish
     ? false
     : args.publish || cfg.publish.strategy === "local";
-  return { currentVersion, nextVersion, selected, publishingLocally };
+  return { currentVersion, nextVersion, mode, baseTag, selected, publishingLocally };
 }
 
 function syncWorkspaceVersions(
@@ -756,20 +868,23 @@ function runGates(args: CliArgs, cfg: ReleaseConfig): void {
 async function doPublish(
   args: CliArgs,
   cfg: ReleaseConfig,
-  selected: PkgInfo[] | null,
-  nextVersion: string,
+  ctx: ReleaseContext,
   backups: Map<string, string>,
 ): Promise<void> {
+  const { nextVersion, selected } = ctx;
   if (selected === null) {
     await publishSingle(cfg, args, nextVersion, backups);
     return;
   }
-  await publishWorkspace(
-    args,
-    publishOrder(selected.filter((pkg) => !pkg.isPrivate)),
-    nextVersion,
-    backups,
-  );
+  const order = publishOrder(selected.filter((pkg) => !pkg.isPrivate));
+  if (order.length === 0) {
+    if (ctx.mode === "changed") {
+      console.log("ℹ No publishable packages changed — skipping npm publish.");
+      return;
+    }
+    die("no publishable packages");
+  }
+  await publishWorkspace(args, order, nextVersion, backups);
 }
 
 async function main(): Promise<void> {
@@ -777,7 +892,7 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const context = resolveContext(args, cfg, readJson(join(ROOT, "package.json")));
 
-  printPlan(args, cfg, context.currentVersion, context.nextVersion);
+  printPlan(args, cfg, context);
   if (args.dryRun) {
     console.log("✔ dry-run — nothing was changed.");
     return;
@@ -791,7 +906,7 @@ async function main(): Promise<void> {
   runGates(args, cfg);
 
   if (context.publishingLocally) {
-    await doPublish(args, cfg, context.selected, context.nextVersion, backups);
+    await doPublish(args, cfg, context, backups);
   }
 
   gitFinalize(args, cfg, context.nextVersion);
