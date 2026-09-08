@@ -179,7 +179,25 @@ export function compileValidator<T = unknown>(schema: AnySchema, on: string = "i
       // fast-accept when the raw document validates (skip the Ajv JS call).
       if (nativeFastAccept(native, input)) return input;
 
-      if (!ajvValidate(input)) {
+      // Raw-JSON parity: the native validator treats string / Uint8Array input
+      // as a JSON document and parses it before validating. When native is
+      // unavailable (pure-TS fallback) mirror that so the gate is transparent:
+      // parse the raw document, validate the parsed value, return the ORIGINAL
+      // input. Non-JSON input (e.g. a plain string for a `type: string`
+      // schema) is validated literally.
+      let value = input;
+      if (typeof input === "string" || input instanceof Uint8Array) {
+        const text = typeof input === "string" ? input : new TextDecoder().decode(input);
+        if (text.length > 0) {
+          try {
+            value = JSON.parse(text);
+          } catch {
+            value = input; // not JSON — validate the literal value
+          }
+        }
+      }
+
+      if (!ajvValidate(value)) {
         throw new ValidationError("Validation failed", toErrorRecord(ajvValidate.errors, on), on);
       }
 

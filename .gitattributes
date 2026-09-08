@@ -1,0 +1,26 @@
+# Force LF line endings on every platform. GitHub Windows runners default to
+# core.autocrlf=true, which checks files out with CRLF; Biome's formatter then
+# flags every file as "would reformat" and the `lint` gate fails with ~hundreds
+# of errors. `eol=lf` overrides autocrlf so checkouts are byte-identical across
+# OSes (oxlint/Biome require LF).
+* text=auto eol=lf
+
+# Never normalize binary artifacts.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.node binary
+*.dylib binary
+*.so binary
+*.dll binary

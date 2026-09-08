@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   BUN_VERSION: 1.4.0
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
@@ -35,46 +39,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout castrum (Rust addon)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: Axylabs/flux-rs
-          ref: ${{ env.CASTRUM_REF }}
-          path: castrum
-          persist-credentials: false
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Set up Bun, git identity & deps
+        uses: ./.github/actions/ci-setup
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+      - name: Build castrum addon (pinned ref) & export native path
+        uses: ./.github/actions/native-prep
         with:
-          toolchain: stable
+          castrum-ref: ${{ env.CASTRUM_REF }}
 
-      - name: Install ignex dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build castrum addon
-        working-directory: castrum
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-
+      # IGNEX_NATIVE_PATH is exported at job level by native-prep.
       - name: C-ABI scalar parity (plain Bun)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run verify:native:ffi
 
       - name: Per-route native stack parity (plain Bun)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run verify:native:route
 
       - name: Native suite (real addon)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun run test:native:real
 
   malformed-input-fuzz:
@@ -87,13 +69,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Set up Bun, git identity & deps
+        uses: ./.github/actions/ci-setup
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Install ignex dependencies
-        run: bun install --frozen-lockfile
 
       # Deterministic malformed-input fuzz over the request-path decoders
       # (cookies/query/form/WS frames/multipart): adversarial input must never
@@ -111,44 +90,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout castrum (Rust addon)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: Axylabs/flux-rs
-          ref: ${{ env.CASTRUM_REF }}
-          path: castrum
-          persist-credentials: false
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Set up Bun, git identity & deps
+        uses: ./.github/actions/ci-setup
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+      - name: Build castrum addon (pinned ref) & export native path
+        uses: ./.github/actions/native-prep
         with:
-          toolchain: stable
+          castrum-ref: ${{ env.CASTRUM_REF }}
 
-      - name: Install ignex dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build castrum addon
-        working-directory: castrum
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-
+      # IGNEX_NATIVE_PATH is exported at job level by native-prep.
       - name: End-to-end server bench (CI params)
         env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
           REPEATS: "2"
           DURATION: "2"
           WARMUP: "1"
         run: bun scripts/bench-server.ts
 
       - name: Regression gate (vs committed baseline + fallback band)
-        env:
-          IGNEX_NATIVE_PATH: ${{ github.workspace }}/castrum/castrum.linux-x64-gnu.node
         run: bun scripts/check-server-bench.ts
 
   soak:
@@ -161,13 +121,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Set up Bun, git identity & deps
+        uses: ./.github/actions/ci-setup
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
 
       - name: Soak (long-running flow stability)
         run: bun run bench:compare:soak

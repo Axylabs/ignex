@@ -1,0 +1,54 @@
+name: "Build castrum addon (native prep)"
+description: >-
+  Check out the PINNED castrum (Axylabs/flux-rs) revision, install stable Rust,
+  build the NAPI addon from source, then export IGNEX_NATIVE_PATH for the rest
+  of the job. Shared by every native lane so the pinned-revision policy and the
+  cross-platform path handling live in exactly one place.
+inputs:
+  castrum-ref:
+    description: "Pinned castrum revision to build (callers pass env.CASTRUM_REF)."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout castrum (pinned revision)
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      with:
+        # Never the floating default branch — see the CASTRUM_REF comment in the
+        # workflows for the bump procedure.
+        repository: Axylabs/flux-rs
+        ref: ${{ inputs.castrum-ref }}
+        path: castrum
+        persist-credentials: false
+
+    - name: Set up stable Rust toolchain
+      uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+      with:
+        toolchain: stable
+
+    - name: Build castrum addon from source
+      shell: bash
+      run: |
+        cd castrum
+        bun install --frozen-lockfile
+        bun run build
+
+    # Locate the addon generically — the binary name varies by target triple
+    # (linux-x64-gnu, darwin-arm64, win32-x64-msvc, …). MSYS bash on Windows
+    # reports POSIX /d/... paths that the Windows-native Bun cannot dlopen, so
+    # translate to a native absolute path (D:\...) before exporting it.
+    - name: Locate addon & export IGNEX_NATIVE_PATH
+      shell: bash
+      run: |
+        ADDON="$(find castrum -name '*.node' -type f | head -1)"
+        if [ -z "$ADDON" ]; then
+          echo "::error::No .node addon produced by castrum build on ${RUNNER_OS}"
+          exit 1
+        fi
+        ADDON_PATH="$(pwd)/${ADDON}"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          ADDON_PATH="$(cygpath -w "$ADDON_PATH")"
+        fi
+        echo "IGNEX_NATIVE_PATH=$ADDON_PATH" >> "$GITHUB_ENV"
+        echo "Addon: $ADDON_PATH"
