@@ -16,7 +16,7 @@ concurrency:
 # version the workspace is verified on (root package.json `engines.bun >= 1.4`);
 # bump deliberately, never silently via `latest`.
 env:
-  BUN_VERSION: 1.4.0
+  BUN_VERSION: 1.4.2
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
   # `^0.9.1` production install (a parity pass proved nothing about what users

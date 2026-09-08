@@ -16,17 +16,20 @@
  *
  * Env overrides:
  *   PORT — server port (default 3000; must match the generated server)
- *   BASE — base URL to hit (default `https://127.0.0.1:${PORT}` — the app
- *          serves HTTPS over an auto-generated dev cert by default)
+ *   BASE — base URL to hit (default `http://127.0.0.1:${PORT}`). The AOT
+ *          compiled server runs in its production shape, which never
+ *          auto-generates dev certs — so the harness forces `IGNEX_HTTPS=0`
+ *          and polls over plain HTTP.
  *
- * Global fetch is patched to disable TLS verification so the self-signed dev
- * certificate is accepted; pointing BASE at an `http://` URL still works (the
+ * Global fetch is patched to disable TLS verification so a self-signed dev
+ * certificate is accepted when BASE is pointed at an `https://` server (the
  * TLS option is ignored for plain HTTP).
  */
 import { spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 // Accept the auto-generated self-signed dev certificate for all fetches below.
 if (!(globalThis.fetch as unknown as { __ignexSmokeTls?: boolean }).__ignexSmokeTls) {
@@ -38,8 +41,8 @@ if (!(globalThis.fetch as unknown as { __ignexSmokeTls?: boolean }).__ignexSmoke
 }
 
 const PORT = Number(process.env.PORT ?? 3000);
-const BASE = process.env.BASE ?? `https://127.0.0.1:${PORT}`;
-const APP_DIR = new URL("../packages/app/", import.meta.url).pathname;
+const BASE = process.env.BASE ?? `http://127.0.0.1:${PORT}`;
+const APP_DIR = fileURLToPath(new URL("../packages/app/", import.meta.url));
 const UPLOAD_DIR = join(APP_DIR, "uploads");
 
 /** Seed file content (10 bytes — used by the range/ETag/304 assertions). */
@@ -121,7 +124,7 @@ async function expectText(res: Response, status: number, needle: string): Promis
 
 const proc = spawn("bun", ["dist/__server.js"], {
   cwd: APP_DIR,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), IGNEX_HTTPS: "0" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 
@@ -133,6 +136,14 @@ proc.stderr.on("data", (d: Buffer) => (procOutput += d.toString()));
 const waitForServer = async (timeoutMs: number): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    // The child exited (boot failure, port in use, …) → fail immediately with
+    // its output instead of polling blindly until the timeout.
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      const reason = proc.exitCode !== null ? `code ${proc.exitCode}` : `signal ${proc.signalCode}`;
+      throw new Error(
+        `server exited during boot (${reason}).\n${procOutput || "(no server output)"}`,
+      );
+    }
     try {
       const res = await fetch(`${BASE}/health`);
       if (res.status === 200) return;

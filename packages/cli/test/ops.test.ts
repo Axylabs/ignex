@@ -29,7 +29,7 @@ describe("dockerfileTemplate", () => {
     const code = dockerfileTemplate();
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Dockerfile ARG reference
     expect(code).toContain("FROM ${BUN_IMAGE} AS builder");
-    expect(code).toContain("ARG BUN_IMAGE=oven/bun:1.4.0-slim");
+    expect(code).toContain("ARG BUN_IMAGE=oven/bun:1.4.2-slim");
     expect(code).not.toContain("FROM oven/bun:canary-slim");
     expect(code).toContain("FROM debian:stable-slim AS production");
     expect(code).toContain("bun run build --compile --binary-outfile server");

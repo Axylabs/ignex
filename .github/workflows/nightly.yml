@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: 1.4.0
+  BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
   # the nightly sweep must exercise the SAME addon production installs.
   CASTRUM_REF: 0d8e4e84a96420e5dfcc2e6528a7c80303d200bf

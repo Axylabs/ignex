@@ -1,6 +1,6 @@
 {
   "generated": "2026-08-19T19:38:06.731Z",
-  "runtime": "bun 1.4.0",
+  "runtime": "bun 1.4.2",
   "trials": 5,
   "swapAt": 1,
   "results": [

@@ -362,7 +362,7 @@ COPY .env ./`
 # newer Bun than the latest stable tag; if the build reports an AOT/bytecode
 # contract error, bump this ARG deliberately (e.g.
 # \`--build-arg BUN_IMAGE=oven/bun:canary-slim\`).
-ARG BUN_IMAGE=oven/bun:1.4.0-slim
+ARG BUN_IMAGE=oven/bun:1.4.2-slim
 FROM \${BUN_IMAGE} AS builder
 
 WORKDIR /app

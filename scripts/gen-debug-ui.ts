@@ -23,13 +23,13 @@
 
 import { createHash } from "node:crypto";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { transformSync } from "@babel/core";
 import presetTs from "@babel/preset-typescript";
 import presetSolid from "babel-preset-solid";
 
-const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const ROOT = resolve(import.meta.dir, "..");
 const UI_DIR = join(ROOT, "packages/core/src/debug/ui");
 const OUT_FILE = join(ROOT, "packages/core/src/debug/dashboard-client.gen.ts");
 const TAILWIND_CLI = join(ROOT, "node_modules/@tailwindcss/cli/dist/index.mjs");

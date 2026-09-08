@@ -23,7 +23,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   createSdkGithubRelease,
   packSdk,
@@ -33,7 +33,7 @@ import {
   writeSdk,
 } from "@ignex/compiler";
 
-const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const ROOT = resolve(import.meta.dir, "..");
 const APP_DIR = resolve(ROOT, process.env.APP_DIR ?? "packages/app");
 const DIST = join(APP_DIR, "dist");
 

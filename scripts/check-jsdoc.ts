@@ -23,7 +23,7 @@ import * as oxcParser from "oxc-parser";
 
 const SCOPED_PACKAGES = ["core", "shared", "compiler", "cli", "mcp", "native"] as const;
 
-const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
 const SRC_SUBDIR = "src";
 
