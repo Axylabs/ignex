@@ -26,8 +26,9 @@ env:
   BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
   # the nightly sweep must exercise the SAME addon production installs
-  # (registry ^0.9.4 == tag v0.9.4, commit 0952d6e).
-  CASTRUM_REF: 0952d6ed34550d29e747b4f2cdf167b58a203a00
+  # (registry ^0.9.4; source builds use the main commit efac103, which fixes
+  # the v0.9.4 tag's Cargo.lock ascii_utils 0.9.4 pin that never published).
+  CASTRUM_REF: efac103290982e2e9eaeefdb7a2c984f8cc88069
 
 jobs:
   native-parity:
