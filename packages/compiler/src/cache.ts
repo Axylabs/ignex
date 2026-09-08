@@ -37,8 +37,11 @@ import { projectPath } from "./utils/path";
  * 0.9.4 — bootstrap: `maxRequestBodySize` defaults to the core 64MB constant;
  * websocket handlers get an injected default `maxPayloadLength`; graceful
  * shutdown (SIGTERM/SIGINT drain) emitted for config-less apps too.
+ * 0.9.9 — native-loader resolution: loader now prefers the castrum checkout
+ * hosting `IGNEX_NATIVE_PATH` for the TS integration layer — generated-server
+ * native loading changes, so stale whole-build caches must be invalidated.
  */
-export const COMPILER_CACHE_VERSION = "0.9.8";
+export const COMPILER_CACHE_VERSION = "0.9.9";
 
 const CACHE_FILE = ".ignex-cache.json";
 
