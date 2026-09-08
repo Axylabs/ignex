@@ -20,18 +20,20 @@ env:
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
   # `^0.9.4` production install (a parity pass proved nothing about what users
-  # actually get). Pinned to a fixed SHA, NOT the v0.9.4 tag (0952d6e): that
-  # tag's Cargo.lock locks `ascii_utils = 0.9.4`, which was never published to
-  # crates.io, so a from-source build fails (fixed on main by e22cad8). efac103
-  # is the 0.9.4 main commit that carries that fix while exposing the identical
-  # native surface (incl. the sharded `MetricsRegistry` + `createPipeline` the
-  # stub requires — 0.9.3-era pins lacked MetricsRegistry, so
-  # `check:native:surface` failed and native metrics never ran in CI). To move:
+  # actually get). Pinned to a fixed SHA on castrum main. NOTE: the current
+  # main tip (efac103) does NOT build from source — the sha2 0.11 dependabot
+  # merge (dfd1d32) mixed sha2 on digest 0.11 with pbkdf2 0.12 (digest 0.10),
+  # so `pbkdf2_hmac::<Sha256>` fails to compile. ee3d86a is the last main
+  # commit before that with a buildable Cargo graph (sha2 0.10.9, single
+  # digest 0.10.7, ascii_utils 0.9.3) AND the full 0.9.4 native surface
+  # (sharded `MetricsRegistry` + `createPipeline` that the stub requires —
+  # 0.9.3-era pins lacked MetricsRegistry, so `check:native:surface` failed).
+  # Move to a later main commit once castrum realigns sha2/pbkdf2. To move:
   # bump BOTH this and packages/native/package.json's optionalDependency
   # deliberately, run `bun run verify:native:ffi && bun run verify:native:route`
   # locally first, and keep vendor/castrum.d.ts in sync
   # (`bun run check:native:surface`).
-  CASTRUM_REF: efac103290982e2e9eaeefdb7a2c984f8cc88069
+  CASTRUM_REF: ee3d86adb79276a4259ab3c9b45adae09104e0f8
 
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely

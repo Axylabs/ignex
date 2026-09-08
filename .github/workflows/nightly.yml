@@ -26,9 +26,10 @@ env:
   BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
   # the nightly sweep must exercise the SAME addon production installs
-  # (registry ^0.9.4; source builds use the main commit efac103, which fixes
-  # the v0.9.4 tag's Cargo.lock ascii_utils 0.9.4 pin that never published).
-  CASTRUM_REF: efac103290982e2e9eaeefdb7a2c984f8cc88069
+  # (registry ^0.9.4; from-source builds pin ee3d86a — the last main commit
+  # before the sha2 0.11 merge that broke from-source builds, still carrying
+  # the full 0.9.4 native surface and a buildable Cargo graph).
+  CASTRUM_REF: ee3d86adb79276a4259ab3c9b45adae09104e0f8
 
 jobs:
   native-parity:
