@@ -17,6 +17,7 @@
       "!.bun-install",
       "!.npm-tmp-cache",
       "!.gen-debug-ui-*",
+      "!**/.gen-debug-ui-*",
       "!.dx-eval",
       "!coverage",
       "!repomix-output.txt",

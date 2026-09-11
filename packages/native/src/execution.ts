@@ -83,6 +83,7 @@ import {
 } from "./ratelimit";
 import { backendName, native } from "./runtime";
 import { type ExecutionBackend, OPS, type OpName, SELECTION } from "./selection";
+import { createTaskRuntime } from "./tasks";
 import { createTemplate, renderTemplate } from "./template";
 import { decoder, encoder, fromBytes, toBytes } from "./util";
 import { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./validation";
@@ -157,6 +158,11 @@ const validation = { validateEmail, validateIpv4, validateIpv6, validateUuid };
 
 const ratelimit = { createRateLimiter };
 
+// Off-thread native task pool (castrum 0.9.6). `createTaskRuntime` is async and
+// falls back to a synchronous pure-TS runtime when the addon lacks it — check
+// `stats().threads` (or `isNativeTaskRuntime`) to know which you got.
+const tasks = { createTaskRuntime };
+
 const pipeline = { createNativePipeline };
 
 const util = { toBytes, fromBytes, encoder, decoder };
@@ -173,6 +179,7 @@ export interface IgnexExecution {
   readonly template: typeof template;
   readonly validation: typeof validation;
   readonly ratelimit: typeof ratelimit;
+  readonly tasks: typeof tasks;
   readonly pipeline: typeof pipeline;
   readonly util: typeof util;
   /** Current selection status (re-reads the table — reflects live edits). */
@@ -200,6 +207,7 @@ export const createExecutionBackend = (): IgnexExecution => ({
   template,
   validation,
   ratelimit,
+  tasks,
   pipeline,
   util,
   status: buildStatus,

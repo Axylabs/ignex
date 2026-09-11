@@ -5,12 +5,18 @@
  * - TypeBox / JSON Schema via Ajv
  * - Native fast-gate: when the castrum addon is available AND the schema is a
  *   plain draft-07 object schema (no `default` / `format` / `$ref`), a native
- *   validator is compiled once and used to FAST-ACCEPT valid documents —
+ *   validator CAN be compiled once and used to FAST-ACCEPT valid documents —
  *   skipping the Ajv call on the happy path. Ajv remains the oracle for
  *   detailed errors and for every schema that needs mutation semantics
- *   (`coerceTypes` / `removeAdditional` / `useDefaults`). This is what keeps
- *   schema validation on the faster native (FFI) call instead of a pure-JS
- *   Ajv call when native is available.
+ *   (`coerceTypes` / `removeAdditional` / `useDefaults`).
+ *
+ *   MEASURED (2026-09, `scripts/bench-native.ts`, interleaved median A/B): the
+ *   Rust validator is SLOWER than Ajv at every size — 0.08x on the probe,
+ *   4.15x slower at 568B, 1.41x at 15KB — and 1.4-1.6x slower than
+ *   `JSON.parse` + Ajv on the real bulk-order payload. SELECTION therefore
+ *   binds `createSchemaValidator` to the JS path (`MEASURED_JS_WINS`), so this
+ *   gate is a no-op on current castrum and validation is pure Ajv. The gate is
+ *   kept wired so it re-arms automatically once the addon's path wins again.
  * - Standard Schema v1 via async validation
  * - compiled validator cache
  */

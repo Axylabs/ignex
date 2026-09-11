@@ -97,10 +97,10 @@ async function main() {
   // (or hard-fail) if it isn't, so the ignus numbers are never mistaken for the
   // native-accelerated path.
   const nativeActive = isNativeAvailable();
-  // The route surface is a SEPARATE capability from addon presence: a registry
-  // castrum 0.9.0 loads the addon but does NOT ship `castrum_route_*` (removed
-  // in 0.9.0, returned in 0.10.0+) — so `createNativeRoute` silently returns
-  // null and the AOT participant's per-route prelude runs JS. Probe it so a
+  // The route surface is a SEPARATE capability from addon presence: the 0.9.0
+  // registry release loaded the addon but did NOT ship `castrum_route_*` (it
+  // has been present again since 0.9.x) — so `createNativeRoute` returns null
+  // there and the AOT participant's per-route prelude runs JS. Probe it so a
   // native-required run fails LOUDLY on that gap instead of measuring JS.
   let routeSurfaceActive = false;
   try {
@@ -124,7 +124,7 @@ async function main() {
   if (!nativeActive) missing.push("the addon is NOT active (IGNEX_NATIVE off / load failure)");
   if (nativeActive && !routeSurfaceActive) {
     missing.push(
-      "the per-route native stack is absent (registry castrum 0.9.0 removed it — need >= 0.10.0)",
+      "the per-route native stack is absent (an addon build predating `castrum_route_*`)",
     );
   }
 

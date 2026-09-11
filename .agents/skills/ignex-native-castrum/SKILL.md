@@ -6,10 +6,43 @@ description: Work inside @ignex/native (packages/native) — the typed bridge ov
 # ignex: Native bridge (`@ignex/native` × castrum)
 
 `@ignex/native` is the **single typed bridge** over the **castrum** Rust addon
-(`optionalDependencies: { "castrum": "^0.9.1" }`; the dev checkout lives at
-`/home/adeel/poc/bun-rust-runtime-bench`). Native is **pure acceleration**:
-importing this package never throws — every primitive has a byte-compatible
-pure-TS fallback. `docs/native-acceleration.md` is the full reference.
+(`optionalDependencies: { "castrum": "^0.9.6" }`; the dev checkout lives at
+`/home/adeel/poc/castrum`). Native is **pure acceleration**: importing this
+package never throws — every primitive has a byte-compatible pure-TS fallback.
+`docs/native-acceleration.md` is the full reference.
+`docs/perf-methodology.md` is the **measurement runbook** — read it before
+touching perf: it records the mechanics that make machine noise irrelevant and
+the numbers to expect (FFI crossing 43 ns, empty-plan route call ~550-610 ns,
+optimized Rust route parse ~4.0 us, optimized pair decode ~6.1-6.3 us, full route
+call ~11.4 us, JS pairs ~13.8 us; body validate is 2.23x SLOWER to accept
+natively but 1.45x FASTER to reject; **native wins only where no JS values are
+materialized**).
+
+Three hard-won rules from that runbook, because each one cost a wasted round:
+**fuzz the malformed input space before selecting an op** (a well-formed parity
+suite is not a compatibility proof — the packed query parser was 1.17-1.22x
+faster past 589B and still unsafe: it THREW on malformed escapes, 17,496 of
+20,011 fuzzed inputs, until castrum 0.9.5 made the decoder match JS
+`decodeURIComponent`), **charge the real path** (encode/transcode costs inside the
+timed variant — pre-encoding the native input flattered it enough to move the
+crossover ~150B), and **a pin is transport-specific** ("native loses" describes a
+TRANSPORT, not an op: `aeadEncrypt` lost 0.86x on the addon/napi handle but WINS
+1.5-2.0x on the C-ABI, and `crc32` is the mirror image — Bun beats napi 5.5x and
+loses to the C-ABI 1.9x — which is why both live in `BUN_WINS` *and* `FFI_WINS`).
+Two traps that decided Round 24: a pin's **symbol must resolve** (napi exports
+`jwtSignEddsa` while the op is `jwtSignEdDsa`, so the "structurally pinned" EdDSA
+JWT ops silently ran JS — 1.80x sign / 1.45x verify left on the table), and short
+ops need **100k-op trials with VARYING input** (a constant lets the JIT const-fold
+the call: a regex test measured 1.7 ns).
+
+## Working against the local castrum checkout (`bun link`)
+
+See `docs/ai/LOCAL_DEV.md` for the full workflow. Short version:
+`cargo build --release --lib` + copy to `castrum.linux-x64-gnu.node`, run
+`bash scripts/build-v3.sh` for the x86-64-v3 SIMD variant the loader prefers,
+then `bun link` in the checkout and link/symlink it into
+`packages/native/node_modules/castrum`. Always confirm what the loader actually
+resolved — a lingering `IGNEX_NATIVE_PATH` export silently wins over the link:
 
 ## Key files (`packages/native/src/`)
 
@@ -21,7 +54,8 @@ pure-TS fallback. `docs/native-acceleration.md` is the full reference.
 | `crypto.ts` / `hash.ts` / `json.ts` / `packed.ts` / `payload.ts` | Op domains (hashing, JSON, packed pairs, payload) |
 | `bun.ts` | Bun built-in delegation (some ops are faster as Bun built-ins than the Rust addon — measured in castrum's bench) |
 | `http/` + `ingress.ts` + `native-handler.ts` + `ratelimit.ts` | Native HTTP helpers (ingress pipeline wrappers) |
-| `ffi.ts` / `ffi-read.ts` / `loader.ts` | Addon loading + FFI transport: `loader.ts` `require()`s the castrum NAPI `.node` (never bare `import` — tsconfig paths stub it); `ffi.ts` additionally `dlopen`s the SAME binary via `bun:ffi` (`IGNEX_FFI_MODE=auto\|ffi\|napi`, cstring args, bind-time self-test). Path comes from `getAddonPath()` (shared by both transports) via `IGNEX_NATIVE_PATH` override — there is NO `IGNEX_FFI_PATH` env var |
+| `tasks.ts` | Off-thread task runtime bridge (castrum 0.9.6 "castrum Tasks"): async `createTaskRuntime()` + `isNativeTaskRuntime`; prefers castrum's Rust pool, falls back to a synchronous pure-TS runtime (byte-identical output). |
+| `ffi.ts` / `ffi-read.ts` / `loader.ts` | Addon loading + FFI transport: `loader.ts` `require()`s the castrum NAPI `.node` (never bare `import` — tsconfig paths stub it); `ffi.ts` additionally `dlopen`s the SAME binary via `bun:ffi` (`IGNEX_FFI_MODE=auto\|ffi\|napi`, bind-time self-test). Path comes from `getAddonPath()` (shared by both transports) via `IGNEX_NATIVE_PATH` override — there is NO `IGNEX_FFI_PATH` env var. **Match the real C-ABI signature**: `cstring` ARGs are NUL-terminated, so byte inputs use `(ptr,len)` (validator `*_bytes`, `castrum_accept_negotiator_negotiate`) — binding a `(ptr,len)` symbol as `cstring` leaves the length register uninitialized (worked on Linux by luck; failed on macOS). |
 | `route.ts` / `route-wire.ts` | ★ route-wire v3: `createNativeRoute(plan)` — compile a route descriptor once, run each frame in ONE native call (see castrum's `docs/NATIVE-ROUTE.md`; pins `ROUTE_DESC_VERSION`) |
 | `runtime.ts` | Runtime detection + `isNativeAvailable` |
 

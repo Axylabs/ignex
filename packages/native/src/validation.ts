@@ -3,7 +3,6 @@
  * IPv4 and IPv6 checks. Fallbacks use standard, robust regexes / Node `net`.
  */
 import { isIP } from "node:net";
-import { isFfiActive } from "./ffi";
 import { nativeFor } from "./runtime";
 import { toBytes } from "./util";
 
@@ -31,10 +30,8 @@ export const validateIpv6Fallback = (input: string): boolean => isIP(input) === 
 export const validateEmail = (input: string): boolean => {
   const n = nativeFor("validateEmail");
   if (!n) return validateEmailFallback(input);
-  // C-ABI `cstring` ARG takes the raw string (zero JS encode); NAPI needs bytes.
-  if (isFfiActive()) {
-    return Boolean((n as unknown as { validateEmail(i: string): boolean }).validateEmail(input));
-  }
+  // Both transports take BYTES (castrum 0.9.6): the C-ABI `(ptr,len)` pair is
+  // NUL-safe where the old `cstring` ARG truncated at an embedded U+0000.
   return Boolean(n.validateEmail(toBytes(input)));
 };
 
@@ -42,9 +39,6 @@ export const validateEmail = (input: string): boolean => {
 export const validateUuid = (input: string): boolean => {
   const n = nativeFor("validateUuid");
   if (!n) return validateUuidFallback(input);
-  if (isFfiActive()) {
-    return Boolean((n as unknown as { validateUuid(i: string): boolean }).validateUuid(input));
-  }
   return Boolean(n.validateUuid(toBytes(input)));
 };
 
@@ -52,9 +46,6 @@ export const validateUuid = (input: string): boolean => {
 export const validateIpv4 = (input: string): boolean => {
   const n = nativeFor("validateIpv4");
   if (!n) return validateIpv4Fallback(input);
-  if (isFfiActive()) {
-    return Boolean((n as unknown as { validateIpv4(i: string): boolean }).validateIpv4(input));
-  }
   return Boolean(n.validateIpv4(toBytes(input)));
 };
 
@@ -62,8 +53,5 @@ export const validateIpv4 = (input: string): boolean => {
 export const validateIpv6 = (input: string): boolean => {
   const n = nativeFor("validateIpv6");
   if (!n) return validateIpv6Fallback(input);
-  if (isFfiActive()) {
-    return Boolean((n as unknown as { validateIpv6(i: string): boolean }).validateIpv6(input));
-  }
   return Boolean(n.validateIpv6(toBytes(input)));
 };

@@ -19,21 +19,18 @@ env:
   BUN_VERSION: 1.4.2
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
-  # `^0.9.4` production install (a parity pass proved nothing about what users
-  # actually get). Pinned to a fixed SHA on castrum main. NOTE: the current
-  # main tip (efac103) does NOT build from source — the sha2 0.11 dependabot
-  # merge (dfd1d32) mixed sha2 on digest 0.11 with pbkdf2 0.12 (digest 0.10),
-  # so `pbkdf2_hmac::<Sha256>` fails to compile. ee3d86a is the last main
-  # commit before that with a buildable Cargo graph (sha2 0.10.9, single
-  # digest 0.10.7, ascii_utils 0.9.3) AND the full 0.9.4 native surface
-  # (sharded `MetricsRegistry` + `createPipeline` that the stub requires —
-  # 0.9.3-era pins lacked MetricsRegistry, so `check:native:surface` failed).
-  # Move to a later main commit once castrum realigns sha2/pbkdf2. To move:
-  # bump BOTH this and packages/native/package.json's optionalDependency
-  # deliberately, run `bun run verify:native:ffi && bun run verify:native:route`
-  # locally first, and keep vendor/castrum.d.ts in sync
-  # (`bun run check:native:surface`).
-  CASTRUM_REF: ee3d86adb79276a4259ab3c9b45adae09104e0f8
+  # `^0.9.6` production install (a parity pass proved nothing about what users
+  # actually get). Pinned to the v0.9.6 TAG commit, which is the exact revision
+  # the registry serves (`castrum@0.9.6`). v0.9.6 realigns sha2 on digest 0.10
+  # (buildable from source again — the 0.11 merge that broke efac103 is gone),
+  # carries the full native surface (sharded `MetricsRegistry`, `createPipeline`,
+  # route-wire v3), the optimized single-pass native route parser (2.4x), the
+  # JS-compatible form decoder (0.9.5), the NUL-safe byte-input validators, and
+  # the off-thread task runtime. To move: bump BOTH this and
+  # packages/native/package.json's optionalDependency deliberately, run
+  # `bun run verify:native:ffi && bun run verify:native:route` locally first, and
+  # keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
+  CASTRUM_REF: fadc8af331f4829b8d0f917450b66dec65c53073
 
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely

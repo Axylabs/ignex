@@ -58,6 +58,7 @@ export {
   verifyCookie,
   verifyCookieFallback,
 } from "./crypto";
+export { nativeQueryDecodeMatchesJs } from "./decode-compat";
 // ── Ed25519 / EdDSA JWT (RBAC auth) ─────────────────────────────
 export {
   type Ed25519Keypair,
@@ -281,6 +282,15 @@ export {
   type SizeGate,
   sizeGateAllowsNative,
 } from "./selection";
+export {
+  createTaskRuntime,
+  isNativeTaskRuntime,
+  type Pbkdf2RunOptions,
+  type TaskRunOptions,
+  type TaskRuntime,
+  type TaskRuntimeOptions,
+  type TaskStats,
+} from "./tasks";
 export {
   type DegradationEvent,
   type DegradationKind,

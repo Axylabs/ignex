@@ -8,6 +8,105 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **castrum 0.9.6 adoption — the recent Rust improvements are now actually in
+  use.** The workspace install (`packages/native/package.json` → `^0.9.6`) and
+  both CI pins (`ci.yml`/`nightly.yml` `CASTRUM_REF` = the v0.9.6 tag
+  `fadc8af3`) moved off the 0.9.4-era build. v0.9.6 ships the single-pass native
+  route parser (2.4× on the escape-heavy payload), the JS-compatible form
+  decoder (0.9.5 — `nativeQueryDecodeMatchesJs()` now passes, so `queryPairs`
+  genuinely runs native past the 512B gate instead of degrading to JS), and the
+  NUL-safe byte-input validators. It also builds from source again (sha2
+  realigned on digest 0.10), so the CI pin no longer needs the "last buildable
+  commit" dance.
+- **String validators no longer truncate at an embedded NUL.** The C-ABI
+  bindings used the `cstring` ARG for `validateEmail`/`Uuid`/`Ipv4`/`Ipv6`, and
+  `cstring` is NUL-terminated — so `validateEmail("a@b.com\0<script>")`
+  returned TRUE. The bindings now use castrum 0.9.6's byte-exact `*_bytes`
+  `(ptr,len)` symbols (also faster: castrum measured email 236→110 ns, uuid
+  153→50 ns, ipv4 118→37 ns). `validation.ts` has one bytes-in contract for both
+  transports now; a `hardening.test.ts` regression and a raw-ffi NUL check in
+  `verify:native:ffi` lock it.
+- **`AcceptNegotiator.negotiate` was bound to the wrong C-ABI signature — the
+  macOS parity lane was right to fail.** castrum's
+  `castrum_accept_negotiator_negotiate` takes `(inner, header_ptr, header_len)`,
+  but ignex bound it as `(u64, cstring)`, leaving the length register
+  uninitialized so the native side read `header_len` bytes past the string.
+  Linux happened to land a benign value (passing there); macOS returned a bogus
+  no-match answer (`AcceptNegotiator.negotiate no-match`). The binding now
+  passes a real `(ptr,len)` pair. (The `_server` sibling really is `cstring`.)
+- **The nightly compare-bench soak job could never finish.** `bench:compare:soak`
+  runs a 600 s + a 300 s phase across all 5 participants (≈75 min of phases)
+  under a 45-minute job cap, so every scheduled run was cancelled at 45m. The
+  cap is now 120 minutes.
+- **Performance campaign: native route stack, SELECTION drift, and the ingress
+  hot path** (measurement runbook: `docs/perf-methodology.md`).
+  - **`nativeRoutes` is off again** — the emitted per-route
+    `createNativeRoute` preludes paid a per-request dispatch (~13% CPU) while
+    still falling back to JS for the work, so the compiled server stopped
+    emitting them. Re-enable once the route surface lands.
+  - **`createSchemaValidator` / `aeadEncrypt` were running the *slower*
+    implementation.** Both are now pinned to JS by measurement
+    (`MEASURED_JS_WINS`): precompiled Ajv beats the native schema validator at
+    every size (0.08× probe; 4.15× faster at 568B), and AEAD loses at
+    64B/512B/4KB (0.76×/0.69×/0.30×).
+  - **Native ingress pre-flight ran for requests it could never decide.**
+    `nativePreflight`'s `skipWhenSafe` now also skips when the pipeline has
+    nothing to decide (no rate limit, no body/schema work, no proxy trust) and
+    the `Origin` is allowed — 21.3µs → 17.9µs (−16.2%).
+  - **`verify:native:ffi` had been failing** since that SELECTION pin (it
+    asserted a non-null native schema validator); it now asserts the pin *and*
+    exercises the raw C-ABI path — 80/80 checks green.
+- **`queryPairs` now runs natively past 512B — after fixing the root cause in
+  castrum (0.9.5).** The packed parser was measured 1.17–1.22× FASTER than pure
+  JS past ~589B, but it THREW `query: parse failed` on malformed escapes
+  (17,496 of 20,011 fuzzed inputs) and decoded invalid UTF-8 lossily, where JS
+  `decodeURIComponent` throws and the fallback returns the segment raw — i.e.
+  selecting it would have turned a bad query string into a 500. Fixed at the
+  source: castrum's shared form decoder now implements the JS contract in ONE
+  place (per component; raw segment on a malformed escape or a non-UTF-8 result;
+  `simdutf8` validity), the native route stack delegates to it instead of
+  keeping a duplicate, and the query→JSON path no longer answers 400 where JS
+  answers 200. Verified with **400,520 differential comparisons** against the JS
+  fallback: 0 throws, 0 mismatches. Here, `queryPairs` is bound to native behind
+  a decoder-compatibility probe (`src/decode-compat.ts`) plus the measured size
+  gate (512B), so an addon predating 0.9.5 degrades to exactly the previous JS
+  behaviour instead of throwing (the workspace now installs 0.9.6, where the
+  probe passes and `queryPairs` runs native).
+- **`aeadEncrypt` now runs on the C-ABI (1.5–2× per-request crypto).** The op
+  was pinned to JS by `MEASURED_JS_WINS` from an addon-transport measurement
+  (0.76×/0.69×/0.30×). Re-measured per transport: the addon (NAPI) transport
+  does lose (0.86–0.93×), but the **C-ABI wins** — 2.02× @64B, 1.94× @79B,
+  1.73× @512B, 1.64× @4KB (ciphertext-identical). The pin now applies only to
+  addon/Node runtimes; `FFI_WINS` binds it to native on Bun. Session and token
+  encryption is a per-request path, so this is one of the larger wins in the
+  campaign.
+- **The selection audit can no longer misjudge a transport.**
+  `scripts/bench-native.ts` drives the addon (napi) handle but compared its
+  medians with `effectiveImplFor(op)`, which folds in C-ABI-only overrides —
+  that is how the near-parity `aeadEncrypt` row produced a bogus MISMATCH. It
+  now audits against the static table (what the measured transport actually
+  applies) and prints the C-ABI-only overrides separately for
+  `verify:native:ffi` to own.
+- **Three selection defects fixed (all found by sweeping the C-ABI, which the
+  addon-only audit cannot see).**
+  - **EdDSA JWT never used its Rust implementation.** `PINNED_NATIVE` lists
+    `jwtSignEdDsa`/`jwtVerifyEdDsa`, but napi exports the ops as
+    `jwtSignEddsa`/`jwtVerifyEddsa`; the symbol check therefore never matched and
+    both ops fell back to JS. Measured cost: sign **1.80×**, verify **1.45×** on
+    every RBAC token. Fixed with an explicit op→export alias map.
+  - **`crc32` was pinned to Bun's builtin on every transport.** That is correct on
+    the addon (napi) transport (Bun 36.7 ns vs addon 202 ns) but wrong on the
+    C-ABI, where the Rust SIMD crc32 does **19.2 ns (1.9×)** — verified on both
+    the baseline and the x86-64-v3 build. It now sits in `BUN_WINS` *and*
+    `FFI_WINS`, the same dual membership `hmacSha256`/`randomToken` use.
+  - **`validateUuid` now uses the C-ABI validator** (36.6 ns vs 41.2 ns JS, 1.13×
+    on varied input). `validateEmail` and `validateIpv4` deliberately stay JS:
+    measured, the C-ABI `cstring` round-trip costs more than the JS regex
+    (email 139 ns vs 38.8 ns, ipv4 64.1 ns vs 36.7 ns).
+- **`verify:native:ffi` now checks handle lifetimes.** It compiles and destroys
+  40,000 route handles in two phases and compares the RSS growth of each: a
+  per-handle leak grows linearly, allocator retention does not. Current state:
+  phase 1 **4.0 MB** → phase 2 **0.5 MB** (steady state), 227 checks total.
 - **`server.h2` now actually enables HTTP/2.** Bun ≥1.4.1 accepts the
   `http2` option in `Bun.serve` — the old `h2` key was silently ignored, so
   the config knob was a no-op. Both the AOT bootstrap and interpreted
@@ -42,6 +141,19 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Off-thread task runtime bridge (`createTaskRuntime`)** — castrum 0.9.6's
+  "castrum Tasks" (PBKDF2/Argon2id verification, gzip/brotli) is now exposed
+  through `@ignex/native` (`backend.tasks.createTaskRuntime`). The async factory
+  prefers castrum's native Rust pool and otherwise returns a synchronous pure-TS
+  runtime with byte-identical output; `isNativeTaskRuntime(runtime)` /
+  `stats().threads` identifies which one you got. Importing it never throws.
+- **`docs/perf-methodology.md` — the measurement runbook** (so the mechanics
+  never have to be re-derived): the three-level ladder (in-crate Rust → C-ABI →
+  server), the noise mechanics (interleaved A/B with a rotating lead,
+  `Bun.nanoseconds()` instead of `performance.now()`, median + min + p95 + CV%),
+  the pitfalls that produced wrong conclusions here (a concurrent `cargo build`
+  inflating every number ~3× including the JS baseline, an unmeasured unhappy
+  path costing 15%), and the numbers to expect.
 - **`ignex create` asks for HTTPS + HTTP/2, HTTPS, or HTTP.** The wizard
   gains a `Protocol` question (`https` default; `--protocol https2` adds
   HTTP/2 over TLS, `--protocol http` opts into plain HTTP/1) and the
@@ -130,6 +242,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The native route stack now beats pure JS on parse-heavy requests** —
+  0.80× → **1.20×** for 60 params + 30 cookies, after the castrum one-streaming-
+  pass route rewrite (9,494 → 3,998 ns in-crate) plus the decode fast path. It
+  still loses on trivial payloads (0.22× at 3 params, 0.09× empty): native wins
+  where parse work dominates, which is a payload-size decision, not a flag.
+- **Native pair decoding is 1.48× faster** (`readPairsSection`): an ASCII fast
+  path decodes the whole pair region once and slices by byte offset instead of
+  one engine read per string (11.2µs → 7.6µs for 90 pairs). ASCII is a
+  correctness gate, not a heuristic — with every byte < 0x80 one byte is
+  exactly one UTF-16 code unit — and the non-ASCII path keeps the original
+  single-pass loop (measured 0.99×: no regression).
 - **CLI remapped onto a typed, modern dispatch core** (`@ignex/cli`).
   Every command is now a citty (`defineCommand`) definition with a typed
   `argsDef` — one source of truth for parsing, `--help` rendering, and shell

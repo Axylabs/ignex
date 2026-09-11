@@ -71,17 +71,24 @@ export interface NativePreflightOptions {
   readBody?: boolean;
   /**
    * Fastest-path default (the framework's philosophy: the fastest path IS the
-   * default): when the pipeline provably cannot fire for a request — no
-   * `rateLimit` configured, not a CORS preflight (`OPTIONS`), and no `Origin`
-   * header — the Rust pipeline is skipped entirely and the request goes
-   * straight to the handler. CORS can only fire on requests carrying an
-   * `Origin` (or preflights), and without a rate limit there is nothing else
-   * the pipeline decides for such a request (with `readBody: false` the
-   * framework owns the body, so no body guards fire either). This removes the
-   * per-request FFI crossing from the dominant plain-request path (~1.1µs
-   * measured) while preserving every pipeline decision for the requests that
-   * can trigger one. Set `false` to always run the pipeline (e.g. when you
-   * rely on its URL/query-size guards for origin-less requests).
+   * default): when the pipeline provably cannot change the outcome for a
+   * request, the Rust pipeline is skipped entirely and the request goes
+   * straight to the handler. Two cases skip today:
+   *
+   *   1. **No `Origin`** (and not `OPTIONS`) — CORS can only fire on requests
+   *      carrying an `Origin` or on preflights;
+   *   2. **Allowlisted `Origin`** (and not `OPTIONS`) — the pipeline's verdict
+   *      for such a request is a non-terminal "allow", and only a TERMINAL
+   *      response consumes the native verdict (the OK-path `access-control-*`
+   *      echo is owned by the JS `cors()` plugin / Bun's default header sink).
+   *      Measured: skipping removes ~2.6µs per request on a small payload and
+   *      ~10.7µs on a 60-param one.
+   *
+   * Case 2 applies only while CORS is the pipeline's ONLY decision stage — any
+   * `rateLimit`, `schema`/`requireJsonBody`/`enableBodySizeGuard`, or
+   * trust-proxy config keeps the pipeline live for every request. Set `false`
+   * to always run the pipeline (e.g. when you rely on its URL/query-size
+   * guards for origin-bearing requests).
    */
   skipWhenSafe?: boolean;
 }
@@ -142,6 +149,31 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
   // `Origin` / preflight; with `readBody: false` the framework owns the body).
   // When false, `skipWhenSafe` short-circuits onRequest without the FFI call.
   const rateEnabled = mergedOptions?.rateLimit != null;
+
+  // Config-time: does the pipeline decide anything on the OK path for an
+  // origin-bearing request? Only a TERMINAL response consumes the native
+  // verdict; a non-terminal "allow" is dropped (the OK-path CORS echo is owned
+  // by the JS `cors()` plugin / Bun's default header sink). So when CORS is the
+  // ONLY configured stage, running the pipeline for a request whose origin the
+  // allowlist accepts buys nothing — while any other stage (rate limit, schema,
+  // body/JSON guard, trust proxy) must keep it live. See `skipWhenSafe`.
+  const pipelineDecidesMore =
+    rateEnabled ||
+    readBody ||
+    mergedOptions?.schema !== undefined ||
+    mergedOptions?.requireJsonBody === true ||
+    mergedOptions?.enableBodySizeGuard === true ||
+    mergedOptions?.trustProxy === true ||
+    mergedOptions?.trustedProxies?.enabled === true;
+  const corsAllowOrigin = mergedOptions?.cors?.allowOrigin;
+  const corsWildcard = corsAllowOrigin?.includes("*") ?? false;
+  // Exact-match set (null when the wildcard short-circuits it). Mirrors
+  // castrum's allowlist match — a value NOT matched here keeps the pipeline
+  // live, so a deny is never skipped.
+  const corsExact = corsWildcard ? null : new Set(corsAllowOrigin ?? []);
+  /** True when the configured allowlist DEFINITELY accepts `origin`. */
+  const originAllowed = (origin: string): boolean =>
+    corsWildcard || (corsExact?.has(origin) ?? false);
 
   // exactOptionalPropertyTypes: only set `options`/`runtime` when defined,
   // so `undefined` is never passed for an optional field.
@@ -213,17 +245,16 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
       }
       if (!pipeline) return ctx;
 
-      // Fastest-path default: skip the Rust pipeline when it provably cannot
-      // fire for this request — no rate limit configured (config-time), not a
-      // CORS preflight, and no `Origin` header (CORS can only fire on a
-      // request carrying an Origin). One `headers.get("origin")` (~34ns)
-      // replaces the ~1.1µs FFI crossing on the dominant plain-request path;
+      // Fastest-path default: skip the Rust pipeline when it cannot change the
+      // outcome — not a preflight, and either no `Origin` at all or an origin
+      // the configured CORS allowlist accepts while CORS is the only decision
+      // stage (see `skipWhenSafe`). One `headers.get("origin")` (~34ns)
+      // replaces a full native crossing on the dominant request paths;
       // requests that CAN trigger a pipeline decision still run it untouched.
-      if (skipWhenSafe && !rateEnabled) {
+      if (skipWhenSafe && !rateEnabled && ctx.method !== "OPTIONS") {
         const origin = ctx.headers.get("origin");
-        if (origin === null && ctx.method !== "OPTIONS") {
-          return ctx;
-        }
+        if (origin === null) return ctx;
+        if (!pipelineDecidesMore && originAllowed(origin)) return ctx;
       }
 
       // Only resolve `ctx.ip` (a native `requestIP` socket lookup) when the

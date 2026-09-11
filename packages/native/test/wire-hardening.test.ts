@@ -99,6 +99,87 @@ describe("packed wire bounds validation", () => {
   });
 });
 
+/**
+ * The pairs decoder has TWO paths: an ASCII fast path (ONE engine-native string
+ * read for the whole section + byte-offset slices) and the per-string path used
+ * for anything non-ASCII. They must be indistinguishable — these tests pin that
+ * against an independent reference decoder written with DataView + TextDecoder.
+ */
+describe("pairs decode: ASCII fast path == per-string path", () => {
+  const section = (pairs: ReadonlyArray<readonly [string, string]>): Uint8Array => {
+    const parts: Uint8Array[] = [u32(pairs.length)];
+    for (const [k, v] of pairs) {
+      const kb = enc.encode(k);
+      const vb = enc.encode(v);
+      parts.push(u32(kb.length), kb, u32(vb.length), vb);
+    }
+    return append(...parts);
+  };
+
+  /** Independent reference decoder (no fast path, no ffi reads). */
+  const reference = (buf: Uint8Array): Array<[string, string]> => {
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    let pos = 0;
+    const count = view.getUint32(pos, true);
+    pos += 4;
+    const out: Array<[string, string]> = [];
+    for (let i = 0; i < count; i++) {
+      const klen = view.getUint32(pos, true);
+      pos += 4;
+      const k = new TextDecoder().decode(buf.subarray(pos, pos + klen));
+      pos += klen;
+      const vlen = view.getUint32(pos, true);
+      pos += 4;
+      const v = new TextDecoder().decode(buf.subarray(pos, pos + vlen));
+      pos += vlen;
+      out.push([k, v]);
+    }
+    return out;
+  };
+
+  it("ASCII pairs (fast path) match the reference — including empties and long values", () => {
+    const pairs: Array<[string, string]> = [
+      ["a", "1"],
+      ["filter[0]", "value%20with%20spaces%26and%3Dsymbols"],
+      ["", ""],
+      ["emptyValue", ""],
+      ["emptyName", "x"],
+      ["long", "y".repeat(500)],
+      ["dup", "1"],
+      ["dup", "2"],
+    ];
+    const buf = section(pairs);
+    expect(readPairsPacked(buf)).toEqual(reference(buf));
+    expect(readPairsPacked(buf)).toEqual(pairs);
+  });
+
+  it("NON-ASCII pairs (per-string path) match the reference — multibyte, emoji, mixed", () => {
+    const groups: Array<Array<[string, string]>> = [
+      [
+        ["naïve", "café"],
+        ["ключ", "значение"],
+        ["日本", "テスト"],
+      ],
+      [["emoji", "🚀🚀"]],
+      // A single non-ASCII value forces the WHOLE section onto the slow path.
+      [
+        ["ascii", "plain"],
+        ["mixed", "café"],
+        ["ascii2", "plain2"],
+      ],
+    ];
+    for (const pairs of groups) {
+      const buf = section(pairs);
+      expect(readPairsPacked(buf)).toEqual(reference(buf));
+      expect(readPairsPacked(buf)).toEqual(pairs);
+    }
+  });
+
+  it("an empty section decodes to [] on both paths", () => {
+    expect(readPairsPacked(section([]))).toEqual([]);
+  });
+});
+
 describe("batch wrappers match scalar impls (fallback path)", () => {
   const secret = "test-secret-batch";
   const values = ["alpha", "beta", "gamma", "delta", "epsilon"];

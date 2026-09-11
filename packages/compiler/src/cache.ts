@@ -40,8 +40,14 @@ import { projectPath } from "./utils/path";
  * 0.9.9 — native-loader resolution: loader now prefers the castrum checkout
  * hosting `IGNEX_NATIVE_PATH` for the TS integration layer — generated-server
  * native loading changes, so stale whole-build caches must be invalidated.
+ * 0.9.10 — native selection: `queryPairs` is FFI-bound (native ≥512B,
+ * `SIZE_GATES.queryPairs`) behind the decoder-compatibility probe,
+ * `aeadEncrypt`/`crc32`/`validateUuid` are bound to the C-ABI transport, and
+ * the pinned EdDSA JWT ops now actually resolve their addon symbol (the
+ * napi `jwtSignEddsa` vs op name `jwtSignEdDsa` mismatch defeated the pin) —
+ * the SELECTION baked into generated servers changed on Bun.
  */
-export const COMPILER_CACHE_VERSION = "0.9.9";
+export const COMPILER_CACHE_VERSION = "0.9.10";
 
 const CACHE_FILE = ".ignex-cache.json";
 

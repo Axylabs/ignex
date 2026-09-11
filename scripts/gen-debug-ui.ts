@@ -122,7 +122,11 @@ const embed = (text: string): string =>
 const buildArtifact = async (): Promise<string> => {
   // Workspace-local staging dir (cleaned up below): /tmp may be unusual on
   // some setups and the bundler reads these files back within the same run.
-  const buildDir = mkdtempSync(join(ROOT, ".gen-debug-ui-"));
+  // Staged INSIDE `packages/core` so module resolution from the entry walks up
+  // into `packages/core/node_modules` — `solid-js` is a devDependency of the
+  // core package and bun nests it there (it is NOT hoisted to the repo root),
+  // so a root-level staging dir cannot resolve `import "solid-js"`.
+  const buildDir = mkdtempSync(join(ROOT, "packages/core/.gen-debug-ui-"));
   try {
     stageSources(buildDir);
     const cssPath = join(buildDir, "app.css");

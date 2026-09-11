@@ -114,6 +114,40 @@ const BUN_WINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Ops where ignex's OWN interleaved-median measurement contradicts the
+ * addon's `opImpl` and the JS path wins by a margin worth binding.
+ *
+ * `scripts/bench-native.ts` measures native vs the exact JS fallback (median
+ * of 5 interleaved trials) AND compares the winner with `effectiveImplFor(op)`
+ * — every op whose bound implementation is the slower one is printed as a
+ * MISMATCH at the end of the run. These two were flagged there:
+ *
+ * - `createSchemaValidator` (native/js **0.08x** on the probe): the Rust
+ *   `fast_schema` engine loses to Ajv at EVERY size — 4.15x slower at 568B,
+ *   1.41x at 15KB (the real bulk-order payload), 1.37x against the core Ajv
+ *   config. Ajv is the validation oracle ignex keeps anyway, so binding this
+ *   to `castrum` only added cost (it was the top self-time in the app CPU
+ *   profile). The one-pass `derive` accept path is not cheaper than parsing
+ *   the document, so nothing is lost on the hot path.
+ * - `aeadEncrypt`: THE PIN IS TRANSPORT-SPECIFIC, not a blanket "native loses".
+ *   Re-measured 2026-09 (median of 11 interleaved trials, raw surfaces):
+ *   - **addon (napi)**: 0.89x @64B, 0.93x @512B, 0.86x @4KB → JS wins, so the
+ *     static table stays `js` (which is what a NAPI/Node runtime gets);
+ *   - **C-ABI (ffi)**: **2.02x** @64B, 1.94x @79B, 1.73x @512B, 1.47x @2KB,
+ *     1.64x @4KB, 1.20x @16KB → native wins, so the op is in
+ *     `runtime.ts` `FFI_WINS` and Bun gets the native path.
+ *   The original 0.76x/0.69x/0.30x row was an addon-transport measurement that
+ *   was applied framework-wide; `aeadDecrypt` was always native (1.35-2.44x on
+ *   the C-ABI, 3.06x on napi).
+ *
+ * Remove an entry only after re-running `bun run bench:native:all` shows the
+ * addon's path winning again (upstream `opImpl` re-tune) — and remember that
+ * `FFI_WINS` ops are judged by the C-ABI gates, not by that addon-transport
+ * report.
+ */
+const MEASURED_JS_WINS: ReadonlySet<string> = new Set(["createSchemaValidator", "aeadEncrypt"]);
+
+/**
  * Ops PINNED to the Rust addon when it is present, pending a benchmark.
  *
  * These are brand-new ops castrum has not benchmarked yet (its `opImpl`
@@ -135,6 +169,22 @@ const PINNED_NATIVE: ReadonlySet<string> = new Set([
 const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
 /**
+ * Pinned-op name → the addon's ACTUAL export name, where napi's camelCase of
+ * the Rust `fn` differs from the SELECTION op name.
+ *
+ * napi turns `jwt_sign_eddsa` into `jwtSignEddsa` (one capital), while the op
+ * name is `jwtSignEdDsa` (camel-cased acronym, matching the wrapper's variable
+ * names). Without this map the symbol check below looks up a method that does
+ * not exist, returns false, and the "structurally pinned" op silently runs the
+ * JS FALLBACK — which is what happened to EdDSA JWT signing/verification
+ * (measured cost: sign 1.80x, verify 1.45x).
+ */
+const PINNED_SYMBOL_ALIASES: Readonly<Partial<Record<OpName, string>>> = Object.freeze({
+  jwtSignEdDsa: "jwtSignEddsa",
+  jwtVerifyEdDsa: "jwtVerifyEddsa",
+});
+
+/**
  * True when the loaded addon actually EXPORTS the op's method. `PINNED_NATIVE`
  * bypasses castrum's `opImpl` benchmark, so it must not blindly force an op to
  * native when a loaded addon build lacks the symbol — an older registry build
@@ -144,17 +194,20 @@ const isBun = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== "u
 const hasPinnedSymbol = (op: OpName): boolean => {
   const addon = getNative();
   if (!addon) return false;
-  return typeof (addon as Record<string, unknown>)[op] === "function";
+  const name = PINNED_SYMBOL_ALIASES[op] ?? op;
+  return typeof (addon as Record<string, unknown>)[name] === "function";
 };
 
 /**
  * The decision for `op`, read from castrum's benchmark-generated `opImpl`
- * (the single source of truth, owned by the addon library) plus the runtime
- * Bun refinement above. Bound once at module load — the implementation never
- * changes for the life of the process.
+ * (the single source of truth, owned by the addon library) refined by the
+ * measured ignex-side overrides above — `BUN_WINS` (a Bun builtin beats the
+ * native crossing) and `MEASURED_JS_WINS` (ignex's median audit contradicts
+ * `opImpl`). Bound once at module load — the implementation never changes for
+ * the life of the process.
  */
 export const implFor = (op: OpName): ExecutionBackend =>
-  isBun() && BUN_WINS.has(op)
+  (isBun() && BUN_WINS.has(op)) || MEASURED_JS_WINS.has(op)
     ? "js"
     : getNative() != null && PINNED_NATIVE.has(op) && hasPinnedSymbol(op)
       ? "castrum"
@@ -235,6 +288,12 @@ export const SELECTION: Record<OpName, OpDecision> = Object.fromEntries(
  * - `jsonValid`: JS (JSON.parse) loses ~20–40% below 64B under the forced
  *   native dispatch; native wins consistently from ~64B (up to ~1.2×).
  *   Threshold set at 256B for margin on both sides of the flip.
+ * - `queryPairs`: the packed query parse flips between 439B and 589B once the
+ *   wrapper's UTF-8 encode is counted; below ~440B JS wins by up to 0.80×,
+ *   above 589B native wins by 1.17–1.21× (3.3KB: 1.20×). Threshold set at 512B
+ *   — the middle of the measured dead band, so neither side is claimed inside
+ *   noise. The op additionally requires the decoder-compatibility probe
+ *   (`decode-compat.ts`).
  * - `hmacSha256`: measured NO clean crossover (noise-level trading across
  *   the sweep) → deliberately NOT gated; static decision stands.
  * - `fnv1a64`: native from ≥32B (7–60×) → no gate needed (static native).
@@ -255,6 +314,7 @@ export interface SizeGate {
  */
 export const SIZE_GATES: Readonly<Partial<Record<OpName, SizeGate>>> = Object.freeze({
   jsonValid: Object.freeze({ jsBelowBytes: 256 }),
+  queryPairs: Object.freeze({ jsBelowBytes: 512 }),
 } satisfies Partial<Record<OpName, SizeGate>>);
 
 const SIZE_GATES_DISABLED = process.env.IGNEX_SIZE_GATES === "off";

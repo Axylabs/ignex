@@ -29,14 +29,18 @@ import {
   createAcceptNegotiatorFallback,
   createConditionalRequestFallback,
   createRateLimiterFallback,
+  effectiveImplFor,
   jsonPatchFallback,
   jwtSignFallback,
   jwtVerifyFallback,
   multipartParseFallback,
+  OPS,
+  type OpName,
   parseAcceptEncodingFallback,
   parseMediaTypeFallback,
   passwordHashFallback,
   renderTemplateFallback,
+  SELECTION,
   sseEncodeFallback,
   wsFrameDecodeFallback,
   wsFrameEncodeFallback,
@@ -127,6 +131,38 @@ interface BenchOp {
   /** KDFs / compressors are expensive — tiny warmup, tiny window. */
   expensive?: boolean;
 }
+
+/**
+ * Bench-row name → SELECTION op, so the report can audit the LIVE decision:
+ * an op whose measured winner differs from the STATIC table (`SELECTION[op]`)
+ * is running the SLOWER implementation and is the worklist for re-tuning
+ * SELECTION. (The table, not `effectiveImplFor`, because these rows drive the
+ * addon/napi handle — C-ABI-only `FFI_WINS` overrides do not apply to it.)
+ */
+const OP_OF: Readonly<Record<string, OpName>> = {
+  "jsonSchemaValidate (native vs Ajv)": "createSchemaValidator",
+  "acceptNegotiate (class method)": "createAcceptNegotiator",
+  "conditional (class method)": "createConditionalRequest",
+  "rateLimit.check (class method)": "createRateLimiter",
+  "templateRender (class method)": "renderTemplate",
+  jwtSign: "jwtSign",
+  jwtVerify: "jwtVerify",
+  passwordHash: "passwordHash",
+  aeadEncrypt: "aeadEncrypt",
+  aeadDecrypt: "aeadDecrypt",
+  "gzipCompress (rust vs Bun.gzip)": "gzipCompress",
+  "gzipDecompress (rust vs Bun.gunzip)": "gzipDecompress",
+  "brotliCompress (rust vs node)": "brotliCompress",
+  "brotliDecompress (rust vs node)": "brotliDecompress",
+  sseEncode: "sseEncode",
+  wsFrameEncode: "wsFrameEncode",
+  wsFrameDecode: "wsFrameDecode",
+  wsAcceptKey: "wsAcceptKey",
+  multipartParse: "multipartParse",
+  parseMediaType: "parseMediaType",
+  parseAcceptEncoding: "parseAcceptEncoding",
+  jsonPatch: "jsonPatch",
+};
 
 const WIN = 1.05;
 
@@ -286,46 +322,129 @@ const rateLimiterJs = createRateLimiterFallback({ limit: 100, windowMs: 60_000 }
 
 const TRIALS = 5;
 
-function run(): void {
+/** Median-of-trials ratio winner — `null` inside the ±WIN noise band. */
+const winnerOf = (ratio: number): "castrum" | "js" | null =>
+  !Number.isFinite(ratio) ? null : ratio >= WIN ? "castrum" : ratio <= 1 / WIN ? "js" : null;
+
+/** Human verdict for a measured ratio (mirrors {@link winnerOf}). */
+const verdictOf = (ratio: number): string => {
+  if (!Number.isFinite(ratio)) return "n/a";
+  const winner = winnerOf(ratio);
+  if (winner === null) return "parity";
+  return winner === "castrum" ? "◀ native wins" : "js stays";
+};
+
+/** One measured op: median native/js ops-per-sec and their ratio. */
+interface BenchRow {
+  name: string;
+  n: number;
+  j: number;
+  ratio: number;
+}
+
+/** Measure one op (median of interleaved trials); no addon → JS column only. */
+const measureRow = (op: BenchOp): BenchRow => {
+  if (!native) {
+    return { name: op.name, n: Number.NaN, j: opsPerSec(op.js), ratio: Number.NaN };
+  }
+  const warmup = op.expensive ? 3 : 200;
+  const durationMs = op.expensive ? 60 : 120;
+  const nS: number[] = [];
+  const jS: number[] = [];
+  for (let t = 0; t < TRIALS; t++) {
+    nS.push(opsPerSec(op.native, durationMs, warmup));
+    jS.push(opsPerSec(op.js, durationMs, warmup));
+  }
+  const n = median(nS);
+  const j = median(jS);
+  return { name: op.name, n, j, ratio: n / j };
+};
+
+/**
+ * Audit a row against the LIVE selection: the bound implementation, the
+ * MISMATCH annotation, and the worklist entry when the bound impl is the
+ * slower of the two.
+ */
+const auditRow = (row: BenchRow): { impl: string; note: string; mismatch: string | null } => {
+  const op = OP_OF[row.name];
+  if (op === undefined || !native) return { impl: "-", note: "", mismatch: null };
+  // Compare against the STATIC TABLE, not `effectiveImplFor(op)`: this report
+  // drives the addon (napi) handle, and `FFI_WINS` overrides apply only to the
+  // C-ABI transport — so judging them with napi timings is meaningless. That
+  // is exactly how a near-parity op once produced a bogus MISMATCH flag
+  // (`aeadEncrypt`, which is 0.86-0.93x on napi but 1.2-2.0x on the C-ABI).
+  // C-ABI overrides are asserted by `bun run verify:native:ffi` and reported
+  // separately below.
+  const impl = SELECTION[op].impl;
+  const winner = winnerOf(row.ratio);
+  if (winner === null || winner === impl) return { impl, note: "", mismatch: null };
+  return {
+    impl,
+    note: `  ⚠ MISMATCH: runs ${impl}, faster is ${winner}`,
+    mismatch: `${op} — runs ${impl}, faster is ${winner} (native/js ${row.ratio.toFixed(2)}x)`,
+  };
+};
+
+/** Render the aligned table + the audit worklist summary. */
+const report = (rows: readonly BenchRow[]): void => {
+  console.log(
+    [
+      "op".padEnd(34),
+      "native".padStart(10),
+      "js".padStart(10),
+      "ratio".padStart(8),
+      "impl".padEnd(8),
+      "verdict",
+    ].join(" "),
+  );
+  const mismatches: string[] = [];
+  for (const row of rows) {
+    const { impl, note, mismatch } = auditRow(row);
+    if (mismatch !== null) mismatches.push(mismatch);
+    const cells = [
+      row.name.padEnd(34),
+      (Number.isFinite(row.n) ? String(Math.round(row.n)) : "-").padStart(10),
+      String(Math.round(row.j)).padStart(10),
+      (Number.isFinite(row.ratio) ? row.ratio.toFixed(2) : "-").padStart(8),
+      impl.padEnd(8),
+    ];
+    console.log(`${cells.join(" ")} ${verdictOf(row.ratio)}${note}`);
+  }
+  console.log("");
+  if (!native) {
+    console.log("audit: addon unavailable (IGNEX_NATIVE=off) — no SELECTION to audit.");
+  } else if (mismatches.length === 0) {
+    console.log(
+      "audit: OK — every measured op runs the implementation the median says is faster " +
+        "(addon/napi transport; C-ABI-only overrides are listed below).",
+    );
+  } else {
+    console.log(
+      `audit: ${mismatches.length} op(s) run the SLOWER implementation (SELECTION re-tune worklist):`,
+    );
+    for (const m of mismatches) console.log(`  - ${m}`);
+  }
+  // `FFI_WINS` ops are native on the C-ABI transport even though the static
+  // table (and this addon-transport report) says `js`. They are asserted by
+  // `bun run verify:native:ffi` on the real surface, not by these timings.
+  const ffiOnly = OPS.filter(
+    (op) => effectiveImplFor(op) === "castrum" && SELECTION[op].impl === "js",
+  );
+  if (ffiOnly.length > 0) {
+    console.log(
+      `\nC-ABI-only overrides (native on Bun, judged by verify:native:ffi): ${ffiOnly.join(", ")}`,
+    );
+  }
+};
+
+const run = (): void => {
   if (!native) {
     console.log("addon unavailable (IGNEX_NATIVE=off) — no native rows.");
   }
   console.log(
     `native(addon) vs JS fallback (median of ${TRIALS} interleaved trials; win ≥${WIN.toFixed(2)}x):\n`,
   );
-  console.log(
-    `${"op".padEnd(34)} ${"native".padStart(10)} ${"js".padStart(10)} ${"ratio".padStart(8)} verdict`,
-  );
-  const rows: Array<{ name: string; n: number; j: number; ratio: number }> = [];
-  for (const op of ops) {
-    if (!native) {
-      rows.push({ name: op.name, n: Number.NaN, j: opsPerSec(op.js), ratio: Number.NaN });
-      continue;
-    }
-    const nS: number[] = [];
-    const jS: number[] = [];
-    const warmup = op.expensive ? 3 : 200;
-    const durationMs = op.expensive ? 60 : 120;
-    for (let t = 0; t < TRIALS; t++) {
-      nS.push(opsPerSec(op.native, durationMs, warmup));
-      jS.push(opsPerSec(op.js, durationMs, warmup));
-    }
-    const n = median(nS);
-    const j = median(jS);
-    rows.push({ name: op.name, n, j, ratio: n / j });
-  }
-  for (const r of rows) {
-    const verdict = Number.isFinite(r.ratio)
-      ? r.ratio >= WIN
-        ? "◀ native wins"
-        : r.ratio <= 1 / WIN
-          ? "js stays"
-          : "parity"
-      : "n/a";
-    console.log(
-      `${r.name.padEnd(34)} ${(Number.isFinite(r.n) ? String(Math.round(r.n)) : "-").padStart(10)} ${String(Math.round(r.j)).padStart(10)} ${(Number.isFinite(r.ratio) ? r.ratio.toFixed(2) : "-").padStart(8)} ${verdict}`,
-    );
-  }
-}
+  report(ops.map(measureRow));
+};
 
 run();

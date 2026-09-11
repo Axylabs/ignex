@@ -25,11 +25,10 @@ concurrency:
 env:
   BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
-  # the nightly sweep must exercise the SAME addon production installs
-  # (registry ^0.9.4; from-source builds pin ee3d86a — the last main commit
-  # before the sha2 0.11 merge that broke from-source builds, still carrying
-  # the full 0.9.4 native surface and a buildable Cargo graph).
-  CASTRUM_REF: ee3d86adb79276a4259ab3c9b45adae09104e0f8
+  # the nightly sweep must exercise the SAME addon production installs. Pinned
+  # to the v0.9.6 TAG commit (== registry `castrum@0.9.6`), which builds from
+  # source (sha2 realigned on digest 0.10) and carries the full native surface.
+  CASTRUM_REF: fadc8af331f4829b8d0f917450b66dec65c53073
 
 jobs:
   native-parity:
@@ -117,7 +116,14 @@ jobs:
   soak:
     name: Compare-bench soak
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The soak scenarios are DURATION-heavy by design: `05-soak` runs a 600s
+    # phase and `18-json-validation-soak` a 300s phase, and `bench:compare:soak`
+    # runs each across ALL 5 participants (bun, elysia, ignus, ignus-native,
+    # ignus-aot) = 15 min/server × 5 ≈ 75 min of phases, plus boot/teardown and
+    # the report validation + gate steps. The old 45-minute cap guaranteed a
+    # timeout (every scheduled run was cancelled at 45m). 120 leaves margin
+    # without scaling the soak down (the long phase IS the point).
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

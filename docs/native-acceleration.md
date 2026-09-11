@@ -1,9 +1,9 @@
 # Native acceleration (`@ignex/native` × castrum)
 
 ignex is Rust-accelerated through the **castrum** addon, published on npm as
-`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.1" }` in
+`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.6" }` in
 `packages/native/package.json`; the local dev checkout lives at
-`/home/adeel/poc/bun-rust-runtime-bench` and is wired with `IGNEX_NATIVE_PATH`).
+`/home/adeel/poc/castrum` and is wired with `IGNEX_NATIVE_PATH`).
 The `@ignex/native` package is the single, typed bridge over the SAME cdylib's
 two transports: **bun:ffi C-ABI (primary under Bun)** and **Node-API
 (fallback)**. Every native primitive ships with a **byte-compatible pure-TS
@@ -55,6 +55,35 @@ an acceleration layer — importing it **never throws**.
   fallback. If it can't (different ETag format, different negotiation
   semantics), the fallback is updated to match the native (RFC-correct)
   semantics — never both divergent.
+
+## Off-thread tasks (castrum 0.9.6)
+
+CPU-bound native work can stall the JS event loop for tens-to-hundreds of
+milliseconds. castrum 0.9.6's **task runtime** runs such an op on a Rust pool
+(`cores − 1` threads, separate from the rayon batch pool) and resolves a promise
+when it finishes. It is exposed through `@ignex/native` as an async factory:
+
+```ts
+import { createTaskRuntime, isNativeTaskRuntime } from "@ignex/core";
+
+const tasks = await createTaskRuntime();          // prefers the Rust pool
+const hash = await tasks.pbkdf2Sha256(pw, salt, { rounds: 600_000 });
+const gz = await tasks.gzipCompress(bytes);
+await tasks.shutdown();
+```
+
+The op surface is `gzipCompress` / `gzipDecompress` / `brotliDecompress` /
+`pbkdf2Sha256` / `argon2Verify` (+ `stats()`, `shutdown()`). When the addon does
+not ship the runtime, `createTaskRuntime` returns a **synchronous pure-TS
+fallback** built on the existing `@ignex/native` wrappers — byte-identical
+results, no offload. `isNativeTaskRuntime(runtime)` (or `stats().threads > 0`)
+tells you which one you got; importing the module never throws.
+
+A C-ABI binding rule this run surfaced (see the `AcceptNegotiator` fix): **match
+the Rust signature exactly.** `cstring` ARGs are NUL-terminated, so any byte
+input (validators, `castrum_accept_negotiator_negotiate`) crosses as a
+`(ptr, len)` pair; binding a `(ptr,len)` symbol as `cstring` leaves the length
+register uninitialized — it can pass on one platform and fail on another.
 
 ## Feature flags
 
@@ -143,13 +172,30 @@ transport is live; NAPI/Node keep the castrum decision, where they lose):
 | `randomToken` | ~1.3-1.3× | `crypto.getRandomValues` |
 | `etag` | ~1.08-1.14× | `crc32` + hex |
 
-Ops that stay on JS **even on C-ABI** (median-measured): `queryPairs`/`cookiePairs`/
-`formPairs` (~0.3-0.6× — the packed-unpack cost dominates), `validateEmail`/
-`validateUuid`/`validateIpv4` (~0.1-0.3× — tight JS regexes), `crc32` (~0.68× —
-`Bun.hash.crc32` SIMD wins). Note: `scripts/native-bench.ts` reports a misleading
+Ops that stay on JS **even on C-ABI** (median-measured): `cookiePairs`
+(~0.78×), `formPairs` (~0.88×), `validateEmail`/`validateUuid`/`validateIpv4`
+(~0.1-0.3× — tight JS regexes), `crc32` (~0.68× — `Bun.hash.crc32` SIMD wins).
+Note: `scripts/native-bench.ts` reports a misleading
 "queryPairs native x1.54" — that's a false positive (both sides are the same JS
 fallback, differing only in the string→bytes conversion); `bench-ffi.ts` measures
 the true C-ABI path.
+
+**`queryPairs` is now selected past 512B — probe-gated** (`SIZE_GATES.queryPairs`
++ `src/decode-compat.ts`). Measured 2026-09 with the wrapper's UTF-8 encode
+counted: 1.04× at 589B, 1.14× at 1.1KB, **1.19× at 2.2KB**; below ~440B JS wins
+(0.98-1.06×), so the gate keeps those on JS. It took a **castrum fix** to get
+here: the shared Rust form decoder used to THROW `query: parse failed` on a
+malformed escape and decode invalid UTF-8 lossily (17,496 of 20,011 fuzzed inputs),
+where JS `decodeURIComponent` throws and the fallback returns the segment raw.
+castrum 0.9.5 makes that decoder implement the JS contract in ONE place (used by
+the packed parsers, the query→JSON writer, and the route stack); the probe keeps
+older addons on the JS path automatically.
+
+**AEAD is transport-split, not "native loses".** `aeadEncrypt`'s static table is
+`js` because the addon (NAPI) transport loses (0.86-0.93×); on the C-ABI it WINS
+by a wide margin — 2.02× @64B, 1.94× @79B, 1.73× @512B, 1.47-1.64× @2-4KB — so it
+lives in `FFI_WINS` and Bun gets the native path. `aeadDecrypt` is native on both
+(3.06× napi; 1.35-2.44× C-ABI).
 
 ### 2026-08-14 (later) — full native surface benchmark (`scripts/bench-native.ts`)
 
@@ -250,11 +296,13 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
   per-schema "pure validation" opt-out of coercion; only then route those
   schemas through `createSchemaValidator`.
 - **Native batch pair parsing — kept on JS (fresh 2026-08-14).** Scalar
-  `queryPairs` / `cookiePairs` / `formPairs` win (x0.65–0.96 on single inputs),
-  and the batched `*BatchPacked` pair parsers ALSO lose to the JS scalar parser
-  at every batch size (batch/js ≈ 0.16–0.66 in `bench/results/batch-selection.json`).
-  Core `parseQueries`/`parseCookies` therefore use the scalar path (the old
-  threshold-4 batch wiring was removed as a regression).
+  `cookiePairs` / `formPairs` lose on single inputs (x0.78 / x0.88 with the
+  2026-09 decoder; scalar `queryPairs` WINS past ~589B and is selected there —
+  see above), and the batched `*BatchPacked` pair parsers ALSO lose to the JS
+  scalar parser at every batch size (batch/js ≈ 0.16–0.66 in
+  `bench/results/batch-selection.json`). Core `parseQueries`/`parseCookies`
+  therefore use the scalar path (the old threshold-4 batch wiring was removed as
+  a regression).
 
 ## What's wired today (measured — native where it wins)
 
@@ -268,12 +316,11 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
 
 | Area | Core module | Native primitive(s) | Measured |
 | --- | --- | --- | --- |
-| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` (C-ABI) | **x33** ✓ (2026-08-14; x6.74 on NAPI 2026-08-11) |
-| Crypto | `security/*` | `hmacSha256`, `jwtSign/Verify`, `signCookie/Verify`, `csrfToken/Verify`, `passwordHash/Verify`, `aeadEncrypt/Decrypt`, `randomToken` | proven wins (argon2 ~18x, csrf ~13x, cookie-sign ~9x) |
+| Hashing | `data/cache.ts`, `compiler/utils/hash.ts` | `fnv1a64` (C-ABI), `crc32` (C-ABI) | `fnv1a64` **x33**; `crc32` **1.9×** on the C-ABI (19.2ns vs `Bun.hash.crc32` 36.7ns) — but Bun's builtin wins **5.5×** on the napi transport, so it lives in both `BUN_WINS` and `FFI_WINS` |
+| Crypto | `security/*` | `hmacSha256`, `jwtSign/Verify`, `signCookie/Verify`, `csrfToken/Verify`, `passwordHash/Verify`, `aeadEncrypt/Decrypt`, `randomToken`, **EdDSA JWT** | proven wins (argon2 ~18x, csrf ~13x, cookie-sign ~9x, aead **1.5-2.0×** on C-ABI, EdDSA JWT sign **1.80×** / verify **1.45×**). The EdDSA ops were pinned-but-not-resolving until 2026-09: napi exports `jwtSignEddsa`, the op name is `jwtSignEdDsa`, so the symbol check failed and the JS fallback ran |
 | Compression | `plugins/compression.ts` (native buffered gzip) | `gzipCompress` | native zlib-rs |
 | Templates | `content/template.ts` | `renderTemplate`/`createTemplate` (minijinja) | compiled renderer |
-| Validation | `data/validation.ts` | `validateEmail/Uuid/Ipv4/Ipv6` | parity+ |
-| JSON Schema | opt-in `createSchemaValidator` | `SchemaValidator` (large/batch) | native |
+| Validation | `data/validation.ts` | `validateUuid`/`validateIpv6` (C-ABI `cstring`) | native **1.13×** (uuid) / **2.49×** (ipv6) on varied input. `validateEmail` (JS 3.6×) and `validateIpv4` (JS 1.75×) deliberately stay JS — the Rust cstring round-trip costs more than the JS regex |
 | Route manager | `plugins/native.ts` (`nativePreflight`, opt-in) | `createNativePipeline` (ingress pre-flight) | native pipeline |
 | Rate limiting (opt-in) | `plugins/ratelimit.ts` (`native: true`) | `createRateLimiter` (Rust fixed-window) | see note below |
 | Eager init | `createApp.init()` | `initNative()` (rayon pool + dlopen at boot) | removes first-request latency |
@@ -284,8 +331,8 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 
 | Area | Core module | Wrapper | Measured (native : JS) |
 | --- | --- | --- | --- |
-| Query | `data/query.ts` | `queryPairs` → JS | **x0.96** (native loses) |
-| Cookies | `http/cookies.ts` | `cookiePairs` → JS | **x0.65** (native loses) |
+| Query | `data/query.ts` | `queryPairs` → native ≥512B (probe-gated) | **x1.04–1.19** native past the gate; js below (x0.98–1.06) |
+| Cookies | `http/cookies.ts` | `cookiePairs` → JS | **x0.78** (native loses) |
 | Form bodies | `http/body.ts` | `formPairs` → JS | **x0.88** (native loses slightly) |
 | Multipart | `http/body.ts` | Bun `req.formData()` | **Bun wins 4-5x** at 64-512KB (native x0.21-0.24) |
 | SSE | `http/sse.ts` | `sseEncode` → JS | **x0.28** (native FFI marshal loses) |
@@ -293,6 +340,8 @@ large ≥128-byte inputs — a single napi FFI crossing + packed-buffer unpack i
 | Conditional 304 | `http/conditional.ts` | `createConditionalRequest` → JS | **x0.08** (native per-call construction loses ~12x) |
 | Accept negotiation | `createAcceptNegotiator`, `parseAcceptEncoding` | JS | parity |
 | Media type | `parseMediaType` | JS | native marked @deprecated (slower) |
+| JSON Schema | `data/schema.ts` (`compileValidator`) | `createSchemaValidator` → JS / Ajv | **x0.08** (native loses; pinned via `MEASURED_JS_WINS`) |
+| AEAD encrypt | `security/crypto.ts` | `aeadEncrypt` → JS | **x0.69–0.76** (native loses; `aeadDecrypt` x3.06 stays native) |
 
 > The raw native batch FFI entry points (`*BatchPacked`) remain available for
 > apps that batch large inputs (where FFI amortizes); the JS `batch` facade and
@@ -320,9 +369,12 @@ core default paths):**
 - `createAcceptNegotiator` — RFC 7231 negotiation (specificity → q → order).
   Core `content/i18n.ts` was NOT rewired because its base-language matching
   (`en-US` → `en`) is a deliberate feature native doesn't provide.
-- `createSchemaValidator` — returns `null` when native is unavailable (core
-  keeps Ajv). Native is proven fastest for **large schemas / batch**; Ajv wins
-  for small one-off docs, so don't route every doc through it.
+- `createSchemaValidator` — returns `null` when the addon is unavailable **and**
+  whenever the median audit measures the JS path faster (currently always:
+  native is **0.08x** of Ajv on the probe and 1.4–1.6x *slower* than
+  `JSON.parse` + Ajv on the real 15KB order body, at every size). Ajv is the
+  oracle, so core keeps validating with Ajv; the override lives in `SELECTION`
+  (`MEASURED_JS_WINS`) and is re-checked by `bun run bench:native:all`.
 - `multipartParse`, `etag`, `parseMediaType`, `mediaTypeMatches`,
   `parseAcceptEncoding`, `gzip/brotli`, `wsFrame*`, `jsonValid/jsonPatch` —
   exposed; core intentionally keeps Bun-native / streaming paths where they're
@@ -388,14 +440,37 @@ rate-limit → terminal 429 and CORS preflight → 204/403 end-to-end):
   JS `cors()` plugin (dynamic origins / expose headers / max-age). Plugin
   order matters: the pipeline short-circuits preflight only when
   `nativePreflight` runs before `cors()` in the plugin array.
-- **Schema validation — deliberately NOT moved into the pipeline.** The app
-  already routes the heavy bulk route through the native one-pass
-  `createSchemaValidator.derive` in the handler (`routes/api/orders.post.ts`)
-  — native validation without `JSON.parse`. Moving it into the pipeline's
+- **Hot-path gate (`skipWhenSafe`, default on).** The pipeline is skipped for
+  requests whose verdict it cannot act on: no `Origin` at all, and now ALSO an
+  `Origin` the configured allowlist ACCEPTS on a non-preflight request while
+  CORS is the pipeline's only decision stage. A non-terminal "allow" is dropped
+  by the OK path (only a TERMINAL response consumes the native verdict — the
+  OK-path `access-control-*` echo is owned by the JS `cors()` plugin / Bun's
+  default header sink), so running the pipeline there only pays a native
+  crossing. Measured: 21.3 us -> 17.9 us per such request (-16.2%), ~10.7 us on
+  a 60-param payload. Preflights and non-allowlisted origins still reach the
+  pipeline; any `rateLimit`, `schema`, body/JSON guard or trust-proxy config
+  keeps it live for every request.
+- **Measured hot/cold split (2026-09-11).** Native wins where no JS values are
+  materialized (terminal reject/preflight) and loses where they are: pairs
+  20.2 us native vs 13.3 us JS; a valid body 40.2 us vs 19.2 us (JSON.parse +
+  precompiled Ajv); an INVALID body 12.7 us vs 20.1 us (native 1.58x faster).
+- **The FFI crossing is NOT the bottleneck — measured.** Raw symbol call
+  `ffi.crc32(8B)` = **43 ns** (inside Bun's documented 10-50 ns), an empty-plan
+  route call = 546 ns, and the full route call = 20.4 us: crossing **0.2%**,
+  Rust parse **48%**, JS decode of the result wire **46%**. FFI vs NAPI is
+  identical on the same op. Native loses the hot path because it re-parses data
+  JS already has and must re-materialize every pair as a JS string, while the JS
+  parser returns zero-copy slices.
+- **Schema validation — deliberately NOT moved into the pipeline.** The bulk
+  route (`routes/api/orders.post.ts`) now declares its body schema and lets the
+  compiled precompiled-Ajv prelude validate it — measured ~7.7x faster than
+  castrum `fast_schema` on this payload (Follow-up #2 above, reconfirmed by the
+  median audit in the perf baseline). Moving validation into the pipeline's
   `schema` stage would require `readBody: true` (buffering the body in the
   pipeline and handing it to the framework), which reworks the lazy-body
   contract and risks streaming uploads — for a saving of only the extra FFI
-  crossing. Non-goal; the per-route native derive pattern is the stable choice.
+  crossing. Non-goal; the declarative body schema is the stable choice.
 
 ## 2026-08-25 — native-flow hardening + batch/responder wiring
 

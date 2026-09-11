@@ -528,11 +528,14 @@ describe("nativePreflight", () => {
     }
   });
 
-  it("skipWhenSafe (default): origin-less GETs pass through, CORS requests still served", async () => {
-    // The fastest-path gate skips the Rust pipeline for requests that provably
-    // cannot trigger a pipeline decision (no Origin, not a preflight, no rate
-    // limit) — the handler must still run, and CORS-relevant requests (with an
-    // Origin) must still reach the pipeline untouched.
+  it("skipWhenSafe (default): origin-less AND allowlisted-origin GETs pass through; preflights still served", async () => {
+    // The fastest-path gate skips the Rust pipeline when it cannot change the
+    // outcome: no `Origin` at all, or an `Origin` the configured allowlist
+    // ACCEPTS while CORS is the pipeline's only decision stage — the verdict
+    // for such a request is a non-terminal "allow" that only a TERMINAL
+    // response would consume (the OK-path `access-control-*` echo is owned by
+    // the JS `cors()` plugin / Bun's default header sink). Preflights and
+    // non-allowlisted origins must still reach the pipeline untouched.
     const app = createApp({
       plugins: [
         nativePreflight({ options: { cors: { allowOrigin: ["*"] } } }), // skipWhenSafe defaults on
@@ -545,12 +548,48 @@ describe("nativePreflight", () => {
     expect(plain.status).toBe(200);
     expect(await plain.text()).toBe("ok");
 
-    // A GET carrying an Origin must NOT be skipped (the pipeline's CORS
-    // OK-path still evaluates it; the terminal decision is never a GET).
+    // An allowlisted Origin on a non-preflight GET is ALSO skipped (the
+    // pipeline would only return the non-terminal allow the OK path drops).
     const withOrigin = await app.handler(
       req("/api/users", { headers: { origin: "https://app.example.com" } }),
     );
     expect(withOrigin.status).toBe(200);
+    expect(await withOrigin.text()).toBe("ok");
+
+    // Preflights are never skipped — the pipeline owns the terminal decision.
+    const preflight = await app.handler(
+      req("/api/users", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://app.example.com",
+          "access-control-request-method": "GET",
+        },
+      }),
+    );
+    if (isNativeAvailable()) {
+      expect(preflight.status).toBe(204);
+    } else {
+      expect([200, 204]).toContain(preflight.status);
+    }
+
+    // A NON-allowlisted origin is never skipped: its preflight is denied by the
+    // pipeline (terminal 403), proving the pipeline still ran.
+    const denyApp = createApp({
+      plugins: [nativePreflight({ options: { cors: { allowOrigin: ["https://good.example"] } } })],
+      handler: () => new Response("ok"),
+    });
+    await denyApp.init();
+    const denied = await denyApp.handler(
+      req("/api/users", {
+        method: "OPTIONS",
+        headers: { origin: "https://bad.example", "access-control-request-method": "GET" },
+      }),
+    );
+    if (isNativeAvailable()) {
+      expect(denied.status).toBe(403);
+    } else {
+      expect([200, 204, 403]).toContain(denied.status);
+    }
 
     // Explicit opt-out still runs the pipeline for everything (same outcome).
     const strict = createApp({

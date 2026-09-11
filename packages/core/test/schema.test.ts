@@ -6,8 +6,9 @@
  * schemas (skipping the Ajv JS call on the happy path), with Ajv as the
  * full-semantics oracle. These tests pin:
  *
- *   1. the gate is live when the addon is available (safe schema → native
- *      validator is compiled);
+ *   1. the gate is NOT bound while the median audit says the native validator
+ *      is slower than Ajv (a safe schema → `createSchemaValidator` returns
+ *      `null`, Ajv validates) — see `scripts/bench-native.ts`;
  *   2. correctness parity — valid docs pass, invalid docs throw the same
  *      field-scoped `ValidationError` as Ajv;
  *   3. Ajv mutation semantics are preserved via fall-through — a doc the
@@ -18,7 +19,7 @@
  */
 
 import { compileValidator, ValidationError, validateAsync, validateOrThrow } from "@ignex/core";
-import { createSchemaValidator, isNativeAvailable } from "@ignex/native";
+import { createSchemaValidator, useNative } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 
 const enc = new TextEncoder();
@@ -37,12 +38,15 @@ const VALID = { id: 1, name: "alice" };
 const INVALID = { id: "x", name: 42 };
 
 describe("native fast-gate wiring", () => {
-  it("compiles a native validator for a safe schema when the addon is available", () => {
-    if (!isNativeAvailable()) return; // fallback env: the gate is a no-op by design
-    const gate = createSchemaValidator(JSON.stringify(SAFE_SCHEMA));
-    expect(gate).not.toBeNull();
-    expect(gate?.validate(JSON.stringify(VALID))).toBe(true);
-    expect(gate?.validate(JSON.stringify(INVALID))).toBe(false);
+  it("does NOT bind the native validator while the median audit says JS wins", () => {
+    // `scripts/bench-native.ts` measures the Rust schema validator at 0.08x of
+    // Ajv on the probe and 1.4-1.6x SLOWER than `JSON.parse` + Ajv on the real
+    // bulk-order payload — at every size — so SELECTION pins
+    // `createSchemaValidator` to the JS path (`MEASURED_JS_WINS`) and the
+    // wrapper returns null even with the addon loaded. Validation semantics are
+    // unchanged: Ajv was always the oracle.
+    expect(useNative("createSchemaValidator")).toBe(false);
+    expect(createSchemaValidator(JSON.stringify(SAFE_SCHEMA))).toBeNull();
   });
 
   it("rejects a doc with an extra property via the native gate (no false fast-accept)", () => {

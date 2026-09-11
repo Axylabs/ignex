@@ -1,6 +1,4 @@
-import { BadRequestError } from "@ignex/core";
 import { post } from "@ignex/core/http";
-import { createSchemaValidator } from "@ignex/native";
 import { Type } from "typebox";
 
 const LineItem = Type.Object({
@@ -11,7 +9,7 @@ const LineItem = Type.Object({
   note: Type.Optional(Type.String()),
 });
 
-/** The orders body schema — also compiled into the native one-pass validator. */
+/** The orders body schema — compiled into the precompiled-Ajv body validator. */
 const OrderBody = Type.Object({
   orderId: Type.String(),
   customer: Type.Object({
@@ -35,41 +33,26 @@ const OrderBody = Type.Object({
 });
 
 /**
- * Native one-pass validator (`null` when the Rust addon is absent). Compiling
- * once at module load reuses the precompiled schema for every request.
+ * Declared body schema → the compiled server emits its precompiled-Ajv body
+ * prelude, which parses the body ONCE, validates it, and hands the cached
+ * value to the handler (`ctx.body.json = async () => __body`).
+ *
+ * Measured faster option first: precompiled Ajv is ~7.7x faster than castrum
+ * `fast_schema` on this payload (`docs/performance-baseline-2026-08.md`), and
+ * the `bun run bench:native:all` median audit reconfirms it (native/js 0.08x on the
+ * probe; 1.4-1.6x slower than `JSON.parse` + Ajv on the real 15KB body, at
+ * every size). `createSchemaValidator` is therefore pinned to the JS path in
+ * SELECTION and the native one-pass `derive` is no longer wired here.
  */
-const validator = createSchemaValidator(JSON.stringify(OrderBody));
+export const schema = { body: OrderBody };
 
-/**
- * POST /api/orders — native one-pass validate + derive.
- *
- * The Rust `fast_schema` engine validates the raw body bytes AND captures
- * `lineItems.length` + `totalCents` in a SINGLE zero-DOM pass — no
- * `JSON.parse`, no DOM build, no GC — replacing the compiled server's
- * `JSON.parse` + Ajv prelude on the happy path and rejecting invalid bodies
- * in microseconds (measured: ~equal-to-7% faster valid, ~400-1600× faster
- * invalid, zero DOM/GC).
- *
- * NOTE: no `body` schema option is declared — the compiled server would
- * otherwise emit a `JSON.parse` + Ajv validation prelude, doubling the work.
- */
+/** POST /api/orders — validated bulk JSON body, shaped into a summary. */
 export default post(async (ctx) => {
-  if (validator) {
-    const bytes = new Uint8Array(await ctx.body.arrayBuffer());
-    const r = validator.derive(bytes, ["/lineItems/-", "/totalCents"]);
-    if (!r?.ok) throw new BadRequestError("Invalid order body");
-    return ctx.json({
-      ok: true,
-      count: r.values[0]?.int ?? 0,
-      total: r.values[1]?.int ?? null,
-    });
-  }
-
-  // Fallback (Rust addon absent): parse + best-effort shape read.
-  const body = await ctx.body.json<{ lineItems?: unknown[]; totalCents?: number }>();
+  // The prelude already parsed + validated the body; this reads its cache.
+  const body = await ctx.body.json<{ lineItems: unknown[]; totalCents: number }>();
   return ctx.json({
     ok: true,
-    count: body.lineItems?.length ?? 0,
-    total: body.totalCents ?? null,
+    count: body.lineItems.length,
+    total: body.totalCents,
   });
 });

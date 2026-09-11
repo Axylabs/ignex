@@ -39,19 +39,30 @@ import {
   csrfVerifyFallback,
   ed25519Sign,
   ed25519Verify,
+  effectiveImplFor,
+  encodeRouteDescriptor,
   etag,
   etagFallback,
   formPairs,
   generateEd25519Keypair,
   getFfi,
+  getFfiInstances,
+  getFfiRoute,
+  getNative,
   jwtSign,
   jwtSignEdDsa,
   jwtVerifyEdDsa,
+  nativeQueryDecodeMatchesJs,
   queryPairs,
+  queryPairsFallback,
   randomToken,
   readPairsPacked,
   signCookie,
   signCookieFallback,
+  validateEmail,
+  validateIpv4,
+  validateIpv6,
+  validateUuid,
   verifyCookie,
   wsAcceptKey,
 } from "@ignex/native";
@@ -113,10 +124,13 @@ const FORM_CASES = [
 
 for (const q of QUERY_CASES) {
   const bytes = enc(q);
+  // Reference is the PURE-TS fallback, never the `queryPairs` wrapper: the
+  // wrapper is size-gated to native (SELECTION override), so using it as its
+  // own reference would silently compare native to native.
   expectParity(
     `queryPairs "${q.slice(0, 40)}"`,
     () => readPairsPacked(queryParsePacked(bytes)),
-    () => queryPairs(q),
+    () => queryPairsFallback(q),
   );
 }
 for (const c of COOKIE_CASES) {
@@ -133,6 +147,121 @@ for (const f of FORM_CASES) {
     () => readPairsPacked(formParsePacked(enc(f))),
     () => formPairs(f),
   );
+}
+
+// ── 1a-bis. queryPairs: probe-gated native binding + JS decode parity ──
+// `queryPairs` runs natively past `SIZE_GATES.queryPairs` (512B) — but only on
+// an addon whose form decoder implements JS `decodeURIComponent` semantics
+// (raw segment on a malformed escape), which the capability probe decides. This
+// block asserts the binding follows the probe AND that the packed parser agrees
+// with the pure-TS fallback on the malformed / invalid-UTF-8 space. Before the
+// decoder fix (castrum < 0.9.5) that space threw `query: parse failed` on
+// 17,496 of 20,011 fuzzed inputs and decoded invalid UTF-8 lossily.
+{
+  const compatible = nativeQueryDecodeMatchesJs();
+  const expectedImpl = compatible ? "castrum" : "js";
+  checks++;
+  if (effectiveImplFor("queryPairs") !== expectedImpl) {
+    failures++;
+    console.log(
+      `FAIL queryPairs impl is ${effectiveImplFor("queryPairs")}, expected ${expectedImpl} ` +
+        `(decoder probe: ${compatible ? "compatible" : "not compatible"})`,
+    );
+  }
+  console.log(
+    compatible
+      ? "queryPairs: addon decoder matches JS → native past 512B (probe: compatible)"
+      : "queryPairs: addon decoder does NOT match JS → pinned to js (probe: incompatible)",
+  );
+  // Byte parity of the ROUTED wrapper against the pure-TS reference — never
+  // `queryPairs` as its own reference, which would compare native to native.
+  const DECODE_CASES = [
+    "a=1",
+    "flag&=value&empty=",
+    "a=%20b&c=hello+world",
+    "unicode=✓&k=%E2%9C%93",
+    "a=%C3", // truncated multibyte → raw
+    "a=%2", // truncated escape → raw
+    "a=%", // dangling % → raw
+    "a=%2G", // non-hex digit → raw
+    "a=%FF", // invalid UTF-8 byte → raw
+    "a=%ED%A0%80", // surrogate half → raw
+    "a=%C0%80", // overlong → raw
+    "a=%F4%90%80%80", // > U+10FFFF → raw
+    "bad=%ZZ",
+    "100%",
+    "x=1+2%ZZ", // raw keeps its '+'
+    ...Array.from({ length: 60 }, (_, i) => `f${i}=v${i}%20`), // past the gate
+  ];
+  for (const q of DECODE_CASES) {
+    const bytes = enc(q);
+    const label = `${bytes.length}B ${JSON.stringify(q.slice(0, 24))}`;
+    // The routed wrapper must ALWAYS equal the pure-TS reference: it is JS on an
+    // addon whose decoder failed the probe, native past 512B on a fixed one.
+    // This is the safety property for old addons (no throw, no divergence).
+    expectParity(
+      `queryPairs ${label}`,
+      () => queryPairs(q),
+      () => queryPairsFallback(q),
+    );
+    // The RAW C-ABI parse is only asserted on an addon whose decoder passed the
+    // probe — on an older addon it is EXPECTED to diverge (that is precisely why
+    // the op is pinned there), and the routed check above already proves the pin
+    // keeps the framework safe.
+    if (compatible) {
+      expectParity(
+        `raw packed query parse ${label}`,
+        () => readPairsPacked(queryParsePacked(bytes)),
+        () => queryPairsFallback(q),
+      );
+    }
+  }
+}
+
+// ── 1k. handle lifetimes: compile/destroy must reach a steady state ──
+// A per-handle leak shows up as LINEAR RSS growth, so the check runs two
+// identical phases: a real leak keeps growing in phase 2, a clean release flattens
+// (Rust's allocator may not return freed pages to the OS, which is why this
+// compares the two phases instead of asserting an absolute number).
+{
+  const ffiRoute = getFfiRoute();
+  if (ffiRoute === null) {
+    console.log("handles: route surface unavailable — skipped");
+  } else {
+    const descriptor = encodeRouteDescriptor({
+      pipeline: ["parseQuery", "parseCookies"],
+      schemas: {},
+      maxBodyBytes: 2 * 1024 * 1024,
+      maxQueryBytes: 65_536,
+      maxCookieBytes: 65_536,
+      maxPairs: 1024,
+    } as never);
+    const PHASE = 20_000;
+    const rss = (): number => process.memoryUsage().rss / 1024 / 1024;
+    const phase = (n: number): number => {
+      const before = rss();
+      for (let i = 0; i < n; i++) {
+        const handle = ffiRoute.routeCompile(descriptor);
+        if (handle === 0n) {
+          failures++;
+          console.log("FAIL routeCompile returned 0 during the handle-lifetime check");
+          return 0;
+        }
+        ffiRoute.routeDestroy(handle);
+      }
+      const after = rss();
+      return after - before;
+    };
+    const a = phase(PHASE);
+    const b = phase(PHASE);
+    checks++;
+    const leaked = b > 8 && b > a * 0.5;
+    if (leaked) failures++;
+    console.log(
+      `handles: ${PHASE * 2} route compile/destroy cycles → RSS growth phase1 ` +
+        `${a.toFixed(1)} MB, phase2 ${b.toFixed(1)} MB ${leaked ? "(LINEAR → leak)" : "(steady state)"}`,
+    );
+  }
 }
 
 // ── 1b. cstring-returning scalar ops (engine-cloned strings) ──────
@@ -348,6 +477,41 @@ for (const f of FORM_CASES) {
   }
 }
 
+// ── 1d. Byte-input validators: NUL-safety on the raw C-ABI pair ──
+// castrum 0.9.6 moved validateEmail/Uuid/Ipv4/Ipv6 off the `cstring` ARG
+// (which is NUL-terminated, so `"a@b.com\0junk"` truncated to the VALID
+// `"a@b.com"`) onto a `(ptr,len)` pair. ignex now prefers that pair; assert an
+// embedded NUL can no longer turn an invalid value valid — both through the
+// public wrapper and through the RAW ffi surface (the wrapper may select the
+// JS fallback for some of these ops, so the raw check is the real gate).
+{
+  const TRAILING: Record<string, string> = {
+    validateEmail: "a@b.com\0<script>alert(1)</script>",
+    validateUuid: "123e4567-e89b-42d3-a456-426614174000\0junk",
+    validateIpv4: "192.168.0.1\0junk",
+    validateIpv6: "2001:db8::1\0junk",
+  };
+  const publicFns: ReadonlyArray<readonly [string, (s: string) => boolean]> = [
+    ["validateEmail", validateEmail],
+    ["validateUuid", validateUuid],
+    ["validateIpv4", validateIpv4],
+    ["validateIpv6", validateIpv6],
+  ];
+  for (const [name, fn] of publicFns) {
+    const value = TRAILING[name] as string;
+    checks++;
+    if (fn(value) !== false) {
+      failures++;
+      console.log(`FAIL ${name} accepted a value with an embedded NUL (truncation bug)`);
+    }
+    checks++;
+    if (ffi[name as "validateEmail"](enc(value)) !== false) {
+      failures++;
+      console.log(`FAIL raw ffi.${name} accepted a value with an embedded NUL`);
+    }
+  }
+}
+
 // ── 2. growExact path was exercised on the pathological vector ────
 // The 30 × "a&" query above overflows the wrapper's `len*4+16` initial bound
 // (output 9 bytes/pair ≫ 4×input), so the needed-size signal + exact retry
@@ -378,25 +542,53 @@ for (const f of FORM_CASES) {
 // symbols via `innerPtr()`. Verify the public wrappers (which now route to the
 // C-ABI when the instance surface is live) match the NAPI/JS semantics.
 {
-  // SchemaValidator: validate against the compiled schema on valid/invalid docs.
-  const svFfi = createSchemaValidator(
+  // SchemaValidator: the PUBLIC wrapper is PINNED to the JS path by SELECTION
+  // (`MEASURED_JS_WINS` — `scripts/bench-native.ts` measures the Rust validator
+  // at 0.08x of Ajv and slower than `JSON.parse`+Ajv at every size), so the
+  // wrapper must return `null` even with the addon loaded. The opaque-handle
+  // C-ABI path is verified DIRECTLY below instead, so the instance surface
+  // stays covered even though nothing routes to it through the wrapper.
+  const schemaFfi = createSchemaValidator(
     JSON.stringify({ type: "object", required: ["a"], properties: { a: { type: "number" } } }),
   );
-  if (!svFfi) {
-    checks++;
+  checks++;
+  if (schemaFfi !== null) {
     failures++;
-    console.log("FAIL instance: createSchemaValidator returned null");
-  } else {
-    for (const [label, doc, expect] of [
-      ["valid", '{"a":1}', true],
-      ["missing-required", "{}", false],
-      ["invalid-json", "nope", false],
-    ] as const) {
-      checks++;
-      if (svFfi.validate(doc) !== expect) {
-        failures++;
-        console.log(`FAIL SchemaValidator.validate ${label}: got ${svFfi.validate(doc)}`);
+    console.log(
+      "FAIL instance: createSchemaValidator must return null (SELECTION pins it to the JS path)",
+    );
+  }
+
+  // Raw C-ABI instance path: compile through the addon, then validate through
+  // the `castrum_schema_validator_validate` symbol the wrapper would use if
+  // SELECTION ever binds this op to `castrum` again.
+  const rawAddon = getNative() as unknown as {
+    SchemaValidator?: new (schema: Uint8Array) => { innerPtr(): bigint };
+  } | null;
+  const instances = getFfiInstances();
+  if (rawAddon?.SchemaValidator && instances) {
+    try {
+      const inner = Number(
+        new rawAddon.SchemaValidator(
+          enc('{"type":"object","required":["a"],"properties":{"a":{"type":"number"}}}'),
+        ).innerPtr(),
+      );
+      for (const [label, doc, expect] of [
+        ["valid", '{"a":1}', true],
+        ["missing-required", "{}", false],
+        ["invalid-json", "nope", false],
+      ] as const) {
+        checks++;
+        const got = instances.schemaValidatorValidate(inner, enc(doc));
+        if (got !== expect) {
+          failures++;
+          console.log(`FAIL SchemaValidator.validate (C-ABI) ${label}: got ${got}`);
+        }
       }
+    } catch (err) {
+      checks++;
+      failures++;
+      console.log(`FAIL instance: raw SchemaValidator C-ABI path threw: ${(err as Error).message}`);
     }
   }
 

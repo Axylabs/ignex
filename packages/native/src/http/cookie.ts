@@ -8,9 +8,13 @@ import type { Pairs } from "./types";
 
 /** Parse a `Cookie` header into `[name, value]` pairs. */
 export const cookiePairs = (input: string | Uint8Array): Pairs => {
-  // Selection: js — the packed C-ABI writer (`cookieParsePacked`) measured
-  // SLOWER (x0.65, scripts/bench-ffi.ts), so it is deliberately NOT selected
-  // (native only where proven faster). It stays as the C-ABI parity surface.
+  // Selection: js — re-measured 2026-09 with the ASCII decode fast path: the
+  // packed C-ABI writer (`cookieParsePacked`) still loses (x0.78 median, a
+  // 30-cookie/602B header), so it is deliberately NOT selected. A cookie
+  // header is one flat `;`-separated list with no percent-decoding, which is
+  // exactly what `String.split` is best at. It stays as the C-ABI parity
+  // surface (verify-native-ffi.ts) + a published util. `queryPairs`, whose
+  // values ARE percent-decoded, does win past 512B and is selected there.
   return cookiePairsFallback(input);
 };
 

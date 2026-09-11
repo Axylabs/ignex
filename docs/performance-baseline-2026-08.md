@@ -1096,3 +1096,773 @@ New `dispatch-shell.test.ts` (10 tests: variant binding matrix, HEAD consts,
 heat emission on/off, manifest heat merge, malformed-file tolerance).
 Full suites green (compiler 297+10, core 820, shared, cli, mcp), verify:quick,
 smoke 52/52 native AND `IGNEX_NATIVE=off` fallback parity.
+
+## Round 17 — median selection audit: native was slower than its own JS path (2026-09-11)
+
+**Symptom.** The linux `server-bench` gate failed: with the addon loaded,
+native mode served **0.86–0.90x** of the fallback rps on *every* route (p50
+1.13–1.28x) — including `/health`, which does no native work.
+
+**The median A/B methodology (reusable — how to find the next bottleneck).**
+Five layers, each median-based; each answers a question the previous can't:
+
+1. **End-to-end gate** — `bun scripts/bench-server.ts` (`check-server-bench.ts`):
+   interleaved native/fallback windows, per-worker route pinning (a heavy route
+   can't flatten the others), reported as the MEDIAN across repeats, with
+   per-route rps + p50/p95/p99.
+2. **Op-level audit** — `bun run bench:native:all` (`scripts/bench-native.ts`):
+   median of 5 interleaved trials of the raw addon call vs the exact JS fallback
+   the wrapper would otherwise run, printed next to `effectiveImplFor(op)`. Any
+   op whose bound implementation is the measured loser is listed as a
+   **MISMATCH** at the end of the run — that list *is* the worklist.
+3. **Per-route server CPU/req** — `/proc/<pid>/stat` utime+stime ticks (HZ=100)
+   around a fixed request count, one mode per boot. Separates "this route does
+   more work" from "this route serves fewer rps".
+4. **Isolated sequential p50** — one connection, no concurrency. Removes
+   queueing/GC coupling so a per-op cost is visible on its own.
+5. **CPU profile** — `bun --cpu-prof --cpu-prof-md --cpu-prof-interval=200`
+   under mixed load (writes `<name>.md.md`), for top self-time attribution.
+
+Rules learned: interleave A/B (machine drift cancels); median, not mean; keep
+"addon **loaded**" separate from "addon **called**" (loading alone measured 1.00 —
+it is not a cost); and treat per-route CPU numbers from *separate* boots as
+indicative only — cross-check every claim against an isolated per-op median.
+
+**Findings.**
+
+- `nativeRoutes: true` (compiler default; `packages/app/builder.ts`) emits a
+  per-route `createNativeRoute` prelude. The pinned addon (castrum 0.9.4) does
+  **not** ship the `castrum_route_*` surface (`createNativeRoute` landed in
+  0.10.0), so the prelude could only fall back to the JS path — while still
+  paying the per-request native-route dispatch. CPU-profile top self-time showed
+  `routeRun` + its native callees; turning the option off restored parity
+  (0.98–1.01). Re-enable once the CI pin is castrum >= 0.10.0.
+- Median-audit MISMATCHes, both fixed: `createSchemaValidator` (**0.08x** of
+  Ajv; and 1.4–1.6x slower than `JSON.parse` + Ajv on the real 15KB order body,
+  at every size) and `aeadEncrypt` (**0.76x** @64B, **0.69x** @512B, **0.30x**
+  @4KB). Both are pinned to the JS path by a new documented `SELECTION`
+  override set (`MEASURED_JS_WINS` in `packages/native/src/selection.ts`).
+- `/api/orders` now declares its body schema and runs the compiled
+  precompiled-Ajv prelude (the Follow-up #2 "Keep precompiled Ajv" conclusion)
+  instead of the native one-pass `derive`. Validation is unchanged (invalid →
+  422, malformed → 400) and it is measured faster.
+
+**Results** (`MODE=both REPEATS=3 DURATION=2`, concurrency 32):
+
+| route | before (native/fallback rps) | after |
+| --- | --- | --- |
+| GET /health | 0.86 | 1.05 |
+| POST /api/orders (bulk JSON+schema) | 0.88 | 1.03 |
+| GET /api/search (60 params) | 0.86 | 1.03 |
+| GET /api/me (30 cookies+sess) | 0.89 | 1.01 |
+| GET /api/reports/42 (JWT) | 0.90 | 1.01 |
+| GET /catalog (120-item template) | 0.86 | 1.07 |
+| GET /api/big (256KB gzip) | 0.90 | 1.05 |
+
+`/api/orders` server CPU/req (median of 5): native **70.7 us → 58.3 us**;
+native/fallback **1.34 → 1.01**. Gate: `server-bench gate OK` (native at/above
+baseline and ahead of fallback on every route).
+
+**Reproduce**
+
+```
+bun run bench:native:all             # op audit + MISMATCH worklist
+bun run bench:server                 # end-to-end median A/B (MODE=both)
+bun run bench:server:check           # the gate
+```
+
+## Round 18 — ingress hot vs cold path: where castrum actually wins (2026-09-11)
+
+Same interleaved-median discipline (isolated harnesses, 7-9 trials, medians),
+asked per REQUEST PATH: does the native ingress make the framework faster?
+Answer: it depends entirely on whether the response needs JS values — the 2xx
+hot path loses, the terminal path wins.
+
+| path | native | JS | verdict |
+| --- | --- | --- | --- |
+| route stack: query 60 params + 30 cookies | 20.2 us (9.7 call + 10.5 decode) | **13.3 us** | native **1.5x slower** |
+| route stack: body valid (2xx) | 40.2 us | **19.2 us** (JSON.parse + Ajv) | native **2.10x slower** |
+| route stack: body invalid (terminal 422) | **12.7 us** | 20.1 us | native **1.58x faster** |
+| ingress pipeline: query+cookie+CORS | **10.8 us** | 13.9 us | native only because it does NOT materialize pairs |
+| transport (FFI vs NAPI), same op | identical (0.65x both) | | the crossing is NOT the bottleneck |
+
+- **Hot path (2xx) — JS wins.** Two structural costs: (1) cross-boundary
+  MATERIALIZATION — re-creating 180 pair strings from bytes costs 10.5 us,
+  more than JS's entire parse (which hands back zero-copy slices of the source
+  string); and (2) Rust's JSON parse vs Bun's `JSON.parse` (15 KB body: native
+  40 us vs 19 us for parse + precompiled Ajv).
+- **Cold/terminal path — native wins.** A 422/413/429/403/204 decision needs no
+  JS values, so the native pipeline is pure gain (1.58x on this probe;
+  400-1600x on early large-body rejection).
+- **Bottleneck found on the hot path:** the pipeline ran in FULL for any request
+  carrying an `Origin`, even when its verdict was the non-terminal "allow" the
+  OK path drops — only a TERMINAL response consumes the native verdict (the
+  OK-path `access-control-*` echo is owned by the JS `cors()` plugin / Bun's
+  default header sink).
+- **Fix:** `skipWhenSafe` (default on) now also skips **allowlisted-origin**
+  non-preflight requests while CORS is the pipeline's only decision stage (any
+  `rateLimit`, `schema`, body/JSON guard or trust-proxy config keeps it live).
+  Preflights and non-allowlisted origins are untouched. Measured: 21.3 us ->
+  **17.9 us** per such request (-16.2%; the saving scales to ~10.7 us on a
+  60-param payload).
+- **Kept as-is (evidence-based):** the route stack stays OFF for pair-parsing
+  stages and body validation stays JS on the accept path — both measure slower
+  natively. The native reject path stays available and is the one to reach for.
+
+**Reproduce** (harness pattern: one process per mode, warm, interleaved trials,
+median; `IGNEX_FFI_MODE=napi` vs default for the transport axis): parse a route
+plan with `createNativeRoute`, call `runParts`, and compare against
+`queryPairs`/`cookiePairs`; for the pipeline, `createNativeIngress` +
+`preprocess` against the JS parse work; for the guard, `createApp` with
+`skipWhenSafe: true` vs `false`.
+
+## Round 19 — `is it the FFI crossing?` (boundary attribution, 2026-09-11)
+
+Bun documents a **10-50 ns** FFI call cost, yet the native route stack measures
+1.5x SLOWER than JS. So is the crossing the culprit? A/B/C, medians of 9
+interleaved trials, idle machine:
+
+| probe | median | what it isolates |
+| --- | --- | --- |
+| `ffi.crc32(8B)` (raw symbol) | **43 ns** | the crossing itself (~0 Rust work) |
+| `ffi.crc32(64B / 256B / 4KB / 64KB)` | 51 / 57 / 315 / 4393 ns | crossing + Rust slope (~0.066 ns/B) |
+| route call, EMPTY pipeline | **546 ns** | crossing + wrapper protocol (pack/scratch/decode) |
+| route call, FULL pipeline | **20,400 ns** | the whole hot path |
+| JS `queryPairs` + `cookiePairs` | **13,800 ns** | the JS implementation |
+
+Attribution of the 20.4 us native call:
+
+| component | cost | share |
+| --- | --- | --- |
+| FFI crossing | 0.043 us | **0.2%** |
+| encode + frame pack | ~1.1 us | 5% |
+| Rust parse (inside the addon) | ~9.8 us | **48%** |
+| JS decode of the result wire | ~9.4 us | **46%** |
+
+Transport axis: **identical** on `IGNEX_FFI_MODE=ffi` and `napi` (0.65x both) —
+a ~100-350 ns NAPI crossing is invisible next to ~20 us of work, which is only
+possible because the crossing really is tiny.
+
+**Verdict: Bun's 10-50 ns claim is confirmed, and the crossing is NOT the
+bottleneck.** The cost is (1) Rust re-parsing data JS already has and (2)
+materializing the result back into JS strings. JS wins the hot path because its
+parser hands back ZERO-COPY slices of the source string. The body axis has the
+same shape: native 40.0 us vs JS 18.0 us to ACCEPT a valid body (2.23x slower),
+native 12.9 us vs JS 18.6 us to REJECT one (1.45x faster).
+
+Method note: an earlier pass of this measurement ran WHILE a `cargo build` was
+compiling in the background and inflated every number ~3x (including the JS
+baseline) — one thing at a time, and re-run the baseline to prove it is stable.
+
+Caveat: an in-crate Rust-native (zero-boundary) probe could not run — castrum
+main (`efac103`) fails `cargo test --release` on the known `pbkdf2 0.12` /
+`digest` version conflict; the CI pin `ee3d86a` is the buildable revision. The
+attribution above therefore uses the empty-pipeline call as the boundary floor.
+
+**Reproduce**
+
+```
+# A) crossing floor          ffi.crc32(new Uint8Array(8))       -> ~43 ns
+# B) boundary + protocol     createNativeRoute({ pipeline: [] }).runParts("", "", null)
+# C) full hot path           createNativeRoute({ pipeline: ["parseQuery","parseCookies"] }).runParts(q, c, null)
+# D) JS implementation       queryPairs(q) + cookiePairs(c)
+# E) transport axis          IGNEX_FFI_MODE=napi <same script>
+```
+
+## Round 20 — castrum: fix the build + kill the route parse double pass (2026-09-11)
+
+Followed straight from Round 18/19 (Rust = 48% of the hot path). Two defects:
+
+1. **The crate did not build.** Dependabot bumped `sha2` 0.10.9 -> 0.11.0
+   (commit `810fd90`), but `pbkdf2 0.12` requires digest 0.10, so
+   `pbkdf2_hmac::<Sha256>` stopped compiling (E0277 `CoreProxy`) and
+   `cargo test --release` could not build castrum at all. `sha2` is consumed ONLY
+   by pbkdf2, so it is pinned back to `0.10` with a comment stating that a future
+   bump must ride a pbkdf2 release that depends on digest 0.11.
+2. **`NativeRoute::run` walked every pair section TWICE** — a sizing pass
+   (`query_section_size` / `cookie_section_size`) then a write pass
+   (`write_query_section` / `write_cookie_section`) — and each pass called
+   `decode_segment_lenient`, which allocated `Vec::with_capacity` for the `+`
+   replacement AND a second `Vec` for the percent decode. The bench payload has
+   80 `%` escapes, so ~21 segments x 2 allocations x 2 passes = **~84 allocations
+   per route call**.
+
+**Fix: one streaming pass.**
+
+- `decode_segment_scratch(seg, scratch)` decodes leniently into a caller-provided
+  scratch buffer reused across every segment of the call — zero per-segment
+  allocation, and the `memchr2` fast path returns the borrowed slice untouched.
+- `ResultWriter` appends into the caller's buffer while tracking the EXACT
+  required size; once the buffer proves too small it stops copying (and stops
+  patching) but keeps counting, so the needed-size convention still answers from
+  one pass instead of three.
+- The verdict header is committed LAST, so a too-small buffer is still left
+  untouched — the contract the JS wrapper (`growExact`) relies on.
+
+Measured with an in-crate probe (`cargo test --release -- --nocapture`) on the
+exact payload the Bun harness uses (query 2055 B + cookie 602 B):
+
+| | ns/op (median of 7) |
+| --- | --- |
+| before | 9,494 |
+| after | **3,993** |
+
+**2.38x faster on the Rust side**, with castrum's JS-parity vectors green
+(`parse_query_lenient_matches_js_vectors`, `parse_cookies_matches_js_vectors`,
+`needed_size_convention`, `short-write` contract).
+
+Where the call's cost sits now: FFI crossing ~0.2%, Rust parse ~4.0 us, JS decode
+of the result wire ~9.4 us — so on the `@ignex/native` side the JS wire decode is
+the remaining dominant cost, and **the Rust parse is no longer the bottleneck**.
+The FFI C-ABI ingress entry (`castrum_ingress_handle_components`) was audited too
+and has no per-call allocation, so no change was needed there.
+
+**End-to-end through the FFI layer** (cdylib built with
+`cargo build --release --lib`, injected with
+`IGNEX_NATIVE_PATH=.../castrum.linux-x64-gnu.node`, medians on an idle machine):
+
+| | before (registry 0.9.4) | after (optimized) |
+| --- | --- | --- |
+| FFI route call (60 params + 30 cookies) | 20,400 ns | **15,108 ns** (−26%) |
+| empty-plan floor (crossing + protocol) | 546 ns | 547 ns (unchanged) |
+| JS `queryPairs` + `cookiePairs` (baseline) | 13,800 ns | 13,885 ns (stable) |
+| native / JS ratio | 0.65x | **0.85x** |
+
+The floor being unchanged is the control: the gain came from the Rust parse, not
+from the boundary. The call now decomposes as 0.55 us floor + 4.0 us Rust +
+~10.5 us JS decode — the decode is 70% of it, i.e. **the remaining bottleneck on
+this path is the JS-side materialization of the result wire**, not anything
+native.
+
+Parity: `verify:native:route` all pass; `verify:native:ffi` 75/75 (the script's
+`createSchemaValidator` check was updated to respect the Round-17 SELECTION pin —
+it asserted non-null and had been failing since, now it asserts the pin AND
+exercises the raw C-ABI `castrum_schema_validator_validate` path directly);
+castrum's own suite green (596 tests) plus `cargo fmt --check` and clippy.
+
+## Round 21 — the FFI layer: measure the decode, not the crossing (2026-09-11)
+
+Round 20 fixed the Rust parse; this round went one level deeper with a
+noise-resistant harness (mechanics now documented in
+[`docs/perf-methodology.md`](./perf-methodology.md): `Bun.nanoseconds()`, fixed-op
+trials, 11 interleaved rounds with a rotating lead, median + min + CV%).
+
+**The next bottleneck was the decode, not the boundary.** One route call, medians
+(CV 1.6-8.7%):
+
+| component | before | after |
+| --- | --- | --- |
+| `ffi.routeRun` (Rust parse, pre-packed frame) | 9,805 ns | **3,998 ns** |
+| `readRouteResult` (95 pairs / 3,055 B wire) | 10,225-11,213 ns | **6,143-6,347 ns** |
+| empty-plan floor (boundary + wrapper protocol) | 575 ns | 614 ns *(control: unchanged)* |
+| **`runParts` — the full call** | **21,623 ns** | **11,439 ns** (-47%) |
+
+The decode was per-string `CString` reads (190 engine reads for 95 pairs). It now
+has an **ASCII fast path**: ONE decode of the whole pair region plus byte-offset
+slices, measured **1.48x** faster (11.2 us -> 7.6 us, interleaved A/B). ASCII is
+a CORRECTNESS gate, not a heuristic — with every byte < 0x80 one byte is exactly
+one UTF-16 code unit, so a wire byte offset maps straight to a string index (the
+interleaved length prefixes decode to control characters the offset arithmetic
+steps over). The scan aborts at the FIRST non-ASCII byte (typically early — a
+length >= 128 puts a high byte in a prefix), so a non-ASCII region pays only that
+prefix of a scan and then runs the ORIGINAL single-pass loop: measured **0.99x**,
+no regression. Worth recording how nearly this went wrong — the first version
+validated the wire in a separate pass and cost the fallback **15%**; measuring
+BOTH cases (not just the happy one) is what caught it.
+
+**Result: the native route stack now wins.**
+
+| payload | before (native/JS) | after |
+| --- | --- | --- |
+| 60 params + 30 cookies | 0.80x (loses) | **1.20x (wins)** |
+| 3 params + 2 cookies | 0.22x | 0.22x |
+| empty | 0.10x | 0.09x |
+
+Which restates the rule with numbers: the native stack pays a ~0.6 us wrapper
+floor plus a per-pair decode, so it wins on **parse-heavy** routes and loses on
+trivial ones — that is a payload-size decision, not a feature flag.
+
+Tests: 3 new parity tests (ASCII fast path vs an independent
+`DataView`+`TextDecoder` reference, multibyte/emoji/mixed fallback, empty
+section); native suite 146 green, `verify:native:route` and `verify:native:ffi`
+(75/75) green.
+
+## Round 22 — "make the fast path selectable": a 1.22x win that is a 500 (2026-09-11)
+
+Goal: the decode fast path (Round 21) had changed the economics of the packed
+pair parsers, which were still pinned to JS from pre-optimization measurements
+(`queryPairs` x0.96, `cookiePairs` x0.65). If the numbers moved, `ctx.query`
+would ride native on every request — a real framework-level win. So: re-measure
+first, select second.
+
+### 22.1 The re-measurement (median mechanics, interleaved, rotating lead)
+
+Payload: the real-data query (`searchQuery(n)`, 80 `%` escapes) and a 30-cookie
+header. Two runs were needed to get an HONEST number.
+
+First pass — native input pre-encoded OUTSIDE the timed loop:
+
+| params | bytes | native+decode | JS fallback | ratio |
+| --- | --- | --- | --- | --- |
+| 1 | 99 | 1,026 ns | 916 ns | 0.89x |
+| 8 | 315 | 2,156 ns | 2,336 ns | 1.08x |
+| 16 | 589 | 3,392 ns | 4,125 ns | 1.22x |
+| 60 | 2,205 | 9,862 ns | 12,454 ns | 1.26x |
+| 96 | 3,267 | 13,766 ns | 18,199 ns | 1.32x |
+
+...but the wrapper receives a STRING, so the native path must pay
+`encoder.encode(input)` (~180-650 ns) — the same "charge the real path" rule
+that bit the ingress pipeline in Round 18. Re-run with the encode INSIDE the
+native variant:
+
+| params | bytes | native+encode | JS fallback | ratio | verdict |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 99 | 1,229 ns | 988 ns | 0.80x | js |
+| 6 | 243 | 2,072 ns | 1,855 ns | 0.90x | js |
+| 12 | 439 | 2,903 ns | 3,039 ns | 1.05x | dead band |
+| 16 | 589 | 3,561 ns | 4,171 ns | 1.17x | native |
+| 32 | 1,120 | 6,326 ns | 6,895 ns | 1.09x | native |
+| 60 | 2,205 | 11,202 ns | 13,275 ns | 1.19x | native |
+| 96 | 3,267 | 15,884 ns | 19,079 ns | 1.20x | native |
+
+So the honest crossover is between 439 B and 589 B — exactly the shape SIZE_GATES
+exists for (`jsonValid` has the same shape at 256 B). `cookiePairs` was
+re-measured the same way and still loses (0.78x): a cookie header is one flat
+`;`-separated list with no percent-decoding, which is what `String.split` is
+best at.
+
+### 22.2 The selection, implemented the established way
+
+* `FFI_WINS` (`runtime.ts`) — the C-ABI-only override list — gains `queryPairs`
+  (NAPI/Node keep JS: the win is FFI-specific, same as `etag`/`jsonValid`).
+* `SIZE_GATES.queryPairs = { jsBelowBytes: 512 }` — the middle of the measured
+  dead band, so neither side is claimed inside noise.
+* `http/query.ts` checks the gate BEFORE `toBytes`, so the JS path pays no
+  encode it never paid before (an unconditional `toBytes` would have taxed the
+  common small-query path to measure the rare large one).
+* `verify:native-ffi` gained 5 checks: the binding, the gate boundaries, and
+  byte parity of the routed wrapper + raw C-ABI parse on both sides of the gate.
+  85/85 green. Measured end-to-end effect on the routed wrapper: 589 B 1.11x,
+  2.2 KB 1.22x, tiny sizes unchanged (0.92-1.05x = noise).
+
+### 22.3 ...and then the compatibility fuzz, which killed it
+
+A speed win means nothing if the fast path answers a different question. The
+existing parity suite is all WELL-FORMED inputs, so it passed. A differential
+fuzz against the JS fallback (20,011 inputs, charset weighted to `%`, `+`,
+truncations, multibyte, NUL) told the real story:
+
+```
+cases=20011 throws=17496 mismatches=322
+  "a=%"    -> THROWS query: parse failed        (js: [["a","%"]])
+  "a=%2"   -> THROWS query: parse failed        (js: [["a","%2"]])
+  "a=%2G"  -> THROWS query: parse failed        (js: [["a","%2G"]])
+  "a=%C3"  -> native [["a","\uFFFD"]]  vs js [["a","%C3"]]   (lossy vs raw)
+```
+
+A malformed escape is attacker-supplied on any public route: selecting this op
+converts a bad query string into a **500** (and a divergent parse) — a DoS
+surface, not a slower option. The 1.22x was real and the flip was still wrong.
+
+Why the fallback differs: `decodeSegment` is
+`try { decodeURIComponent(s.replace(/\+/g," ")) } catch { return s }` — on ANY
+invalid escape the WHOLE segment is returned raw (with `+` still `+`), while the
+Rust decoder percent-decodes progressively, lossily, or fails outright.
+
+### 22.4 Outcome
+
+* **Reverted the flip.** `queryPairs` stays JS, but the pin is now recorded as a
+  CORRECTNESS pin with the repros in `http/query.ts`, the measured win still
+  written down (so the work is not lost), and the exact per-segment Rust
+  semantics needed to make it selectable: if a segment contains `%`/`+`, decode
+  with strict UTF-8 (reject overlongs, surrogates, truncated and non-hex
+  escapes); on ANY failure emit that segment's ORIGINAL bytes (`+` NOT
+  unescaped).
+* **Tripwires.** `scripts/verify-native-ffi.ts` (Bun, live C-ABI) asserts the pin
+  and PRINTS flip-readiness (`readiness: queryPairs stays JS — 6/7 malformed
+  cases still differ or throw (e.g. a=%2: THROWS query: parse failed)`), so the
+  day castrum's decoder is fixed the gate says so. `packages/native/test/size-gates.test.ts`
+  asserts the routed wrapper keeps `decodeURIComponent` semantics for
+  `a=%C3` / `a=%2` on both transports.
+* **Cache versions untouched** — `git diff` on `runtime.ts`/`selection.ts` shows
+  no behavioral change, so no bump is owed (`check:cache-versions` agrees:
+  comment-only edits do not move the pinned constants).
+* **The lesson is now in the runbook** (`docs/perf-methodology.md` §3): a
+  well-formed parity suite is not a compatibility proof; fuzz the malformed
+  space before selecting an op.
+
+### 22.5 Where the real remaining win is
+
+The fastest 1.22x of this round is locked behind a Rust decoder fix, not a JS
+change — castrum's `query_parser` must implement the per-segment raw-on-failure
+semantics before `queryPairs` can be selected. Until then the honest state is:
+the native route stack wins on parse-heavy requests (Round 21), the packed pair
+parsers win on query (but cannot be selected), and `cookiePairs`/`formPairs`
+legitimately stay JS.
+
+### 22.6 Side findings (measured, so nobody re-derives them)
+
+* **Bun 1.4.2 FFI practices are already satisified by the bridge** — verified
+  against the docs and this machine: `read.u8/u32/u64` (no `DataView`/
+  `ArrayBuffer` allocation for short-lived pointers), `CString` with
+  offset+length for UTF-8, TypedArrays passed straight into `ptr` positions, and
+  `dlopen`/`linkSymbols` used directly (JSC compiles hot call sites to direct
+  calls — that is why a crossing is 43 ns rather than µs). The
+  `buffer`/`buffer_length` ABI (engine snapshots ptr + byteLength off ONE object)
+  is probe-gated in `ffi.ts` with a `(ptr, usize)` fallback, and IS accepted by
+  Bun 1.4.2 — measured **1.01x** vs `(ptr, usize)` at 8 B and 2 KB, i.e. the
+  shape buys atomicity, not throughput. The full table now lives in
+  `docs/perf-methodology.md` §5.
+* **The per-call result view in the route hot path is not worth removing.**
+  `out.subarray(0, w)` before the decode allocates a ~60 ns view against a
+  6,143 ns decode (0.98%) and an 11,439 ns route call (0.5%). Passing
+  `(ffiBuf, endOffset)` into the decoder instead would cost more in signature
+  churn than it returns — recorded as measured-and-rejected.
+* **The transport axis stays a non-issue**: `IGNEX_FFI_MODE=ffi` vs `napi` is
+  indistinguishable on our ops (the 100-350 ns NAPI crossing is <2% of a call),
+  so the C-ABI preference is about the extra surfaces it exposes (cstring args,
+  packed writers), not about the crossing itself.
+
+## Round 23 — root cause: fix castrum's decoder, then select the fast path (2026-09-11)
+
+Round 22 ended with the query-parser win blocked: the packed parser was 1.17-1.22x
+faster past ~589B, but it THREW on malformed escapes (17,496/20,011 fuzzed inputs)
+and decoded invalid UTF-8 lossily, where JS `decodeURIComponent` throws and the
+fallback returns the segment raw. Pinning it to JS was the safe state — and the
+wrong end state. This round fixes the cause instead of guarding the symptom.
+
+### 23.1 The cause was not "Rust can't decode" — it was TWO implementations
+
+`rust/util/bytes.rs::decode_form_component_into` (shared by `query_parse_packed`
+and the query→JSON writer) returned `FormDecodeError::Malformed` for a bad `%XX`
+and never validated UTF-8 — so the C-ABI packed writer reported failure, the JS
+wrapper threw, and an attacker-supplied `?a=%2` was a 500.
+
+Meanwhile `rust/ingress/native_route.rs::decode_segment_scratch` — written for the
+route stack in Round 20 — ALREADY implemented the correct contract: malformed
+escape → the whole original segment, invalid UTF-8 → the whole original segment.
+Two decoders, two answers, one of them wrong. So the fix was not "add error
+handling": it was **delete the duplicate**.
+
+### 23.2 The fix (castrum 0.9.5)
+
+* One core (`decode_form_core`) owns the semantics, with the JS contract written
+  down where it lives: per COMPONENT, `+` → space and `%XX` → byte; a malformed
+  escape or a non-UTF-8 result → the WHOLE component RAW, `+` included, because
+  JS's `catch` returns the string *before* the replace.
+* **`simdutf8`** (already a dependency, used by `url_codec`) validates the decoded
+  bytes — its rejection set is exactly `decodeURIComponent`'s: overlongs,
+  surrogate halves, > U+10FFFF. It is only paid when a high byte actually reaches
+  the output (`saw_high`), so the ASCII case (`%20` escapes in a real query) never
+  calls it. Only `BufferTooSmall` remains an error: with the raw fallback, the
+  decoded length never exceeds the input, so an input-sized buffer always fits.
+* The route stack now CALLS the shared decoder (its private `decode_segment_scratch`
+  loop and local `hex_val` are gone), and the query→JSON writer uses the same
+  lenient arm — which also removes the last "native 400s where JS answers 200"
+  divergence (`QueryJsonError::Malformed` had no other producer).
+* The "needed size" pass (`decode_form_component_len`) mirrors the raw fallback
+  and may only OVER-report; under-reporting would spin the caller's
+  grow-and-retry loop forever, so that direction is asserted by a test.
+
+### 23.3 The acceptance test is the fuzz, not the unit tests
+
+`400,520` differential comparisons against the JS fallback — every truncation
+window of nasty seeds, plus 200k generated inputs (charset saturated with `%`,
+hex digits, `+`, separators, NUL, control bytes, literal multibyte) run through
+BOTH packed parsers:
+
+```
+fuzz: 400520 comparisons | real failures: 0 | lone-surrogate inputs (not a parser diff): 0
+```
+
+The first run of the big fuzz did report failures — inputs containing LONE
+SURROGATES, which `TextEncoder` cannot represent (it substitutes U+FFFD before the
+parse starts), so the two sides were never parsing the same bytes. That is an
+input-encoding nuance, not a decoder difference; it is now documented in the
+wrapper, and the comparison is defined on the bytes the native side actually sees.
+
+### 23.4 Selecting it — behind a probe, because old addons exist
+
+The win is only safe on a fixed decoder, and the installed addon in this
+workspace is 0.9.4 (broken). Rather than pin the op to JS until everyone
+upgrades, the binding is PROBE-GATED — the same pattern as the
+`buffer`/`buffer_length` ABI probe:
+
+* `src/decode-compat.ts` runs 9 literal expectation cases (malformed, invalid
+  UTF-8, surrogate half, valid multibyte, `+`) once per process against the live
+  C-ABI surface and memoizes the verdict. Expectations are literals on purpose:
+  asking the implementation under test what the answer should be would prove
+  nothing, and importing the fallback would be a cycle.
+* `useNative("queryPairs")` = live ffi **and** the probe passes.
+* `SIZE_GATES.queryPairs = { jsBelowBytes: 512 }` — the middle of the measured
+  dead band (439B JS wins 1.05x, 589B native wins 1.17x).
+
+Result, same session, routed wrapper vs pure-TS fallback:
+
+| input | native/js | path |
+| --- | --- | --- |
+| 99B / 147B / 243B / 439B | 0.98-1.06x | js (gate) — no regression |
+| 589B | 1.04x | native |
+| 1,120B | **1.14x** | native |
+| 2,055B (60 params) | **1.19x** | native |
+
+And the gates prove both generations: with the registry 0.9.4 addon the probe
+reports incompatible → op stays JS → `verify:native:ffi` passes 151 checks
+(raw-surface checks are skipped there BECAUSE they are expected to diverge);
+with 0.9.5 → compatible → native → 226 checks, including the malformed battery on
+the routed wrapper AND the raw C-ABI parse. smoke is 52/52 in every mode.
+
+### 23.5 The audit's false alarm was a second real bug
+
+Running the selection audit after the flip produced:
+
+```
+audit: 1 op(s) run the SLOWER implementation:
+  - aeadEncrypt — runs js, faster is castrum (native/js 1.20x)
+```
+
+`aeadEncrypt` was pinned to JS by `MEASURED_JS_WINS` from a 0.76x/0.69x/0.30x
+measurement. Re-measured on the raw surfaces, the pin was TRUE for one transport
+and FALSE for the other:
+
+| transport | 64B | 512B | 4KB |
+| --- | --- | --- | --- |
+| addon (napi) | 0.89x | 0.93x | 0.86x |
+| **C-ABI (ffi)** | **2.02x** | **1.73x** | **1.64x** |
+
+So the pin had been applied framework-wide from an addon-transport measurement —
+and Bun (the runtime that actually serves requests) was running the *slow* path
+for every session/token encryption. Fix: keep the table pin (`js`, which is what
+NAPI/Node get) and add the op to `FFI_WINS`, the mechanism that exists for exactly
+this. AEAD is now native on Bun: 1.9-2.0x at 16-79B, 1.73x at 512B, 1.47-1.64x at
+2-4KB, ciphertext-identical.
+
+The audit itself was structurally unable to see this: it drives the napi handle
+and compared the result with `effectiveImplFor(op)`, which folds in C-ABI-only
+overrides — judging a C-ABI override with napi timings. It now compares against
+the static table (what the measured transport actually applies) and prints the
+C-ABI-only overrides separately for `verify:native:ffi` to own:
+
+```
+audit: OK — every measured op runs the implementation the median says is faster
+(addon/napi transport; C-ABI-only overrides are listed below).
+C-ABI-only overrides (native on Bun, judged by verify:native:ffi): aeadEncrypt,
+hmacSha256, randomToken, etag, jsonValid, validateIpv6
+```
+
+### 23.6 What this round says in one line each
+
+* **Two implementations of one rule will drift.** The route stack was right and
+  the shared decoder was wrong; the fix was to delete one of them.
+* **"Native loses" is not a property of an op, it is a property of a transport.**
+  Check which one you measured before pinning — an addon-transport loss was
+  hiding a 2x C-ABI win on the framework's per-request crypto.
+* **Pin to safety, select behind a probe.** The op could be bound the same day the
+  fix landed without waiting for every environment to upgrade, and an old addon
+  degrades to exactly the previous behaviour instead of throwing.
+* Numbers: queryPairs 1.14-1.19x (past 512B) newly selected; aeadEncrypt
+  1.47-2.02x newly selected on Bun; `verify:native:ffi` 151 → 226 checks;
+  castrum 597 tests + clippy/fmt clean at 0.9.5; ignex verify green (1,952 tests,
+  jsdoc 1,011/1,011, knip clean), smoke 52/52 x3 modes.
+
+## Round 24 — `bun link`, a selection audit that found two live bugs, and the hot-path profile (2026-09-11)
+
+Goal: stop *measuring* the dev addon and start *running* it — link castrum 0.9.5
+into the monorepo, verify, then make sure nothing on the hot path is left
+selecting a slower implementation.
+
+### 24.1 `bun link` — and the trap that cost the first attempt
+
+`bun link` needs a *package-shaped* checkout: castrum's own loader expects
+`castrum.linux-x64-gnu.node` in the package root, which `cargo build --release
+--lib` does not produce by itself.
+
+```bash
+cd /home/adeel/poc/castrum
+cp target/release/libcastrum.so castrum.linux-x64-gnu.node   # baseline
+bash scripts/build-v3.sh                                     # x86-64-v3 SIMD variant
+bun link                                                     # register
+cd /home/adeel/poc/ignex && bun link castrum                 # → node_modules/castrum
+ln -s /home/adeel/poc/castrum packages/native/node_modules/castrum   # the package @ignex/native resolves from
+```
+
+(`bun link castrum` inside `packages/native` fails on `@ignex/test-utils@workspace:*`
+resolution outside the workspace root, so the symlink is created directly — the
+same link state bun would produce.)
+
+**The trap:** a lingering `export IGNEX_NATIVE_PATH=<registry 0.9.4 path>` from an
+earlier session silently won over the link, because `castrumFromOverride()` is the
+loader's FIRST resolution step. Every check looked like "the link did not work"
+until the env var was found. Verify with:
+
+```bash
+echo "IGNEX_NATIVE_PATH=${IGNEX_NATIVE_PATH:-<unset>}"
+bun -e 'import {getAddonPath,isNativeAvailable} from "./packages/native/src/loader.ts";
+        import {nativeQueryDecodeMatchesJs} from "./packages/native/src/decode-compat.ts";
+        console.log(getAddonPath(), isNativeAvailable(), nativeQueryDecodeMatchesJs())'
+```
+
+With the link live the loader picks the **v3 SIMD binary automatically**
+(`supportsX8664V3()` → prefers `*-v3-*`): `addon path
+…/packages/native/node_modules/castrum/castrum.linux-x64-v3-gnu.node`, probe
+compatible → `queryPairs` **castrum**. Full verification on the linked addon:
+`verify` exit 0 (1,952 tests), `verify:native:ffi` **227/227** (the query-parity
+battery now runs because the probe passes), `verify:native:route` ✓, smoke
+**52/52** native + fallback, `bench:server:check` OK, `check:native:surface` 70/70.
+
+### 24.2 The utilization sweep: what is still selecting the slower implementation?
+
+The audit (`bench:native:all`) only drives the **addon (napi)** handle, so it can
+never see a C-ABI-only win. Sweeping every op whose effective impl is still `js`
+for a *live C-ABI binding* left 9 candidates (the rest — SSE, websockets,
+multipart, media-type, gzip — exist only on napi/instances, so the audit owns
+them).
+
+**Two measurement traps decided this round:**
+
+1. **Constant input gets const-folded.** The first pass compared
+   `ffi.validateEmail(s)` against `validateEmailFallback(s)` with a literal
+   string and reported JS at 1.7 ns (cv 163%) — the JIT had hoisted the whole
+   regex test. Re-run with a 16-string rotating pool: JS 38.8 ns.
+2. **Charge the real path.** The same pass gave the JS side
+   `validateEmailFallback(encode(s))` (an encode the production wrapper never
+   pays, since the C-ABI takes `cstring`) — 620 ns of fiction that made native
+   look 4.4x faster than it is.
+
+Honest, varied-input numbers (100k ops/trial, cv 0-5%):
+
+| op | C-ABI | JS | verdict |
+| --- | --- | --- | --- |
+| `validateEmail` | 139 ns | **38.8 ns** | JS wins 3.6x → stays JS |
+| `validateIpv4` | 64.1 ns | **36.7 ns** | JS wins 1.75x → stays JS |
+| `validateUuid` | **36.6 ns** | 41.2 ns | native 1.13x → **now FFI_WINS** |
+| `validateIpv6` | **101 ns** | 252 ns | native 2.49x ✓ already bound |
+
+And the contested hash/rand ops across all four implementations
+(100k ops, min):
+
+| op | Bun builtin | addon (napi) | C-ABI | verdict |
+| --- | --- | --- | --- | --- |
+| `crc32` 128B | 36.7 ns | 202 ns | **19.2 ns** | C-ABI 1.9x over Bun, Bun 5.5x over napi → **both sets** (like `hmacSha256`) |
+| `hmacSha256` 64B | 1,112 ns | 1,419 ns | **767 ns** | C-ABI wins 1.45x → `FFI_WINS` keeps it |
+| `randomToken` 32B | **191 ns** | 802 ns | 194 ns | tie on C-ABI → leave as-is |
+| `etag` 128B | 81.7 ns (crc32+hex) | — | **63.8 ns** | C-ABI 1.28x ✓ already bound |
+
+`crc32`'s split is the whole pattern in one row: **Bun's builtin beats the Rust
+addon by 5.5x on the napi transport and loses to it by 1.9x on the C-ABI**, which
+is exactly what the dual `BUN_WINS` + `FFI_WINS` membership expresses.
+
+### 24.3 Two live bugs the sweep exposed
+
+**A. The EdDSA pin never engaged — a name mismatch.** `PINNED_NATIVE` lists
+`jwtSignEdDsa`/`jwtVerifyEdDsa`, but napi exports `jwtSignEddsa`/`jwtVerifyEddsa`
+(camelCase of `jwt_sign_eddsa`). `hasPinnedSymbol()` looked up a method that does
+not exist, returned false, and the op fell through to `opImpl` = `null` → **js**:
+every RBAC EdDSA token was signed/verified by the JS fallback. Measured cost:
+
+| | C-ABI | JS fallback | native/js |
+| --- | --- | --- | --- |
+| EdDSA JWT sign | 16.4 µs | 29.6 µs | **1.80x** |
+| EdDSA JWT verify | 34.1 µs | 49.5 µs | **1.45x** |
+
+Fixed with an explicit `PINNED_SYMBOL_ALIASES` map (op name → addon export name)
+so the check and the wrapper agree.
+
+**B. `crc32` was pinned to Bun everywhere.** `BUN_WINS` was set from an addon-era
+measurement and applied on every transport, so Bun's builtin answered even under
+the C-ABI where the Rust SIMD crc32 is 1.9x faster (verified on BOTH addon
+variants, baseline and v3). Now in `FFI_WINS` as well — same shape as
+`hmacSha256`.
+
+### 24.4 The FFI layer, checked rather than assumed
+
+* **Surface contract**: `check:native:surface` → all 70 stub symbols present on
+  the real module (no drift between the vendored `.d.ts` and the addon).
+* **Semantics**: the decoder fix from Round 23 holds on the shipped 0.9.5 build —
+  400,520 differential comparisons, 0 throws / 0 mismatches.
+* **Lifetimes — new gate**: `verify-native-ffi` now compiles and destroys 40,000
+  route handles in two phases and compares the RSS growth of each. A per-handle
+  leak shows up as linear growth; allocator retention does not. Result:
+  phase1 **4.0 MB** → phase2 **0.5 MB** (steady state) — no leak. Gate total 227
+  checks.
+
+### 24.5 Hot-path profile (load-only window)
+
+Profiling the compiled server needed care: `bun --cpu-prof` writes on exit, and a
+`kill -INT` aimed at the wrapping subshell leaves the server alive (which
+produced a first profile that was 322 s of wall clock but only 1.8 s of samples —
+idle plumbing dominated the table). The reliable recipe is to own the whole
+lifecycle from one Bun process (`Bun.spawn` → wait for `/health` → drive
+concurrent load → `SIGINT` → `await exited`). Clean window: 20.2 s, 46,804
+samples, **469,956 responses**.
+
+| self% | function | what it is |
+| --- | --- | --- |
+| 17.1% | `(anonymous)` `[native code]` | Bun's HTTP/async internals |
+| 13.0% | `Response` | per-response construction (2.6 s / 470k = ~5.6 µs) |
+| 7.4% | bundle `:42` | framework/core request path |
+| 4.9% + 4.7% + 3.8% | bundle `:55`, `:42` | app/core code (template + routing) |
+| 3.2% (24.2% total) | `b` `:48` | aggregator (lifecycle/handler chain) |
+| 2.8% | `get` `[native code]` | header/Map access |
+| 2.3% | `encode` `[native code]` | `TextEncoder` — our `toBytes()` on request paths |
+| 2.3% | `stringify` | JSON response bodies |
+| 2.2% | `u32` `[native code]` | FFI `read.u32` in the packed/route decoders |
+
+Reading: the profile has **no dominant fixable JS wrapper hotspot** — the time is
+Bun's HTTP internals, `Response` construction, JSON, and our own byte-level FFI
+reads (which are the price of the native decode). Nothing here contradicts the
+per-op work; the remaining wins are selection-level, which is where this round
+found them. `bench:server:check` (the committed baseline gate) stays green.
+
+### 24.6 Numbers this round
+
+* Linked dev addon: **0.9.5 + x86-64-v3 SIMD**, resolved by the loader
+  automatically; `queryPairs`/`aeadEncrypt`/`crc32`/`validateUuid` all native.
+* Newly native: EdDSA JWT sign **1.80x** / verify **1.45x**, `crc32` **1.9x**,
+  `validateUuid` 1.13x.
+* Deliberately still JS, with numbers recorded so nobody "optimizes" them back:
+  `validateEmail` (JS 3.6x), `validateIpv4` (JS 1.75x), `cookiePairs` (JS 1.28x),
+  `formPairs` (JS 1.14x), `jsonValid` below 256B, `hmacSha256`/`randomToken` on
+  napi.
+* Gates on the linked addon: `verify` 0 (1,952 tests), `verify:native:ffi`
+  **227/227**, `verify:native:route` ✓, smoke 52/52 ×2 modes,
+  `bench:server:check` ✓, `check:native:surface` 70/70, handle-lifetime steady
+  state.
+
+### 24.7 End-to-end effect of the native stack (linked 0.9.5 + v3 SIMD)
+
+`bun run bench:server` (interleaved native / fallback / raw-bun, 7 routes,
+concurrency 32) — every route is faster with castrum live than with
+`IGNEX_NATIVE=off`, i.e. the whole selection layer earns its keep:
+
+| route | native rps | fallback rps | native gain |
+| --- | --- | --- | --- |
+| GET /health | 4,501 | 4,128 | +9.0% |
+| POST /api/orders (bulk JSON+schema) | 4,538 | 4,203 | +8.0% |
+| GET /api/search (60 params) | 4,547 | 4,274 | +6.4% |
+| GET /api/me (30 cookies + session, AEAD) | 4,678 | 4,192 | **+11.6%** |
+| GET /api/reports/42 (JWT) | 732 | 714 | +2.6% |
+| GET /catalog (120-item template) | 3,463 | 3,182 | +8.8% |
+| GET /api/big (256 KB gzip) | 2,611 | 2,458 | +6.2% |
+
+(`/api/reports/42` is ~5.5 ms p50 in BOTH modes — an app-level cost unrelated to
+the addon, so its percentage is diluted; `/api/me` is the biggest winner because
+it is the AEAD/session route this campaign un-pinned.)
+
+### 24.8 What the sweep deliberately did NOT change
+
+* **`passwordHash`/`passwordVerify`**: `Bun.password` exists and is native, but
+  argon2id's cost *is* the feature (per-login, not per-request), and switching the
+  JS fallback's algorithm (currently `$scrypt$` PHC) would change the security
+  contract — performance is not the axis to tune here.
+* **A `cstring` variant of the JSON validator**: the profile shows `TextEncoder`
+  at 2.3% self (≈3.2 µs/request average), of which the bulk is
+  `jsonValid(toBytes(body))` re-encoding a 15 KB POST body that arrived as bytes.
+  A `jsonValidStr` C-ABI symbol (cstring ARG — the engine transcodes in-engine,
+  like the validators already do) would remove roughly 4 µs from that route,
+  ~0.4% of its 1.02 ms. Measured and deliberately deferred: it needs a castrum
+  ABI addition + surface/gate churn for a fraction of a percent.
+* **SSE / websockets / multipart / media-type / accept-encoding / gzip / brotli /
+  rate limiter / templates / schema validator**: no C-ABI binding exists, so only
+  the napi transport can serve them; the audit owns those decisions and reports
+  them as "js stays" (Bun's `req.formData()`, `Bun.gzipSync`, `isIP`, Ajv, …).

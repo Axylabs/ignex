@@ -16,6 +16,11 @@ import {
   reportDegradation,
   resetTelemetryRateLimit,
   setNativeTelemetrySink,
+  validateEmail,
+  validateEmailFallback,
+  validateIpv4,
+  validateIpv6,
+  validateUuid,
 } from "../src/index";
 
 describe("decompression bomb caps", () => {
@@ -94,5 +99,34 @@ describe("telemetry sink", () => {
     expect(lines.filter((l) => l.includes("telemetry-once-op"))).toHaveLength(1);
     expect(lines.some((l) => l.includes("other-op"))).toBe(true);
     errSpy.mockRestore();
+  });
+});
+
+// The byte-input validators used to cross to the Rust core as a `cstring` ARG,
+// which is NUL-terminated: an embedded U+0000 truncated the value, so
+// `validateEmail("a@b.com\0<script>")` was reported VALID. castrum 0.9.6 moved
+// them to a `(ptr,len)` pair; ignex binds that pair. This pins the contract on
+// whichever backend the test run resolves (native, or the pure-TS fallback).
+describe("validator NUL safety", () => {
+  const withNul = (value: string, tail: string): string => `${value}\0${tail}`;
+
+  it("rejects a valid value with a NUL-suffixed payload", () => {
+    expect(validateEmail(withNul("a@b.com", "<script>alert(1)</script>"))).toBe(false);
+    expect(validateUuid(withNul("123e4567-e89b-42d3-a456-426614174000", "junk"))).toBe(false);
+    expect(validateIpv4(withNul("192.168.0.1", "junk"))).toBe(false);
+    expect(validateIpv6(withNul("2001:db8::1", "junk"))).toBe(false);
+  });
+
+  it("still accepts the NUL-free values", () => {
+    expect(validateEmail("ada@example.com")).toBe(true);
+    expect(validateUuid("123e4567-e89b-42d3-a456-426614174000")).toBe(true);
+    expect(validateIpv4("192.168.0.1")).toBe(true);
+    expect(validateIpv6("2001:db8::1")).toBe(true);
+  });
+
+  it("agrees with the pure-TS fallback on the NUL cases", () => {
+    const nulEmail = withNul("a@b.com", "x");
+    expect(validateEmail(nulEmail)).toBe(validateEmailFallback(nulEmail));
+    expect(validateEmail(nulEmail)).toBe(false);
   });
 });

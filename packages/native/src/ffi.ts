@@ -24,7 +24,7 @@
 import { createRequire } from "node:module";
 import { getAddonPath, getNative, type NativeAddon } from "./loader";
 import { reportDegradation } from "./telemetry";
-import { toBytes } from "./util";
+import { decoder, toBytes } from "./util";
 
 /** Transport selection for the C-ABI fast path. */
 export type FfiMode = "auto" | "ffi" | "napi";
@@ -46,13 +46,15 @@ export interface FfiSurface {
   crc32(input: Uint8Array): number;
   // json
   jsonValid(input: Uint8Array): boolean;
-  // validators — C-ABI `cstring` ARG (the engine transcodes the JS string to a
-  // call-scoped NUL-terminated buffer in-engine, so the JS side does ZERO
-  // `encoder.encode` work). NAPI still takes bytes; the wrapper branches.
-  validateEmail(input: string): boolean;
-  validateUuid(input: string): boolean;
-  validateIpv4(input: string): boolean;
-  validateIpv6(input: string): boolean;
+  // validators — the byte-exact `*_bytes` C-ABI pair (`ptr` + `len`). castrum
+  // 0.9.6 moved these off the `cstring` ARG because a `cstring` ARG is
+  // NUL-terminated: an embedded U+0000 truncated the value native-side, so
+  // `validateEmail("a@b.com\0…")` reported TRUE. The napi transport already
+  // takes bytes, so both transports now share one bytes-in contract.
+  validateEmail(input: Uint8Array): boolean;
+  validateUuid(input: Uint8Array): boolean;
+  validateIpv4(input: Uint8Array): boolean;
+  validateIpv6(input: Uint8Array): boolean;
   // crypto (cstring returns = engine clones the string natively — zero JS decode/alloc)
   hmacSha256(key: Uint8Array, data: Uint8Array): Uint8Array; // 64 lowercase-hex (bytes contract)
   hmacSha256Verify(key: Uint8Array, data: Uint8Array, sig: Uint8Array): boolean;
@@ -291,8 +293,14 @@ function bind(): FfiSurface | null {
       castrum_fnv1a64: { args: ["ptr", "usize"], returns: "u64" },
       castrum_crc32: { args: ["ptr", "usize"], returns: "u32" },
       castrum_json_valid: { args: ["ptr", "usize"], returns: "u8" },
-      // Validators take a `cstring` ARG (castrum cstring-arg fast path ~76-82%)
-      // — the engine transcodes the JS string in-engine (zero JS encode).
+      // Validators: the byte-exact `(ptr,len)` pair is PREFERRED (NUL-safe and
+      // faster — castrum measured email 236→110ns, uuid 153→50ns, ipv4
+      // 118→37ns). The `cstring` symbols stay bound as a fallback for an addon
+      // predating 0.9.6; the surface method picks the byte pair when present.
+      castrum_validate_email_bytes: { args: ["ptr", "usize"], returns: "u8" },
+      castrum_validate_uuid_bytes: { args: ["ptr", "usize"], returns: "u8" },
+      castrum_validate_ipv4_bytes: { args: ["ptr", "usize"], returns: "u8" },
+      castrum_validate_ipv6_bytes: { args: ["ptr", "usize"], returns: "u8" },
       castrum_validate_email: { args: ["cstring"], returns: "u8" },
       castrum_validate_uuid: { args: ["cstring"], returns: "u8" },
       castrum_validate_ipv4: { args: ["cstring"], returns: "u8" },
@@ -371,6 +379,18 @@ function bind(): FfiSurface | null {
 
     const s = symbols as Record<string, (...a: unknown[]) => number | bigint>;
     const one = (raw: RawIn, v: Uint8Array): number | bigint => raw(v, v.length);
+    // Byte-input validator: prefer the NUL-safe `(ptr,len)` C-ABI symbol; only
+    // an addon predating 0.9.6 lacks it, and then the `cstring` ARG is used
+    // (which truncates at an embedded U+0000 — the bug the byte pair fixes).
+    const validator = (
+      byteFn: ((...a: unknown[]) => number | bigint) | undefined,
+      cstrFn: ((...a: unknown[]) => number | bigint) | undefined,
+      input: Uint8Array,
+    ): boolean => {
+      if (typeof byteFn === "function") return Number(byteFn(input, input.length)) === 1;
+      if (typeof cstrFn === "function") return Number(cstrFn(decoder.decode(input))) === 1;
+      return false;
+    };
     // Pair-parse packed output. The C fns now use the needed-size convention
     // (exact required size on a too-small buffer, `0` = real parse error), so
     // JS starts with a TIGHT initial bound (≈ typical packed output, NOT the
@@ -398,12 +418,17 @@ function bind(): FfiSurface | null {
       fnv1a64: (input) => BigInt(one(s.castrum_fnv1a64 as RawIn, input)),
       crc32: (input) => Number(one(s.castrum_crc32 as RawIn, input)) >>> 0,
       jsonValid: (input) => Number(one(s.castrum_json_valid as RawIn, input)) === 1,
-      // C-ABI validators take a `cstring` ARG — pass the JS string directly
-      // (the engine transcodes in-engine; zero JS encode). `null` → false.
-      validateEmail: (input) => Number(s.castrum_validate_email?.(input) ?? 0) === 1,
-      validateUuid: (input) => Number(s.castrum_validate_uuid?.(input) ?? 0) === 1,
-      validateIpv4: (input) => Number(s.castrum_validate_ipv4?.(input) ?? 0) === 1,
-      validateIpv6: (input) => Number(s.castrum_validate_ipv6?.(input) ?? 0) === 1,
+      // Byte-exact validators: the `(ptr,len)` pair preserves an embedded
+      // U+0000 instead of truncating at it. Only an addon predating the byte
+      // symbols falls back to the `cstring` ARG (decoding the bytes first).
+      validateEmail: (input) =>
+        validator(s.castrum_validate_email_bytes, s.castrum_validate_email, input),
+      validateUuid: (input) =>
+        validator(s.castrum_validate_uuid_bytes, s.castrum_validate_uuid, input),
+      validateIpv4: (input) =>
+        validator(s.castrum_validate_ipv4_bytes, s.castrum_validate_ipv4, input),
+      validateIpv6: (input) =>
+        validator(s.castrum_validate_ipv6_bytes, s.castrum_validate_ipv6, input),
 
       hmacSha256: (key, data) => {
         const out = new Uint8Array(64); // 64 lowercase-hex chars
@@ -691,8 +716,9 @@ function selfTest(surface: FfiSurface): boolean {
           : fn === "validateIpv4"
             ? "192.168.0.1"
             : "2001:db8::1";
-    // FFI takes a `cstring` (JS string); NAPI takes bytes.
-    check(fn, surface[fn](str) === native[fn](enc.encode(str)));
+    // Both transports now take bytes — the byte-exact `(ptr,len)` pair is used
+    // on ffi (NUL-safe); napi has always taken bytes.
+    check(fn, surface[fn](enc.encode(str)) === native[fn](enc.encode(str)));
   }
   check("hmacSha256", eq(surface.hmacSha256(key, data), native.hmacSha256(key, data)));
   const sig = surface.hmacSha256(key, data);
@@ -971,11 +997,14 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
         args: ["u64", "ptr", "usize", "ptr", "usize"],
         returns: "usize",
       },
-      // `header` is a `cstring` ARG — the engine transcodes the JS string
-      // in-engine (zero JS encode), matching the validator/ws_accept_key
-      // pattern. C-ABI returns a cstring (engine-cloned, zero JS decode).
+      // Rust: `castrum_accept_negotiator_negotiate(inner, header_ptr,
+      // header_len)` — a `(ptr,len)` byte pair (NOT a `cstring`). Binding it as
+      // `cstring` left the third register uninitialized, so the native side read
+      // `header_len` bytes past the string; Linux happened to land a benign
+      // value while macOS returned a bogus no-match answer (the cross-platform
+      // parity lane caught it). The server-preference sibling IS `cstring`.
       castrum_accept_negotiator_negotiate: {
-        args: ["u64", "cstring"],
+        args: ["u64", "ptr", "usize"],
         returns: "cstring",
       },
       castrum_accept_negotiator_negotiate_server: {
@@ -1015,8 +1044,12 @@ export const getFfiInstances = (): FfiInstancesSurface | null => {
       templateRender: (inner, context, out) =>
         Number(s.castrum_template_render?.(inner, context, context.length, out, out.length) ?? 0),
       acceptNegotiatorNegotiate: (inner, header) => {
-        // `header` is a `cstring` ARG — pass the JS string directly.
-        const v = s.castrum_accept_negotiator_negotiate?.(inner, header);
+        // `(ptr,len)` byte pair (see the symbol table) — encode once and pass
+        // the EXACT length; a `cstring` binding left the length uninitialized.
+        const fn = s.castrum_accept_negotiator_negotiate;
+        if (typeof fn !== "function") return null;
+        const bytes = toBytes(header);
+        const v = fn(inner, bytes, bytes.length);
         return typeof v === "string" ? v : null;
       },
       acceptNegotiatorNegotiateServer: (inner, header) => {

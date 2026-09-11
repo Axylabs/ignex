@@ -45,8 +45,9 @@ let warnedRouteSurfaceAbsent = false;
  * Warn ONCE when the per-route stack is unavailable despite native being
  * loaded. Routed through the telemetry sink (was a bare console.warn). Two
  * DISTINCT causes with different remediations:
- * - "surface absent": the addon build predates `castrum_route_*` (registry
- *   0.9.0 removed it; it returned in 0.10.0+) → upgrade castrum.
+ * - "surface absent": the addon build predates `castrum_route_*` (the 0.9.0
+ *   registry release removed it; it has been present again since 0.9.x, incl.
+ *   0.9.6) → upgrade castrum.
  * - "compile rejected": symbols exist but `castrum_route_compile` refused the
  *   descriptor → almost always a ROUTE_DESC_VERSION skew between this build's
  *   wire format and the installed addon (mismatched magic/version) → align
@@ -61,8 +62,8 @@ function warnRouteSurfaceAbsent(reason: "surface-absent" | "compile-rejected"): 
         `a ROUTE_DESC_VERSION/magic skew between @ignex/native (v${ROUTE_DESC_VERSION}) and the ` +
         "installed castrum build. Align the two versions."
       : "the loaded addon does NOT ship the per-route native stack (castrum_route_*). " +
-        "createNativeRoute() falls back to the JS prelude — ensure castrum >= 0.10.0 " +
-        "(registry 0.9.0 removed the surface).";
+        "createNativeRoute() falls back to the JS prelude — upgrade castrum " +
+        "(the surface was absent only from the 0.9.0 registry release; it is back since 0.9.x).";
   reportDegradation(
     reason === "compile-rejected" ? "unsupported" : "surface-missing",
     "route.compile",
