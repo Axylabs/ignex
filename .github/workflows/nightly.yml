@@ -1,10 +1,15 @@
 name: Nightly stability
 
 # Scheduled stability sweep — runs the slow/expensive gates that don't belong
-# on every PR: full native parity on plain Bun, malformed-input fuzz, perf
-# regression against the committed baseline, and a compare-bench soak. Failures
-# here are real signals (drift in Bun/castrum, perf regressions, machine-
-# sensitive flakes) — they do NOT block PRs but should be triaged.
+# on every PR: full native parity on plain Bun, malformed-input fuzz, and perf
+# regression against the committed baseline. Failures here are real signals
+# (drift in Bun/castrum, perf regressions, machine-sensitive flakes) — they do
+# NOT block PRs but should be triaged.
+#
+# The long compare-bench SOAK is deliberately NOT scheduled: it needs ~75 min of
+# runner time, and a sustained soak is a LOCAL/manual activity, not a nightly
+# tax on shared runners. It is gated behind the `run_soak` workflow_dispatch
+# input (default false) — run `bun run bench:compare:soak` locally instead.
 #
 # The Rust-side catch_unwind/malformed-FFI fuzz (castrum, Axylabs/flux-rs)
 # remains cross-repo; the JS-side malformed-input fuzz below covers the request-
@@ -14,6 +19,11 @@ on:
     # 02:00 UTC daily.
     - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      run_soak:
+        description: "Run the long compare-bench soak (~75 min of runner time) — opt-in only"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -115,14 +125,14 @@ jobs:
 
   soak:
     name: Compare-bench soak
+    # OPT-IN ONLY (workflow_dispatch `run_soak`): the soak scenarios are
+    # DURATION-heavy by design — `05-soak` runs a 600s phase and
+    # `18-json-validation-soak` a 300s phase, each across ALL 5 participants
+    # (bun, elysia, ignus, ignus-native, ignus-aot) = ~75 min of phases plus
+    # boot/teardown. That is far too much runner time to spend daily, so the job
+    # never runs on the schedule; use `bun run bench:compare:soak` locally.
+    if: ${{ inputs.run_soak == true }}
     runs-on: ubuntu-latest
-    # The soak scenarios are DURATION-heavy by design: `05-soak` runs a 600s
-    # phase and `18-json-validation-soak` a 300s phase, and `bench:compare:soak`
-    # runs each across ALL 5 participants (bun, elysia, ignus, ignus-native,
-    # ignus-aot) = 15 min/server × 5 ≈ 75 min of phases, plus boot/teardown and
-    # the report validation + gate steps. The old 45-minute cap guaranteed a
-    # timeout (every scheduled run was cancelled at 45m). 120 leaves margin
-    # without scaling the soak down (the long phase IS the point).
     timeout-minutes: 120
     steps:
       - name: Checkout

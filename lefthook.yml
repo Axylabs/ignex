@@ -9,7 +9,10 @@ pre-commit:
       # reports issues on new/changed lines. Install tools once: `qlty install`.
       run: qlty check --no-formatters
     biome:
-      glob: "*.{js,ts,jsx,tsx,json,jsonc,html,md}"
+      # Only file types Biome actually processes here — adding `html`/`md` made
+      # a docs-/workflow-only commit fail ("No files were processed in the
+      # specified paths"), because Biome ignores those and exits non-zero.
+      glob: "*.{js,ts,jsx,tsx,json,jsonc}"
       run: bunx biome check --write --staged {staged_files} && git add {staged_files}
     oxlint:
       glob: "*.{js,ts,jsx,tsx}"

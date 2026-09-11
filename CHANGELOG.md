@@ -34,10 +34,12 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   Linux happened to land a benign value (passing there); macOS returned a bogus
   no-match answer (`AcceptNegotiator.negotiate no-match`). The binding now
   passes a real `(ptr,len)` pair. (The `_server` sibling really is `cstring`.)
-- **The nightly compare-bench soak job could never finish.** `bench:compare:soak`
-  runs a 600 s + a 300 s phase across all 5 participants (≈75 min of phases)
-  under a 45-minute job cap, so every scheduled run was cancelled at 45m. The
-  cap is now 120 minutes.
+- **The long compare-bench soak no longer runs on the nightly schedule.** It
+  needs ~75 min of runner time (`05-soak` 600 s + `18-json-validation-soak`
+  300 s, each across all 5 participants), which is far too much to spend on
+  shared runners daily. It is now opt-in behind the `run_soak`
+  `workflow_dispatch` input (default off); run `bun run bench:compare:soak`
+  locally for a sustained soak.
 - **Performance campaign: native route stack, SELECTION drift, and the ingress
   hot path** (measurement runbook: `docs/perf-methodology.md`).
   - **`nativeRoutes` is off again** — the emitted per-route
