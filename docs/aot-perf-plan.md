@@ -802,6 +802,105 @@ Removing it means a simple route must stop creating a context and stop running
 the generic reply path — i.e. the AOT compiler emitting straight-line code for
 statically-analysable routes, which is the original Phase 1+2+3 thesis rather
 than a tuning change. Budget it as a project.
+
+## 15. Phase 3 scope — and the target has inverted
+
+### The measurement that reframes the work
+
+Profiling **both** participants on the same trivial `GET /health` (25s load each,
+so boot is negligible) gives a frame-by-frame comparison for the first time:
+
+```
+raw Bun:  20 functions,  87.8% of ALL its CPU is ONE native frame: `json`
+          (Response.json + stringify + Response + header materialization)
+          remainder: getClientIp 5.2 · requestIP 2.0 · checkRateLimit 1.6 ·
+                     randomUUID 1.2 · copyDataProperties 0.8 · cloneObject 0.4
+
+ignex:   101 functions, reply work spread over four frames:
+          set [native] 30.6 · Response [native] 17.5 · withBody 7.9 ·
+          stringify 2.4                                   = 58.4%
+          plus async GET__h6 22.6 (generated wrapper) · IgnexContextImpl 4.7 ·
+          sanitizeHeaderValue 1.2 · requestIP 1.5 · isHttpsRequest 0.6 …
+```
+
+Normalised to µs against each participant's own paced budget (bun 13.5,
+ignus-aot 17.3):
+
+| | bun | ignex-aot |
+| --- | --- | --- |
+| reply (materialize the response) | **~11.8** | **~10.2** ← we are 1.6µs *faster* |
+| everything else | **~1.7** | **~7.1** ← the entire gap lives here |
+| total | 13.5 | 17.3 |
+
+**The reply path is a win and is no longer the target.** Phase 1a's work
+(string body, baked static headers, `applyStaticHeaders`) is why. Do not
+re-open it — §13 tested the remaining reply variations and they were washes.
+
+**The target is the ~7.1µs of non-reply time**, of which `async GET__h6` at
+3.91µs *self* is the dominant, still-unattributed piece.
+
+### Why GET__h6 cannot be attributed from the profile
+
+`createContext`, `__finalize` and `jsonReply` never appear as their own frames —
+they are inlined into the generated wrapper — and the route body's own work is
+attributed there too. So the profile says "3.91µs" without saying what it is,
+and §13 established that guessing at this size of effect is how false leads are
+born (`ctx.ip`). It must be ablated, not inferred.
+
+### Step 1 — make codegen ablatable (do this first)
+
+Emit the generated wrapper under a build-time flag so individual steps can be
+removed and measured server-side with `/tmp/abi.ts` (0.28–0.98µs resolution,
+identical-server control reported every run):
+
+```
+IGNEX_ABLATE = ctx | preparse | beforehandle | afterhandle | finalize | applyset | try
+```
+
+Gate on `process.env` read ONCE at module load in the generated server (so the
+branches fold away and an unflagged build is byte-identical — verify with the
+contract harness). This is the codegen-level ablation §11 said was missing; the
+route-source trick used in §13 cannot reach framework internals.
+
+Candidate steps to ablate, in order of expected size: `createContext` +
+`ctx.server =` assignment; the four `__has*` flag branches; `runHooks`
+pre-parse; `runHooks` afterHandle; `__finalize`; `__applySet`; the `try/catch`;
+the `async`/`instanceof Promise ? await : r` wrapper (§13 measured that last one
+at ~117ns, so do not expect much from it).
+
+### Step 2 — specialise, in this order
+
+1. **Skip the machinery the route provably cannot use.** The `__has*` constants
+   are already boot-folded, but `__applySet` and `__finalize` still run
+   unconditionally. A route whose usage bitmap has no `set`/`cookie`/`status`
+   should not emit `__applySet` at all.
+2. **Cheapen the context.** `IgnexContextImpl` is 4 allocations/request
+   (instance + `set` + `set.headers` + eager `set.cookie`). The eager
+   `set.cookie` dict is only needed by routes that write `ctx.set.cookie.name`;
+   deferring it needs a non-allocating read path in `applySet` too. Worth ~0.1µs
+   — do it only if Step 1 says the context is a real share.
+3. **Only then** consider inlining plugins/hooks (original P1/P2). §13 measured
+   the whole plugin layer at ~2.77µs of which ~1.85µs is header writing that is
+   non-differential, so the inlinable share is ≲0.9µs.
+
+### Acceptance criteria
+
+* Contract harness byte-identical (4 servers × 9 shapes) after every step.
+* `verify` exit 0; `smoke` + `smoke:fallback` 52/52.
+* Each step justified by an ablated measurement with the control reported, not
+  by profile attribution. A step that measures inside the control's noise is
+  reverted, not kept "because it should help".
+* Report the per-request function count from §14 alongside µs — it is the metric
+  that tracks the "no different from express" concern directly.
+
+### Realistic expectation
+
+The differential budget is ~7.1µs, itemised as ~3.9µs (wrapper, unattributed) +
+~0.8µs (context) + ~1.5µs (reply plumbing) + ~0.9µs (hooks/dispatch). Nothing is
+individually large, so reaching parity means specialising all of it — this is the
+1.5–2 week compiler project §7 estimated, not a tuning pass. Step 1 is worth
+doing regardless: it is the measurement capability every future perf claim in
+this repo needs, and it is small.
 * **`scripts/check-compare-gate.ts` pins `"03-stress": 1.35`** on p50 — just
   above the measured loss, so it ratchets the regression in rather than
   catching it. Re-derive from the CPU measurement once Phase 1 lands.
