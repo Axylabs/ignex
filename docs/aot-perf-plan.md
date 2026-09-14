@@ -1074,3 +1074,52 @@ this repo needs, and it is small.
 | Light context leaks an omitted member | Emit only when the `ContextUsage` bitmap proves the member is unreachable; `needsFull` remains the conservative default. |
 | Codegen golden fixtures churn | Update deliberately, review the diff, keep emission byte-stable (`assertCoreFn`-style tests). |
 | Bun version drift changes the baseline | Pin the comparison in CI; re-baseline deliberately. |
+
+## 17. The CPU/req metric is RATE-DEPENDENT — read this before quoting any µs/req
+
+Found while chasing the "why do in-situ operations cost 10–20× their isolated
+cost" question. Same build, same harness, same 16 clients — only the paced rate
+changed:
+
+```
+rate  4000 rps:  23.09 · 24.60 · 24.10 us/req   (three identical variants)
+rate 24000 rps:  14.57 · 14.66 · 14.40 us/req   (the same three)
+```
+
+**A 62% difference in CPU-per-request for identical code, purely from the paced
+rate.** Each request does the same work.
+
+The governor is `performance` on all 12 CPUs with boost enabled, so this is not a
+simple governor downclock. Whatever the mechanism — C-state exit after idling,
+voltage/frequency ramp, or cold caches and predictor state between requests — the
+consequence is unavoidable:
+
+> **CPU/req measured at a sub-saturated pinned rate is not an absolute quantity.**
+> It is only comparable to another measurement at the SAME rate. Every µs/req
+> figure in this document is a *paced-at-12k-rps* number, inflated relative to
+> what a saturated server pays.
+
+What this does and does not invalidate:
+
+* **Still valid — every A/B in this document.** Both sides run at the same rate
+  and receive identical treatment, so the differences (0.28–0.70µs structure,
+  2.09µs headers, 0.70/0.56µs bodies) are real *relative* costs.
+* **Now suspect — comparing an in-situ number to an isolated micro-benchmark.** A
+  micro-benchmark runs a tight loop: fully saturated, hot ICs, monomorphic call
+  sites, everything in L1. That is the 24k-rps end of the curve, not the 12k end.
+  It is why `Headers.set` measures 56ns isolated but 441ns served, and why
+  `security()`'s body measures ~30ns isolated but 0.70µs served. Part of the
+  "10–20× multiplier" is just this; the rest is the difference between a hot
+  single-request loop and a real cold call site.
+* **Actionable —** `bench:compare:cpu` pins 15k rps, so its absolute numbers sit
+  on this curve. Report the rate alongside every number, or measure at
+  saturation and accept that queueing enters.
+
+The honest form of every cost claim here is *"X µs/req at 12k rps paced on this
+machine"*, never *"X µs/req"*.
+
+**Why this matters retroactively:** this explains the class of false lead that
+cost several rounds — the `ctx.ip` scare, and both chain rewrites. In each case I
+measured a primitive in a saturated hot loop and compared it to a paced delta.
+Before any further cost work, either re-measure primitives with a cold call site
+or accept that only same-rate A/B deltas are trustworthy.
