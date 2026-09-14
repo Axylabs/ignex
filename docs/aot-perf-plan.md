@@ -946,18 +946,77 @@ old 17.73 · new 17.31 · ctrl 17.31  (ctrl is the SAME file as old)
 
 **Both results are at or inside the control.** Recorded conclusion:
 
-> **The ~1.4µs is not the chain's JavaScript structure.** Removing an
-> allocation, two property loads, a function call, the WeakMap lookup, the hook
-> loop AND the whole `runHooks` layer changed nothing measurable. Whatever the
-> 1.4µs is, it is not reachable by restructuring the dispatch code — it is more
-> likely a JIT/inlining consequence of the indirection's *presence* in the
-> generated handler, which a JS-level rewrite cannot remove.
+> **CORRECTED — the earlier conclusion here was WRONG.** It claimed the ~1.4µs
+> was "a JIT/inlining consequence of the indirection's presence, which a
+> JS-level rewrite cannot remove". Direct measurement (below) shows the
+> indirection costs **0.28µs** and the ~1.4µs is the **plugin bodies**. (a) and
+> (b) measured exactly zero because **they optimised the wrong layer** — both
+> restructured the dispatch, which was never the cost.
 
-This matters for the original P1: its premise was "inline the plugin dispatch
-and the cost goes away". (a) and (b) are the cheap versions of exactly that, and
-they recovered nothing. **Do not start P1's codegen inliner without first
-explaining the 1.4µs** — the evidence now says inlining the dispatch would not
-collect it.
+**The measuring experiment that settles it.** Gating the bench app's plugin list
+on an env var read at spawn time gives variants whose *only* difference is
+controlled, all measured in one interleaved run:
+
+```
+none     13.68  (no plugins at all; __hasAfterHandle folds to false)
+noop     13.96  (one plugin whose onResponse is a passthrough, NO responseDefaults)
+full     17.31  (cors + security — the real config)
+ctrl     13.82  (identical to none)
+        control = -0.14us
+
+STRUCTURE  noop  - none = 0.28us   <- having the hook path at all, trivial body,
+                                      IDENTICAL header count
+BODIES     full  - noop = 3.35us   <- the real plugin bodies + the 8 security headers
+```
+
+`noop` carries no `responseDefaults`, so it writes exactly the same headers as
+`none` — which makes `noop − none` a clean read of the dispatch path: the stage
+loop, the chain, the result interpretation and a trivial body cost **0.28µs**.
+
+### The full split (5 variants + control, one interleaved run)
+
+Adding `headers` (no plugins, but the same 8 security headers via
+`server.headers`) and `sec` (security only) splits the remainder:
+
+```
+none     13.82     no plugins                      (control = identical, 0.00us)
+noop     14.52     passthrough plugin, no headers
+headers  15.91     no plugins, 8 security headers
+sec      16.61     security only
+full     17.17     cors + security
+
+STRUCTURE            noop    - none    = 0.70us   (dispatch + trivial body)
+8 security HEADERS   headers - none    = 2.09us
+security BODY        sec     - headers = 0.70us
+cors BODY            full    - sec     = 0.56us
+```
+
+(Run-to-run variance is ~0.4–0.5µs — the same comparison put STRUCTURE at 0.28µs
+in the previous run — so read STRUCTURE as 0.3–0.7µs. The 2.09µs for the headers
+reproduced across all three decompositions: 1.85µs, 2.09µs.)
+
+**The largest item is the 8 security headers at ~2.1µs — and it is
+NON-DIFFERENTIAL.** The raw-Bun participant writes the same header set through
+`shared.ts` `buildHeaders`, so it pays the same. That is why closing the gap
+cannot come from the plugin layer: the plugin-owned, avoidable total is
+STRUCTURE + security body + cors body ≈ **1.6–2.0µs**, and ~0.7µs of that is
+dispatch that P1 proposed to inline.
+
+**Note the ~10–20x gap between isolated and served cost.** `security()`'s body
+costs 0.70µs to do a `WeakSet.has` probe and a `req.url.startsWith("https:")`
+(~30ns of work by primitive measurement); `cors()`'s costs 0.56µs for one
+`ctx.headers.get("origin")` (~28ns isolated). This is the same pattern as
+`Headers.set` (441ns served vs 56ns isolated). Whatever this multiplier is, it
+applies to every call in the request path and it is not explained by anything
+measured so far — it deserves its own investigation, and it dwarfs any single
+plugin-body optimisation.
+
+**Consequence:** the original P1 premise ("inline the plugin dispatch and the
+cost goes away") is confirmed dead — the dispatch is 0.28µs. If the remaining
+~1.5µs of body cost is to be recovered, it must come from making the plugin
+*bodies* cheaper (e.g. `security()`'s per-request HSTS/`isHttpsRequest` check and
+WeakSet probe, or `cors()`'s `ctx.headers.get("origin")`), not from inlining
+control flow.
 
 ### Harness variance must be reported per run
 
