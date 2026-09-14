@@ -915,6 +915,60 @@ writing that is non-differential. That is the best-evidenced remaining slice,
 and it is much smaller in scope than the original proposal: the chain, not the
 plugins.
 
+### Step 1b — two chain optimisations measured EXACTLY ZERO (both reverted)
+
+Following Step 1's finding that `runHooks(afterHandle)` costs ~1.1–1.4µs, two
+structural fixes were implemented, measured, and **reverted** because neither
+moved the number. Both are recorded so they are not retried.
+
+**(a) Leaner chain.** Pre-extract each plugin's `onResponse` at boot (the list is
+already filtered on `typeof onResponse === "function"`, so the per-request
+optional call `plugin.onResponse?.(…)` was a property load plus a branch that
+could never be taken); test `instanceof Response` *before* `isThenable` (a
+Response is never thenable, so this ordering is equivalent and skips the call on
+the all-sync path); and return `current` rather than `{ response: current }`
+(`runHooks` interprets a bare Response identically, saving one allocation).
+
+```
+old 17.03 (MAD 0.28) · new 17.03 (MAD 0.14) · ctrl 17.03   → new - old = -0.01us
+```
+
+**(b) Bypass `runHooks` entirely.** Tag `pluginsToLifeCycle`'s `afterHandle`
+container as the composed chain, hoist `__afterIsChain` / `__afterChain` as
+boot-time constants in codegen, and call the chain *directly* from the generated
+route — removing the stage flattening (WeakMap lookup), the hook loop, the
+`interpretHook` pass and the `{ctx}` wrapper from the hot handler.
+
+```
+old 17.73 · new 17.31 · ctrl 17.31  (ctrl is the SAME file as old)
+→ new - old = -0.42us, but the identical-server control = +0.42us
+```
+
+**Both results are at or inside the control.** Recorded conclusion:
+
+> **The ~1.4µs is not the chain's JavaScript structure.** Removing an
+> allocation, two property loads, a function call, the WeakMap lookup, the hook
+> loop AND the whole `runHooks` layer changed nothing measurable. Whatever the
+> 1.4µs is, it is not reachable by restructuring the dispatch code — it is more
+> likely a JIT/inlining consequence of the indirection's *presence* in the
+> generated handler, which a JS-level rewrite cannot remove.
+
+This matters for the original P1: its premise was "inline the plugin dispatch
+and the cost goes away". (a) and (b) are the cheap versions of exactly that, and
+they recovered nothing. **Do not start P1's codegen inliner without first
+explaining the 1.4µs** — the evidence now says inlining the dispatch would not
+collect it.
+
+### Harness variance must be reported per run
+
+The identical-server control in the *same harness, same build* measured
+**−0.26µs** (6-variant run), **−0.42µs** (Step 1, 10 rounds), **+0.01µs** (3-variant
+run) and **+0.42µs** (2nd 3-variant run). So the honest resolution is **~0.4–0.5µs
+per run, not the 0.14µs MAD suggests**. Always read the control; treat anything
+under it as zero; and prefer measuring the same comparison twice before drawing a
+conclusion — the 1.4µs hook cost survived that test (1.12 then 1.40, both ≫
+control), the two chain rewrites did not.
+
 ### Step 2 — specialise, in this order
 
 1. **Skip the machinery the route provably cannot use.** The `__has*` constants
