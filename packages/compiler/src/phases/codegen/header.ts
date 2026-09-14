@@ -218,6 +218,24 @@ const __hasAfterHandle = (__lc.afterHandle ?? []).length > 0;
 const __hasMapResponse = (__lc.mapResponse ?? []).length > 0;
 const __hasAfterResponse = (__lc.afterResponse ?? []).length > 0;
 const __hasTrace = (__lc.trace ?? []).length > 0;`);
+
+  // Measurement-only ablation of the generated route wrapper (see
+  // docs/aot-perf-plan.md §15). Enabled at BUILD time with
+  // IGNEX_ABLATE_BUILD=1 and selected per server process with
+  // IGNEX_ABLATE=<finalize|hooks|applyset>, so ONE build can be driven as many
+  // variants in a single interleaved measurement run. When the build flag is
+  // unset (every production build) these are literal `false`, so the guards in
+  // the route wrapper fold away and the emitted server is unchanged.
+  header.push(
+    process.env.IGNEX_ABLATE_BUILD === "1"
+      ? `const __ABLATE = new Set((process.env.IGNEX_ABLATE || "").split(","));
+const __ABL_FINALIZE = __ABLATE.has("finalize");
+const __ABL_HOOKS = __ABLATE.has("hooks");
+const __ABL_APPLYSET = __ABLATE.has("applyset");`
+      : `const __ABL_FINALIZE = false;
+const __ABL_HOOKS = false;
+const __ABL_APPLYSET = false;`,
+  );
 };
 
 /** Emit inlined handler functions (self-contained modules) before route handlers. */

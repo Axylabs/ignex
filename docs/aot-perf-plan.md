@@ -868,6 +868,53 @@ pre-parse; `runHooks` afterHandle; `__finalize`; `__applySet`; the `try/catch`;
 the `async`/`instanceof Promise ? await : r` wrapper (§13 measured that last one
 at ~117ns, so do not expect much from it).
 
+### Step 1 — make codegen ablatable ✅ DONE, and it found the one real step
+
+Implemented (temporary instrumentation, cheap to keep because it costs the
+production build nothing):
+
+* `header.ts` emits `__ABL_FINALIZE` / `__ABL_HOOKS` / `__ABL_APPLYSET`. With
+  `IGNEX_ABLATE_BUILD=1` at build time they are derived from the runtime env
+  `IGNEX_ABLATE=<finalize|hooks|applyset,…>`; otherwise they are literal `false`
+  and the bundler **removes them entirely** (the default build contains no
+  `__ABL*` identifiers at all — verified).
+* `handler.ts` gates the three wrapper steps in `assembleCoreFn`:
+  `__ABL_FINALIZE && result instanceof Response`, `__hasAfterHandle && !__ABL_HOOKS`,
+  and `__ABL_APPLYSET ? response : __applySet(...)`.
+
+Measured with `/tmp/abi.ts` (6 rounds, 12k rps, identical-server control):
+
+```
+variant      median   MAD     vs base
+base          16.19   0.28        -
+-hooks        15.08   0.56   saves 1.12us   <-- 2.7x the control
+-all          15.21   0.84   saves 0.98us
+-finalize     16.47   0.84   saves -0.28us  (noise)
+-applyset     16.75   0.70   saves -0.56us  (noise)
+ctrl          16.61   0.84        -
+              control (base - ctrl) = -0.42us  => resolution ~0.42us
+```
+
+**`runHooks(afterHandle)` costs ~1.1µs — the single largest attributable
+framework step.** It dispatches the composed cors+security `onResponse` chain
+via `runOnResponseChain`, which for this app ends in a WeakSet probe
+(`security`) and one early-returning header read (`cors`). `__finalize` and
+`__applySet` are free: finalize is an `instanceof Response` passthrough, and
+applySet early-returns because `consumeSetHeaders` already blanked the
+accumulator.
+
+This also corrects §13's in-process claim that the plugin layer was ~100ns.
+Server-side it is ~1.1µs for dispatch alone. **Trust the served-server A/B for
+anything involving the generated call graph**; in-process isolation does not
+reproduce it.
+
+**Consequence for Phase 1:** the original P1 (inline the static plugin layer)
+was de-scoped in §1 because it was chasing a stale 5.3µs figure. It is now
+justified at a measured **~1.1µs** for the dispatch, with ~1.85µs more in header
+writing that is non-differential. That is the best-evidenced remaining slice,
+and it is much smaller in scope than the original proposal: the chain, not the
+plugins.
+
 ### Step 2 — specialise, in this order
 
 1. **Skip the machinery the route provably cannot use.** The `__has*` constants

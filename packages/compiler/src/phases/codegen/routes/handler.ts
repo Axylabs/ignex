@@ -107,7 +107,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
           : `const __result0 = ${callExpr};
     const result = __result0 instanceof Promise ? await __result0 : __result0;`
     }
-    let response = __finalize(result, ${needsFull ? "ctx" : "{ set: __set }"}, ${serializersVar}, ${routeReply});
+    let response = __ABL_FINALIZE && result instanceof Response ? result : __finalize(result, ${needsFull ? "ctx" : "{ set: __set }"}, ${serializersVar}, ${routeReply});
     ${
       needsFull
         ? `
@@ -122,7 +122,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
 `
         : ""
     }
-    if (__hasAfterHandle) {
+    if (__hasAfterHandle && !__ABL_HOOKS) {
       const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response);
       const after = __r1 instanceof Promise ? await __r1 : __r1;
       ctx = after.ctx ?? ctx;
@@ -151,7 +151,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     // __TRACE is a module constant, so when tracing is off this never
     // evaluates ctx.requestId (which would pay performance.now() + a counter
     // per request even though applySet ignores it without trace).
-    return __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
+    return __ABL_APPLYSET ? response : __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
     `
         : compact
           ? `return response;`
