@@ -735,6 +735,73 @@ as `ctx.ip` did.
 The framework overhead remains ~3.9µs and, per §11, is flat across the call
 graph. Nothing in this round changed that; the structural work (lean context
 tier, fewer per-request objects) is still the only identified lever.
+
+## 14. What actually executes per request (measured 2026-09-14)
+
+The question that motivates all of this — "if we execute 400 functions to
+perform a simple task, we are no different from express" — answered directly.
+Profiled `GET /health` under a 25s keep-alive load on the **current** build, then
+converted the profiler's self-time shares to µs using the paced-CPU budget for
+that route (17.3µs/req, `/tmp/abi.ts`, 9 rounds, MAD 0.14).
+
+```
+functions executing per request:   101   (was 225 before §12)
+  of which [native code]:           35    -> 56.6% of the time
+  of which our JS:                  66    -> 43.4%
+
+ self%  us/req  function                     where
+  30.6    5.29  set                          [native]
+  22.6    3.91  async GET__h6                generated route wrapper
+  17.5    3.03  Response                     [native]
+   7.9    1.46  withBody (4 call sites)      reply plumbing
+   4.7    0.80  IgnexContextImpl             context constructor
+   2.4    0.42  stringify                    [native]
+   1.5    0.26  requestIP                    [native]
+   1.2    0.21  sanitizeHeaderValue          request-derived header values
+   0.6    0.10  isHttpsRequest               security plugin
+   0.4    0.07  applyStaticHeaders / byteLength / generateRequestId
+  ~1.0   ~0.2   runHooks, finalize, router, emptyHeaders, okEnvelope, cookies
+```
+
+**Read this carefully — the two biggest lines are not ours.** `set` and
+`Response` together are 48% of the route, and §13's variant-C experiment proved
+the cost is intrinsic to Bun materializing ~13 headers on a `Response` no matter
+*how* they are supplied (post-construction `Headers.set` and a single
+constructor record measured identical). The raw-Bun participant writes the same
+header set, so it pays the same 8.3µs — which is why the *gap* is not there.
+
+**The differential, framework-owned cost is roughly 2.6µs:**
+* `IgnexContextImpl` 0.80µs — the context instance plus its `set` object,
+  `set.headers` dict and eager `set.cookie` dict (4 allocations/request).
+* `withBody` ~1.46µs — reply plumbing (base record, defaults application,
+  `content-length`).
+* `sanitizeHeaderValue` 0.21 + request-id + `isHttpsRequest` ~0.4µs.
+* `async GET__h6`'s 3.91µs of *self* time is mostly inlined callee time
+  (`createContext`, `__finalize`, `jsonReply` never appear as their own frames),
+  so it cannot be attributed further from this profile.
+
+### The profiling method has a trap
+
+The first attempt at this list reported **225** functions and included `Ajv`,
+`addMetaSchema`, `getSchemaRefs`, `findAddonPath` and `requireAddon` — which read
+as "we run a JSON-schema validator per request". They were **module-init (boot)**
+samples: the profiler records from process start, so anything done at import time
+is mixed into the per-request table. Run a long enough load that boot is
+negligible before reading the function list, and treat a small-sample frame in a
+short profile as suspect.
+
+Note the second-order win: §12's `sideEffects` change did not reduce per-request
+cost, but it removed ~125 functions from this list and 55% of boot time — the
+executed *code* is materially smaller even though the executed *work* is not.
+
+### Implication for Phase 3
+
+The remaining differential ~2.6µs is: one context object graph (0.8µs) + reply
+plumbing (1.5µs) + header sanitizing/id (0.4µs). No single item is large.
+Removing it means a simple route must stop creating a context and stop running
+the generic reply path — i.e. the AOT compiler emitting straight-line code for
+statically-analysable routes, which is the original Phase 1+2+3 thesis rather
+than a tuning change. Budget it as a project.
 * **`scripts/check-compare-gate.ts` pins `"03-stress": 1.35`** on p50 — just
   above the measured loss, so it ratchets the regression in rather than
   catching it. Re-derive from the CPU measurement once Phase 1 lands.
