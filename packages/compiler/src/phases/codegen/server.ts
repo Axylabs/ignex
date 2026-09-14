@@ -48,6 +48,7 @@ const HELPER_CORE = [
   "createContext",
   "debugStageEnd",
   "errorToResponse",
+  "markDecoratedResponse",
   "runHooks",
   "runTimed",
   "validateAsync",

@@ -65,13 +65,22 @@ const serializeCookiePair = (name: string, value: string, opts: ElysiaCookie): s
 export const serializeCookie = (
   cookies: Record<string, ElysiaCookie>,
 ): string | string[] | undefined => {
-  const serialized = Object.entries(cookies)
-    .filter(([, opts]) => opts?.value != null)
-    .map(([name, opts]) => serializeCookiePair(name, toCookieValue(opts.value), opts));
+  // Allocation-free iteration. The previous `Object.entries().filter().map()`
+  // built THREE arrays on every call — including the overwhelmingly common
+  // empty jar, because `ctx.set.cookie` always exists. Materialize the result
+  // array lazily, only once a cookie that actually has a value is found.
+  let out: string[] | undefined;
 
-  if (serialized.length === 0) return undefined;
+  for (const name in cookies) {
+    if (!Object.hasOwn(cookies, name)) continue;
+    const opts = cookies[name];
+    if (opts?.value == null) continue;
+    if (out === undefined) out = [];
+    out.push(serializeCookiePair(name, toCookieValue(opts.value), opts));
+  }
 
-  return serialized.length === 1 ? serialized[0] : serialized;
+  if (out === undefined) return undefined;
+  return out.length === 1 ? out[0] : out;
 };
 
 /** Maximum number of cookies parsed from a single header (DoS guard). */

@@ -279,12 +279,17 @@ export const createRouter = (): IgnexRouter => {
 
   /** Per-route wrapper — the interpreted equivalent of the compiled `core` fn. */
   const wrap = (reg: RouteRegistration): RouteHandlerFn => {
+    // Composed ONCE per route at registration: the context options are
+    // app-invariant, so only the route pattern differs. Spreading per request
+    // cost a `copyDataProperties` object build on every single request.
+    const routeCtxOptions = { ...ctxOptions, route: reg.path };
+
     return async (req, a, b) => {
       const params = extractParams(req, a, b);
       const server = extractServer(a, b);
       let ctx: IgnexContext | undefined;
       try {
-        ctx = createContext(req, params ?? EMPTY_PARAMS, { ...ctxOptions, route: reg.path });
+        ctx = createContext(req, params ?? EMPTY_PARAMS, routeCtxOptions);
         ctx.server = server ?? null;
         return await runRoute(reg, ctx, req);
       } catch (err) {

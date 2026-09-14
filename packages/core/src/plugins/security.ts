@@ -5,6 +5,7 @@
  */
 
 import type { IgnexContext } from "../http/context";
+import { isDecoratedResponse } from "../http/finalize";
 import { mutateHeaders } from "../http/headers";
 import type { IgnexPlugin } from "../lifecycle/plugin";
 
@@ -94,10 +95,52 @@ export const security = (options: SecurityOptions = {}): IgnexPlugin => {
   const hidePoweredBy = opts.hidePoweredBy;
   const hsts = opts.hsts;
 
+  // Declarative copy of the static header set. The framework bakes these into
+  // the header record when it CONSTRUCTS a response (`ctx.json`/`text`/`html`),
+  // which replaces the plugin's per-response chain of 8 native `Headers.set`
+  // calls with a single object build. HSTS is deliberately NOT included — it
+  // is request-conditional (HTTPS only) and stays on the `onResponse` path.
+  const responseDefaults: Record<string, string> = {};
+  for (const [k, v] of baked) responseDefaults[k] = v;
+
   return {
     name: "security",
+    responseDefaults: Object.freeze(responseDefaults),
 
     onResponse(ctx, response) {
+      // Conditional headers, evaluated once: HSTS applies only to HTTPS.
+      let hstsValue: string | undefined;
+
+      if (hsts && isHttpsRequest(ctx, trustProxy)) {
+        hstsValue = `max-age=${hsts.maxAge ?? 15552000}`;
+
+        if (hsts.includeSubDomains) {
+          hstsValue += "; includeSubDomains";
+        }
+
+        if (hsts.preload) {
+          hstsValue += "; preload";
+        }
+      }
+
+      // Fast path: a response the framework built already carries the static
+      // header set (baked in at construction — see `isDecoratedResponse`).
+      // When HSTS does not apply (plain HTTP), there is nothing left to do at
+      // all, so this collapses to a single `WeakSet` probe.
+      //
+      // `hidePoweredBy` is intentionally skipped here: the framework never
+      // adds `X-Powered-By` to a response it constructs, and a value the app
+      // sets through `ctx.set.headers` is applied by the later `applySet` pass
+      // — AFTER this hook — so the delete could never have removed it anyway.
+      // Only a raw `Response` passthrough (handled below) can carry one.
+      if (isDecoratedResponse(response)) {
+        if (hstsValue === undefined) return response;
+
+        return mutateHeaders(response, (headers) => {
+          headers.set("Strict-Transport-Security", hstsValue);
+        });
+      }
+
       // Apply the security headers IN PLACE (Bun) — no Headers copy, no
       // re-wrap — so the body stream + content-length survive the chain and
       // the per-request re-wrap cost (~2.5-4µs) disappears.
@@ -117,18 +160,8 @@ export const security = (options: SecurityOptions = {}): IgnexPlugin => {
           headers.delete("X-Powered-By");
         }
 
-        if (hsts && isHttpsRequest(ctx, trustProxy)) {
-          let value = `max-age=${hsts.maxAge ?? 15552000}`;
-
-          if (hsts.includeSubDomains) {
-            value += "; includeSubDomains";
-          }
-
-          if (hsts.preload) {
-            value += "; preload";
-          }
-
-          headers.set("Strict-Transport-Security", value);
+        if (hstsValue !== undefined) {
+          headers.set("Strict-Transport-Security", hstsValue);
         }
       });
     },

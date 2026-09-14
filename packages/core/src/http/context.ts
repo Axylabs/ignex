@@ -25,6 +25,103 @@ import { forwardRequest, type ProxyOptions, proxyRequest } from "./proxy";
 import { generateRequestId } from "./request-id";
 
 /**
+ * Result of the one-time `requestIP` capability probe.
+ *
+ * `0` = not yet probed, `1` = usable, `2` = unusable (it threw).
+ */
+let requestIpState: 0 | 1 | 2 = 0;
+
+/**
+ * A fresh header accumulator with a NULL prototype.
+ *
+ * Null-prototype is deliberate and load-bearing: header names come from app
+ * code (`ctx.set.headers[name] = value`), so a plain `{}` would let a name like
+ * `constructor` or `__proto__` resolve through `Object.prototype`.
+ *
+ * `Object.create(null)` is used rather than the `{ __proto__: null }` object
+ * literal because the literal is measurably SLOWER for this access pattern —
+ * creation cost is identical (~3.5ns) but keyed writes are roughly 2x:
+ *
+ *   Object.create(null) + 4 keyed writes   17.8 ns/req
+ *   { __proto__: null } + 4 keyed writes   33.5 ns/req
+ *
+ * A null-prototype literal takes shape transitions on every new key, while
+ * `Object.create(null)` is a dictionary object where a keyed write is a direct
+ * hash insert. (This was tried the other way round and reverted — the earlier
+ * "win" was run-to-run noise; see docs/perf-methodology.md "Resolution
+ * limit".)
+ */
+const emptyHeaders = (): Record<string, string> => Object.create(null) as Record<string, string>;
+
+/**
+ * Retire the scalar entries of `set.headers` once a reply has baked them in.
+ *
+ * `ctx.json`/`text`/`html` build the response with the accumulated
+ * `set.headers` already in the header record, so re-applying them in the
+ * `applySet` pass would cost a native `Headers.get` per header plus the whole
+ * `mutateHeaders` wrapper — the single most expensive per-request path the
+ * framework had. Blanking the accumulator makes `applySet` take its
+ * zero-allocation early return instead.
+ *
+ * Array-valued headers are carried over: they need `append` semantics, which
+ * only `applySet` can express. Headers written AFTER the reply is built (by
+ * `afterHandle`/`mapResponse` hooks) land in the fresh accumulator and are
+ * applied normally — so ordering semantics are unchanged.
+ *
+ * @param set - The request's response accumulator.
+ */
+const consumeSetHeaders = (set: SetHeaders): void => {
+  const headers = set.headers;
+  let carry: Record<string, string> | undefined;
+
+  for (const k in headers) {
+    if (!Object.hasOwn(headers, k)) continue;
+    const v = (headers as Record<string, unknown>)[k];
+    if (Array.isArray(v)) {
+      carry ??= emptyHeaders();
+      carry[k] = v as unknown as string;
+    }
+  }
+
+  set.headers = carry ?? emptyHeaders();
+};
+
+/**
+ * Read the peer address via the runtime's `requestIP`, with the `try/catch`
+ * paid only on the FIRST call.
+ *
+ * `requestIP` is non-standard: on some runtimes the method exists but throws
+ * rather than returning `undefined`. Wrapping every call in `try/catch` kept
+ * the per-request cost ~2x a bare call (measured on the comparison bench:
+ * ~1.8us/req vs the equivalent unwrapped call). Probing once and then calling
+ * bare preserves the failure handling while letting the hot path optimize.
+ *
+ * @param server - The server handle (may be `undefined` off-Bun).
+ * @param req - The request whose peer address is wanted.
+ * @returns The address, or `undefined` when unavailable.
+ */
+const readSocketIp = (server: IgnexServer | null | undefined, req: Request): string | undefined => {
+  if (requestIpState === 2) return undefined;
+
+  if (requestIpState === 1) {
+    const ip = server?.requestIP?.(req)?.address;
+    return ip === undefined || ip === "" ? undefined : ip;
+  }
+
+  try {
+    const ip = server?.requestIP?.(req)?.address;
+    requestIpState = 1;
+    return ip === undefined || ip === "" ? undefined : ip;
+  } catch (err) {
+    requestIpState = 2;
+    // Surface it at info level instead of silently masking the failure, then
+    // fall through to the proxy-header / "anonymous" paths forever.
+    console.info("[ignex] requestIP unavailable:", err);
+    return undefined;
+  }
+};
+
+/**
  * Narrow, Bun-free view of the server handle exposed on {@link IgnexContext}.
  *
  * The generated server assigns the Bun `Server` instance here; this structural
@@ -55,6 +152,17 @@ export interface ContextOptions {
   bodyInstance?: LazyBody;
   params?: Record<string, string>;
   set?: Partial<SetHeaders>;
+  /**
+   * App-invariant response headers applied when the framework builds a
+   * response (`ctx.json`/`ctx.text`/`ctx.html`).
+   *
+   * Populated once at app boot from the plugins' declarative
+   * `responseDefaults` (see {@link IgnexPlugin.responseDefaults}) — currently
+   * the `security()` header set. Baking them into the header record at
+   * construction turns a per-request chain of ~8 native `Headers.set` calls
+   * (the dominant cost of the security plugin) into a single object build.
+   */
+  responseDefaults?: Record<string, string>;
   /**
    * Matched route pattern (e.g. `/users/:id`). The AOT-compiled server
    * threads the pattern it matched; the interpreted `createApp` path has no
@@ -254,7 +362,7 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     // `status` is intentionally left unset: an explicitly-set `set.status`
     // overrides the response status (see `applySet`), but a default of 200
     // here would clobber handlers returning e.g. 401/redirects.
-    this.set = { headers: Object.create(null), ...opts.set };
+    this.set = { headers: emptyHeaders(), ...opts.set };
     // The `set.cookie` accumulator is always initialized so handlers can write
     // `ctx.set.cookie.name = {...}` directly even when they never read
     // `ctx.cookie` (the cookie-jar PROXY is created lazily on first `ctx.cookie`
@@ -315,19 +423,10 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   get ip(): string {
     if (this._ip !== undefined) return this._ip;
 
-    const server = this.server;
-
-    try {
-      const socketIp = server?.requestIP?.(this.req)?.address;
-      if (socketIp) {
-        this._ip = socketIp;
-        return socketIp;
-      }
-    } catch (err) {
-      // `requestIP` is non-standard on some runtimes and may throw rather
-      // than return undefined — surface it at info level instead of
-      // silently masking the failure, then fall through to headers.
-      console.info("[ignex] requestIP unavailable:", err);
+    const socketIp = readSocketIp(this.server, this.req);
+    if (socketIp !== undefined) {
+      this._ip = socketIp;
+      return socketIp;
     }
 
     // Client-supplied IP headers are spoofable; only honor them when the app
@@ -389,31 +488,56 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   }
 
   json<T>(data: T, init?: ResponseInit): Response {
-    const status = init?.status ?? this.set.status ?? 200;
+    const set = this.set;
+    const status = init?.status ?? set.status ?? 200;
     const s = JSON.stringify(data);
 
-    return responseWithBody(s === undefined ? undefined : s, "application/json; charset=utf-8", {
-      ...init,
-      status,
-    });
+    // Fast path: a bare `ctx.json(data)` with a default status passes
+    // `undefined` straight through, so `withBody` takes its no-init branch
+    // (`new Response(bytes, { headers })`) instead of allocating a
+    // `{ ...rest, headers }` rest-spread object on every response.
+    const response = responseWithBody(
+      s === undefined ? undefined : s,
+      "application/json; charset=utf-8",
+      init === undefined && status === 200 ? undefined : { ...init, status },
+      this._opts.responseDefaults,
+      set.headers,
+    );
+
+    consumeSetHeaders(set);
+    return response;
   }
 
   text(data: string, init?: ResponseInit): Response {
-    const status = init?.status ?? this.set.status ?? 200;
+    const set = this.set;
+    const status = init?.status ?? set.status ?? 200;
 
-    return responseWithBody(String(data), "text/plain; charset=utf-8", {
-      ...init,
-      status,
-    });
+    const response = responseWithBody(
+      String(data),
+      "text/plain; charset=utf-8",
+      init === undefined && status === 200 ? undefined : { ...init, status },
+      this._opts.responseDefaults,
+      set.headers,
+    );
+
+    consumeSetHeaders(set);
+    return response;
   }
 
   html(data: string, init?: ResponseInit): Response {
-    const status = init?.status ?? this.set.status ?? 200;
+    const set = this.set;
+    const status = init?.status ?? set.status ?? 200;
 
-    return responseWithBody(String(data), "text/html; charset=utf-8", {
-      ...init,
-      status,
-    });
+    const response = responseWithBody(
+      String(data),
+      "text/html; charset=utf-8",
+      init === undefined && status === 200 ? undefined : { ...init, status },
+      this._opts.responseDefaults,
+      set.headers,
+    );
+
+    consumeSetHeaders(set);
+    return response;
   }
 
   stream(stream: ReadableStream, init?: ResponseInit): Response {

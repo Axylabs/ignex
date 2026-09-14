@@ -6,8 +6,72 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Compiled servers are 79% smaller and boot 55% faster** (7-route reference
+  app: `__server.js` **927 KB → 196 KB**, 24,738 → 5,611 lines; spawn → first
+  response **51 ms → 23 ms**). The bundles were carrying subsystems the app
+  never used — Ajv + `ajv-formats` + `fast-uri` (~2,500 lines), the whole
+  `pino` logging stack including `sonic-boom`, `thread-stream`,
+  `@pinojs/redact` and `safe-stable-stringify` (~2,600 lines), and most of the
+  `@ignex/native` bridge. The cause was that `packages/{core,native,shared}`
+  declared no `sideEffects` hint, so the bundler had to assume any reachable
+  module might have import-time side effects and therefore retained it — and
+  its imports — even when none of its exports were used. Declaring
+  `"sideEffects": false` lets it drop them. Per-request CPU is **unchanged**
+  (framework overhead 3.82 µs → 3.90 µs, within noise); this is a size and
+  boot-time win, not a throughput one. Verified by `verify`, the 4-server
+  contract harness, `smoke`, `smoke:fallback`, `verify:native:route`,
+  `verify:aot:rbac` and `check:native:surface`.
+
 ### Fixed
 
+- **The comparison benchmark was measuring its own load generator, not the
+  servers — by a factor of ~34×.** `bench/compare` reported ~1,030 rps with
+  p75–p99 latencies of 4–9 SECONDS for `bun`, `elysia` and `ignus` alike; the
+  tell was that all three were *identical*, percentiles included. The
+  concurrency gate awaited `Promise.race(activeSet)` while at capacity, which is
+  O(in-flight) per completed request — at `maxConcurrent = 10_000` that is 10k
+  reaction registrations for every response. Same server, same 8 s, same
+  ceiling: **1,811 rps (old gate) → 23,608 rps (O(1) counter gate)**. The
+  generator is now sharded across processes (one Bun process cannot drive a
+  modern server on loopback), per-request latency histograms are merged across
+  shards, and the scenarios' `maxConcurrent` ceilings were retuned to realistic
+  in-flight **request** counts (the old values up to 10,000 were compensating
+  for the broken gate and collapsed throughput). Reported 03-stress peak went
+  from **1,044 → ~36k rps** (ignus-aot), and the participants now separate
+  instead of tying.
+- **Comparison reports gained a per-phase throughput table, and the run-average
+  RPS is no longer the headline.** Each phase now reports its target, requests,
+  achieved rps, `client-limited` flag, and its own p50/p95/p99/max; a new
+  **Peak sustained RPS** field (best *unpaced* phase) is the capacity number.
+  Previously a single run-wide average hid the unpaced phase behind the ramps,
+  and a phase the *generator* could not keep up with was indistinguishable from
+  a slow server.
+- **`packages/app/builder.ts` had a comment saying `nativeRoutes` is OFF with
+  `nativeRoutes: true` in the code.** The comment documents the measured best
+  (+4–8% for the fallback path with castrum 0.9.6 on this app's small routes),
+  so the flag was silently costing production throughput; the bench participant
+  was also relying on the compiler default and measuring a configuration the
+  framework does not ship. Both now set `nativeRoutes: false` (+2.4% measured on
+  the AOT bench participant).
+- **`check-compare-gate.ts` formatted every p50 as if it were in seconds**
+  (`p50 * 1000`), showing "337.4ms" for a 0.337 ms value. The report's unit is
+  milliseconds; the display no longer inflates by 1000×.
+
+### Changed
+
+- **`bench:compare` env controls**: `HTTP_WORKERS` (generator processes,
+  default auto), `HTTP_WARMUP_SEC` (unpaced warm-up excluded from stats, default
+  2), `HTTP_MAX_CONCURRENT` (override every scenario ceiling). See
+  `docs/comparison-bench.md`.
+- **03-stress is now declared as a known ignus-aot loss in the compare gate**
+  (tolerance 1.35 against a measured x1.28). This is a *newly visible* gap, not
+  a new regression: while the generator was client-capped at ~1,030 rps both
+  servers sat far below saturation and the scenario read as parity. ignus-aot is
+  within ~5% of Elysia at low rates but loses ~20% of saturated throughput —
+  a real per-request-CPU-under-concurrency item to track, recorded in
+  `docs/perf-methodology.md`.
 - **castrum 0.9.6 adoption — the recent Rust improvements are now actually in
   use.** The workspace install (`packages/native/package.json` → `^0.9.6`) and
   both CI pins (`ci.yml`/`nightly.yml` `CASTRUM_REF` = the v0.9.6 tag

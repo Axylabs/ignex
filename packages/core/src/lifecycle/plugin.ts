@@ -4,6 +4,7 @@
  */
 
 import type { IgnexContext } from "../http/context";
+import { sanitizeHeaderValue } from "../http/finalize";
 import type { IgnexRouter } from "../http/router";
 import type { HookContainer, LifeCycleStore } from "../types";
 import type { HookFn } from "./hooks";
@@ -46,6 +47,18 @@ export interface IgnexPlugin {
    * tool contributes zero per-request hooks to production artifacts.
    */
   readonly __ignexDevOnly?: boolean;
+
+  /**
+   * App-invariant response headers this plugin guarantees on every response.
+   *
+   * Declaring them lets the framework bake the values into the header record
+   * at response CONSTRUCTION instead of the plugin mutating each finished
+   * `Response` — replacing ~N native `Headers.set` round-trips per request
+   * with one object build. The plugin's `onResponse` still runs for responses
+   * the framework did not build (raw `Response` passthroughs) and for any
+   * request-conditional headers it owns.
+   */
+  readonly responseDefaults?: Readonly<Record<string, string>>;
 
   // Lifecycle
   init?(): MaybePromise<void>;
@@ -218,6 +231,14 @@ const LIFECYCLE_STAGES = [
 interface PatternedPlugin {
   readonly plugin: IgnexPlugin;
   readonly match: (pathname: string) => boolean;
+  /**
+   * Boot-time constant: whether this plugin declared a `pattern` scope.
+   *
+   * Without it, the caller had to evaluate `ctx.url.pathname` BEFORE calling
+   * `match` — forcing a full `new URL(req.url)` parse on every request purely
+   * to feed an identity matcher that ignores its argument.
+   */
+  readonly hasPattern: boolean;
 }
 
 /**
@@ -230,14 +251,20 @@ interface PatternedPlugin {
 const runOnResponseChain = (
   onResponsePlugins: readonly PatternedPlugin[],
 ): ((ctx: IgnexContext, response: Response) => unknown) => {
+  // Boot-time constant: when no plugin declares a scope, the per-request
+  // pathname is never read (it would force `ctx.url` → `new URL(req.url)`).
+  const anyPattern = onResponsePlugins.some((e) => e.hasPattern);
   return (ctx: IgnexContext, response: Response): unknown => {
-    const pathname = ctx.url.pathname;
+    // Only resolve a pathname when some plugin actually scopes on one. Uses
+    // `ctx.path` (a cheap pathname slice) rather than `ctx.url.pathname`, which
+    // would materialize a full `URL` — and only when a pattern exists at all.
+    const pathname = anyPattern ? ctx.path : "";
     let current: Response = response;
     for (let i = 0; i < onResponsePlugins.length; i++) {
       const entry = onResponsePlugins[i];
       if (entry === undefined) continue;
       const { plugin, match } = entry;
-      if (!match(pathname)) continue; // pattern-scoped middleware
+      if (entry.hasPattern && !match(pathname)) continue; // pattern-scoped middleware
       const result = plugin.onResponse?.(ctx, current);
       if (!isThenable(result)) {
         if (result instanceof Response) current = result;
@@ -253,7 +280,7 @@ const runOnResponseChain = (
         const later = onResponsePlugins[j];
         if (later === undefined) continue;
         chain = chain.then(async (prev) => {
-          if (!later.match(pathname)) return prev;
+          if (later.hasPattern && !later.match(pathname)) return prev;
           const r = await later.plugin.onResponse?.(ctx, prev);
           return r instanceof Response ? r : prev;
         });
@@ -324,6 +351,37 @@ export const pluginContextToLifecycle = (ctx: PluginContext): Partial<LifeCycleS
 };
 
 /**
+ * Merge the declarative `responseDefaults` of every plugin in the list.
+ *
+ * Called ONCE at app boot: the result is app-invariant, so `withBody` can bake
+ * it into the header record of every framework-built response. Returns
+ * `undefined` when no plugin declares any, keeping the response-construction
+ * fast path branch-free and allocation-free.
+ *
+ * Values are sanitized HERE, once, because the per-request path applies this
+ * record with `applyStaticHeaders` — which deliberately skips
+ * `sanitizeHeaderValue` (and `Object.hasOwn`) for speed. Sanitizing at boot
+ * keeps the response-splitting guarantee without paying for it per request.
+ */
+export const collectResponseDefaults = (
+  plugins: readonly unknown[],
+): Record<string, string> | undefined => {
+  let merged: Record<string, string> | undefined;
+
+  for (const p of (plugins ?? []).flat()) {
+    if (!isIgnexPlugin(p)) continue;
+    const defaults = p.responseDefaults;
+    if (!defaults) continue;
+    for (const k in defaults) {
+      merged ??= {};
+      merged[k] = sanitizeHeaderValue(String(defaults[k]));
+    }
+  }
+
+  return merged === undefined ? undefined : Object.freeze(merged);
+};
+
+/**
  * Convert a plugin list into lifecycle stage containers.
  *
  * `onRequest` plugins become a `request` stage, `onResponse` plugins are
@@ -347,6 +405,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
       // Pattern-scoped global middleware: the matcher is compiled ONCE; a
       // non-matching request skips the plugin with a plain `{ ctx }` (the
       // cheapest possible pass-through).
+      const hasPattern = p.pattern !== undefined;
       const match = createPatternMatcher(p.pattern);
       const onRequest = p.onRequest;
       return {
@@ -356,7 +415,10 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
         // Promise allocation. Genuinely async hooks are awaited via the thenable
         // branch, so ordering semantics are unchanged.
         fn: (ctx: IgnexContext) => {
-          if (!match(ctx.url.pathname)) return { ctx };
+          // `hasPattern` is a boot-time constant, so an unscoped plugin never
+          // evaluates a pathname at all; `ctx.path` (a slice) is used rather
+          // than `ctx.url.pathname` (a full `URL` parse) when it does.
+          if (hasPattern && !match(ctx.path)) return { ctx };
           const result = onRequest?.(ctx);
           if (isThenable(result)) {
             return result.then((r) => {
@@ -379,7 +441,11 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
   const onResponsePlugins = [...list]
     .reverse()
     .filter((p) => typeof p.onResponse === "function")
-    .map((p) => ({ plugin: p, match: createPatternMatcher(p.pattern) }));
+    .map((p) => ({
+      plugin: p,
+      match: createPatternMatcher(p.pattern),
+      hasPattern: p.pattern !== undefined,
+    }));
 
   // `onResponse` is the onion "way out" phase: the LAST-registered plugin wraps
   // the previous ones' response — identical to `composePlugins`.

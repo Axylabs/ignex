@@ -149,9 +149,24 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
     header.push(
       `const __lc = mergeLifeCycle(mergeLifeCycle(EMPTY_LIFECYCLE, __pluginLC), __userLC);`,
     );
+    // Plugin-declared, app-invariant response headers (currently the
+    // `security()` header set). Hoisted into `__DEFAULT_HEADERS` below so they
+    // are present when `__withBody` CONSTRUCTS a response, letting the plugin
+    // skip its per-response chain of native `Headers.set` calls. Read straight
+    // off the plugin objects (a plain property — no `init` needed) and merged
+    // once here rather than per request.
+    header.push(`const __pluginDefaults = (() => {
+  let __merged;
+  for (const __p of __appPlugins) {
+    if (__p == null || typeof __p !== "object" || !__p.responseDefaults) continue;
+    __merged = { ...(__merged ?? {}), ...__p.responseDefaults };
+  }
+  return __merged;
+})();`);
   } else {
     header.push(`const __lc = EMPTY_LIFECYCLE;`);
     header.push(`const __serverCfg = {};`);
+    header.push(`const __pluginDefaults = undefined;`);
     // Config-less servers still resolve TLS (HTTPS-by-default policy); the
     // result feeds the bootstrap below. No boot info broadcast — no plugins.
     header.push(`const __serveTls = resolveServeTls(__serverCfg, {
@@ -160,13 +175,31 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
 });`);
   }
 
-  // Static default response headers (security headers, wildcard CORS) from the
-  // app `server.headers` config. Merged into every framework-built response by
-  // `__withBody` — replaces per-request `security()`/`cors()` hooks with a
-  // frozen-object spread at Response construction. `null` when unset (a module
-  // constant, so the branch folds away and unconfigured servers pay nothing).
+  // Static default response headers applied to every framework-built response
+  // by `__withBody` — the plugin-declared set (security headers) plus the app
+  // `server.headers` config, with the explicit config winning on conflict.
+  // Folding the PLUGIN's declarative `responseDefaults` in here is what lets a
+  // decorating plugin skip its per-response chain of native `Headers.set`
+  // calls: the values are already in the header record when the `Response` is
+  // constructed (see the `markDecoratedResponse` call in `__withBody`). `null`
+  // when neither source is present (a module constant, so the branch folds
+  // away and unconfigured servers pay nothing).
+  //
+  // The merged values are sanitized ONCE here because `__withBody` applies
+  // them through `__applyStaticHeaders`, which deliberately skips the
+  // per-value CRLF/NUL check (~18 ns/header when paid per response). Doing it
+  // at boot keeps the response-splitting guarantee for free at request time.
+  // Mirrors `sanitizeHeaderValue` in `@ignex/core`'s `http/finalize.ts`.
+  header.push(`const __CTL_TEST = /[\\r\\n\\0]/;
+const __CTL_STRIP = /[\\r\\n\\0]/g;
+const __sanitizeHeaderValue = (value) => __CTL_TEST.test(value) ? value.replace(__CTL_STRIP, "") : value;`);
   header.push(
-    `const __DEFAULT_HEADERS = __serverCfg.headers ? Object.freeze({ ...__serverCfg.headers }) : null;`,
+    `const __DEFAULT_HEADERS = (() => {
+  if (!__pluginDefaults && !__serverCfg.headers) return null;
+  const __merged = { ...__pluginDefaults, ...__serverCfg.headers };
+  for (const __k in __merged) __merged[__k] = __sanitizeHeaderValue(String(__merged[__k]));
+  return Object.freeze(__merged);
+})();`,
   );
 
   // Prebuilt lifecycle stage chains — composed once, not per request. Stage

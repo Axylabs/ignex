@@ -11,8 +11,7 @@
 
 import type { ElysiaCookie } from "../types";
 import { serializeCookie } from "./cookies";
-import { encoder } from "./encoder";
-import { withBody } from "./finalize";
+import { applyInitHeaders, sanitizeHeaderValue, withBody } from "./finalize";
 
 /**
  * The accumulated response mutations carried on the request context (`ctx.set`):
@@ -62,33 +61,6 @@ export const createResponseInit = (status: number, headers?: IgnexHeadersInit): 
 };
 
 /**
- * Merge a supported header shape (Headers / array / object) into a target
- * Headers instance. Single source of truth for header-shape merging — used by
- * {@link mergeHeaders}.
- */
-const applyInitHeaders = (target: Headers, init: IgnexHeadersInit | undefined): void => {
-  if (!init) return;
-  const isIterable =
-    init instanceof Headers ||
-    (typeof (init as { forEach?: unknown }).forEach === "function" && !Array.isArray(init));
-  if (isIterable) {
-    (init as Headers).forEach((value, key) => {
-      target.set(key, value);
-    });
-    return;
-  }
-  if (Array.isArray(init)) {
-    for (const [k, v] of init as Array<[string, string | undefined]>) {
-      if (v !== undefined) target.set(k, v);
-    }
-    return;
-  }
-  for (const [k, v] of Object.entries(init as Record<string, string | undefined>)) {
-    if (v != null) target.set(k, String(v));
-  }
-};
-
-/**
  * Build a `Response` from a string body, encoding it once and setting an
  * accurate `content-length`. Bun only materializes `content-length` at serve
  * time (the in-process `Response` has it as `null`), so without this,
@@ -101,7 +73,9 @@ export const responseWithBody = (
   body: string | undefined,
   contentType: string,
   init?: ResponseInit,
-): Response => withBody(body === undefined ? null : encoder.encode(body), contentType, init);
+  defaults?: Record<string, string> | null,
+  setHeaders?: Record<string, string> | null,
+): Response => withBody(body === undefined ? null : body, contentType, init, defaults, setHeaders);
 
 /**
  * Hop-by-hop headers that must never be forwarded or cached — single source
@@ -189,29 +163,23 @@ export const mutateHeaders = (response: Response, mutate: (headers: Headers) => 
 };
 
 /**
- * Strip CR/LF/NUL from a header value before it is written to the wire.
+ * Set (or append, for array values) a single header value on a Headers.
  *
- * Reflected user input (query/body values echoed into headers) must never be
- * able to smuggle a second header nor crash the whole request: the runtime
- * rejects invalid header values (`Headers.set` throws on CR/LF/NUL), which
- * turns a hostile `?v=foo%0d%0ax-injected: pwned` into a 500. Dropping the
- * control characters instead keeps the request healthy (200) while the
- * injection never reaches the wire. Matches Elysia's CRLF-drop behavior.
- *
- * The regex only runs when a control char is actually present — the hot path
- * (well-formed values) skips it entirely.
+ * Skips the write when the response already carries the exact value: the
+ * common path folds `ctx.set.headers` in at Response CONSTRUCTION (see
+ * `withBody`), so re-applying them here would be a pure waste of a native
+ * `Headers.set` (plus a value sanitize) per header per request.
  */
-const sanitizeHeaderValue = (value: string): string =>
-  /[\r\n\0]/.test(value) ? value.replace(/[\r\n\0]/g, "") : value;
-
-/** Set (or append, for array values) a single header value on a Headers. */
 const applyHeaderValue = (h: Headers, key: string, value: string | string[]): void => {
   if (Array.isArray(value)) {
     h.delete(key);
     for (const x of value) h.append(key, sanitizeHeaderValue(String(x)));
-  } else {
-    h.set(key, sanitizeHeaderValue(String(value)));
+    return;
   }
+
+  const s = String(value);
+  if (h.get(key) === s) return;
+  h.set(key, sanitizeHeaderValue(s));
 };
 
 /** Serialize and append a cookie record's `Set-Cookie` values. */
@@ -258,13 +226,35 @@ const applySetHeaders = (
   if (trace && requestId) h.set("x-request-id", requestId);
 
   if (headers) {
-    for (const [k, v] of Object.entries(headers)) {
+    // `for..in` + `Object.hasOwn` instead of `Object.entries`: the hot path
+    // applies a handful of headers per response, and `Object.entries`
+    // allocated an outer array plus one `[k, v]` pair array per header on
+    // every single request. Iterating owns the same own-enumerable-key
+    // contract without allocating.
+    for (const k in headers) {
+      if (!Object.hasOwn(headers, k)) continue;
+      const v = headers[k];
       if (v == null) continue;
       applyHeaderValue(h, k, v);
     }
   }
 
   applySetCookies(h, cookie);
+};
+
+/**
+ * Allocation-free "does this record have any own enumerable key?".
+ *
+ * `Object.keys(obj).length` allocates an array per call — and `applySet` runs
+ * on every response, so the emptiness probe alone was a per-request
+ * allocation even when nothing had been mutated.
+ */
+const hasOwnKeys = (obj: object | undefined): boolean => {
+  if (obj === undefined) return false;
+  for (const k in obj) {
+    if (Object.hasOwn(obj, k)) return true;
+  }
+  return false;
 };
 
 /**
@@ -290,13 +280,15 @@ export const applySet = (
 
   const { headers, cookie, status, redirect } = set;
 
-  // Fast path: nothing was mutated and no trace header requested.
+  // Fast path: nothing was mutated and no trace header requested. The key
+  // probes are allocation-free (see `hasOwnKeys`) so a no-op `applySet` costs
+  // nothing at all — the common case for routes that only use `ctx.json()`.
   if (
     !trace &&
     status === undefined &&
     redirect === undefined &&
-    (headers === undefined || Object.keys(headers).length === 0) &&
-    (cookie === undefined || Object.keys(cookie).length === 0)
+    !hasOwnKeys(headers) &&
+    !hasOwnKeys(cookie)
   ) {
     return response;
   }

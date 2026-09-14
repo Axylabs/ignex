@@ -96,8 +96,16 @@ export const runHooks = (
   let current = ctx;
   if (!hooks || hooks.length === 0) return { ctx: current };
   const fns = flattenHooks(hooks);
-  for (let i = 0; i < fns.length; i++) {
-    const r = arg === undefined ? fns[i]?.(current) : fns[i]?.(current, arg);
+  const len = fns.length;
+
+  // Two specialised loops (rather than an `arg === undefined` test per hook):
+  // the hook call site is the single hottest call in the framework, and the
+  // extra branch plus the optional-call `?.` both inhibit inlining.
+  // `flattenHooks` guarantees every entry is callable, so the call is direct.
+  for (let i = 0; i < len; i++) {
+    const fn = fns[i] as HookFn;
+    const r = arg === undefined ? fn(current) : fn(current, arg);
+
     if (r instanceof Promise) {
       // An async hook: interpret it, then continue the remainder asynchronously.
       return (async () => {
@@ -107,15 +115,18 @@ export const runHooks = (
         return runHooksAsync(fns, i + 1, out.next, arg);
       })();
     }
+
     if (r instanceof Response) return { response: r, ctx: current };
-    if (r && typeof r === "object") {
+
+    if (r !== null && typeof r === "object") {
+      // One `instanceof` instead of the previous two: the same check was
+      // evaluated once for the `ok === false` arm and again standalone.
       const res = r as { ok?: boolean; response?: Response; ctx?: IgnexContext };
-      if (res.ok === false && res.response instanceof Response)
-        return { response: res.response, ctx: current };
-      if (res.response instanceof Response) return { response: res.response, ctx: current };
-      if (res.ctx) {
-        current = res.ctx;
-      }
+      const halted = res.response;
+
+      if (halted instanceof Response) return { response: halted, ctx: current };
+
+      if (res.ctx) current = res.ctx;
     }
   }
   return { ctx: current };

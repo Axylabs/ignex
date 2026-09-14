@@ -44,9 +44,27 @@ await buildAsync({
 
   precompileValidators: true,
   precompileSerializers: true,
+
+  // Match the production app (`packages/app/builder.ts`): the per-route native
+  // stack (`createNativeRoute`) is measured as a net loss on small routes (+4-8%
+  // for the fallback path, see docs/perf-methodology.md), so the bench
+  // participant must not measure a configuration the framework does not ship.
+  nativeRoutes: false,
 });
 
 console.log(`[ignus-aot] compiled → ${join(outDir, "__server.js")}`);
+
+// Build-only mode: emit the artifact and exit WITHOUT booting it.
+//
+// The CPU-per-request bench (`bench/compare/cpu.ts`) uses this to build once,
+// then measures the compiled artifact in a clean process. Booting from THIS
+// file keeps the whole compiler + bundler resident in the server's heap, which
+// measurably inflates per-request GC (measured 35.4us/req vs ~29.9us/req for
+// the same compiled entry spawned alone — a ~18% penalty that has nothing to
+// do with the framework's runtime).
+if (process.env.BENCH_BUILD_ONLY === "1") {
+  process.exit(0);
+}
 
 // Boot the compiled server: it calls `Bun.serve` on :9123 (from the bench
 // app.config `server.port`) and keeps the event loop alive.

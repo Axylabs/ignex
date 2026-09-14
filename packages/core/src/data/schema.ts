@@ -27,15 +27,39 @@ import addFormats from "ajv-formats";
 import { ValidationError } from "../platform/errors";
 import type { AnySchema, StandardSchemaV1 } from "../types";
 
-const ajv = new Ajv({
-  allErrors: true,
-  strict: false,
-  coerceTypes: true,
-  removeAdditional: true,
-  useDefaults: true,
-});
+let ajvInstance: Ajv | undefined;
 
-addFormats(ajv);
+/**
+ * The shared Ajv instance, created on FIRST USE rather than at module scope.
+ *
+ * Ajv — with `ajv-formats` and its `fast-uri` dependency — is ~2,500 lines of
+ * the emitted server. Instantiating it at module scope made this module
+ * SIDE-EFFECTING, which defeats the linker's tree-shaking: importing anything
+ * from the `@ignex/core` barrel then retained the entire validator (and the
+ * `@ignex/native` import beside it) in EVERY generated server, including apps
+ * that never touch JSON Schema. Keeping the construction inside this accessor
+ * leaves the module free of top-level side effects so the bundler can drop it.
+ *
+ * Nothing here reads the instance before `compileValidator` is first called
+ * for a schema, so the observable behaviour is unchanged.
+ *
+ * @returns The process-wide Ajv instance, constructed on first call.
+ */
+const getAjv = (): Ajv => {
+  if (ajvInstance === undefined) {
+    const instance = new Ajv({
+      allErrors: true,
+      strict: false,
+      coerceTypes: true,
+      removeAdditional: true,
+      useDefaults: true,
+    });
+    addFormats(instance);
+    ajvInstance = instance;
+  }
+
+  return ajvInstance;
+};
 
 const DRAFT7 = "http://json-schema.org/draft-07/schema#";
 
@@ -170,7 +194,7 @@ export function compileValidator<T = unknown>(schema: AnySchema, on: string = "i
   let entry = compiledCache.get(schemaKey);
 
   if (!entry) {
-    const ajvValidate = ajv.compile(schema as object);
+    const ajvValidate = getAjv().compile(schema as object);
     let native: CompiledValidator["native"] = null;
     if (isFastGateSafe(schema)) {
       try {

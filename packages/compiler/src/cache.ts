@@ -47,7 +47,7 @@ import { projectPath } from "./utils/path";
  * napi `jwtSignEddsa` vs op name `jwtSignEdDsa` mismatch defeated the pin) —
  * the SELECTION baked into generated servers changed on Bun.
  */
-export const COMPILER_CACHE_VERSION = "0.9.10";
+export const COMPILER_CACHE_VERSION = "0.9.11";
 
 const CACHE_FILE = ".ignex-cache.json";
 

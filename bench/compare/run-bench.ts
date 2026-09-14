@@ -91,6 +91,78 @@ async function startServer(kind: ServerKind): Promise<ServerHandle> {
   return { proc, kind, port: PORTS[kind] };
 }
 
+/**
+ * Print the headline table: peak sustained RPS per server × scenario.
+ *
+ * The run-average `achievedRps` is deliberately *not* the headline — it is
+ * diluted by ramp/idle phases and by scenarios that are paced by design. The
+ * peak phase (normally an unpaced "fire as fast as possible" phase) is the
+ * number that answers "how much can this server actually do".
+ */
+async function printSummary(servers: ServerKind[], scenarios: string[]): Promise<void> {
+  const rows: string[][] = [];
+  for (const scenario of scenarios) {
+    const picks: string[] = [];
+    for (const server of servers) {
+      const report = await loadReport(server, scenario);
+      if (!report) {
+        picks.push("—");
+        continue;
+      }
+      const clamped = report.phases.some((p) => p.clamped);
+      // `~` = the scenario has no unpaced phase, so this is the highest pacing
+      // target held (a generator-floor figure, not a server ceiling).
+      picks.push(
+        `${report.peakRps.toFixed(0).padStart(8)}${clamped ? "*" : report.peakUnpaced ? " " : "~"}`,
+      );
+    }
+    rows.push([scenario, ...picks]);
+  }
+
+  const width = Math.max(10, ...scenarios.map((s) => s.length));
+  const col = 10;
+  const header = `${"scenario".padEnd(width)}${servers
+    .map((s) => s.slice(0, col - 1).padStart(col))
+    .join("")}`;
+  console.log("\n═══ Peak sustained RPS (requests/second) ═══");
+  console.log(header);
+  console.log("─".repeat(header.length));
+  for (const row of rows) {
+    const [scenario, ...cells] = row as [string, ...string[]];
+    console.log(`${scenario.padEnd(width)}${cells.map((c) => c.padStart(col)).join("")}`);
+  }
+  if (rows.some((r) => r.some((c) => c.endsWith("*")))) {
+    console.log(
+      "\n  * a paced phase fell short — the generator was the limit there, not the server",
+    );
+  }
+  if (rows.some((r) => r.some((c) => c.endsWith("~")))) {
+    console.log(
+      "  ~ no unpaced phase in that scenario — the value is the pacing target, not capacity",
+    );
+  }
+  console.log("");
+}
+
+interface SummaryReport {
+  peakRps: number;
+  peakUnpaced: boolean;
+  phases: Array<{ clamped: boolean }>;
+}
+
+async function loadReport(server: string, scenario: string): Promise<SummaryReport | null> {
+  const path = `./bench/results/compare/${server}/${scenario}.bench.json`;
+  try {
+    const file = Bun.file(path);
+    if (!(await file.exists())) return null;
+    const parsed = (await file.json()) as SummaryReport;
+    if (typeof parsed?.peakRps !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   // ── Native transport guard (mirrors the rust project's FFI guard) ──
   // The ignus server runs its native backend when the addon is available. Warn
@@ -184,6 +256,10 @@ async function main() {
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    await printSummary(
+      handles.map((h) => h.kind),
+      scenarios,
+    );
     console.log(`\n✓ All benchmarks complete in ${elapsed}s. Results in ./bench/results/compare/`);
   } finally {
     // ALWAYS stop every booted server — a boot failure must not leak

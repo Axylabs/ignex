@@ -155,7 +155,7 @@ export const generateRouteCode = (
     // frozen instance is safe (removes one allocation + a hidden class change
     // per request on the full-context path).
     state.header.push(
-      `const ${ctxOptsVar(route)} = Object.freeze({ body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)} });`,
+      `const ${ctxOptsVar(route)} = Object.freeze({ body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)}, responseDefaults: __DEFAULT_HEADERS });`,
     );
     // Full context: create the context, run the pre-parse lifecycle, then the
     // per-part validation block (native-first prelude when the route is

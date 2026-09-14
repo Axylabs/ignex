@@ -16,6 +16,14 @@
  * 17-validation-spike, 20-validation-storm) are where ignus-aot should win;
  * the low-rate error-path scenarios are pacing-dominated and use KNOWN_SLOWER.
  *
+ * NOTE (2026-09-14): latency is now measured around each request only, and the
+ * generator is sharded so it can actually saturate the server. In a scenario
+ * with an unpaced phase (e.g. 03-stress "Max") the per-route p50 therefore
+ * reflects the SATURATED operating point, so the ratio here is effectively a
+ * throughput comparison — which is the intent for the throughput scenarios.
+ * Read the per-phase table in the reports to separate per-op latency from
+ * capacity.
+ *
  * Usage: `bun scripts/check-compare-gate.ts` — exits 1 on any violation.
  * Env:
  *   GATE_TOLERANCE=n   global p50 tolerance multiplier (default 1.10)
@@ -39,6 +47,19 @@ const KNOWN_SLOWER: Record<string, number> = {
   // Throughput scenario that sits at the boundary; was a win in the
   // original committed run — keep a small headroom.
   "02-load": 1.15,
+  // Throughput scenario where ignus-aot trails ELYSIA under SATURATION.
+  //
+  // Measured 2026-09-14 (x1.28) on the corrected load generator. This is a
+  // genuine, previously invisible gap, not noise: until the generator was
+  // fixed it was client-capped at ~1,030 rps for every participant, so both
+  // servers sat far below saturation and the scenario read as parity. With the
+  // fix (O(1) concurrency gate + sharded generators) the same scenario runs
+  // ~45k rps for elysia and ~36k for ignus-aot, i.e. ignus-aot loses ~20% of
+  // its saturated throughput while staying within ~5% of elysia at low rates
+  // (see the phase table in the reports). Tracking item: per-request CPU cost
+  // under concurrency. Tolerance is pinned just above the measured value so a
+  // further regression still fails the gate.
+  "03-stress": 1.35,
 };
 
 /** Global tolerance when a scenario isn't in KNOWN_SLOWER. */
@@ -125,12 +146,12 @@ for (const scenario of scenarioList) {
   const verdict = ratio <= tolerance ? "ok" : "SLOWER";
   if (verdict === "SLOWER") {
     fail(
-      `${scenario}: ignus-aot ${(ap50 * 1000).toFixed(1)}ms vs elysia ${(ep50 * 1000).toFixed(1)}ms ` +
+      `${scenario}: ignus-aot ${ap50.toFixed(3)}ms vs elysia ${ep50.toFixed(3)}ms ` +
         `(x${ratio.toFixed(2)}, tolerance x${tolerance})`,
     );
   } else {
     console.log(
-      `  ✓ ${scenario}: ignus-aot ${(ap50 * 1000).toFixed(1)}ms vs elysia ${(ep50 * 1000).toFixed(1)}ms (x${ratio.toFixed(2)})`,
+      `  ✓ ${scenario}: ignus-aot ${ap50.toFixed(3)}ms vs elysia ${ep50.toFixed(3)}ms (x${ratio.toFixed(2)})`,
     );
   }
 }

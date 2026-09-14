@@ -14,6 +14,7 @@ Measure at the level that matches the claim; each answers a different question.
 | **op** | `bun run bench:native:all` (`scripts/bench-native.ts`) | does native beat the JS fallback for THIS primitive? (also prints the SELECTION **MISMATCH** worklist) |
 | **call** | fixed-op harness on `createNativeRoute` / `nativeFor(op)` (recipe below) | what does one real call cost, and where inside it? |
 | **server** | `bun run bench:server` + `bun run bench:server:check` | what does a saturated server do end-to-end? (the CI gate) |
+| **compare** | `bun run bench:compare` (+ `bench:compare:gate`) | how does ignus/ignus-aot compare to raw Bun and Elysia on the SAME workload? |
 
 ## 2. Mechanics that make machine noise irrelevant
 
@@ -47,6 +48,26 @@ const trial = (fn: () => void, ops: number) => {       // fixed-op trial
 ```
 
 ## 3. Pitfalls that produced wrong conclusions here
+* **Measure the MEASURING TOOL first.** For months `bench:compare` reported
+  ~1,030 rps with p75-p99 latencies of 4-9 SECONDS for bun, elysia and ignus
+  alike — the giveaway was that all three identical, including their percentiles.
+  The load generator's concurrency gate awaited `Promise.race(activeSet)` while
+  at capacity, i.e. O(in-flight) *per completed request*: at
+  `maxConcurrent = 10_000` that is 10k reaction registrations for every
+  response. Same server, same 8s, same 10k ceiling: **1,811 rps (old gate) vs
+  23,608 rps (O(1) counter gate)**. Swapping the gate, sharding the generator
+  across processes, and retuning the ceilings moved the reported 03-stress peak
+  from **1,044 rps to ~36k rps** for ignus-aot — a 34x measurement error that
+  had been read as "all three servers are equal". Rule: if every variant
+  reports the same number, you are measuring the harness. Bisect the generator
+  (does throughput scale with concurrency? with worker count?) before believing
+  any server-vs-server delta.
+* **A closed-loop generator's latency is `concurrency / throughput`.** Raising
+  the in-flight ceiling past the server's knee inflates p50 linearly while rps
+  stays flat (measured: 256 -> 33.6k rps @ p50 7.5 ms; 512 -> 30.9k @ 15.9 ms;
+  1024 -> 30.6k @ 32.9 ms). Flat rps + linear latency = the server is saturated
+  and the number is trustworthy; rising rps = you were client-limited. Sweep the
+  ceiling once per scenario and keep the smallest value that maximises rps.
 * **The FFI crossing is invisible at this scale.** A 43 ns crossing cannot show
   up next to 4-10 µs of work. Measure it directly (`ffi.crc32(new Uint8Array(8))`
   = **43 ns**), never infer it from an end-to-end ratio. `IGNEX_FFI_MODE=ffi` vs
@@ -221,3 +242,69 @@ Verified against Bun 1.4.2 (`bun:ffi` docs), measured where measurable:
 * **Build pitfall**: `sha2` must stay on **0.10** while `pbkdf2 0.12` is in use
   (pbkdf2 is on digest 0.10; sha2 0.11 breaks `pbkdf2_hmac::<Sha256>` with E0277
   `CoreProxy`). A Dependabot bump did exactly that and broke `cargo test`.
+
+### CPU per request at a pinned pace (framework-vs-baseline comparisons)
+
+**Use this, not rps, when comparing whole servers.** rps A/B varies ±8% run to
+run on a shared machine — larger than most optimizations — and conflates "does
+less work" with "is more efficient".
+
+```bash
+bun run bench:compare:cpu                  # all participants, 3×8s, medians
+SERVER=bun,ignus-aot bun run bench:compare:cpu
+bun run bench:compare:cpu:gate             # exit 1 if ignus-aot/bun > 1.0x
+```
+
+Every participant is driven at the SAME fixed rate (default 15k rps: below
+saturation, so no queueing) and the server's own `process.cpuUsage()` is
+divided by the requests served. Rounds alternate between participants and the
+reported number is the median, so drift hits everyone equally. Spread between
+rounds observed: ±0.2µs.
+
+`bench/compare/cpu-wrap.ts` is what makes this possible — `Bun.spawn` exposes
+no child CPU accounting, so the participant is started through a wrapper that
+reports its own CPU time on SIGTERM.
+
+**Trap (cost a whole round):** `bench/compare/servers/ignus-aot-server.ts`
+compiles on import, so spawning it directly keeps the entire compiler +
+bundler resident in the server's heap — measured **35.4µs/req vs 33.2µs/req**
+for the same compiled entry spawned alone. It made the AOT participant look
+*slower than the interpreted one*. `cpu.ts` therefore builds once
+(`BENCH_BUILD_ONLY=1`) and measures `dist/__server.js` in a clean process.
+
+Layer attribution is done with matched variants (same harness, one layer
+removed): see `docs/aot-perf-plan.md` §2 for the current table and the
+per-layer costs.
+
+Baseline (2026-09-14, 3×8s @ 15k rps, medians): `bun` 23.28µs, `elysia` 26.96µs,
+`ignus-aot` 33.24µs (1.428x), `ignus` 34.35µs, `ignus-native` 34.55µs.
+
+#### Resolution limit — read this before concluding "no change"
+
+**`bench:compare:cpu`'s ratio has ±2–3% run-to-run noise.** Concretely: the
+identical-server control (three entries pointing at the same server, 4 rounds)
+measured 23.41 / 23.66 / 23.66µs, and the `ignus-aot / bun` ratio across runs
+bounced between 1.413 and 1.448 for unchanged code. **A change smaller than
+~1µs is invisible in this mode.** Do not conclude "no effect" from it.
+
+For anything under ~1µs, use a **head-to-head interleaved A/B instead**: add the
+two variants as separate entries in ONE run so both see identical machine
+conditions, e.g.
+
+```ts
+// temp measurement hook in the code under test, read once at module load
+const __STYLE = process.env.IGNEX_ACC_STYLE;
+```
+
+```ts
+// /tmp/var-a.ts
+process.env.IGNEX_ACC_STYLE = "a";
+process.env.PORT = "9141";
+await import("/tmp/full-server.ts");
+```
+
+This caught a real case: a cross-run comparison suggested an accumulator change
+was worth 2.35µs; the head-to-head measured **0.79µs** (dict 33.14µs vs literal
+32.35µs). Cross-run deltas on this machine are not trustworthy — several
+"no measurable change" readings during the same investigation were real effects
+sitting below the resolution limit.

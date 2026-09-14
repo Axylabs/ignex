@@ -31,6 +31,7 @@ import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
 import {
+  collectResponseDefaults,
   createPluginContext,
   type IgnexPlugin,
   pluginContextToLifecycle,
@@ -251,6 +252,14 @@ export const createApp = (options: AppOptions): IgnexApp => {
   const ctxOptions: ContextOptions = {};
   ctxOptions.cache = appCache;
   if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
+
+  // App-invariant response headers declared by plugins (e.g. the `security()`
+  // header set). Baked into every framework-built response at construction so
+  // the plugin never has to mutate the finished `Response` — computed once
+  // here, not per request. `undefined` when no plugin declares any, which
+  // keeps `withBody`'s fast path branch-free.
+  const responseDefaults = collectResponseDefaults(options.plugins ?? []);
+  if (responseDefaults !== undefined) ctxOptions.responseDefaults = responseDefaults;
 
   const init = async (): Promise<void> => {
     if (initialized) return;

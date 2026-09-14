@@ -1,8 +1,8 @@
 # Comparison benchmark: Bun vs Elysia vs Ignus
 
-End-to-end HTTP comparison between three servers doing **the same amount of
-work**, ported from the `bun-rust-runtime-bench` (castrum) project's benchmark
-so the methodology and route contract match that project's.
+End-to-end HTTP comparison between the framework and raw Bun / Elysia doing
+**the same amount of work**, ported from the `bun-rust-runtime-bench` (castrum)
+project's benchmark so the methodology and route contract match that project's.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -60,7 +60,7 @@ with `HTTP_NO_SHAPE=1` for pure-throughput runs).
 
 ```bash
 bun install                       # first time (adds elysia + @elysia/cors)
-bun run bench:compare:verify      # quick contract check on all three servers
+bun run bench:compare:verify      # quick contract check on all interpreters
 bun run bench:compare:smoke       # 01-smoke (wire/shape guard)
 bun run bench:compare:crud        # 16-crud-validation-mix
 bun run bench:compare:heavy       # 13/14/15 heavy-JSON validation
@@ -84,6 +84,9 @@ native addon is not active.
 | `INCLUDE_SOAK=1` | include the long soak scenarios in a default run |
 | `DURATION_SCALE=n` | multiply every phase duration (e.g. `0.2` for a quick pass) |
 | `HTTP_NO_SHAPE=1` | skip response-shape validation (pure throughput) |
+| `HTTP_WORKERS=n` | load-generator **processes** (default: auto, `min(4, cpus/3)`) |
+| `HTTP_WARMUP_SEC=n` | unpaced warm-up before phase 1, excluded from stats (default `2`) |
+| `HTTP_MAX_CONCURRENT=n` | override every scenario's in-flight request ceiling |
 
 ## Results
 
@@ -97,15 +100,52 @@ Per server, under `bench/results/compare/<server>/`:
 ```
 
 Each report records per-request latency percentiles (avg/min/p50/p75/p90/p95/
-p99/p999/max), per-route counts + error %, achieved RPS, and grouped failures.
-`bun run bench:compare:check` asserts zero unexpected failures per report and
-that every server produced the same scenario set.
+p99/p999/max), per-route counts + error %, and grouped failures, **plus a
+dedicated per-phase table** (target rps, requests, achieved rps, `client-limited`
+flag, and that phase's own p50/p95/p99/max). `bun run bench:compare:check`
+asserts zero unexpected failures per report and that every server produced the
+same scenario set.
+
+The headline number is **Peak sustained RPS** — the best phase that ran
+unpaced. `Achieved RPS (run average)` is also reported, but it is diluted by
+ramp/idle phases and by scenarios that are paced by design, so it is not a
+capacity figure. Read the phase table to separate “how fast is one request”
+(low-rate phases) from “how many can it do” (the unpaced phase).
+
+## Making the numbers trustworthy
+
+The load generator must never be the thing being measured. Three properties are
+load-bearing:
+
+- **O(1) concurrency gate.** The gate that caps in-flight requests used to
+  `await Promise.race(activeSet)` while at capacity, which is O(in-flight) *per
+  completed request*. At `maxConcurrent = 10_000` that is 10k reaction
+  registrations for every response. Measured on one machine, same server, same
+  8s: **1,811 rps with the old gate vs 23,608 rps with the O(1) gate** — the
+  generator, not the server, was the bottleneck, and every participant reported
+  the same ~1,030 rps ceiling as a result. `maxConcurrent` is now also the
+  in-flight **HTTP request** ceiling specifically (the request slot is taken
+  inside `send()`, not around a whole flow), so flow think-time cannot silently
+  throttle a paced scenario.
+- **Sharded generators.** A single Bun process tops out around 40-50k rps on
+  loopback, so scenarios that push hard run across `HTTP_WORKERS` processes
+  (each driving `1/N` of the paced rate) and the orchestrator merges their
+  latency histograms. Low-rate scenarios stay single-process — extra processes
+  would only add startup noise.
+- **Per-phase attribution + honest failure flags.** Latency is measured around
+  each request only (never including pacing), phases drain before their stats
+  are frozen, and a paced phase that served <98% of its schedule is flagged
+  `client-limited` so a generator ceiling is never mistaken for a server one.
+
+Latency percentiles use a log-bucket histogram (1.1% relative error) instead of
+retaining every sample: merging N shards is then exact, and memory stays flat on
+long soaks.
 
 ## Methodology notes (ported from the rust project)
 
 - **Weighted flows + rate-paced phases.** Each scenario defines phases at a
   target rps (`0` = idle, omitted = fire as fast as possible) and flows chosen
-  by weight; a concurrency gate caps in-flight VUs.
+  by weight; a concurrency gate caps **in-flight HTTP requests**.
 - **Response-shape validation.** Every 2xx is `JSON.parse`d and must have
   `ok: true` + `requestId: string` — the wire format is a contract.
 - **Rate limiter wired but disabled** (`limit = UINT32_MAX`) so the pipeline

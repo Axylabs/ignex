@@ -52,7 +52,7 @@ await buildAsync({
   // crossover is ~60 params / ~512B — see `docs/perf-methodology.md`), not as
   // a global flag; until the compiler can select per route, global OFF is the
   // measured best.
-  nativeRoutes: true,
+  nativeRoutes: false,
 
   ...(compile ? { compile: true, ...(binaryOutfile ? { binaryOutfile } : {}) } : {}),
 });

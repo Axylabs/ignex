@@ -13,41 +13,63 @@
  * server entry; the linker's bundler removes whatever no route references.
  */
 export const HELPER_SOURCES: Record<string, string> = {
-  __withBody: `const __withBody = (bytes, type, init) => {
+  __applyStaticHeaders: `const __applyStaticHeaders = (target, record) => {
+  // The record is the frozen boot-time __DEFAULT_HEADERS, already sanitized at
+  // build time (see the __DEFAULT_HEADERS emission) — so unlike the per-request
+  // ctx.set.headers path this skips Object.hasOwn and regex sanitizing, which
+  // cost ~18 ns/header when paid per response.
+  for (const k in record) target.set(k, record[k]);
+};`,
+  __withBody: `const __withBody = (payload, type, init) => {
   const ih = init && init.headers;
   // Fast path: no init headers — plain-object headers (no Headers alloc), and
   // no rest/spread when init is undefined (the common ctx.json(data) call).
-  // The static server.headers defaults (security headers, wildcard CORS) are
-  // merged in from the frozen __DEFAULT_HEADERS (a module constant: null when
-  // unset, so the branch folds away and unconfigured servers pay nothing);
-  // init/route headers are applied afterward and win on conflict.
-  const h = __DEFAULT_HEADERS ? { ...__DEFAULT_HEADERS } : {};
-  h["content-type"] = type;
-  if (bytes !== null) h["content-length"] = String(bytes.byteLength);
+  // The static defaults (plugin-declared security headers + server.headers)
+  // are applied incrementally below from the frozen __DEFAULT_HEADERS (a module
+  // constant: null when unset, so the branch folds away and unconfigured
+  // servers pay nothing). init/route headers are applied afterward and win on
+  // conflict.
+  //
+  // Incremental Headers.set beats Bun's bulk plain-object header init by ~28
+  // ns/header (measured 1.4.2: 56.3 vs 84.2 ns/header over 14 headers), and
+  // handing Bun the STRING body beats pre-encoding it with TextEncoder (Bun
+  // encodes internally), so the caller does not pre-encode.
+  const h = { "content-type": type };
+  if (payload !== null) h["content-length"] = String(typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : payload.byteLength);
+  let __response;
   if (!ih) {
-    if (init === undefined) return new Response(bytes, { headers: h });
-    const { headers: _ignored, ...rest } = init;
-    return new Response(bytes, { ...rest, headers: h });
-  }
-  const hh = new Headers(h);
-  if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
-    (ih.forEach)((value, key) => hh.set(key, value));
-  } else if (Array.isArray(ih)) {
-    for (const [k, v] of ih) hh.set(k, v);
+    if (init === undefined) __response = new Response(payload, { headers: h });
+    else {
+      const { headers: _ignored, ...rest } = init;
+      __response = new Response(payload, { ...rest, headers: h });
+    }
+    if (__DEFAULT_HEADERS) __applyStaticHeaders(__response.headers, __DEFAULT_HEADERS);
   } else {
-    for (const [k, v] of Object.entries(ih)) if (v != null) hh.set(k, String(v));
+    const hh = new Headers(h);
+    if (__DEFAULT_HEADERS) __applyStaticHeaders(hh, __DEFAULT_HEADERS);
+    if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
+      (ih.forEach)((value, key) => hh.set(key, value));
+    } else if (Array.isArray(ih)) {
+      for (const [k, v] of ih) hh.set(k, v);
+    } else {
+      for (const [k, v] of Object.entries(ih)) if (v != null) hh.set(k, String(v));
+    }
+    __response = new Response(payload, { ...init, headers: hh });
   }
-  return new Response(bytes, { ...init, headers: hh });
+  // Tell decorating plugins (security) these headers are already baked in, so
+  // they skip re-applying them via per-header native Headers.set calls.
+  if (__DEFAULT_HEADERS) markDecoratedResponse(__response);
+  return __response;
 };`,
   jsonReply: `const jsonReply = (data, init) => {
   const s = JSON.stringify(data);
   if (s === undefined) return __withBody(null, "application/json; charset=utf-8", init);
-  return __withBody(__encoder.encode(s), "application/json; charset=utf-8", init);
+  return __withBody(s, "application/json; charset=utf-8", init);
 };`,
   textReply: `const textReply = (data, init) =>
-  __withBody(__encoder.encode(String(data)), "text/plain; charset=utf-8", init);`,
+  __withBody(String(data), "text/plain; charset=utf-8", init);`,
   htmlReply: `const htmlReply = (data, init) =>
-  __withBody(__encoder.encode(String(data)), "text/html; charset=utf-8", init);`,
+  __withBody(String(data), "text/html; charset=utf-8", init);`,
   streamReply: `const streamReply = (stream, init) => new Response(stream, init);`,
   emptyReply: `const emptyReply = (status = 204) => new Response(null, { status });`,
   redirectReply: `const redirectReply = (url, status = 302) =>
@@ -71,7 +93,7 @@ export const HELPER_SOURCES: Record<string, string> = {
   }
   status = status ?? 200;
   const ser = serializers?.[status] ?? serializers?.["200"] ?? serializers?.default;
-  if (ser) return __withBody(__encoder.encode(ser(body)), "application/json; charset=utf-8", { status });
+  if (ser) return __withBody(String(ser(body)), "application/json; charset=utf-8", { status });
   return reply(body, status === 200 ? undefined : { status });
 };`,
   __handleError: `async function __handleError(err, ctx) {

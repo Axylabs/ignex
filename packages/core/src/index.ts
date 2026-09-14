@@ -251,7 +251,9 @@ export { safeJoin, sendFile, streamDownload } from "./http/files";
 export {
   finalizeResponse,
   htmlReply,
+  isDecoratedResponse,
   jsonReply,
+  markDecoratedResponse,
   type StatusSerializerMap,
   textReply,
   withBody,

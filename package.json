@@ -62,6 +62,8 @@
     "bench:server:check": "bun scripts/check-server-bench.ts",
     "bench:compare": "bun bench/compare/run-bench.ts",
     "bench:compare:verify": "bun bench/compare/verify-contract.ts",
+    "bench:compare:cpu": "bun bench/compare/cpu.ts",
+    "bench:compare:cpu:gate": "bun bench/compare/cpu.ts --gate",
     "bench:compare:smoke": "bun bench/compare/run-bench.ts smoke",
     "bench:compare:stress": "bun bench/compare/run-bench.ts stress",
     "bench:compare:heavy": "bun bench/compare/run-bench.ts heavy",
