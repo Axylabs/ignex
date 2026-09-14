@@ -1123,3 +1123,35 @@ cost several rounds — the `ctx.ip` scare, and both chain rewrites. In each cas
 measured a primitive in a saturated hot loop and compared it to a paced delta.
 Before any further cost work, either re-measure primitives with a cold call site
 or accept that only same-rate A/B deltas are trustworthy.
+
+### What survives: A/B deltas are rate-ROBUST (measured)
+
+Re-running the same ablation (`IGNEX_ABLATE=hooks`, i.e. the whole plugin chain)
+at two rates, 3 variants × 5 rounds, control = the base variant measured twice:
+
+```
+rate 12000:  base 17.58 · nohooks 15.93 · ctrl 17.59
+             DELTA 1.65us        control -0.01us
+rate 24000:  base 15.59 · nohooks 14.24 · ctrl 15.59
+             DELTA 1.35us        control  0.00us
+```
+
+The **absolute level** is strongly rate-dependent (17.58 → 15.59 here, and
+23.5 → 14.5 between 4k and 24k in the table above). The **delta** moved only
+1.65 → 1.35µs across a doubling of rate. So:
+
+* **Every A/B conclusion in this document holds**, and now has a control of
+  ~0.00–0.01µs — the earlier 0.28–0.42µs controls came from noisier
+  configurations, not from the method being unreliable. Resolution with three
+  identical variants and ≥5 rounds is **~0.1µs**.
+* The two big decompositions cross-check: the chain ablation is 1.65µs, and
+  STRUCTURE (0.28–0.70) + security body (0.70) + cors body (0.56) = 1.54–1.96µs.
+  Independent measurements agreeing within their spread.
+* **The in-situ body costs are real, not a rating artefact.** `security()`'s body
+  genuinely costs ~0.7µs when served while the same operations cost ~30ns in a
+  hot loop. Since deltas don't scale with rate, the ~10–20× multiplier is cold
+  call sites / IC and GC behaviour, not the clock — and it is still unexplained.
+
+**Harness rule:** pace at **≥12k rps** (curve is steep below ~8k and flat above
+~12k; 20–24k is safest), always include ≥3 identical variants as the control, and
+report the control with every number.
