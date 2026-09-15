@@ -3069,3 +3069,65 @@ Where castrum *would* pay is the **byte-body path** (§37): Rust-produced respon
 bytes are 2.7x cheaper to emit and a Rust-parsed request body ~4x cheaper to
 consume, for routes whose payloads are JSON. That is a new capability for
 JSON-heavy routes, not a fix for the numbers above.
+
+---
+
+## 43. Per-route attribution: the plumbing is clean, and drift beat the instrument (2026-09-15)
+
+Method: `/tmp/healthcpu.ts` spawns the `bun` participant and the built AOT
+artifact, drives **only one chosen route** with a pinned token bucket, reads CPU
+from `/proc/<pid>/stat` at window start/end (so boot/JIT/warmup CPU is excluded
+exactly), alternates rounds and reports medians. This separates *plumbing* (paid
+on every route) from *route work*.
+
+### 43.1 SOLID: the framework's plumbing costs ~1.25 µs
+
+`GET /health` only — no query, no body, no cookies, so the workload is identical
+and only machinery remains (4 alternating rounds):
+
+| round | bun | ignus-aot |
+|---|---|---|
+| 1 | 13.58 | 15.93 |
+| 2 | 13.90 | 15.24 |
+| 3 | 14.68 | 15.18 |
+| 4 | 16.29 | 16.52 |
+| **median** | **14.68** | **15.93 (1.086x, +1.25 u s)** |
+
+ignus-aot is slower in all four rounds, and by an amount that matches the
+measured framework-JS budget (~1.5 u s, §39) almost exactly. **This is the
+important negative result: there is no dispatch/context/reply bottleneck left.**
+Routing is already `Bun.serve({ routes })` (Bun's native trie, verified in the
+artifact) plus thin wrappers.
+
+### 43.2 SOLID: the mixed workload is 1.299x (§42)
+
+If plumbing is +1.25 u s and the mixed load is +8 u s, then ~6.8 u s is
+**route-specific work** — the query, body and cookie paths — or below the handler.
+
+### 43.3 NEGATIVE: the per-route ablation could not resolve it
+
+Ablating the three suspects in the route source (`ABL=noip|noquery|nocookie`,
+§23's method) gave:
+
+| variant | ratio to bun (median) |
+|---|---|
+| base | 1.041x |
+| `noip` | 1.012x |
+| `noquery` | 1.030x |
+| `nocookie` | 1.069x |
+
+Every delta is inside the run-to-run spread, and `nocookie` — which *removes*
+work — measured **worse** than base, which is impossible. The same route had
+measured 1.225x in an earlier run whose `bun` baseline happened to be 16% faster
+(15.76 vs 18.30 u s for identical code). **Sequential runs cannot resolve this**;
+§35's rule applies and was violated by running the variants as four separate
+processes. As a side effect this also fails to reproduce §23's ablation
+magnitudes (3.37/3.18/2.33 u s), consistent with §23's own partial retraction of
+the `ctx.ip` figure.
+
+**What is left, and how to do it properly:** the ablation branches now live in the
+route source (env-gated, inert unless `ABL` is set), so ONE build can drive every
+variant — but they must be measured in **one process with alternating rounds**,
+exactly as `cpu.ts` does it (its `SERVER` list accepts env-tagged entries), not as
+four sequential runs. That is the next experiment, and it is the last open
+attribution question in this document.
