@@ -34,6 +34,12 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
   url: "url",
   path: "path",
   method: "method",
+  // The request's identity. Each forces `needsFull` rather than a specialized
+  // context, because the specialized object literal cannot express them yet.
+  ip: "ip",
+  route: "route",
+  requestId: "requestId",
+  startTime: "startTime",
   cookie: "cookie",
   server: "server",
   set: "set",

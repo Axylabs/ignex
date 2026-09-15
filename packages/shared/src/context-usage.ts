@@ -45,6 +45,24 @@ export interface ContextUsage {
    */
   path: boolean;
 
+  /**
+   * `ctx.ip`. Sentinel: reading it forces the full context.
+   *
+   * `route`, `requestId`, `startTime` and `ip` are the request's *identity*, and
+   * none of them had a flag at all — so a handler reading one set NO flag, took
+   * the specialized tier (whose object literal has no such member) and read
+   * `undefined`, where the interpreted path returned a real value. Until each
+   * can be emitted with exactly the full context's semantics they force
+   * `needsFull` (see docs/aot-perf-plan.md §30).
+   */
+  ip: boolean;
+  /** `ctx.route` (the matched pattern). Sentinel — see {@link ip}. */
+  route: boolean;
+  /** `ctx.requestId`. Sentinel — see {@link ip}. */
+  requestId: boolean;
+  /** `ctx.startTime`. Sentinel — see {@link ip}. */
+  startTime: boolean;
+
   cookie: boolean;
   server: boolean;
   set: boolean;
@@ -80,6 +98,11 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
   method: false,
   path: false,
 
+  ip: false,
+  route: false,
+  requestId: false,
+  startTime: false,
+
   cookie: false,
   server: false,
   set: false,
@@ -113,6 +136,11 @@ export const FULL_USAGE: ContextUsage = Object.freeze({
   url: true,
   method: true,
   path: true,
+
+  ip: true,
+  route: true,
+  requestId: true,
+  startTime: true,
 
   cookie: true,
   server: true,

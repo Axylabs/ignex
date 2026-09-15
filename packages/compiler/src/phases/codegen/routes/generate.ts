@@ -117,7 +117,15 @@ export const generateRouteCode = (
     route.analysis.usage.loader ||
     route.analysis.usage.sendFile ||
     route.analysis.usage.file ||
-    route.analysis.usage.debug;
+    route.analysis.usage.debug ||
+    // The request's identity is not expressible on the usage-specialized
+    // context. These four had NO flag, so a compact route reading `ctx.ip` (or
+    // route/requestId/startTime) took the specialized tier and read `undefined`
+    // where the full context returned a real value. See §30.
+    route.analysis.usage.ip ||
+    route.analysis.usage.route ||
+    route.analysis.usage.requestId ||
+    route.analysis.usage.startTime;
 
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);

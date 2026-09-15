@@ -62,9 +62,20 @@ const EMITTED: readonly string[] = [
  * specialized tier and codegen has nothing to emit for them. `file`, `cache`,
  * `loader` and `debug` double as tripwires for "the analyzer gave up"
  * (`FULL_USAGE` sets all four), which is what keeps unresolvable handlers on the
- * full context.
+ * full context. `ip`, `route`, `requestId` and `startTime` are the request's
+ * identity: they had no flag at all until §30, so a compact route reading one
+ * read `undefined` on the fast path while the full context returned a value.
  */
-const SENTINEL: readonly string[] = ["file", "cache", "loader", "debug"];
+const SENTINEL: readonly string[] = [
+  "file",
+  "cache",
+  "loader",
+  "debug",
+  "ip",
+  "route",
+  "requestId",
+  "startTime",
+];
 
 const CLASSIFIED = new Set([...EMITTED, ...SENTINEL]);
 const KNOWN = new Set(Object.keys(EMPTY_USAGE));

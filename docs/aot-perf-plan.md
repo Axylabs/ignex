@@ -2115,5 +2115,50 @@ which is precisely the bug the two preceding commits fixed, so this class cannot
 return silently.
 
 **Still open.** The specialized context lacks `route`, `requestId`, `ip` and
-`startTime` (§27 step (1)), and the hook ladder (§27 step (2)) stays blocked
-until that is done — a ladder over an incomplete context is worse than none.
+`startTime` — which is not merely a blocker for the hook ladder, it is a bug
+(§30).
+
+## 30. `route`, `requestId`, `startTime` and `ip` were `undefined` on the fast path (2026-09-15)
+
+§27 and §29 both listed these four as "the specialized context still lacks…",
+framed as the blocker for the hook ladder. It is worse than that: they are a
+silent runtime bug on the default path.
+
+They had **no entry in `USAGE_FLAGS` at all**, so a handler reading one set no
+flag. Measured with the analyzer directly:
+
+| handler reads | flags set |
+|---|---|
+| `method`, `path` | `json`, `method`, `path` |
+| `ip`, `route`, `requestId`, `startTime` | `json` |
+
+`json` trips none of the `needsFull` conditions, `enableTraceHeaders` and
+`enableAccessLog` default to `false`, and `specializeContext` defaults to `true`
+— so such a route takes the usage-specialized tier, whose object literal has no
+`ip`/`route`/`requestId`/`startTime` member, and the handler reads `undefined`
+while the interpreted path returns a real value. That is the same
+compiled-vs-interpreted divergence as §28/§29 but a worse variant: there was no
+flag to collapse, the members were simply never in the vocabulary. `ctx.ip` is
+what rate limiting, allow-lists and access logs key on, so this is not cosmetic.
+(A related question the same audit raised, still unmeasured: `trustProxy` appears
+nowhere in the compiler, yet `IgnexContextImpl` reads `opts.trustProxy` — so what
+`ctx.ip` resolves to in a compiled app needs checking before anything is emitted
+for it.)
+
+**Fix.** Each gets a flag, and each forces `needsFull`. Marking them sentinel
+rather than emitting them on the specialized tier is deliberate: `ip` needs the
+trust-proxy order plus the socket lookup, `startTime` must match the instant the
+full context is created (emitting `performance.now()` a few µs later would
+silently change every `ctx.startTime` duration), and `requestId` must match the
+trace-header path. Emitting them is a worthwhile follow-up, but only by reusing
+the same core helpers. Routes that never read them are unaffected — they stay
+specialized, so the fast path is not taxed for a member it does not use.
+
+**The guard.** `context-members.test.ts` classifies all four as sentinel, and a
+`usage-soundness.test.ts` case asserts the analyzer sets their flags; drop the
+entries again and it fails.
+
+**Still open.** The hook ladder (§27 step (2)) still needs at least `ip`,
+`route`, `requestId` and `startTime` emit-able on the specialized context; this
+change fixes the correctness hole but not the perf unlock, which remains the
+bounded ~0.6–1 µs of §26.

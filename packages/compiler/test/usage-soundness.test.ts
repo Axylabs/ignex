@@ -74,6 +74,17 @@ describe("context usage soundness", () => {
     expect(usage.method).toBe(false);
   });
 
+  it("reading the request's identity sets a flag, so it can force the full context", () => {
+    // These four had NO `USAGE_FLAGS` entry, so a handler reading one set no
+    // flag, stayed on the specialized tier, and read `undefined` where the
+    // interpreted path returned a real value (§30).
+    const usage = analyze(`
+      export default (ctx) =>
+        ctx.json({ ip: ctx.ip, route: ctx.route, requestId: ctx.requestId, startTime: ctx.startTime });
+    `);
+    expect(usage).toMatchObject({ ip: true, route: true, requestId: true, startTime: true });
+  });
+
   it("body-level destructuring with defaults is tracked", () => {
     const usage = analyze(
       `
