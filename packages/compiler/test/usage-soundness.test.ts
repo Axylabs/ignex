@@ -85,6 +85,59 @@ describe("context usage soundness", () => {
     expect(usage).toMatchObject({ ip: true, route: true, requestId: true, startTime: true });
   });
 
+  it("passing the context root to a callee forces FULL usage", () => {
+    // THE bug this rule exists for: `queryRecord(ctx)` where queryRecord lives
+    // in ANOTHER module. The walker cannot see that it reads `ctx.url`, so the
+    // specialized context omitted `url` and the helper read `undefined` — a 500
+    // on the compiled path where the interpreted path returned 200.
+    const usage = analyze(`
+      import { queryRecord } from "./bench";
+      export default (ctx) => ctx.json(queryRecord(ctx));
+    `);
+    expect(usage).toEqual(FULL_USAGE);
+  });
+
+  it("a spread of the root escapes (`attach({ ...ctx })`)", () => {
+    const usage = analyze(`export default (ctx) => send({ ...ctx });`);
+    expect(usage).toEqual(FULL_USAGE);
+  });
+
+  it("an ALIAS of the root escapes (`const c = ctx; helper(c)`)", () => {
+    const usage = analyze(`
+      export default (ctx) => {
+        const c = ctx;
+        return helper(c);
+      };
+    `);
+    expect(usage).toEqual(FULL_USAGE);
+  });
+
+  it("storing the root on an object escapes (`box.ctx = ctx`)", () => {
+    const usage = analyze(`
+      export default (ctx) => {
+        box.ctx = ctx;
+        return json({});
+      };
+    `);
+    expect(usage).toEqual(FULL_USAGE);
+  });
+
+  it("does NOT over-degrade: the root as a CALLEE is not an escape", () => {
+    // `ctx.json(...)` uses the root as the receiver, not as an argument. If the
+    // escape rule fired here, every route would lose specialization entirely.
+    const usage = analyze(`export default (ctx) => ctx.json({ ok: true });`);
+    expect(usage.json).toBe(true);
+    expect(usage).not.toEqual(FULL_USAGE);
+  });
+
+  it("does NOT over-degrade: passing a MEMBER is not an escape", () => {
+    // `rateLimitCheck(ctx.ip, now)` flags only `ip`; the rest stays specialized.
+    const usage = analyze(`export default (ctx) => ctx.json(rateLimitCheck(ctx.ip, 1));`);
+    expect(usage.ip).toBe(true);
+    expect(usage.body).toBe(false);
+    expect(usage.url).toBe(false);
+  });
+
   it("body-level destructuring with defaults is tracked", () => {
     const usage = analyze(
       `

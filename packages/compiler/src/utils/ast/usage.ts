@@ -300,6 +300,62 @@ const recordCall = (
   }
 };
 
+/** Is this expression the context root itself (or another name bound to it)? */
+const isRootNode = (node: Node | undefined, rootNames: Set<string>): boolean =>
+  node?.type === "Identifier" && rootNames.has((node as { name: string }).name);
+
+/** Is this argument position carrying the context root out of the analyzer? */
+const argumentEscapes = (arg: Node | undefined, rootNames: Set<string>): boolean => {
+  if (!arg) return false;
+  if (arg.type === "SpreadElement") {
+    return isRootNode((arg as { argument?: Node }).argument, rootNames);
+  }
+  if (isRootNode(arg, rootNames)) return true;
+  // `attach({ ...ctx })` enumerates the root's members, so it escapes exactly
+  // as `attach(ctx)` does — the callee may read a member we did not emit.
+  if (arg.type === "ObjectExpression") {
+    for (const prop of (arg as { properties?: Node[] }).properties ?? []) {
+      if (
+        prop?.type === "SpreadElement" &&
+        isRootNode((prop as { argument?: Node }).argument, rootNames)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+/**
+ * The context root ESCAPING into something the analyzer cannot inspect:
+ * `helper(ctx)`, `helper(...ctx)`, `attach({ ...ctx })`, `box.ctx = ctx`.
+ *
+ * Only the handler body is analyzed, so a callee in another module — or a
+ * same-file helper the walker does not descend into — is opaque and may read
+ * ANY member. Under-approximating here emits a specialized context that is
+ * missing the members that callee reads, i.e. silent runtime `undefined`s:
+ * the exact failure {@link OPAQUE_MAPPING} exists to prevent. An escape
+ * therefore degrades UP to the full context.
+ */
+const recordEscape = (n: Node, usage: ContextUsage, rootNames: Set<string>): void => {
+  if (n.type === "CallExpression" || n.type === "NewExpression") {
+    for (const arg of (n as { arguments?: Node[] }).arguments ?? []) {
+      if (argumentEscapes(arg, rootNames)) {
+        markFullUsage(usage);
+        return;
+      }
+    }
+    return;
+  }
+  // Storing the root somewhere untracked: `box.ctx = ctx`, `slots[0] = ctx`.
+  if (n.type === "AssignmentExpression") {
+    const assign = n as Node & { type: "AssignmentExpression"; left?: Node; right?: Node };
+    if (assign.left?.type !== "Identifier" && isRootNode(assign.right, rootNames)) {
+      markFullUsage(usage);
+    }
+  }
+};
+
 /**
  * Detect context usage inside a handler body (or function node).
  * `mapping` comes from {@link buildContextMapping}.
@@ -332,6 +388,8 @@ export function detectUsage(bodyNode: Node, mapping: Map<string, string>): Conte
     recordIdentifier(n, usage, aliases);
     // Call expressions: ctx.json(...) / alias.text(...)
     recordCall(n, usage, aliases, rootNames);
+    // The root handed to a callee we cannot inspect: `helper(ctx)`
+    recordEscape(n, usage, rootNames);
   });
 
   return usage;

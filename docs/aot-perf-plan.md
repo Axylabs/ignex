@@ -2672,3 +2672,103 @@ generics/monomorphisation — compile-time and free — not from the JS compiler
 **And the cheapest route optimisation needs neither:** a fully static response
 emitted as a `Response` *value* in the routes table runs with zero JS and zero
 Rust (§37.1).
+
+---
+
+## 38. The usage analyzer had no case for ctx ESCAPING — and it invalidated every measurement since §24 (2026-09-15)
+
+### 38.1 The bug
+
+`detectUsage` recorded `ctx.foo` reads, aliases, re-roots, destructuring and
+`ctx.json(...)` calls. It had **no case for the context root being passed as a
+call argument**. So for a route like
+
+```ts
+import { queryRecord, cookiesRecord, okEnvelope } from "../../lib/bench";
+export default get(async (ctx) => {
+  ctx.set.headers["X-Request-Id"] = ctx.requestId;
+  return ctx.json(okEnvelope(ctx, "/api/users", queryRecord(ctx), cookiesRecord(ctx)));
+});
+```
+
+usage came out as `{ set, headers, requestId, ip, json }` — because those are the
+only members accessed *lexically in this file*. `queryRecord` (in another module)
+reads `ctx.url`, `cookiesRecord` reads `ctx.cookie`, `okEnvelope` reads
+`ctx.requestId`, and **codegen emitted a context without `url` or `cookie`**.
+
+Symptom, on the compiled path only (the interpreted path uses `createContext` and
+is fine): `GET /api/users` → **500** `TypeError: undefined is not an object
+(evaluating 'url.search')`; `GET /api/cookies` → **500** `Object.entries requires
+that input parameter not be null or undefined`. This is the third instance of the
+same failure class (§28 `ctx.method`, §29 `ctx.path`, §30 identity members): an
+under-approximated usage bitmap compiles to a context missing a member the
+handler reads, and `undefined` propagates silently.
+
+**Why it landed here.** §24 removed `usage.set`/`usage.cookie` from `needsFull`
+to unblock the specialized tier. The bench route's own comment records the
+assumption that broke — "Inlined `ctx.set` writes force the full-context path
+(usage detection)" — so those two flags had been an accidental *proxy* for
+"this route hands ctx around". Removing them exposed the missing rule.
+
+### 38.2 Why every number since §24 is void
+
+The bench load mix is ~50% `GET /api/users?q=…`, ~30% `POST /api/users`, 20%
+`/health`. With the bug, **~80% of requests 500'd before doing the route's work**
+— and a 500 that short-circuits the handler is *cheaper* than a real response.
+§34's headline ("the specialized tier + ladder is worth ~2.4 µs/req, −8.6%") was
+measured on that artifact: it was partly measuring not doing the work. Same for
+the `BENCH_SPECIALIZE` A/B, the ablations in §35, and the §37-at-the-time
+`bench:compare` ratios. The §20 budget table also predates the tier work
+(`createContext` no longer runs on a matched route at all), so it was stale
+independently.
+
+### 38.3 The fix
+
+The module's own documented rule is that anything it cannot enumerate must
+degrade UP. Context escape is exactly such a pattern, so
+`phases/analysis`-side `utils/ast/usage.ts` now records it:
+
+- `helper(ctx)` / `new Thing(ctx)` — the root as an argument;
+- a spread of the root (`helper(...ctx)`, `attach({ ...ctx })`);
+- storing the root untracked (`box.ctx = ctx`, `slots[0] = ctx`).
+
+Each marks FULL usage. Deliberately **not** an escape: the root as the *callee*
+(`ctx.json(…)`) and passing a *member* (`rateLimitCheck(ctx.ip, now)`), which are
+pinned by negative tests so the rule cannot quietly kill specialization.
+
+6 new tests in `packages/compiler/test/usage-soundness.test.ts`. `COMPILER_CACHE_VERSION`
+0.9.13 → 0.9.14 (the emitted artifact changes).
+
+**Verified**: all five bench routes 200 with correct bodies
+(`{"ok":true,"requestId":"1kf-6","path":"/api/users","query":{…},"cookies":{}}`),
+`bench:compare:verify` passes across all five participants, `verify` exit 0
+(2020 tests).
+
+### 38.4 Honest state, and what it means for the tier plan
+
+`SERVER=bun,ignus-aot CPU_ROUNDS=3 CPU_SECS=8` (15000 rps, alternating rounds):
+
+| | median µs/req | ratio |
+|---|---|---|
+| bun | 23.47 | 1.000x |
+| ignus-aot | 30.46 | **1.298x** |
+
+That is back in the pre-§24 band (1.22–1.29x), i.e. **the −8.6% tier gain is not
+collectable on this app.** The reason is structural, not a regression from this
+fix: `specializeContext` only helps a route that reads ctx **directly**. The
+bench app delegates to helpers (`queryRecord(ctx)`), which is how real apps are
+written, and such a route now correctly takes the full context.
+
+So the lever that recovers it is not another tier tweak but **cross-module usage
+union**: resolve the imported callee and walk its body with `param → __root__`,
+unioning the result — the same import-source resolution `analyzePluginCalls`
+already does for plugin calls. Until that exists, the specialized tier only
+applies to non-delegating routes.
+
+**Process lesson (the expensive part).** The contract gate *would* have caught
+this — `bench:compare:verify` asserts "GET /api/users -> echoes query+cookies",
+and it passes now — but it was not run after §24, so the tier work was measured
+against an artifact that answered 80% of its load with 500s. **Any change to the
+analyzer's conservatism must be followed immediately by the end-to-end contract
+gate, not just the unit suite** — the unit suite asserts the bitmap, and the
+bitmap was self-consistently wrong.
