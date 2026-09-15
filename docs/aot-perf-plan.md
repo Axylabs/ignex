@@ -2318,3 +2318,96 @@ not from `main`. What those runs DO show consistently: ignus-aot beat Elysia in
 every one (26.24/31.76, 29.50/33.09, 30.00/33.25), while still sitting at
 1.07–1.22× raw Bun — short of the harness's own 1.0× `CPU_GATE_TOLERANCE`. No µs
 figure for the ladder is claimed here.
+
+## 33. Audit: are we using Bun's zero-copy FFI and response patterns? Yes — with two exceptions (2026-09-15)
+
+Prompted by Bun's documented guidance — "no encoding or decoding where possible",
+`TypedArray` args pass a pointer, `cstring` args are transcoded and `cstring`
+returns are engine-cloned. The audit found the work is **already done**, and that
+it is worth recording rather than repeating.
+
+### FFI arguments: on-pattern
+
+`bun:ffi` declares the argument form per symbol in the `dlopen` descriptor, so
+this is auditable by inspection. The hot surface uses `ptr`+`usize` (zero-copy
+pointer into the caller's `TypedArray`), and `buffer`+`buffer_length` where the
+length must be read atomically off the same object:
+
+```
+castrum_fnv1a64 / crc32 / json_valid            args: ["ptr", "usize"]
+castrum_validate_{email,uuid,ipv4,ipv6}_bytes    args: ["ptr", "usize"]
+castrum_csrf_verify / etag / route_compile / …   args: ["ptr", "usize", …]
+probe-gated ABI pair (ffi.ts)                    args: ["buffer", "buffer_length"]
+```
+
+`ffi.ts:50` records why: **"0.9.6 moved these off the `cstring` ARG"**, with a
+measured **118 → 37 ns** per call. The same migration also fixed a latent bug —
+a `cstring` ARG **truncates at an embedded U+0000**, which the length-carrying
+form is immune to (`validation.ts:34`).
+
+`cstring` **returns** are correct and should stay: the engine clones the string
+natively, so there is zero JS-side decode or allocation (`ffi.ts:58`).
+
+**The two exceptions, both justified:**
+
+1. `castrum_validate_{email,uuid,ipv4,ipv6}` keep a `cstring` form as a
+   **fallback for an addon older than 0.9.6**. The `_bytes` variants are the
+   primary path; the cstring symbols only bind if the byte ones are absent.
+2. `crypto.ts`'s session surface (`castrum_session_seal`,
+   `castrum_session_open`) still takes `cstring` ARGs — and this is
+   **blocked on castrum, not on us**. `nm -D` over the shipped
+   `castrum.linux-x64-gnu.node` (0.9.6, 119 `castrum_*` exports) shows byte
+   variants exist only for `jwt_sign`, `jwt_sign_bytes_into` and the four
+   validators; there is **no `session_seal_bytes` / `session_open_bytes`**. The
+   out-direction is already zero-copy (`session_open` writes into a caller
+   `ptr`+`usize` buffer); only the in-direction transcodes.
+
+`ws_accept_key`'s `cstring` ARG is the handshake, i.e. once per connection, not
+once per request.
+
+**One nuance worth stating precisely:** Bun's docs say a `cstring` arg "accepts
+everything `ptr` does", so a site that *already holds bytes* can pass a pointer
+and skip the transcode. A site holding a **JS string** cannot — the C ABI needs
+NUL-terminated UTF-8, and JS strings are not that. That is the exact boundary of
+"no encoding".
+
+### Response / Headers: already the cheap pattern
+
+* The fast path passes a **plain object** to `new Response(body, { headers: h })`
+  — no JS-side `Headers` allocation at all; Bun materialises it internally.
+* Large header sets are applied **incrementally via `Headers.set`** rather than a
+  bulk object init, measured on Bun 1.4.2 over 14 headers: **877 ns (56.3
+  ns/header) vs 1268 ns (84.2 ns/header)** — bulk object init is ~45% slower.
+* The body is handed over as a **string**, never pre-encoded: `new Response(string)`
+  is cheaper than `new Response(TextEncoder.encode(string))` because Bun encodes
+  internally and can hand the string straight to the socket. This *is* "no
+  encoding where possible", applied to the body.
+* Plugins mutate `response.headers` **in place** (Bun allows it, probed) instead of
+  `new Headers(response.headers)` + re-wrap — removing the security plugin's
+  ~2.5–4 µs re-wrap and keeping the body stream + `content-length` intact.
+
+### Pooling `Response` / `Headers` objects: no
+
+Two independent reasons:
+
+1. Measured earlier in this work as a dead end — cross-request leakage, a ~4%
+   ceiling, and 93% of the constructor cost survives pooling anyway.
+2. It is structurally unsafe here: the `Headers` object **escapes** into the
+   `Response`, and Bun retains it after the call. A pooled instance would be
+   mutated by the next request and race Bun's own serialisation of the previous
+   one.
+
+The legitimate form of "pool it" is what we already do: **do not allocate the
+JS-side object in the first place.**
+
+### Why none of this moves the benchmark
+
+`queryPairs`' gate is `jsBelowBytes: 512`, and the benchmark's query is ~30 bytes,
+so the hot path stays in **JS** by design — and §22 measured that *forcing* the
+native path in situ was **slower** (17.96/16.04 µs JS vs 18.13/18.45 µs forced).
+FFI-pattern work cannot buy throughput on these routes because it is not on
+their path. Where it did pay: the `cstring`→`ptr` migration (~3× on validator
+ops) and the NUL-truncation correctness fix.
+
+**Actionable upstream item, low priority:** if session seal/open ever becomes
+hot, ask castrum for `session_seal_bytes` / `session_open_bytes`.
