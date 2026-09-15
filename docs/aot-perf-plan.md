@@ -1857,3 +1857,82 @@ and the payoff is bounded. Adding up §22's composition (12.5 µs Bun floor,
 most ~1 µs recoverable from the context tier — the plugin hooks themselves
 (~1.65 µs, §15) still have to run. Worth doing deliberately, with its own plugin
 API, compatibility story and test suite; not worth rushing.
+
+---
+
+## 26. Correction: the hook ladder lives only in the `needsFull` templates
+
+§24 proposed that letting plugins *declare* their context requirements would let
+routes stay specialized while their hooks still run. **That is necessary but not
+sufficient, and on its own it would be a silent correctness bug.**
+
+Proof — every `runHooks(` call site in `phases/codegen/routes/handler.ts` is
+inside one of the two `needsFull` assemblers:
+
+| lines | template |
+|-------|----------|
+| 79–145 | async `needsFull` |
+| 175–247 | `assembleNeedsFullSyncCoreFn` |
+| 274–321 | the async resume / stage machine |
+
+There is **no `runHooks` in any specialized or compact template** — those branch
+straight from `__finalize(...)` to `return response;` / `return __applySet(response, __set);`.
+
+So `hasGlobalLifecycle ⇒ needsFull` is a **hard correctness invariant**, not a
+conservative over-approximation. A route emitted on the specialized tier never
+runs `__lc.afterHandle`/`onResume`/`beforeHandle` at all — declaring plugin
+usage and then specializing would silently drop CORS headers and security
+decoration for every route in the app. §24's plan, applied alone, breaks plugins.
+
+### The actual requirement: decouple the two axes
+
+The codegen currently welds together two **orthogonal** decisions:
+
+* **context tier** — full / specialized / compact — driven by route *usage*;
+* **lifecycle ladder** — run hooks, or don't — driven by whether hooks are
+  *registered*.
+
+Making "the default path the fastest" with real plugins means the ladder must be
+available on every tier. Concretely that is four template variants (sync ×
+hooks) plus the resume machine, and `ctx.set` / `__set` must be uniform across
+all of them so `applySet` reads the same shape.
+
+### Why "bake the internal plugins in" is the version that actually pays
+
+This is where the user's framing is exactly right, and it is stronger than §24's:
+if the compiler resolves the framework's **internal** plugins statically —
+`cors(...)` and `security(...)` are recognised plugin calls with known,
+analyzable options — it can emit their decoration **inline into the specialized
+templates** instead of routing them through the generic `__lc.afterHandle` chain.
+Then the ladder is not merely cheap on a lean context, it *does not exist* for
+those routes. The plugin options become the compile-time trigger for which
+decoration code is emitted:
+
+| internal plugin | what the compiler already knows | what it can emit |
+|-----------------|--------------------------------|------------------|
+| `security(opts)` | static header set → already baked into `__DEFAULT_HEADERS`; HSTS is boot-derived; `hidePoweredBy` | nothing per-route for framework-built responses; a short tail for raw-`Response` routes |
+| `cors(opts)` | origin list, methods, allowed/exposed headers, credentials, maxAge | an inline origin-match + `ACAO`/`Vary` block in the route tail |
+
+Everything not resolvable this way (user plugins, aliased imports, non-literal
+options) must keep forcing the full context — the same conservative rule as
+`FULL_USAGE`.
+
+### Deliberately not implemented here
+
+Two reasons, both about *how* it should land rather than whether:
+
+1. **It is security-sensitive codegen.** The CORS allow-list and origin matching
+   would be re-implemented as emitted code; a mismatch is a CORS bypass, and the
+   contract harness only covers the bench's own origin list. It needs its own
+   test suite over allow-list edge cases (`null` origin, absent `Origin`,
+   wildcard-vs-credentials, `Vary` correctness) before it ships.
+2. **The payoff stays bounded and the work is not small.** The hooks' actual work
+   (~1.65 µs, §15) still has to happen; only the *ladder* and the full-context
+   construction are recoverable, so ~1 µs is the ceiling against a four-template
+   codegen change plus a plugin-recognition analyzer.
+
+Recommended order, smallest safe step first: (a) extend the app-config analyzer
+to report resolved plugin calls (the `dev-only-plugins.ts` walk already resolves
+call names and import sources for `debugbar`), (b) add the conservative
+"declared vs unknown" rule and a test that an unknown plugin still forces
+`needsFull`, (c) only then move the ladder into the specialized templates.
