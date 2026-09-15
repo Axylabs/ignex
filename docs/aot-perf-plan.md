@@ -1238,3 +1238,112 @@ once per response. That is a 4–5 file, security-sensitive change:
 This should be its own change with its own contract check and smoke run. It is
 not a drive-by edit: the raw-response path is precisely where the security
 headers matter most.
+
+---
+
+## 19. Where the Elysia gap actually is: instrumenting beats profiling (2026-09-15)
+
+Fresh baseline, `bench:compare:cpu`, 15k rps, 3 rounds, medians:
+
+| participant | µs/req | vs bun |
+|-------------|--------|--------|
+| bun | 23.42 | 1.000x |
+| elysia | 26.45 | 1.129x |
+| **ignus-aot** | **29.13** | **1.243x** |
+| ignus | 32.85 | 1.403x |
+| **ignus-native** | **33.71** | **1.439x** |
+
+Two things stand out. `ignus-native` is **slower than the interpreted server**
+and 15% slower than AOT — the "native is acceleration" premise fails on this
+workload. And the gap to Elysia is 2.68 µs.
+
+### The sampling profiler is not trustworthy here — instrument instead
+
+`bun --cpu-prof` on both participants gave a confident-looking answer:
+`parseQuery3` at **13.6% of self time** on ignus vs **0.49%** on Elysia, plus
+`Headers.set` at 11.4%. But:
+
+* the profiled run burned **20.0 s** of CPU where the same load measures
+  **6.1 s** unprofiled — a **3.3× inflation**, and it inflates JS frames while
+  native frames stay uninstrumented, so the percentages are not shares;
+* 13.6% of 6.1 s over ~116k calls implies **~7 µs per call** for a function
+  whose isolated cost is 197 ns. Implausible on its face.
+
+So instead: **wrap the compiled artifact's functions in `performance.now()`
+timers** and read the true per-call cost under real load. This is
+rate-independent and needs no sampling. Ground truth at 208k requests served (2
+pairs per query, `?q=…&page=7`, called on ~84% of requests):
+
+| function | calls | µs/call | µs/req |
+|----------|-------|---------|--------|
+| `parseQuery` | 175k | **1.99** | 1.68 |
+| `applyStaticHeaders` | 225k | **1.35** | 1.51 |
+
+Together ~3.2 µs of the 29.13 — 11%. Not 25%.
+
+### Fix: the query helper, and why the isolated measurement lied again
+
+`bench/compare/shared.ts`'s `parseQuery(url: URL)` iterated `url.searchParams`.
+Crucially this helper is **shared by `bun`, `ignus`, `ignus-native` and
+`ignus-aot`** — only Elysia's port escapes it, because Elysia's router parses the
+query. So it was a cost charged to every participant *except* the one ignus was
+being compared against.
+
+The replacement splits the raw query string, with a fast path that only runs when
+the query contains no `%` and no `+` — in which case `URLSearchParams` decoding
+is the **identity**, so the result is exactly equivalent, not approximately.
+Anything that could need decoding falls through to the native iterator.
+Equivalence was checked against `URLSearchParams` on 21 cases including `a`,
+`=1`, `&&`, `a=b=c`, `a=1&`, `a=%`, `a=%zz`, `a+b=c+d` and duplicate keys.
+
+**The isolated benchmark said the fix was a regression and the in-situ
+measurement said it was a 2.2× win:**
+
+| | isolated | in situ |
+|---|---|---|
+| `url.searchParams` iteration | **197 ns** | 1990 ns |
+| split fast path | 335 ns | **900 ns** |
+
+Hand-rolled decoding also loses badly in isolation (904 ns — `decodeURIComponent`
+plus a `+` regex dominates), which is why the fast path skips decoding entirely
+rather than implementing it. This is the third time this document records the
+same trap (§13, §17): **an operation's hot-loop cost says nothing about its
+served cost.** Publishing the isolated number would have reverted a real win.
+
+Measured effect: **1.99 → 0.90 µs/call**, i.e. **−0.92 µs/req**. The contract
+harness (`bench:compare:verify`, 10/10 including `GET /api/users -> echoes
+query+cookies`) and `verify` (1958 tests) both pass.
+
+### The end-to-end harness could not confirm it, and that is a real limitation
+
+A 5-round re-measure moved **every** participant up — bun 23.42 → 24.77, elysia
+26.45 → 29.45 — i.e. the machine drifted ~5–11% between runs. A ~0.9 µs effect
+(3%) is not resolvable against that. Per §18, an AOT **source** change cannot
+hold an in-invocation control, so this comparison has ~1 µs resolution and the
+number above it comes from instrumentation, not from `cpu.ts`. Anyone re-running
+these figures should expect them to move by more than the effect being measured.
+
+### Bun finding: `serve({ headers })` is silently ignored
+
+The framework plumbs `__serverCfg.headers` into `Bun.serve({ headers })`, and
+that is the obvious place to move the per-response static header set. It does
+not work in Bun 1.4.2 — a server started with
+`Bun.serve({ headers: { "x-static": "server" }, … })` returns
+`x-static = null` for both a plain response and one that overrides the header.
+Worth reporting upstream; also means `server.headers` config should be audited.
+
+### Remaining framework cost, precisely measured
+
+`applyStaticHeaders` applies the plugin's static defaults to every response by
+iterating the record and calling native `Headers.set` — **8 calls per response,
+1.35 µs/req measured**. Elysia instead writes its security headers into a plain
+object and hands them to a single `Response` construction.
+
+Merging the defaults into the construction record instead was **already tried and
+refuted** — see the note above `withBody` in
+`packages/core/src/http/finalize.ts`: 17.06 µs vs 16.60 µs, i.e. the per-request
+spread cost more than the `set` calls it saved. That verdict predates both
+`sideEffects: false` and this section's instrumentation. Given 1.35 µs measured
+for the `set` path and a refutation measured at only 0.46 µs difference on a
+noisier harness, **this is the top open lever and it deserves re-measuring with
+in-artifact instrumentation**, not another sampling profile.

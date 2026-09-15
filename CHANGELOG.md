@@ -8,6 +8,20 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The comparison harness no longer charges a slow query parse to every
+  participant except Elysia.** `bench/compare/shared.ts`'s `parseQuery(url: URL)`
+  iterated `url.searchParams`; that helper is shared by the `bun`, `ignus`,
+  `ignus-native` and `ignus-aot` participants, while Elysia's port escapes it
+  because Elysia's router parses the query itself. The replacement splits the
+  raw query string, using a fast path that is exactly equivalent (it only runs
+  when the query has no `%`/`+`, where `URLSearchParams` decoding is the
+  identity) and falling through to the native iterator otherwise; equivalence
+  is checked against `URLSearchParams` on 21 cases including malformed input.
+  Measured by **instrumenting the compiled artifact** (per-call timers, not a
+  sampling profile — `--cpu-prof` inflated the share 3.3×): **1.99 → 0.90 µs
+  per call, −0.92 µs per request**. Note the isolated benchmark said this was a
+  *regression* (335 ns vs 197 ns) — an operation's hot-loop cost does not predict
+  its served cost. `bench:compare:verify` 10/10 and `verify` (1958 tests) pass.
 - **The security plugin no longer touches the request URL, and no longer builds
   its HSTS value per response.** `isHttpsRequest` now reads the *listener*
   protocol captured at boot (`getServeBootInfo().protocol`) instead of

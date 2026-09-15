@@ -225,14 +225,72 @@ export function getClientIp(req: Request, server: unknown): string {
   );
 }
 
+/**
+ * Parse the query into a grouped record, matching `URLSearchParams` semantics.
+ *
+ * The original implementation iterated `url.searchParams`, which is fast in
+ * isolation (~197ns for 2 pairs, and hand-rolled decoding measured 4.6x SLOWER)
+ * but costs ~2.0us per call **in situ** — the iterator allocates a 2-element
+ * array per key, and the per-call allocation/IC cost dominates under real load.
+ *
+ * The fast path is exactly equivalent, not approximately: if the raw query
+ * contains no `%` and no `+` then `URLSearchParams` decoding is the identity
+ * for every segment, so a plain split on `&` / first `=` yields identical
+ * keys, values and order. Anything that could need decoding (or that could be
+ * malformed) falls through to the native iterator, so semantics are preserved
+ * unconditionally.
+ *
+ * This helper is shared by the `bun`, `ignus`, `ignus-native` and `ignus-aot`
+ * participants — only Elysia's port escapes it (its router parses the query).
+ * Fixing it removes a cost that was being charged to every participant except
+ * the one it was compared against.
+ */
 export function parseQuery(url: URL): Record<string, string | string[]> {
+  const q = url.search;
+
+  // Fast path — no percent-encoding and no `+`, so decoding is the identity.
+  if (!q.includes("%") && !q.includes("+")) return parseQueryUndecoded(q);
+
+  // Slow path — decoding or malformed input may be involved.
   const out: Record<string, string | string[]> = {};
-  for (const [key, value] of url.searchParams) {
-    const existing = out[key];
-    if (existing === undefined) out[key] = value;
-    else if (Array.isArray(existing)) existing.push(value);
-    else out[key] = [existing, value];
+  for (const [key, value] of url.searchParams) groupInto(out, key, value);
+  return out;
+}
+
+/** Group a duplicate key the way `URLSearchParams`-derived records do. */
+function groupInto(out: Record<string, string | string[]>, key: string, value: string): void {
+  const existing = out[key];
+  if (existing === undefined) out[key] = value;
+  else if (Array.isArray(existing)) existing.push(value);
+  else out[key] = [existing, value];
+}
+
+/**
+ * Split an already-decoded query string (`?a=1&b=2`) into a grouped record.
+ *
+ * Only valid when no decoding is required — see {@link parseQuery}, which is
+ * the sole caller and owns that precondition.
+ */
+function parseQueryUndecoded(q: string): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  const n = q.length;
+  let i = 1; // skip "?"
+
+  while (i < n) {
+    let amp = q.indexOf("&", i);
+    if (amp === -1) amp = n;
+
+    // `amp > i` skips empty segments (`a=1&&b=2`, trailing `&`).
+    if (amp > i) {
+      let eq = q.indexOf("=", i);
+      // An `=` past this segment belongs to a later one — a bare key.
+      if (eq === -1 || eq > amp) eq = amp;
+      groupInto(out, q.slice(i, eq), eq === amp ? "" : q.slice(eq + 1, amp));
+    }
+
+    i = amp + 1;
   }
+
   return out;
 }
 
