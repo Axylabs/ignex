@@ -1379,11 +1379,18 @@ window: the load script's readiness probe and 1.5 s warmup are served too.
 | `applySet` | 46.5k | 134 ns | 0.03 µs |
 
 **Total attributable framework cost ≈ 3.5 µs/request** (~11% of the 29–31 µs
-budget), of which the route handler already contains all of it. So ~18 µs of the
-handler is the route's own work plus Bun's `Response`/`Headers`/JSON
-materialisation, and ~8 µs sits outside the handler entirely (HTTP parse,
-response write, GC). Instrumentation overhead inflates these absolutes by
-roughly 13 wrappers × 2 clock reads per request; the ranking is unaffected.
+budget), and all of it executes inside the route handler.
+
+> **Correction (see §22).** The route-handler row above (21.9 µs) is **wall-clock
+> duration, not CPU**. The wrapper `await`s an `async` handler, so it spans the
+> time the handler is suspended on the event loop under a 96-client load — it is
+> not the handler's CPU cost, and the earlier reading of it ("~18 µs of the
+> handler is the route's own work") was wrong. The synchronous, non-awaited rows
+> are CPU and stand. Use the `bench:compare:cpu` total for the CPU budget and
+> §22 for its composition.
+
+Instrumentation overhead inflates the synchronous absolutes by roughly 13
+wrappers × 2 clock reads per request; the ranking is unaffected.
 
 ### The context constructor is a bigger lever than §19's implier, but still small
 
@@ -1533,3 +1540,84 @@ remaining allocation is 97 ns, and the two obvious remaining strategies
 compiler to stop emitting the abstraction — a lean context tier with no
 per-request object, plugins inlined per route, no generic finalize/applySet
 (§15's Phase 3).
+
+---
+
+## 22. Can these costs move to Rust FFI? Measured: no (2026-09-15)
+
+`@ignex/native` is available (`isNativeAvailable() === true`) and the Rust
+castrum addon is real. The question is whether any remaining per-request cost can
+be moved across it profitably.
+
+### Composition of the 29–31 µs budget
+
+A minimal served Bun server (one `new Response("ok")`, no headers, no JSON, no
+parsing) driven by the identical 15k rps token-bucket:
+
+| server | cpu/req |
+|--------|---------|
+| Bun, trivial constant response | **12.5 µs** (12.48 / 18.92 — second round perturbed) |
+| + 8 security headers + `JSON.stringify` + `content-length` (no query parse) | 16.6 µs |
+| + the JS query parse | 16.5–17.0 µs |
+| raw-bun bench participant (full mix incl. rate-limit Map, cookies, POST body) | 23.4 µs |
+| ignus-aot | 29.1 µs |
+
+So of the ~29 µs: **~12.5 µs is Bun's HTTP stack and `Response` materialisation**
+(a trivial route, 43% of the budget), **~4–11 µs is the shared workload** every
+participant — including raw Bun — performs, and **~3.5–5.7 µs is ignex's own JS**.
+
+### The FFI experiment
+
+The `queryPairs` gate is `jsBelowBytes: 512`, so the benchmark's ~30-byte query
+never selects native. That gate was calibrated with *isolated* micro-benchmarks,
+and this repo has documented repeatedly that isolated cost does not predict
+served cost — so the gate was the obvious thing to doubt.
+`IGNEX_SIZE_GATES=off` is the documented kill switch that forces the static-table
+(native) decision. One server, one load, only the parser differs; variants
+interleaved to cancel drift:
+
+| round | JS split path | forced Rust path |
+|-------|---------------|------------------|
+| 1 | 17.96 µs | 18.13 µs |
+| 2 | 16.04 µs | 18.45 µs |
+
+(Rounds interleaved A/B; an earlier non-interleaved run put forced-native at
+22.31 µs vs 17.36 / 18.75 for the JS and gate-on control.)
+
+**The Rust path is never faster.** Point estimates are +0.2 to +2.4 µs, and its
+per-round spread (0.32 µs) is tighter than the JS path's (1.92 µs) — i.e. it is
+consistently *more* expensive, not noisily equal. Its user CPU is ~46% higher
+too. The gate is correct, and in situ the true crossover is at least as high as
+the 512 B it was calibrated to.
+
+The reason is structural, not a tuning miss: the native path must
+`toBytes(input)` (allocate + copy the string into a `Uint8Array`), cross the FFI
+boundary, and `readPairsPacked` the result back into JS pair arrays. For a 30-byte
+input the marshalling dwarfs the parse.
+
+### Why no other candidate can win either
+
+* **Bun's 12.5 µs floor** is inside Bun (Rust/Zig/C++). There is no user-side API
+  to reach it and no zero-copy response path to write into — the framework can
+  only hand Bun JS values and let it materialise them. Moving this to Rust means
+  replacing Bun's HTTP server, not calling FFI.
+* **The header/JSON step (~4.5 µs)** is Bun's own per-header serialisation and
+  `JSON.stringify`; the framework already hands it a finished string with an exact
+  `content-length`.
+* **The framework's remaining ~3.5 µs is JS *object* work** — context
+  construction, hook dispatch, `WeakSet` probes, small string ops. Crossing FFI
+  requires materialising those as bytes and reading results back, at a measured
+  ≥1.3 µs per crossing.
+
+### The arithmetic that settles it
+
+Making **100%** of the framework's JS free would save ~3.5 µs of a 29–31 µs
+budget (11%). At a measured cost of ≥1.3 µs per FFI crossing, **you can afford
+about two crossings per request before the FFI overhead exceeds every line of JS
+you removed** — and the ≥1.3 µs figure is for one *already-optimised*,
+byte-compatible, battle-tested op. `IGNEX_NATIVE=off` parity is a gate for a
+reason: on this request path native is not an acceleration, it is a tax.
+
+**Result: none of these costs can be profitably migrated to Rust FFI.** The
+lever is the compiler emitting less JS (§15 Phase 3), not a different execution
+tier.
