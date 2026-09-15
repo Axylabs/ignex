@@ -1700,3 +1700,93 @@ trustProxy: false -> ctx.ip = 10.0.0.9      (socket)
 This is also the cheapest order for a proxied deployment: it skips the ~3.4 µs
 native lookup entirely. `trustProxy: false` is unchanged — a client-supplied
 header is still never trusted.
+
+---
+
+## 24. Usage-specialized codegen: the fast tier was dead code (2026-09-15)
+
+The compiler already had everything needed for "only pay for what the route
+uses": an AST-derived `ContextUsage` (`set`, `cookie`, `params`, `body`,
+`query`, `headers`, `req`, `url`, `server`, `state`, `json`, …, plus a
+`FULL_USAGE` fallback for unresolvable handlers), a tier decision
+(`needsFull` / `compact` / `static-sync`), and a specialized context builder
+that emits a plain object literal instead of `new IgnexContextImpl(...)`.
+
+### What was wrong
+
+Three pieces of already-written machinery were **unreachable**:
+
+* `context.ts` emits `const __set = { headers: Object.create(null), cookie:
+  Object.create(null) }` for a specialized route;
+* `context.ts` emits `const __cookieJar = createLazyCookieJar(__set, …)` for
+  `usage.cookie`;
+* `handler.ts` emits `return __applySet(response, __set);` for a specialized
+  route that is not `compact`.
+
+All three require `!needsFull`. But `needsFull` listed
+`route.analysis.usage.set` and `route.analysis.usage.cookie`, so
+`!needsFull && (usage.set || usage.cookie)` was **unsatisfiable** — the middle
+tier could never be selected. Any route that merely *set a response header* or
+*read a cookie* was forced onto `createContext` + `IgnexContextImpl` + the full
+lifecycle ladder.
+
+Removing those two disjuncts makes the branch live. Emitted code for
+`GET /health` in a plugin-free build, before → after:
+
+```js
+// before: full context
+ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts__h6);
+ctx.server = server;
+if (__hasPreParse) { … } if (__hasBeforeHandle) { … } /* + afterHandle,
+  mapResponse, afterResponse, trace, access-log */
+return __applySet(response, ctx.set, …);
+
+// after: specialized
+const __params = params ?? EMPTY_PARAMS;
+const __set = { headers: Object.create(null), cookie: Object.create(null) };
+const __result0 = health_get_default({ set: __set, headers: req.headers, json: jsonReply2 });
+return __applySet(response, __set);
+```
+
+All four `ignus-aot-app` route shapes (`/api/cookies`, `/api/users` GET and
+POST, `/health`) now take the specialized tier. Safety is preserved because
+`FULL_USAGE` also sets `proxy`/`forward`/`cache`/`loader`/`sendFile`/`file`/`debug`,
+all of which remain in `needsFull` — so an unresolvable handler still gets the
+full context.
+
+Verified: `typecheck`, 348 compiler tests, `verify` exit 0 (1959 tests), and the
+byte-for-byte contract harness 11/11 on all four servers.
+
+Measured on a plugin-free build, interleaved, tier rule the only variable:
+
+| round | with fix | reverted |
+|-------|----------|----------|
+| 1 | 27.19 µs | 27.00 µs |
+| 2 | 26.48 µs | 28.10 µs |
+
+Mean **26.84 vs 27.55 µs (~0.7 µs)** — directionally positive but only at n=2
+against ~1.1 µs run-to-run drift, so it is *not* conclusive on timing. The
+structural change in the emitted code is the firm evidence.
+
+### The real blocker for plugin-using apps
+
+**None of this helps an app that registers plugins.** `hasGlobalLifecycle` is
+`appConfigHasHooks`, and a plugin's `onResponse`/`beforeHandle` receives the
+context — a *runtime* object the compiler cannot analyse, so it must assume the
+hook may read any member and keep the full context. Bench A/B on the same build:
+
+| build | cpu/req |
+|-------|---------|
+| with plugins (all routes `needsFull`) | 27.92 µs |
+| without plugins (all routes specialized) | 25.68 µs |
+
+That 2.24 µs is the prize, but it is **not** all the tier flip: the plugin hooks
+themselves cost ~1.65 µs (§15), so the tier portion is the remainder.
+
+**The change that would unlock this** is the same declarative pattern already
+used for `IgrexPlugin.responseDefaults`: let a plugin *declare* its context
+requirements so the compiler can keep routes specialized when the hooks need
+only a subset. The framework's own plugins are the obvious first customers —
+`cors` needs `headers`, `security` needs nothing beyond the response — but a
+plugin that declares nothing must continue to force the full context, so this is
+a plugin-API change with its own compatibility story, not a codegen tweak.

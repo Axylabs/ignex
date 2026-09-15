@@ -8,6 +8,27 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Compiled routes now take the usage-specialized context path when they only
+  set headers or read cookies — previously that entire tier was unreachable dead
+  code.** The compiler already emitted `const __set = { headers, cookie }`, a
+  lazy `__cookieJar`, and `return __applySet(response, __set)` for a specialized
+  route, but `needsFull` listed `usage.set` and `usage.cookie`, so
+  `!needsFull && (usage.set || usage.cookie)` was unsatisfiable and **every**
+  route that set a response header or read a cookie was forced onto
+  `createContext` → `new IgnexContextImpl(...)` plus the full lifecycle ladder.
+  A route that only sets a header now emits a plain object literal instead of a
+  context class instance. Unresolvable handlers are unaffected: `FULL_USAGE`
+  also sets `proxy`/`forward`/`cache`/`loader`/`sendFile`/`file`/`debug`, which
+  all still force the full context. All four compiled bench route shapes now
+  take the specialized tier; `verify` (1959 tests), 348 compiler tests and the
+  byte-for-byte contract harness (11/11, four servers) pass. Measured on a
+  plugin-free build: ~0.7 µs/request (directionally; n=2 against ~1.1 µs drift).
+  **It does not yet help plugin-using apps**: `hasGlobalLifecycle =
+  appConfigHasHooks` still forces the full context for every route, because a
+  runtime plugin hook may read any context member. Bench A/B: 27.92 µs with
+  plugins vs 25.68 µs without. Unlocking that needs plugins to *declare* their
+  context requirements (the `responseDefaults` pattern). See
+  `docs/aot-perf-plan.md` §24.
 - **The request context no longer spreads an always-undefined `opts.set`.** The
   `IgnexContextImpl` constructor built its header accumulator as
   `{ headers: emptyHeaders(), ...opts.set }`; on the compiled path `opts.set` is

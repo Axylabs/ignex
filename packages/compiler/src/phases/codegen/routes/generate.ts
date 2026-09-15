@@ -90,6 +90,20 @@ export const generateRouteCode = (
   // route needs lifecycle/hooks, validation, cookies, forwarding, or file
   // handling, or when context specialization is disabled. This is driven by
   // the AST-derived ContextUsage, not a substring scan of the source.
+  //
+  // `usage.set` and `usage.cookie` are deliberately NOT reasons for the full
+  // context. Writing `ctx.set` needs only an accumulator plus one `applySet`
+  // pass, and reading cookies needs only a lazy jar over that accumulator —
+  // the specialized path already emits all three (`const __set = { headers,
+  // cookie }` and `const __cookieJar = createLazyCookieJar(...)` in
+  // `context.ts`; `return __applySet(response, __set)` in `handler.ts`).
+  // Listing them here forced EVERY header- or cookie-touching route onto the
+  // full `IgnexContextImpl` path (createContext + the whole lifecycle ladder)
+  // and made that specialized branch unreachable dead code.
+  //
+  // Safety: an unresolvable analyzer result is `FULL_USAGE`, which sets
+  // `proxy`/`forward`/`cache`/`loader`/`sendFile`/`file`/`debug` as well — all
+  // still listed below — so unresolved routes keep the full context.
   const needsFull =
     !cfg.specializeContext ||
     cfg.enableTraceHeaders ||
@@ -97,8 +111,6 @@ export const generateRouteCode = (
     hasHooks ||
     hasGlobalLifecycle ||
     route.analysis.hasValidation ||
-    route.analysis.usage.cookie ||
-    route.analysis.usage.set ||
     route.analysis.usage.proxy ||
     route.analysis.usage.forward ||
     route.analysis.usage.cache ||
@@ -114,7 +126,8 @@ export const generateRouteCode = (
   // `ctx.set`/`ctx.cookie` (no response mutations accumulate), the finalized
   // Response needs no `__applySet` pass — return it directly.
   // (Elysia's `responseMode: 'compact'`.) Only reachable on the specialized
-  // path (`needsFull` already forces full context for set/cookie usage).
+  // path. A set-only route is `!needsFull && usage.set` — NOT compact — and
+  // takes the middle tier: specialized context + `__set` + one `__applySet`.
   const compact = !needsFull && !route.analysis.usage.set && !route.analysis.usage.cookie;
 
   // Fully-synchronous route fast path: a statically-known sync handler → non-
