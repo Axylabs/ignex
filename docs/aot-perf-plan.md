@@ -2461,3 +2461,51 @@ so that round's CPU figure is meaningless. The 7-round median absorbed it; round
 this, the noise floor (±14% absolute) was *larger* than the lever (~11%), so no
 further micro-optimization could be validated at all; normalizing to `bun` is
 what fixed that. Any future claim on this path should use the same method.
+
+## 35. Where the residual 3.45 µs actually is: ablating the route stages (2026-09-15)
+
+§22's isolated figures — `withBody` 4,184 ns + `applyStaticHeaders` 1,341 ns —
+**sum to more than the entire residual**, which is the third time in this work
+that isolated cost failed to predict served cost. So the stages were priced *in
+situ* instead, using the codegen's existing ablation switch: `IGNEX_ABLATE_BUILD=1`
+emits `__ABLATE`/`__ABL_HOOKS`/`__ABL_APPLYSET`/`__ABL_FINALIZE` as module
+constants driven by `IGNEX_ABLATE=<finalize|hooks|applyset>` **per server
+process**. That makes this a **within-artifact** control — the artifact is
+identical across runs and only the env changes — which is strictly better than
+any rebuild-based A/B.
+
+`SERVER=bun,ignus-aot CPU_ROUNDS=7`, interleaved, normalized to `bun`:
+
+| run | `IGNEX_ABLATE` | bun | ignus-aot | ratio |
+|---|---|---|---|---|
+| 1 | *(baseline)* | 23.28 | 27.04 | **1.162** |
+| 2 | `hooks` | 23.47 | 26.43 | **1.126** |
+| 3 | `applyset` | 23.66 | 27.84 | 1.177 |
+| 4 | `finalize` | 23.04 | 27.23 | 1.182 |
+| 5 | *(baseline)* | 24.25 | 29.05 | **1.198** |
+
+**Two baselines 3.1% apart set the floor.** Against that:
+
+* **`hooks` is real: 1.126, below BOTH baselines** (1.162 / 1.198). The plugin
+  response ladder costs **~1.3–1.6 µs/req** (residual falls 4.28 → 2.96 µs).
+  Caveat: this ablation removes the stage *and* the per-origin CORS headers it
+  writes, including the cost of serialising them — while the raw-bun baseline
+  still does its own CORS work. So 1.3–1.6 µs is an **upper bound** on anything
+  removable, and it is largely *real* work rather than overhead.
+* **`applyset` (1.177) and `finalize` (1.182) are both inside the baseline
+  band — no measurable cost.** Negative results worth recording: the `__applySet`
+  pass and the reply-finalize dispatch are *not* where the residual lives, and
+  the next person should not go looking there. Note the tension with the code
+  comment in `withBody` that warns against re-trying a merge — that warning came
+  from an in-situ re-test and it survives this one.
+
+**Conclusion: the residual is diffuse.** One identified item (~1.3–1.6 µs) that
+is mostly work the baseline also performs, two named candidates below the floor,
+and ~2–2.7 µs spread across routing, dispatch, context construction, query parse
+and reply construction with no single dominant term. There is no free lever left
+on this path; the remainder is the cost of the framework existing.
+
+A process note, since it cost several rounds: **the ratio to `bun` is the metric,
+and the ablation switch is the instrument.** Absolute µs drifts 14–17% between
+runs, so single-run comparisons are worthless; within-run ratios replicate to
+~3%, and within-artifact ablation removes the rebuild variable entirely.
