@@ -430,33 +430,8 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   get ip(): string {
     if (this._ip !== undefined) return this._ip;
 
-    // When the app trusts a proxy, the forwarded headers carry the CLIENT's
-    // address and must win. Resolving the socket address FIRST made
-    // `trustProxy` a no-op: `server.requestIP()` succeeds on essentially every
-    // request and returns the PROXY's address, so the header branch below was
-    // unreachable and every IP-keyed feature (rate limiting, logging,
-    // allow-lists) silently saw the proxy instead of the client.
-    //
-    // It is also the cheapest order for a proxied deployment: it skips a native
-    // peer-address lookup measured at ~3.4us/request in situ.
-    if (this._opts.trustProxy) {
-      const forwarded =
-        this.req.headers.get("x-real-ip") ??
-        lastForwardedIp(this.req.headers.get("x-forwarded-for"));
-      if (forwarded) {
-        this._ip = forwarded;
-        return forwarded;
-      }
-    }
-
-    const socketIp = readSocketIp(this.server, this.req);
-    if (socketIp !== undefined) {
-      this._ip = socketIp;
-      return socketIp;
-    }
-
-    this._ip = "anonymous";
-    return "anonymous";
+    this._ip = resolveClientIp(this.server, this.req, this._opts.trustProxy === true);
+    return this._ip;
   }
 
   get query(): URLSearchParams {
@@ -594,6 +569,44 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     });
   }
 }
+
+/**
+ * Resolve a request's client address exactly the way `ctx.ip` does.
+ *
+ * Exported so the compiler's usage-specialized context can emit `ip` instead
+ * of forcing a route that reads it onto the full context. An address resolved
+ * one way in a compiled build and another in an interpreted one would diverge
+ * silently — and `ip` is what rate limiting, allow-lists and access logs key
+ * on. One implementation, so there is nothing to drift.
+ *
+ * When `trustProxy` is set the forwarded headers carry the CLIENT's address
+ * and must win. Resolving the socket address FIRST made `trustProxy` a no-op:
+ * `server.requestIP()` succeeds on essentially every request and returns the
+ * PROXY's address, so the header branch was unreachable and every IP-keyed
+ * feature silently saw the proxy instead of the client. It is also the
+ * cheapest order for a proxied deployment: it skips a native peer-address
+ * lookup measured at ~3.4us/request in situ.
+ *
+ * @param server - The serving instance, or `null` before boot.
+ * @param req - The request whose client address is wanted.
+ * @param trustProxy - Whether forwarded headers are authoritative.
+ * @returns The client address, or `"anonymous"` when it cannot be resolved.
+ */
+export const resolveClientIp = (
+  server: IgnexServer | null | undefined,
+  req: Request,
+  trustProxy: boolean,
+): string => {
+  if (trustProxy) {
+    const forwarded =
+      req.headers.get("x-real-ip") ?? lastForwardedIp(req.headers.get("x-forwarded-for"));
+    if (forwarded) return forwarded;
+  }
+
+  // `readSocketIp` memoizes the "is `requestIP` usable here?" probe, so a
+  // server without it does not pay a throwing call per request.
+  return readSocketIp(server, req) ?? "anonymous";
+};
 
 /**
  * Create a per-request context.

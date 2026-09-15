@@ -150,6 +150,12 @@ export const security = (options: SecurityOptions = {}): IgnexPlugin => {
   return {
     name: "security",
     responseDefaults: Object.freeze(responseDefaults),
+    // `trustProxy` means "forwarded headers are authoritative for this
+    // deployment" — which is precisely what `ctx.ip` needs to know, not just
+    // this plugin's own HSTS decision. Declaring it is what carries it into the
+    // context on BOTH paths (see `IgnexPlugin.contextOptions`); the option used
+    // to influence `isHttpsRequest` alone.
+    ...(trustProxy ? { contextOptions: { trustProxy: true } } : {}),
 
     onResponse(ctx, response) {
       // Conditional headers, resolved by `hstsForRequest` — a memoized

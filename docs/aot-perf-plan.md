@@ -2185,3 +2185,67 @@ asserts the analyzer sets all four flags; drop the entries again and it fails.
 **Still open.** The hook ladder (§27 step (2)) still needs `ip` emit-able on the
 specialized context, which is blocked on the `trustProxy` plumbing above; the
 perf unlock beyond that remains the bounded ~0.6–1 µs of §26.
+
+## 31. `trustProxy` was inert in every compiled app (2026-09-15)
+
+§30 ended by noting `ip` could not be emitted because it needs the trust-proxy
+setting, and that `trustProxy` appears nowhere in the compiler. Following that up
+found a second, larger bug — and then closed both.
+
+**The bug.** `ctx.ip` reads `ContextOptions.trustProxy`. The compiler builds those
+options itself:
+
+```
+compiled:    ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts_<ref>)
+             __ctxOpts_<ref> = { body, route, responseDefaults }   // no trustProxy
+interpreted: createApp({ trustProxy }) -> lifecycle ctxOptions.trustProxy -> ctx.ip
+```
+
+`packages/compiler` mentioned `trustProxy` nowhere (two hits, both comments), so
+in an AOT app the getter's forwarded-header branch was dead code: every client
+resolved to the socket address — behind a proxy, the PROXY's. This is the `624ebf9`
+bug again, and it survived because that fix was verified against `createContext`
+callers that DO pass the option. It worked interpreted and stayed inert compiled.
+
+**Why the obvious fix is wrong.** `security({ trustProxy: true })` looks like the
+switch to read — its own option docs mention "`trustProxy` discipline (ctx.ip,
+rate limiting)". It is not: `security()` reads the option into a closure and uses
+it *only* for its HSTS decision (`isHttpsRequest`). It never touches
+`ContextOptions`, and no plugin can, because the impl only receives whatever
+object was passed to `createContext`. Two independent settings share the name.
+
+**The fix — declare, don't extract.** The framework already has the right
+mechanism for "an app-invariant value a plugin needs the framework to apply":
+`IgnexPlugin.responseDefaults`, which BOTH paths read (interpreted via
+`collectResponseDefaults` at boot, compiled by inlining an equivalent loop over
+the plugin objects the artifact boots). `IgnexPlugin.contextOptions` is its
+sibling, and the same shape works here:
+
+- `security({ trustProxy: true })` declares `contextOptions: { trustProxy: true }`.
+- `collectContextOptions(plugins)` merges it. A plugin can only ENABLE the
+  setting, never disable it: one declaration means "this deployment sits behind a
+  proxy", and no plugin can prove the opposite.
+- `createApp` resolves explicit option → plugin declaration (`resolveTrustProxy`),
+  so the interpreted path honours either surface.
+- The compiled server folds the same declaration ONCE at boot into
+  `const __TRUST_PROXY`, guarded by `state.hasAppConfig` — so an app with no
+  config const-folds to `false` and pays nothing.
+
+This also settled §30: with the setting finally reachable, `ip` did not have to
+stay a sentinel. `resolveClientIp(server, req, trustProxy)` is extracted out of the
+`ip` getter (one implementation, exported) and codegen emits
+`ip: resolveClientIp(server, req, __TRUST_PROXY)`. `ip` moved from sentinel to
+emitted, so a route that reads `ctx.ip` is now correct AND on the fast tier.
+
+**Verified.** Core unit tests cover the merge semantics, `security()`'s
+declaration, and the resolver — header-first when trusted, socket otherwise,
+`"anonymous"` last, and a client-supplied header IGNORED when the deployment does
+not trust a proxy. Compiler tests assert the emitted artifact contains
+`const __TRUST_PROXY`, reads it off `__appConfig.plugins`, and folds it into both
+context-options literals — including `__ctxOpts`, which serves the non-route
+contexts (404/405/OPTIONS/error), so those resolve the client identically.
+
+**Still open.** The hook ladder (§27 step (2)) — the remaining bounded ~0.6–1 µs
+of §26. Note also that `globalPluginUsage` (§27 steps a/b) is computed and stored
+on `AppConfigInfo` but has NO codegen consumer yet, so any active plugin still
+forces `needsFull` on every route via `hasGlobalLifecycle`.

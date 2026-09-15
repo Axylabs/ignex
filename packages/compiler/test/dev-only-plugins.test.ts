@@ -358,6 +358,46 @@ describe("production build keeps AOT optimizations", () => {
     expect(result.code).toContain("__ctxOpts_");
   });
 
+  it("folds the plugin trust-proxy declaration into the context options", async () => {
+    const layout = materializeFixture("debugbar");
+    delete process.env.NODE_ENV;
+    const result = await build(layout, fixturePath("debugbar", "app.config.ts"));
+    expect(result.errors).toHaveLength(0);
+
+    // `trustProxy` reached NOTHING before this: `ctx.ip` reads
+    // `ContextOptions.trustProxy`, the compiler never set it, and the option
+    // was silently inert in every AOT app while interpreted apps honoured it
+    // through `createApp`. The constant is folded at boot from the same
+    // `IgnexPlugin.contextOptions` declaration `collectContextOptions` merges.
+    expect(result.code).toContain("const __TRUST_PROXY");
+    expect(result.code).toContain("__appConfig.plugins");
+    expect(result.code).toContain("contextOptions");
+    // Both context-options literals carry it, so route contexts AND the
+    // non-route ones (OPTIONS/404/405/error) resolve the client identically.
+    expect(result.code).toContain("trustProxy: __TRUST_PROXY");
+  });
+
+  it("const-folds trustProxy to false when the app has no config", async () => {
+    // No plugins can declare it, so the boot loop is not emitted at all and the
+    // guard const-folds — an app without an app config pays nothing for this.
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      minify: false,
+      sourceMap: false,
+      incremental: false,
+      generateTypes: false,
+      generateOpenAPI: false,
+      generateClient: false,
+      precompileValidators: false,
+      precompileSerializers: false,
+    });
+    expect(result.errors).toHaveLength(0);
+    expect(result.code).toContain("const __TRUST_PROXY = false");
+  });
+
   it("the `production: true` option shapes the artifact with NODE_ENV unset", async () => {
     // `ignex build` sets `production: true` by default — the deploy artifact
     // must be production-shaped even when the CI/dev shell has no NODE_ENV.

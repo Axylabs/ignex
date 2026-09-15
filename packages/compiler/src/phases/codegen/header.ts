@@ -50,11 +50,35 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   maxFileBytes: ${opts.maxFileBytes ?? 20 * 1024 * 1024},
 });`);
 
+  // Whether forwarded headers are authoritative for this deployment. Folded
+  // here, ONCE at boot, from the plugin objects the artifact is about to boot
+  // — the same `IgnexPlugin.contextOptions` declaration the interpreted
+  // `createApp` merges, so the two paths cannot disagree about `ctx.ip`.
+  //
+  // Before this, nothing in the compiler mentioned `trustProxy` at all, so the
+  // compiled context never carried it: `ctx.ip` skipped the forwarded-header
+  // branch and every client resolved to the socket address (the proxy's, behind
+  // a proxy). `__ignexDevOnly` plugins are skipped exactly like the
+  // `__appPlugins` filter below, so a disabled dev tool cannot decide this.
+  header.push(
+    state.hasAppConfig
+      ? `const __TRUST_PROXY = (() => {
+  for (const __p of __appConfig.plugins ?? []) {
+    if (__p == null || typeof __p !== "object" || __p.__ignexDevOnly === true) continue;
+    const __co = __p.contextOptions;
+    if (__co != null && __co.trustProxy === true) return true;
+  }
+  return false;
+})();`
+      : `const __TRUST_PROXY = false;`,
+  );
+
   // Shared context options for non-route contexts (OPTIONS/404/405/error
   // paths). Hoisted so the `{ body: BODY_LIMITS }` literal is not re-allocated
-  // per request. Declared AFTER `BODY_LIMITS` (const TDZ — this used to
-  // reference it before initialization and every built server failed to load).
-  header.push(`const __ctxOpts = Object.freeze({ body: BODY_LIMITS });`);
+  // per request. Declared AFTER `BODY_LIMITS` and `__TRUST_PROXY` (const TDZ —
+  // this used to reference `BODY_LIMITS` before initialization and every built
+  // server failed to load).
+  header.push(`const __ctxOpts = Object.freeze({ body: BODY_LIMITS, trustProxy: __TRUST_PROXY });`);
 
   // Shared TextEncoder — reused by jsonReply/textReply/htmlReply. The previous
   // `new TextEncoder()` per response allocated a fresh encoder per reply.

@@ -117,12 +117,7 @@ export const generateRouteCode = (
     route.analysis.usage.loader ||
     route.analysis.usage.sendFile ||
     route.analysis.usage.file ||
-    route.analysis.usage.debug ||
-    // `ctx.ip` is the one identity member the specialized context cannot emit:
-    // it needs the trust-proxy setting, and the compiled context options do not
-    // carry `trustProxy` at all. `route`/`requestId`/`startTime` ARE emitted
-    // there now, so only this one still forces the full context. See §30.
-    route.analysis.usage.ip;
+    route.analysis.usage.debug;
 
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);
@@ -173,7 +168,7 @@ export const generateRouteCode = (
     // frozen instance is safe (removes one allocation + a hidden class change
     // per request on the full-context path).
     state.header.push(
-      `const ${ctxOptsVar(route)} = Object.freeze({ body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)}, responseDefaults: __DEFAULT_HEADERS });`,
+      `const ${ctxOptsVar(route)} = Object.freeze({ body: BODY_LIMITS, route: ${JSON.stringify(route.source.path)}, responseDefaults: __DEFAULT_HEADERS, trustProxy: __TRUST_PROXY });`,
     );
     // Full context: create the context, run the pre-parse lifecycle, then the
     // per-part validation block (native-first prelude when the route is

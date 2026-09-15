@@ -31,6 +31,7 @@ import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
 import {
+  collectContextOptions,
   collectResponseDefaults,
   createPluginContext,
   type IgnexPlugin,
@@ -210,6 +211,24 @@ const resolveServeLimits = (opts: {
 };
 
 /**
+ * Resolve this app's `trustProxy` setting, or `undefined` when nothing sets it.
+ *
+ * An explicit app-level option wins; otherwise a plugin's declaration applies
+ * (see `IgnexPlugin.contextOptions`, which `security({ trustProxy: true })` now
+ * carries). Either way the value has to equal what the compiled server folds
+ * into its frozen context-options literal, or `ctx.ip` would resolve
+ * differently in a compiled build than in an interpreted one. Extracted from
+ * `createApp`, which sits at the cognitive-complexity ceiling.
+ *
+ * @param options - The app options the app was created with.
+ * @returns The setting, or `undefined` to leave it unset.
+ */
+const resolveTrustProxy = (options: AppOptions): boolean | undefined => {
+  if (options.trustProxy !== undefined) return options.trustProxy;
+  return collectContextOptions(options.plugins ?? [])?.trustProxy;
+};
+
+/**
  * Build a runtime app from lifecycle hooks/plugins and a base handler.
  *
  * The interpreted counterpart of the compiler-generated server: stage chains
@@ -251,7 +270,8 @@ export const createApp = (options: AppOptions): IgnexApp => {
   // createApp time), so they are computed ONCE instead of per request.
   const ctxOptions: ContextOptions = {};
   ctxOptions.cache = appCache;
-  if (options.trustProxy !== undefined) ctxOptions.trustProxy = options.trustProxy;
+  const trustProxy = resolveTrustProxy(options);
+  if (trustProxy !== undefined) ctxOptions.trustProxy = trustProxy;
 
   // App-invariant response headers declared by plugins (e.g. the `security()`
   // header set). Baked into every framework-built response at construction so

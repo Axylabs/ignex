@@ -60,6 +60,19 @@ export interface IgnexPlugin {
    */
   readonly responseDefaults?: Readonly<Record<string, string>>;
 
+  /**
+   * App-invariant context options this plugin requires.
+   *
+   * Declaring them lets ONE setting serve BOTH execution paths: the interpreted
+   * `createApp` merges them into its context options at boot, and the compiled
+   * server folds the same declaration into its frozen context-options literal.
+   * Without this a plugin had no way to reach `ContextOptions` at all — which
+   * is how `trustProxy` came to work in interpreted apps and be silently inert
+   * in compiled ones: `ctx.ip` skipped the forwarded-header branch and every
+   * client resolved to the socket address, i.e. the proxy's, behind a proxy.
+   */
+  readonly contextOptions?: { readonly trustProxy?: boolean };
+
   // Lifecycle
   init?(): MaybePromise<void>;
   close?(): MaybePromise<void>;
@@ -379,6 +392,37 @@ export const collectResponseDefaults = (
   }
 
   return merged === undefined ? undefined : Object.freeze(merged);
+};
+
+/**
+ * Merge the declarative `contextOptions` of every plugin in the list.
+ *
+ * Sibling of {@link collectResponseDefaults}, and called the same way: ONCE at
+ * app boot, because the values are app-invariant.
+ *
+ * A plugin can only ENABLE `trustProxy`, never disable it — the setting means
+ * "forwarded headers are authoritative for this deployment", so one plugin
+ * declaring it settles the question and no plugin can prove the opposite.
+ * Returns `undefined` when nothing is declared, leaving an explicit app-level
+ * option authoritative.
+ *
+ * The compiled server folds the same declaration at boot from the plugin
+ * objects it already has (see `phases/codegen/header.ts`), so both paths agree.
+ *
+ * @param plugins - The app's plugin list (nested arrays are flattened).
+ * @returns The merged options, or `undefined` when no plugin declares any.
+ */
+export const collectContextOptions = (
+  plugins: readonly unknown[],
+): { trustProxy?: boolean } | undefined => {
+  let trustProxy: boolean | undefined;
+
+  for (const p of (plugins ?? []).flat()) {
+    if (!isIgnexPlugin(p)) continue;
+    if (p.contextOptions?.trustProxy === true) trustProxy = true;
+  }
+
+  return trustProxy === undefined ? undefined : Object.freeze({ trustProxy });
 };
 
 /**

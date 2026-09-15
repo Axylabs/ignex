@@ -46,6 +46,7 @@ const EMITTED: readonly string[] = [
   "route",
   "requestId",
   "startTime",
+  "ip",
   "cookie",
   "server",
   "set",
@@ -66,11 +67,11 @@ const EMITTED: readonly string[] = [
  * specialized tier and codegen has nothing to emit for them. `file`, `cache`,
  * `loader` and `debug` double as tripwires for "the analyzer gave up"
  * (`FULL_USAGE` sets all four), which is what keeps unresolvable handlers on the
- * full context. `ip` is the one identity member the specialized context cannot
- * express: it needs the trust-proxy setting, which the compiled context options
- * do not carry (§30).
+ * full context.
+ *
+ * `ip` used to be here too, until `__TRUST_PROXY` made the semantics emittable.
  */
-const SENTINEL: readonly string[] = ["file", "cache", "loader", "debug", "ip"];
+const SENTINEL: readonly string[] = ["file", "cache", "loader", "debug"];
 
 const CLASSIFIED = new Set([...EMITTED, ...SENTINEL]);
 const KNOWN = new Set(Object.keys(EMPTY_USAGE));

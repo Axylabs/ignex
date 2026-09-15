@@ -51,14 +51,19 @@ const pushRequestMembers = (
   //   - `startTime` mirrors the impl's `this.startTime = performance.now()`
   //     (both run at request dispatch), and
   //   - `requestId` calls the same generator the impl's lazy getter calls.
-  // `ip` is absent on purpose: it needs the trust-proxy setting, which the
-  // compiled context options do not carry (see docs/aot-perf-plan.md §30), so
-  // `usage.ip` keeps such routes on the full context instead.
+  // `ip` is emitted only when the handler reads it. `__TRUST_PROXY` is the
+  // boot-folded plugin declaration, so this resolves the client exactly as the
+  // full context does — including the forwarded-header branch that used to be
+  // unreachable in compiled apps, where nothing ever set `trustProxy`.
   if (usage.route) props.push(`route: ${JSON.stringify(route.source.path)}`);
   if (usage.startTime) props.push(`startTime: performance.now()`);
   if (usage.requestId) {
     usedCore.add("generateRequestId");
     props.push(`requestId: generateRequestId()`);
+  }
+  if (usage.ip) {
+    usedCore.add("resolveClientIp");
+    props.push(`ip: resolveClientIp(server, req, __TRUST_PROXY)`);
   }
 };
 
