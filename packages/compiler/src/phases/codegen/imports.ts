@@ -134,6 +134,13 @@ export const stageImports = (
   state.appConfigHasHooks = appConfig
     ? appConfig.hasActivePlugins || appConfig.hasLifecycle
     : state.hasAppConfig;
+  // Split the two halves of `appConfigHasHooks`: the plugin layer is
+  // declarable and can run on the specialized context; user lifecycle stays
+  // opaque. Both fall back to the conservative "has hooks" answer when the
+  // config was never analyzed.
+  state.appConfigUserLifecycle = appConfig ? appConfig.hasLifecycle : state.hasAppConfig;
+  state.appConfigActivePlugins = appConfig ? appConfig.hasActivePlugins : false;
+  state.appConfigPluginUsage = appConfig?.globalPluginUsage ?? null;
   state.traceDebug = appConfig ? appConfig.hasEnabledDebugbar : false;
   state.isProductionBuild = appConfig ? appConfig.isProductionBuild : false;
 

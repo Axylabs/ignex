@@ -10,6 +10,7 @@
  * which is inherent information, not duplication.
  */
 
+import type { ContextUsage } from "@ignex/shared";
 import type { CodegenConfig } from "./config";
 
 /**
@@ -45,6 +46,28 @@ export interface CodegenState {
    * Falls back to `hasAppConfig` when the config wasn't analyzed.
    */
   appConfigHasHooks: boolean;
+  /**
+   * Whether the app config registers USER lifecycle hooks (`lifecycle`/`hooks`).
+   * These stay opaque — the `ctx` members a user hook reads cannot be declared —
+   * so they always force the full context.
+   */
+  appConfigUserLifecycle: boolean;
+  /**
+   * Whether any plugin survives dev-only elimination.
+   *
+   * Plugins ARE declarable (`INTERNAL_PLUGIN_USAGE`), so when
+   * {@link appConfigPluginUsage} covers what the specialized context emits, the
+   * plugin layer can run there through the hook ladder and does not force the
+   * full context. Their presence still blocks `compact` (a hook may mutate
+   * `ctx.set`, which the compact path does not apply).
+   */
+  appConfigActivePlugins: boolean;
+  /**
+   * The merged `ctx` requirement of the plugin layer, or `null` when it could
+   * not be fully resolved (a user plugin, an unattributed callee, or a plugin
+   * with no declaration). `null` means opaque → force the full context.
+   */
+  appConfigPluginUsage: Readonly<ContextUsage> | null;
   appConfigAbs: string | undefined;
   /**
    * Whether a `debugbar()` is kept for this build (baked into the
@@ -114,6 +137,9 @@ export const createCodegenState = (cfg: CodegenConfig): CodegenState => ({
   usedCore: new Set(),
   hasAppConfig: false,
   appConfigHasHooks: false,
+  appConfigUserLifecycle: false,
+  appConfigActivePlugins: false,
+  appConfigPluginUsage: null,
   appConfigAbs: undefined,
   traceDebug: false,
   isProductionBuild: false,

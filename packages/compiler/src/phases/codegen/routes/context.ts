@@ -14,6 +14,63 @@ import { ctxOptsVar, handlerImportName, validatorImportName } from "../identifie
 import { emitValidatorThrow, validationFlags } from "./validate";
 
 /**
+ * Every `ContextUsage` flag the specialized context actually EMITS a member
+ * for. Anything else is a sentinel: codegen emits nothing and the flag just
+ * forces `needsFull`.
+ *
+ * This is the authority for two things that must not drift apart — the
+ * structural test in `test/context-members.test.ts` (which imports this set
+ * rather than keeping its own list) and the codegen gate that decides whether
+ * the plugin layer's declared usage is satisfiable on this tier.
+ */
+export const EMITTED_USAGE_FLAGS: ReadonlySet<keyof ContextUsage> = new Set([
+  "body",
+  "cookie",
+  "forward",
+  "headers",
+  "html",
+  "json",
+  "method",
+  "params",
+  "path",
+  "proxy",
+  "query",
+  "redirect",
+  "req",
+  "requestId",
+  "route",
+  "sendFile",
+  "server",
+  "set",
+  "startTime",
+  "state",
+  "status",
+  "stream",
+  "text",
+  "url",
+  "ip",
+  "empty",
+] as (keyof ContextUsage)[]);
+
+/**
+ * Whether every member `usage` requires is one the specialized context emits.
+ *
+ * The plugin layer's hooks run against that context once the ladder is emitted,
+ * so an undeclared-or-unemittable member would hand a hook `undefined` — the
+ * exact failure this whole vocabulary exists to prevent. A `false` here keeps
+ * the route on the full context.
+ *
+ * @param usage - The merged requirement of the plugin layer.
+ * @returns `true` when the specialized context can satisfy it entirely.
+ */
+export const isUsageEmittable = (usage: ContextUsage): boolean => {
+  for (const key of Object.keys(usage) as (keyof ContextUsage)[]) {
+    if (usage[key] && !EMITTED_USAGE_FLAGS.has(key)) return false;
+  }
+  return true;
+};
+
+/**
  * Emit the members derived directly from the `Request`.
  *
  * Extracted from {@link buildContextProps} to keep that function's cognitive
@@ -207,6 +264,9 @@ export const buildFullContextPrelude = (
 export const buildSpecializedContext = (
   route: RouteIR,
   usedCore: Set<string>,
+  sync = false,
+  resumeName = "",
+  mayMutateSet = false,
 ): { pre: string[]; callExpr: string } => {
   const { hasParamsValidator, hasQueryValidator, hasHeadersValidator, hasBodyValidator } =
     validationFlags(route);
@@ -259,7 +319,11 @@ export const buildSpecializedContext = (
     pre.push(`const state = new Map();`);
   }
 
-  if (route.analysis.usage.set || route.analysis.usage.cookie) {
+  // `mayMutateSet`: a registered plugin's hook can write `ctx.set` even when
+  // neither the handler nor any route hook reads it. `__EMPTY_SET` is a FROZEN
+  // empty record, so handing it to a hook would throw on the write instead of
+  // being applied — and the compact path would drop the mutation anyway.
+  if (route.analysis.usage.set || route.analysis.usage.cookie || mayMutateSet) {
     pre.push(`const __set = { headers: Object.create(null), cookie: Object.create(null) };`);
   } else {
     pre.push(`const __set = __EMPTY_SET;`);
@@ -276,11 +340,41 @@ export const buildSpecializedContext = (
 
   const props = buildContextProps(route, usedCore);
 
-  return {
-    pre,
-    callExpr:
-      props.length === 0
-        ? `${handlerImportName(route)}({})`
-        : `${handlerImportName(route)}({ ${props.join(", ")} })`,
-  };
+  // Materialize the specialized context as a `ctx` VARIABLE instead of an
+  // inline object literal. The tier is reachable with plugins registered now,
+  // and the request ladder below can REPLACE the context
+  // (`ctx = __globalPre.ctx ?? ctx`), which an inline literal cannot express.
+  //
+  // Assignment, never `let`: the core fn declares `let ctx;` OUTSIDE the try so
+  // the error path can see the real context — a `let` here would shadow that
+  // binding and hand `__handleError` an undefined ctx. Passing `ctx` costs
+  // nothing extra (the literal has to be materialized either way) and lets
+  // `__finalize` read `ctx.set` instead of allocating `{ set: __set }`.
+  pre.push(`ctx = { ${props.join(", ")} };`);
+
+  // The request stage (a plugin's `onRequest`, the debugbar trace opener) runs
+  // BEFORE the handler, so it must run here too — otherwise registering a
+  // plugin would silently skip it on every specialized route. Guarded by the
+  // `__hasPreParse` boot constant, so an app with no such hook const-folds the
+  // block away and this tier is byte-for-byte unchanged for it.
+  pre.push(
+    sync
+      ? `if (__hasPreParse) {
+  const __r = runHooks(__preParseStages, ctx);
+  if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
+  const __globalPre = __r;
+  if (__TRACE_DEBUG) debugStageEnd("request");
+  if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+  ctx = __globalPre.ctx ?? ctx;
+}`
+      : `if (__hasPreParse) {
+  const __r = runHooks(__preParseStages, ctx);
+  const __globalPre = __r instanceof Promise ? await __r : __r;
+  if (__TRACE_DEBUG) debugStageEnd("request");
+  if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+  ctx = __globalPre.ctx ?? ctx;
+}`,
+  );
+
+  return { pre, callExpr: `${handlerImportName(route)}(ctx)` };
 };

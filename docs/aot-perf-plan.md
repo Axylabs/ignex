@@ -2248,4 +2248,65 @@ contexts (404/405/OPTIONS/error), so those resolve the client identically.
 **Still open.** The hook ladder (§27 step (2)) — the remaining bounded ~0.6–1 µs
 of §26. Note also that `globalPluginUsage` (§27 steps a/b) is computed and stored
 on `AppConfigInfo` but has NO codegen consumer yet, so any active plugin still
-forces `needsFull` on every route via `hasGlobalLifecycle`.
+forces `needsFull` on every route via `hasGlobalLifecycle`. (Fixed in §32.)
+
+## 32. The plugin layer no longer forces the full context — the hook ladder (2026-09-15)
+
+§31 left this as the remaining lever, and it is the one that matters: the bench
+participant registers `cors()` and `security()`, the two plugins whose context
+requirements were already declared in §27, so `hasGlobalLifecycle` put **every
+route in the benchmark app** on the full context. Compiled with the new
+compiler, on the participant's own routes and app config:
+
+| | before | after |
+|---|---|---|
+| `__ctxOpts_<ref>` consts (full-context only) | every route | **0** |
+| afterHandle ladder | `needsFull` only | every route |
+| pre-parse ladder | `needsFull` only | every route |
+
+**What changed.**
+
+1. **The gate split.** `appConfigHasHooks` was doing two jobs. It still gates
+   constant HOISTING untouched — a hoisted body bypasses hooks, so any plugin or
+   user lifecycle keeps that optimization off — but `needsFull` now distinguishes:
+   - user `lifecycle`/`hooks` → **always** full context. Opaque: the members a
+     user hook reads cannot be declared.
+   - the plugin layer → full context only when `globalPluginUsage === null`
+     (unresolvable) **or** a declared flag is absent from the new
+     `EMITTED_USAGE_FLAGS`. That set is the single authority for the gate AND for
+     `context-members.test.ts`, which now imports it instead of keeping its own
+     list — so the gate and the test cannot drift apart.
+
+2. **The ladder moved to the specialized tier.** `assembleNeedsFullSyncCoreFn`
+   and the async resume were already generic over `ctx`; they only needed the
+   context to exist as a VARIABLE rather than an inline literal. So
+   `buildSpecializedContext` now emits `ctx = { … }` (assignment — a `let` would
+   shadow the binding the error path needs) plus the pre-parse stage, and
+   `assembleCoreFn` emits the same post-handler ladder on both tiers. Every stage
+   is a boot-constant guard (`__hasPreParse`, `__hasBeforeHandle`, …), so an app
+   with no hooks const-folds the whole ladder away and hook-less routes keep
+   their existing behavior.
+
+3. **`sync` is no longer tied to `needsFull`.** The sync assembler serves both
+   tiers, so a statically-sync route keeps its zero-Promise path; `resumeName` is
+   now emitted whenever `routeIsSync`, not only for the full context.
+
+4. **Two traps found while implementing.** `__ABL_APPLYSET` is a global ablation
+   switch, NOT a compact indicator — reusing the sync assembler's tail verbatim
+   would have added an `__applySet` to every compact route, deleting the very
+   optimization `compact` exists for; the sync tail is compact-aware now. And
+   `__EMPTY_SET` is FROZEN, so a plugin hook writing `ctx.set` would have thrown:
+   a route in a plugin app now gets a mutable `__set`, and therefore cannot be
+   `compact`.
+
+**Verified.** `verify` exit 0 (2014 tests) and the smoke gate 52/52 — including
+CORS preflight and actual requests, the security header set, the plugin
+`x-request-id` + lifecycle middleware chain, and 405/OPTIONS/HEAD/404. A new
+`plugins-specialize` fixture pins the codegen shape (specialized AND laddered AND
+`__applySet`, with a mutable context variable).
+
+**Not yet measured.** The throughput A/B needs the bench participant's `dist`
+rebuilt and `bench:compare` re-run. The codegen effect above is confirmed, but by
+this document's own rule the µs figure is a claim until it is measured — a
+statically-sync route traded nothing (it keeps the sync path), yet the honest
+statement stops at "the full context is gone from every benchmark route".

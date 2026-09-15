@@ -22,7 +22,7 @@ import {
 import type { CodegenState } from "../state";
 import { emitCacheWrapper } from "./cache";
 import { emitConstantRoute } from "./constant";
-import { buildFullContextPrelude, buildSpecializedContext } from "./context";
+import { buildFullContextPrelude, buildSpecializedContext, isUsageEmittable } from "./context";
 import { assembleCoreFn } from "./handler";
 import { emitNativeRouteVar, emitNativeValidationPrelude, nativeRouteEligible } from "./native";
 import {
@@ -37,12 +37,37 @@ import { emitWsRoute } from "./ws";
  * Emit the code for a single route. Deduplicated (non-leader) routes reuse the
  * leader's handler and emit nothing here.
  */
+/**
+ * Whether the plugin layer forces the full context for this app.
+ *
+ * The layer is DECLARABLE (`INTERNAL_PLUGIN_USAGE`): when every plugin comes
+ * from the framework and declares what its hooks read, and the specialized
+ * context emits all of it, those hooks run there through the lifecycle ladder
+ * instead of dragging every route onto the full context — which is the entire
+ * point of the vocabulary. Anything unresolvable keeps the conservative answer.
+ *
+ * Extracted from `generateRouteCode`, which sits at the complexity ceiling.
+ *
+ * @param state - Codegen state carrying the app-config analysis.
+ * @returns `true` when the plugin layer needs the full context.
+ */
+const pluginLayerNeedsFullContext = (state: CodegenState): boolean =>
+  state.appConfigActivePlugins &&
+  (state.appConfigPluginUsage === null || !isUsageEmittable(state.appConfigPluginUsage));
+
 export const generateRouteCode = (
   state: CodegenState,
   route: RouteIR,
   opts: CompilerOptions,
 ): void => {
-  const { cfg, appConfigHasHooks, usedCore, functions } = state;
+  const {
+    cfg,
+    appConfigHasHooks,
+    appConfigUserLifecycle,
+    appConfigActivePlugins,
+    usedCore,
+    functions,
+  } = state;
 
   // Deduplicated (non-leader) routes reuse the leader's handler; only the
   // leader emits it.
@@ -55,7 +80,14 @@ export const generateRouteCode = (
 
   // Only an app config that actually registers plugins/lifecycle hooks must
   // force the full-context path; a server-only config carries no lifecycle.
+  //
+  // `appConfigHasHooks` stays the CONSERVATIVE answer, and is still what gates
+  // constant hoisting: a hoisted body bypasses every hook, so the presence of
+  // any plugin or user lifecycle keeps that optimization off.
   const hasGlobalLifecycle = appConfigHasHooks;
+
+  // The `needsFull` decision can be finer-grained than the hoisting gate above,
+  // because the plugin layer is declarable — see `pluginLayerNeedsFullContext`.
   const constantJson = tryNormalizeConstant(route, hasGlobalLifecycle);
 
   // Constant responses are hoisted to zero-cost frozen bodies — unless the
@@ -109,7 +141,12 @@ export const generateRouteCode = (
     cfg.enableTraceHeaders ||
     cfg.enableAccessLog ||
     hasHooks ||
-    hasGlobalLifecycle ||
+    // User lifecycle is opaque — the `ctx` members a user hook reads cannot be
+    // declared — so it always keeps the full context.
+    appConfigUserLifecycle ||
+    // The plugin layer only escapes the full context when its declared reads
+    // are all satisfiable on the specialized context.
+    pluginLayerNeedsFullContext(state) ||
     route.analysis.hasValidation ||
     route.analysis.usage.proxy ||
     route.analysis.usage.forward ||
@@ -128,7 +165,14 @@ export const generateRouteCode = (
   // (Elysia's `responseMode: 'compact'`.) Only reachable on the specialized
   // path. A set-only route is `!needsFull && usage.set` — NOT compact — and
   // takes the middle tier: specialized context + `__set` + one `__applySet`.
-  const compact = !needsFull && !route.analysis.usage.set && !route.analysis.usage.cookie;
+  // `appConfigActivePlugins` blocks compact even when neither the handler nor a
+  // route hook touches `ctx.set`: a PLUGIN hook may, and the compact path
+  // applies no `__set` at all — and hands the hook the frozen `__EMPTY_SET`.
+  const compact =
+    !needsFull &&
+    !route.analysis.usage.set &&
+    !route.analysis.usage.cookie &&
+    !appConfigActivePlugins;
 
   // Fully-synchronous route fast path: a statically-known sync handler → non-
   // async core fn (zero per-request Promise/microtask — Elysia's JIT sync
@@ -137,9 +181,11 @@ export const generateRouteCode = (
   // validation prelude awaits body reads) and a statically-resolved handler
   // (unresolvable → FULL_USAGE → needsFull), so isAsync is exact.
   const routeIsSync = !route.analysis.isAsync && !(needsFull && route.analysis.hasValidation);
-  // Async resume fn name for the non-async needsFull path (cold, correctness-
-  // only — fires only when a hook returns a Promise, never for all-sync apps).
-  const resumeName = needsFull && routeIsSync ? `${coreName}__resume` : "";
+  // Async resume fn name for the non-async path (cold, correctness-only — it
+  // only fires when a hook returns a Promise, never for all-sync apps). The
+  // sync assembler serves BOTH tiers now, so a statically-sync route needs its
+  // resume whether or not the context is full.
+  const resumeName = routeIsSync ? `${coreName}__resume` : "";
 
   // Record the table-bound wrapper variant for pass 2. Wildcard routes (and
   // anything that returned earlier, e.g. WS) stay unrecorded → the generic
@@ -188,7 +234,13 @@ export const generateRouteCode = (
     // call below.
     callExpr = `${handlerImportName(route)}(ctx)`;
   } else {
-    const specialized = buildSpecializedContext(route, usedCore);
+    const specialized = buildSpecializedContext(
+      route,
+      usedCore,
+      routeIsSync,
+      resumeName,
+      appConfigActivePlugins,
+    );
     pre.push(...specialized.pre);
     callExpr = specialized.callExpr;
   }

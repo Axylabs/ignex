@@ -398,6 +398,32 @@ describe("production build keeps AOT optimizations", () => {
     expect(result.code).toContain("const __TRUST_PROXY = false");
   });
 
+  it("keeps a DECLARABLE plugin app on the specialized context (with the ladder)", async () => {
+    const layout = materializeFixture("plugins-specialize");
+    delete process.env.NODE_ENV;
+    const result = await build(layout, fixturePath("plugins-specialize", "app.config.ts"));
+    expect(result.errors).toHaveLength(0);
+
+    // `cors()` and `security()` declare exactly what their hooks read and the
+    // specialized context emits all of it, so the plugin layer no longer drags
+    // every route onto the full context. `__ctxOpts_<ref>` only exists on the
+    // full-context path — its absence IS the specialization assertion (same
+    // idiom as the debugbar tests above).
+    expect(result.code).not.toContain("__ctxOpts_");
+
+    // …and the hooks still run there. The specialized core fn carries the same
+    // ladder, so a plugin's `onResponse` (composed into `afterHandle`) and its
+    // `onRequest` (the pre-parse stage) are reachable on this tier too.
+    expect(result.code).toContain("runHooks(__lc.afterHandle");
+    expect(result.code).toContain("runHooks(__preParseStages");
+    // The context is a variable, not an inline literal: the request stage can
+    // REPLACE it, which an inline object literal cannot express.
+    expect(result.code).toContain("ctx = {");
+    // A plugin hook may write `ctx.set`, so the compact path is not allowed
+    // (it applies no `__set` and hands the hook the frozen `__EMPTY_SET`).
+    expect(result.code).toContain("__applySet");
+  });
+
   it("the `production: true` option shapes the artifact with NODE_ENV unset", async () => {
     // `ignex build` sets `production: true` by default — the deploy artifact
     // must be production-shaped even when the CI/dev shell has no NODE_ENV.

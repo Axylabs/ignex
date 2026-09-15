@@ -59,58 +59,45 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     routeReply,
   } = input;
 
-  // Non-async needsFull core fn for statically-sync handlers (no validation,
-  // sync handler — `generate.ts` only selects this path when the pre has no
-  // `await`). The hot path runs WITHOUT any Promise/microtask; the async
-  // resume below only fires when a hook actually returns a Promise (never for
-  // all-sync apps), so it is a cold, correctness-only path.
-  if (needsFull && sync) {
-    return assembleNeedsFullSyncCoreFn(input);
+  // Fully-sync routes take the non-async assembler, which delegates to the
+  // async resume when a stage returns a Promise. `needsFull` is deliberately
+  // NOT part of this decision any more: the specialized tier is reachable with
+  // plugins registered and runs the SAME stages, so it needs the same ladder
+  // (and the same "no Promise on the all-sync path" property).
+  if (sync) {
+    return assembleSyncCoreFn(input);
   }
+
+  // The pre-handler stages run on BOTH tiers: the specialized context is a
+  // `ctx` variable, and the plugin layer (declarable, so it no longer forces
+  // the full context) registers its `onRequest`/`beforeHandle` hooks here.
+  // Every branch is a boot-constant guard, so an app with no such hook
+  // const-folds the whole block away and pays nothing for this.
+  const beforeHandleStage = `if (__hasBeforeHandle) {
+      const __r = __TRACE_DEBUG ? runTimed("beforeHandle", "lifecycle", () => runHooks(__lc.beforeHandle, ctx)) : runHooks(__lc.beforeHandle, ctx);
+      const gBefore = __r instanceof Promise ? await __r : __r;
+      ctx = gBefore.ctx ?? ctx;
+      if (gBefore.response) return __applySet(gBefore.response, ctx.set);
+    }`;
+
+  const routeHooksStage = hasRouteHooks
+    ? `if (${routeHookVar}.length > 0) {
+      const __r = __TRACE_DEBUG ? runTimed("route hooks", "lifecycle", () => runHooks(${routeHookVar}, ctx)) : runHooks(${routeHookVar}, ctx);
+      const rBefore = __r instanceof Promise ? await __r : __r;
+      ctx = rBefore.ctx ?? ctx;
+      if (rBefore.response) return __applySet(rBefore.response, ctx.set);
+    }`
+    : "";
 
   return `${sync ? "" : "async "}function ${coreName}(req, params, server) {
   let ctx;
   try {
     ${pre.join("\n")}
-    ${
-      needsFull
-        ? `
-    if (__hasBeforeHandle) {
-      const __r = __TRACE_DEBUG ? runTimed("beforeHandle", "lifecycle", () => runHooks(__lc.beforeHandle, ctx)) : runHooks(__lc.beforeHandle, ctx);
-      const gBefore = __r instanceof Promise ? await __r : __r;
-      ctx = gBefore.ctx ?? ctx;
-      if (gBefore.response) return __applySet(gBefore.response, ctx.set);
-    }
-    ${
-      // Only routes that register per-route hooks get the route-hook stage.
-      // No-hook routes previously emitted `if ([].length > 0)` — allocating an
-      // empty array on every request — so the stage is omitted entirely.
-      hasRouteHooks
-        ? `if (${routeHookVar}.length > 0) {
-      const __r = __TRACE_DEBUG ? runTimed("route hooks", "lifecycle", () => runHooks(${routeHookVar}, ctx)) : runHooks(${routeHookVar}, ctx);
-      const rBefore = __r instanceof Promise ? await __r : __r;
-      ctx = rBefore.ctx ?? ctx;
-      if (rBefore.response) return __applySet(rBefore.response, ctx.set);
-    }
-`
-        : ""
-    }
-    `
-        : ""
-    }
-    ${
-      sync
-        ? `const result = ${callExpr};`
-        : needsFull
-          ? `const __result0 = __TRACE_DEBUG ? runTimed("handler", "lifecycle", () => ${callExpr}) : ${callExpr};
-    const result = __result0 instanceof Promise ? await __result0 : __result0;`
-          : `const __result0 = ${callExpr};
-    const result = __result0 instanceof Promise ? await __result0 : __result0;`
-    }
-    let response = __ABL_FINALIZE && result instanceof Response ? result : __finalize(result, ${needsFull ? "ctx" : "{ set: __set }"}, ${serializersVar}, ${routeReply});
-    ${
-      needsFull
-        ? `
+    ${beforeHandleStage}
+    ${routeHooksStage}
+    const __result0 = __TRACE_DEBUG ? runTimed("handler", "lifecycle", () => ${callExpr}) : ${callExpr};
+    const result = __result0 instanceof Promise ? await __result0 : __result0;
+    let response = __ABL_FINALIZE && result instanceof Response ? result : __finalize(result, ctx, ${serializersVar}, ${routeReply});
     ${
       hasRouteAfter
         ? `if (${routeAfterVar}.length > 0) {
@@ -148,35 +135,28 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));
     }
-    // __TRACE is a module constant, so when tracing is off this never
-    // evaluates ctx.requestId (which would pay performance.now() + a counter
-    // per request even though applySet ignores it without trace).
-    return __ABL_APPLYSET ? response : __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
-    `
-        : compact
-          ? `return response;`
-          : `return __applySet(response, __set);`
-    }
+    ${needsFull ? `return __ABL_APPLYSET ? response : __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);` : compact ? `return response;` : `return __applySet(response, ctx.set);`}
   } catch (err) {
-    return __handleError(err, ${needsFull ? "ctx" : "undefined"});
+    return __handleError(err, ctx);
   }
 }`;
 };
 
 /**
- * Non-async needsFull core fn for statically-sync handlers: the whole pipeline
- * (pre-parse → before-handle → handler → after-handle → … → applySet) runs
+ * Non-async core fn for statically-sync handlers, on EITHER tier: the whole
+ * pipeline (pre-parse → before-handle → handler → after-handle → … ) runs
  * synchronously with ZERO Promise/microtask. Each stage branches on
  * `instanceof Promise`; on a Promise it delegates the remainder to the async
  * resume fn (a cold path — it only fires when a hook is async, which never
- * happens for all-sync apps). `pre` already contains the createContext + the
- * pre-parse stage in delegation form (see `buildFullContextPrelude`).
+ * happens for all-sync apps). `needsFull` is not part of the decision: the
+ * specialized tier runs the same stages over its own `ctx` variable.
  */
-const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
+const assembleSyncCoreFn = (input: CoreFnInput): string => {
   const {
     coreName,
     pre,
     callExpr,
+    compact,
     hasRouteHooks,
     hasRouteAfter,
     serializersVar,
@@ -251,7 +231,7 @@ const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));
     }
-    return __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
+    return ${compact ? "response" : "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)"};
   } catch (err) {
     return __handleError(err, ctx);
   }
@@ -324,7 +304,7 @@ const assembleNeedsFullSyncCoreFn = (input: CoreFnInput): string => {
       const __ms = (performance.now() - ctx.startTime).toFixed(2);
       console.log(JSON.stringify({ ts: new Date().toISOString(), service: ${JSON.stringify(serviceName)}, requestId: ctx.requestId, method: req.method, path: ctx.path, status: response.status, ms: Number(__ms) }));
     }
-    return __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);
+    return ${compact ? "response" : "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)"};
   } catch (err) {
     return __handleError(err, ctx);
   }
