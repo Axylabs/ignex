@@ -237,7 +237,9 @@ export type {
 export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody, readBodyBounded } from "./http/body";
 export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";
-export { createContext } from "./http/context";
+// Value export: generated route code emits `path: pathnameOf(req.url)` for the
+// usage-specialized context, so it must be reachable from the package entry.
+export { createContext, pathnameOf } from "./http/context";
 export {
   Cookie,
   cookiePairsToRecord,

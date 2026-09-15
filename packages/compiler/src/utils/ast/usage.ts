@@ -32,10 +32,7 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
   setState: "state",
   req: "req",
   url: "url",
-  // `path` still collapses onto `url` (the URL object is what codegen builds),
-  // but NOTHING emits the `path` member, so `ctx.path` is undefined on a
-  // specialized route. Tracked in docs/aot-perf-plan.md section 28.
-  path: "url",
+  path: "path",
   method: "method",
   cookie: "cookie",
   server: "server",

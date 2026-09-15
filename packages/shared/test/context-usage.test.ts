@@ -22,6 +22,7 @@ const FLAGS: (keyof ContextUsage)[] = [
   "req",
   "url",
   "method",
+  "path",
   "cookie",
   "server",
   "set",

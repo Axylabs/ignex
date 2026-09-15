@@ -8,9 +8,35 @@
  *   referenced. Both are driven by the AST-derived ContextUsage.
  */
 
+import type { ContextUsage } from "@ignex/shared";
 import type { RouteIR } from "../../../types";
 import { ctxOptsVar, handlerImportName, validatorImportName } from "../identifiers";
 import { emitValidatorThrow, validationFlags } from "./validate";
+
+/**
+ * Emit the members derived directly from the `Request`.
+ *
+ * Extracted from {@link buildContextProps} to keep that function's cognitive
+ * complexity under the lint ceiling.
+ */
+const pushRequestMembers = (props: string[], usage: ContextUsage, usedCore: Set<string>): void => {
+  if (usage.req) props.push(`req`);
+  if (usage.url) props.push(`url`);
+  // `ctx.method` is a plain Request property — no URL object needed. Emitting it
+  // is what lets a method-reading route specialize at all: `method` used to set
+  // the `url` flag, so codegen emitted `url` and the handler read
+  // `ctx.method === undefined`.
+  if (usage.method) props.push(`method: req.method`);
+  // Same class of bug: `path` shared the `url` flag while NOTHING emitted a
+  // `path` member. It reuses core's `pathnameOf` — the SAME helper the full
+  // context uses — deliberately not `url.pathname`, which normalizes
+  // dot-segments (`/a/../b` -> `/b`) where `pathnameOf` does not; using it would
+  // make compiled and interpreted builds disagree on `ctx.path`.
+  if (usage.path) {
+    usedCore.add("pathnameOf");
+    props.push(`path: pathnameOf(req.url)`);
+  }
+};
 
 /** Build the usage-specialized object-literal props for the handler call. */
 const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
@@ -30,13 +56,7 @@ const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
   if (usage.body || hasBodyValidator) props.push(`body`);
   if (usage.query || hasQueryValidator) props.push(`query`);
   if (usage.headers || hasHeadersValidator) props.push(`headers: req.headers`);
-  if (usage.req) props.push(`req`);
-  if (usage.url) props.push(`url`);
-  // `ctx.method` is a plain property on the Request — no URL needed. Emitting it
-  // is what lets a method-reading route specialize at all: previously `method`
-  // set the `url` flag, so codegen emitted `url` and the handler read
-  // `ctx.method === undefined`.
-  if (usage.method) props.push(`method: req.method`);
+  pushRequestMembers(props, usage, usedCore);
   if (usage.server) props.push(`server`);
   if (usage.state) {
     props.push(`state`);

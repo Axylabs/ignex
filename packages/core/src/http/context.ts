@@ -279,7 +279,7 @@ export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B
  * the path is the percent-encoded substring after the authority, cut at the
  * first `?` or `#` (never decoded), with a bare authority mapping to `/`.
  */
-const pathnameOf = (url: string): string => {
+export const pathnameOf = (url: string): string => {
   const schemeEnd = url.indexOf("://");
   const start =
     schemeEnd === -1

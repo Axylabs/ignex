@@ -38,6 +38,12 @@ export interface ContextUsage {
    * context carrying `url` and NOT `method` — reading `undefined` at runtime.
    */
   method: boolean;
+  /**
+   * `ctx.path`. Distinct from {@link url} for the same reason as `method`: it
+   * shared the `url` flag while nothing emitted a `path` member, so
+   * `ctx.path` was `undefined` on a specialized route.
+   */
+  path: boolean;
 
   cookie: boolean;
   server: boolean;
@@ -72,6 +78,7 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
   req: false,
   url: false,
   method: false,
+  path: false,
 
   cookie: false,
   server: false,
@@ -105,6 +112,7 @@ export const FULL_USAGE: ContextUsage = Object.freeze({
   req: true,
   url: true,
   method: true,
+  path: true,
 
   cookie: true,
   server: true,

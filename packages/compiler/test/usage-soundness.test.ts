@@ -64,6 +64,16 @@ describe("context usage soundness", () => {
     expect(usage.url).toBe(false);
   });
 
+  it("ctx.path gets its OWN flag, not `url`", () => {
+    // Same regression class as `method`: `path` shared the `url` flag while no
+    // `path` member was ever emitted, so `ctx.path` was `undefined` on a
+    // specialized route.
+    const usage = analyze(`export default (ctx) => ctx.json({ p: ctx.path });`);
+    expect(usage.path).toBe(true);
+    expect(usage.url).toBe(false);
+    expect(usage.method).toBe(false);
+  });
+
   it("body-level destructuring with defaults is tracked", () => {
     const usage = analyze(
       `

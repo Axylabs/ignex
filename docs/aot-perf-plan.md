@@ -2030,4 +2030,45 @@ a `path` member, so `ctx.path` is `undefined` on a specialized route. Fixing it
 needs a `path` member whose value matches `pathnameOf(req.url)` exactly: that
 helper is core-internal and not exported, and `url.pathname` is not obviously
 identical for every URL shape. It deserves its own change rather than being
-folded into an unrelated one.
+folded into an unrelated one. (Fixed in §29.)
+
+## 29. `ctx.path` — the same bug, and why the fix is NOT `url.pathname` (2026-09-15)
+
+§28 closed with `ctx.path` still open. It is the same collapse: `USAGE_FLAGS`
+mapped `path` onto `url`, so a route that read `ctx.path` set the `url` flag,
+codegen emitted `url` and no `path` member, and the handler read `undefined`.
+
+The interesting part is *what value* the compiled route must emit. The obvious
+choice is `new URL(req.url).pathname`, but the interpreted path does not use it:
+the full context's `pathnameOf` slices the string and never builds a URL. The two
+disagree on dot-segments — measured directly:
+
+| input | `pathnameOf` | `url.pathname` |
+|---|---|---|
+| `http://h/a/b?x=1` | `/a/b` | `/a/b` |
+| `http://h:3000/api/users?x=1` | `/api/users` | `/api/users` |
+| `http://h` | `/` | `/` |
+| `http://h/a/../b` | `/a/../b` | `/b` |
+
+So emitting `url.pathname` would make compiled and interpreted builds return
+different strings for the same request — a divergence a user would hit on any
+route that reads `ctx.path`. `pathnameOf` is therefore exported from
+`@ignex/core` and reused verbatim: one helper, one behaviour, no second
+implementation to drift.
+
+**Fix.** `path` gets its own flag (interface, `EMPTY_USAGE`, `FULL_USAGE`, the
+canonical `FLAGS` list that exists to catch exactly this), `USAGE_FLAGS` maps
+`path: "path"`, and codegen emits `path: pathnameOf(req.url)` with
+`usedCore.add("pathnameOf")` so the import is carried. The emissions for
+`req`/`url`/`method`/`path` moved into a `pushRequestMembers` helper — not for
+tidiness, but because the extra flag pushed `buildContextProps` past the
+25-point cognitive-complexity ceiling.
+
+Verified: `verify` exit 0 (1971 tests); `ctx.path` has its own flag while `url`
+and `method` stay `false`, and the emitted helper is byte-identical to the one
+the interpreted path calls.
+
+**Still open.** `files: "body"` is a suspected remaining collapse of the same
+kind. The specialized context also still lacks `route`, `requestId`, `ip` and
+`startTime` (§27 step (1)), and the hook ladder (§27 step (2)) stays blocked
+until that is done — a ladder over an incomplete context is worse than none.
