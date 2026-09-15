@@ -91,6 +91,21 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The comparison benchmark credited Elysia for work it was not doing, which is
+  why it appeared faster than `ignus-aot`.** The load generator sends no
+  forwarded header, so `bun`'s port (`getClientIp` → `srv.requestIP(req)`) and
+  the ignus ports (`ctx.ip` → `readSocketIp`) both paid a ~3.4 µs/request native
+  peer-address lookup, while Elysia's port read the forwarded headers and fell
+  back to the literal `"127.0.0.1"` — never calling `requestIP()` at all. On
+  loopback both strategies return `127.0.0.1`, so the responses were
+  byte-identical; only the cost differed. `elysia-server.ts` now resolves through
+  the same shared `getClientIp(request, server)` helper as every other
+  participant. The contract harness passes **45/45 byte-identical**, confirming
+  no observable change. Two independent runs now put `ignus-aot` ahead of Elysia
+  (run 2: 33.51 vs 35.79 µs/request, with ignus-aot faster in all five
+  alternating rounds). This is a **measurement correction, not a framework
+  speedup** — the ratio to raw Bun is unchanged at ~1.22–1.29x. See
+  `docs/aot-perf-plan.md` §25.
 - **`trustProxy: true` was silently ignored by `ctx.ip` — it reported the proxy's
   address instead of the client's.** The getter resolved the socket address via
   `readSocketIp`/`server.requestIP()` **first** and returned it if it was defined,

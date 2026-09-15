@@ -12,6 +12,7 @@ import { Elysia, t } from "elysia";
 import {
   type ApiOk,
   CORS_CONFIG,
+  getClientIp,
   PORTS,
   RATE_LIMIT_CONFIG,
   rateLimitCheck,
@@ -64,14 +65,18 @@ const app = new Elysia({ serve: { port: PORTS.elysia } }) // ── Security hea
     }),
   )
   // ── Request ID + rate-limit guard ──
-  .onBeforeHandle(({ request, set }) => {
+  .onBeforeHandle(({ request, set, server }) => {
     const requestId = crypto.randomUUID();
     set.headers["X-Request-Id"] = requestId;
 
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "127.0.0.1";
+    // Resolve the peer address through the SAME shared helper every other
+    // participant uses. This port previously read the forwarded headers and
+    // fell back to the literal "127.0.0.1", so it never called
+    // `server.requestIP()` — a ~3.4us/request native lookup that both the
+    // `bun` and `ignus` ports pay. On loopback the result is identical either
+    // way ("127.0.0.1"), so this changes no response byte; it only stops the
+    // comparison from crediting Elysia for skipping the work.
+    const ip = getClientIp(request, server);
     const now = Date.now();
     const rl = rateLimitCheck(ip, now);
     set.headers["RateLimit-Limit"] = String(RATE_LIMIT_CONFIG.limit);

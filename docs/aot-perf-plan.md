@@ -1790,3 +1790,70 @@ only a subset. The framework's own plugins are the obvious first customers —
 `cors` needs `headers`, `security` needs nothing beyond the response — but a
 plugin that declares nothing must continue to force the full context, so this is
 a plugin-API change with its own compatibility story, not a codegen tweak.
+
+---
+
+## 25. Elysia's port was skipping the peer-address lookup (2026-09-15)
+
+**Read the framing first: the headline flip below is a measurement correction, not
+a framework speedup.** ignex did not get faster relative to raw Bun; Elysia stopped
+getting credit for work it was not doing.
+
+The load generator sends **no** forwarded header (§22/§23 confirmed this by grep),
+so the three ports' IP resolution resolves to:
+
+| port | resolution | pays `server.requestIP()`? |
+|------|------------|-----------------------------|
+| `bun` | `getClientIp(req, server)` → falls through to `srv.requestIP(req)` | **yes** |
+| `ignus` / `ignus-aot` | `ctx.ip` → `readSocketIp` → `requestIP` | **yes** |
+| `elysia` | headers, then the literal `"127.0.0.1"` | **no** |
+
+On loopback `requestIP()` returns `127.0.0.1` anyway, so the two strategies
+produce **identical response bytes** — Elysia's port simply never paid the
+~3.4 µs/request native lookup that §23 measured. That is exactly the asymmetry
+§23 predicted: the deficit was smaller than any one of the port differences.
+
+### The change
+
+`elysia-server.ts` now resolves through the same shared helper as every other
+participant (`getClientIp(request, server)`). The contract harness passes
+**45/45, byte-identical** — confirming the change is cost-only, with no
+observable difference in any response.
+
+### Result
+
+Two independent runs, medians, 15k rps:
+
+| participant | before | after run 1 | after run 2 |
+|-------------|--------|-------------|-------------|
+| bun | 23.42 | 24.56 | 27.48 |
+| elysia | **26.45** | **32.55** | **35.79** |
+| ignus-aot | **29.13** | **31.60** | **33.51** |
+
+The machines drifted between runs (raw Bun itself moved 23.42 → 27.48), so only
+within-run ordering is meaningful — and in both runs **ignus-aot is now faster
+than Elysia**, as it is in every one of run 2's five alternating rounds
+(33.29/31.42/36.78/34.00/33.51 vs 53.76/34.47/54.73/35.79/35.12).
+
+**What did not change:** the ratio to raw Bun. ignus-aot sits at ~1.22–1.29x
+Bun's CPU per request, exactly as before. Nothing here closes that gap; §15's
+Phase 3 (the compiler emitting less abstraction) remains the only lever that
+would, and §24's declarative plugin usage is the first step of it.
+
+### The declarative-plugin lever, sized
+
+§24 established that `hasGlobalLifecycle = appConfigHasHooks` forces the full
+context on every route in any app with plugins. The analyzer hook point already
+exists — `phases/analysis/dev-only-plugins.ts` walks the `plugins` array and
+resolves plugin call names by identifier (that is how `hasEnabledDebugbar`
+works) — so collecting plugin names and mapping known core plugins to declared
+`ContextUsage` is a contained change to `AppConfigInfo` plus a codegen merge of
+the plugin usage into each route's usage.
+
+It is **not** implemented here, deliberately: a wrong declaration hands a plugin
+hook `undefined` for a member it reads, which is a runtime breakage in user apps,
+and the payoff is bounded. Adding up §22's composition (12.5 µs Bun floor,
+~4.5 µs header/JSON materialisation, ~3.5 µs attributable framework) leaves at
+most ~1 µs recoverable from the context tier — the plugin hooks themselves
+(~1.65 µs, §15) still have to run. Worth doing deliberately, with its own plugin
+API, compatibility story and test suite; not worth rushing.
