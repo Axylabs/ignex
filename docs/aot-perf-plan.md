@@ -1447,3 +1447,89 @@ Both point at the same limitation: **wrapping the definition only observes
 non-inlined call sites.** For a bundler that inlines, per-call instrumentation
 undercounts, and the budget above should be read as a lower bound on the
 framework's share.
+
+---
+
+## 21. Object pooling, boot-time hoisting, and Bun-specific APIs — measured (2026-09-15)
+
+§20 left `createContext` (1.3 µs/request) as the largest attributable framework
+function. Two obvious strategies remain for it: **pool the context object**, or
+**hoist its work to init/instance time**. Both were evaluated against the
+artifact, and one was ablated line by line.
+
+### The constructor's cost is NOT its allocations
+
+Patching the instrumented bundle and re-driving the identical load (same 15k rps,
+~170k calls per variant):
+
+| variant | `createContext` | vs base |
+|---------|-----------------|---------|
+| base | 1,331 ns | — |
+| drop the `set.cookie` `Object.create(null)` | 1,313 ns | −18 ns |
+| drop `performance.now()` for `startTime` | 1,353 ns | **+22 ns (no effect)** |
+| `emptyHeaders()` → plain `{}` | 1,374 ns | **+43 ns (SLOWER)** |
+| all three removed together | 1,234 ns | −97 ns |
+
+Every allocatable thing the constructor does is recoverable for **97 ns of
+1,331 ns — 7.3%**. Two of them are individually *negative*: the `performance.now()`
+clock read is free, and `Object.create(null)` **beats** a plain `{}` (a
+prototype-less dictionary wins over walking `Object.prototype`). The remaining
+~1,234 ns is the cost of `new IgnexContextImpl()` itself in situ.
+
+This also retro-explains §20: the spread guard (−91 ns) recovered more than all
+three allocations combined, because it removed a `copyDataProperties` call rather
+than a memory allocation.
+
+### Why pooling is not the answer
+
+Pooling is the only idea that could recover the *whole* ~1.2 µs (4% of the
+budget), because it avoids `new` entirely. It is rejected on correctness:
+
+* **`ctx` escapes the framework.** User handlers receive it; `afterHandle`,
+  `mapResponse` and `afterResponse` hooks receive it; `afterResponse` runs *after*
+  the response is sent; SSE and WebSocket routes retain it for the life of the
+  connection; the debugbar/observatory installs a per-request API on it.
+* **There is no release point.** The AOT handlers are `async` — the context is
+  live across `await` boundaries, and a recycled object that is still referenced
+  by a pending continuation puts one request's `requestId`/`ip`/`cookie`/`body`
+  into another request's response. That is data leakage between requests in a
+  security-focused framework, not a tuning trade-off, and JavaScript offers no
+  way to know when the last reference dies.
+* **A "documented don't-retain-it" contract** would be the only way to make it
+  sound — and the framework's own `afterResponse`/SSE/debug surfaces violate it
+  today, so it cannot be adopted without breaking them.
+
+**Decision: do not pool. 4% is not worth cross-request leakage, and 93% of the
+constructor's cost would survive the attempt anyway.**
+
+### Bun-specific APIs: measured, no win
+
+| candidate | result |
+|-----------|--------|
+| `Bun.randomUUIDv7()` vs `crypto.randomUUID()` (already used) | **69.1 ns vs 40.3 ns — 1.7x SLOWER**; `"hex"` form 106.6 ns |
+| `Bun.randomUUIDv7("hex")` for request IDs | slower again |
+| `Bun.serve({ headers })` for the static header set | silently ignored in Bun 1.4.2 (§19) |
+
+`crypto.randomUUID()` is already the fastest option, so the request-ID path stays
+as it is. Note `generateRequestId` measures 248 ns *served* against 40 ns
+isolated — the same in-situ multiplier as everything else, not a fixable cost.
+
+### Boot-time hoisting is already exhausted
+
+Everything hoistable is hoisted: per-route `Object.freeze`d `__ctxOpts`,
+boot-sanitised frozen `__DEFAULT_HEADERS`, boot-computed plugin chains and
+identity matchers (`hasPattern`), and lazily-created `_body`/`_cookie`/`_url`/
+`_path`/`_requestId`/`_ip`/`_state`. The one remaining eager item, `startTime`,
+is measured above as **free** (removing it is +22 ns). There is nothing left to
+move to init time that is not already there.
+
+### The honest summary of §20–21
+
+The framework's attributable per-request cost is ~3.5 µs of a 29–31 µs budget,
+the largest single function is 1.3 µs and it is not allocation-bound, the
+remaining allocation is 97 ns, and the two obvious remaining strategies
+(pooling, Bun-specific APIs) are respectively unsafe and measurably slower.
+**There is no tuning work left that is worth doing.** Parity requires the
+compiler to stop emitting the abstraction — a lean context tier with no
+per-request object, plugins inlined per route, no generic finalize/applySet
+(§15's Phase 3).
