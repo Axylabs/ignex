@@ -2509,3 +2509,45 @@ A process note, since it cost several rounds: **the ratio to `bun` is the metric
 and the ablation switch is the instrument.** Absolute µs drifts 14–17% between
 runs, so single-run comparisons are worthless; within-run ratios replicate to
 ~3%, and within-artifact ablation removes the rebuild variable entirely.
+
+## 36. The session byte-arg siblings: a correctness escape hatch, not a speedup — MEASURED (2026-09-15)
+
+castrum 0.9.7 added `castrum_session_seal_bytes` / `castrum_session_open_bytes`
+(byte ARGs instead of `cstring`) to remove the silent NUL truncation on a
+user-derived session id, and to avoid a transcode for a caller that already
+holds buffers. The question was whether ignex's session path should migrate.
+Measured through the real call path (`@ignex/native`'s own wrapper, 200k calls,
+ns/call, v3 addon, parity asserted at runtime):
+
+| variant | seal | open |
+|---|---|---|
+| `cstring` (ignex today, JS strings) | 613.5 | 568.5 |
+| byte form, args ALREADY bytes | **557.8 (−9.1%)** | **501.1 (−11.9%)** |
+| byte form, encoding args per call | 620.6 (**+1.2%**) | 579.5 (**+1.9%**) |
+| reference: `TextEncoder.encode` 1 short string | 45.4 | 45.4 |
+
+**Verdict: do NOT migrate.** One short-string encode (45 ns) costs more than the
+~56–67 ns of engine transcode the byte form avoids, so a caller holding JS
+strings — which ignex is, for `id`, `dataJson`, `token` and a string `secret` —
+would pay more. This is the `wsAcceptKey` result (`docs/FFI_BUN_GUIDE.md` §6.1)
+reproduced on a second call: **measure through the function users call, not the
+binding.** The siblings remain valuable as (a) the NUL-safe path and (b) a real
+9–12% win for a caller that already holds bytes, e.g. a future ingress-side
+session read. Both forms were asserted to produce byte-identical tokens.
+
+Two ABI constraints are now documented on the public wrappers themselves
+(`packages/native/src/crypto.ts`), because both were silent:
+
+1. `id` / `dataJson` / `secret` cross as `cstring`, so an embedded `U+0000`
+truncates before Rust sees it. `JSON.stringify` escapes a NUL as `\u0000`, so
+the `dataJson` path is safe by construction; an app passing a raw user string as
+`id` should reject `\u0000` itself.
+2. A `Uint8Array` `secret` is decoded as UTF-8 before crossing, so a NON-UTF-8
+key is reinterpreted (`U+FFFD`). Seal and open decode identically, so a session
+round trip stays self-consistent — but mixing this API with a bytes-based
+`signCookie`/`verifyCookie` on the same non-UTF-8 key would not agree.
+
+A per-call NUL guard was considered and rejected on cost: an `indexOf("\u0000")`
+scan per argument is tens of ns on a ~600 ns op, i.e. more than the hazard it
+defends — and the id is NUL-free in every real caller (cookie values cannot
+carry one).
