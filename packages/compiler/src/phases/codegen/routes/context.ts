@@ -38,8 +38,20 @@ const pushRequestMembers = (props: string[], usage: ContextUsage, usedCore: Set<
   }
 };
 
-/** Build the usage-specialized object-literal props for the handler call. */
-const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
+/**
+ * Build the usage-specialized object-literal props for the handler call.
+ *
+ * Exported so `test/context-members.test.ts` can assert that every flag the
+ * analyzer sets produces a member with the same name: a flag that is set but
+ * never emitted leaves the handler reading `undefined` on the specialized tier
+ * while the full context has a real value (`ctx.method` and `ctx.path` both
+ * shipped that bug).
+ *
+ * @param route - Route IR supplying the usage bitmap and validator presence.
+ * @param usedCore - Set the function adds core import names to as it emits.
+ * @returns The generated property sources, in object-literal order.
+ */
+export const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
   const props: string[] = [];
   const usage = route.analysis.usage;
   const hasParamsValidator = !!route.decisions.validators?.params;

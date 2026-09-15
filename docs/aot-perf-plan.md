@@ -2068,7 +2068,52 @@ Verified: `verify` exit 0 (1971 tests); `ctx.path` has its own flag while `url`
 and `method` stay `false`, and the emitted helper is byte-identical to the one
 the interpreted path calls.
 
-**Still open.** `files: "body"` is a suspected remaining collapse of the same
-kind. The specialized context also still lacks `route`, `requestId`, `ip` and
+### 29.1 The `files: "body"` collapse is NOT a bug — and the vocabulary is now audited
+
+§28 flagged `files: "body"` as a suspected remaining instance of the same bug.
+It is not, and the reason generalizes. The test is **divergence**, not "does the
+mapping collapse":
+
+> A collapse is a bug iff the two tiers emit *different member sets* for the
+> same source.
+
+`method`/`path` collapsed onto `url`, and the specialized tier emitted `url`
+while the full context had real `method`/`path` values — different sets, so the
+handler saw a value in one build and `undefined` in the other. `files` collapses
+onto `body`, but **neither** tier has a `files` member: `ctx.files` and
+`ctx.file` exist nowhere in core, nothing declares them, nothing reads them
+(uploads go through `ctx.body.file()` / `ctx.body.files()`, and
+`saveUpload(ctx, …)` in `http/uploads.ts`), so the `file`/`files` entries are
+conservative leftovers of a shape that never shipped. Both tiers return
+`undefined` → no divergence.
+
+Auditing the whole vocabulary mechanically, every `ContextUsage` flag is exactly
+one of two things:
+
+- **emitted** — codegen writes a member of that name onto the specialized
+  context: `body`, `params`, `query`, `headers`, `state`, `req`, `url`, `method`,
+  `path`, `cookie`, `server`, `set`, the reply helpers (`json`, `text`, `html`,
+  `redirect`, `stream`, `empty`, `status`), plus `sendFile`, `proxy`, `forward`;
+- **sentinel** — the flag forces `needsFull`, so the specialized tier is never
+  reached and codegen has nothing to emit: `file`, `cache`, `loader`, `debug`.
+  These four are also what `FULL_USAGE` sets, which is the mechanism that keeps
+  an unresolvable handler on the full context (`generate.ts` lists them for
+  exactly that reason).
+
+No flag is in neither set, so no `method`/`path`-style hole remains.
+
+**The guard.** `packages/compiler/test/context-members.test.ts` pins this. For
+each emitted flag it calls codegen's `buildContextProps` (now exported for this)
+with a single-flag usage bitmap and asserts a member of that name comes back. It
+also fails when a new `ContextUsage` flag is added without being classified as
+emitted or sentinel, and when a classified flag no longer exists. Mutation
+checked — rewriting `if (usage.path)` as `if (usage.url)` fails it with
+
+> `usage.path was set but codegen emitted no 'path' member (got: )`
+
+which is precisely the bug the two preceding commits fixed, so this class cannot
+return silently.
+
+**Still open.** The specialized context lacks `route`, `requestId`, `ip` and
 `startTime` (§27 step (1)), and the hook ladder (§27 step (2)) stays blocked
 until that is done — a ladder over an incomplete context is worse than none.
