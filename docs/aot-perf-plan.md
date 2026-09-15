@@ -1155,3 +1155,86 @@ The **absolute level** is strongly rate-dependent (17.58 → 15.59 here, and
 **Harness rule:** pace at **≥12k rps** (curve is steep below ~8k and flat above
 ~12k; 20–24k is safest), always include ≥3 identical variants as the control, and
 report the control with every number.
+
+---
+
+## 18. The security plugin's remaining cost, and why it cannot be zero (2026-09-14)
+
+`packages/core/src/plugins/security.ts` is the last plugin with an `onResponse`
+hook on the hot path. Two structural costs were removed:
+
+1. **`isHttpsRequest` no longer materialises `req.url`.** The scheme is read
+   from `getServeBootInfo().protocol` — the *listener* protocol, fixed at boot,
+   before any plugin runs and before the first request. `req.url` is a lazy
+   native string in Bun: on the `Bun.serve({ routes })` path route matching
+   happens in Rust, so nothing has materialised it by the time the handler runs
+   and the first read pays the full cost. (Reading it 300,000× inside a single
+   handler amortises that to nothing and reports ~8ns — a trap this repo fell
+   into once, see §13.) The URL-scheme fallback is kept for `createApp` used
+   without `serve()`.
+2. **The HSTS value string and the scheme test are resolved once.** The
+   `max-age=…; includeSubDomains; preload` value was rebuilt by three string
+   concatenations per response; it is now a boot constant. And with
+   `trustProxy: false` the request scheme is a property of the *server*, so the
+   probe is memoised after the first response instead of running on every one.
+   With `trustProxy: true` it stays per-request, which is required.
+
+### Measured effect: none detectable — and that is the finding
+
+A/B of `HEAD` vs the change, `SERVER=ignus-aot`, pinned at 15k rps, 3 rounds,
+`dist` cleared before **every** build (the compiler cache will otherwise reuse a
+stale bundle and silently measure the previous variant), run in both orders:
+
+| run | variant | rounds (µs/req) | median |
+|-----|---------|-----------------|--------|
+| A1 | new  | 31.68, 31.72, 29.04 | 31.68 |
+| B1 | base | 29.25, 29.15, 32.57 | 29.25 |
+| B2 | base | 31.31, 29.80, 30.40 | 30.40 |
+| A2 | new  | 29.35, 30.90, 31.39 | 30.90 |
+
+Pooled over 6 samples each: **new 30.68µs mean, base 30.41µs mean** — a
+**0.27µs** difference against a **~1.2µs** standard deviation. This is neither a
+measurable win nor a measurable regression. Both orders happened to favour
+`base`, but the within-variant spread (2.5–3.4µs) is an order of magnitude
+larger than the effect being measured. Equally, **the in-situ saving from
+dropping the `req.url` read is not established at this noise floor** — only its
+removal is certain.
+
+**Methodological correction to §17.** Resolution is ~0.1µs with three identical
+variants and ≥5 rounds *only when the variants are built in the same
+invocation*. An AOT **source** change cannot be: `cpu.ts` rebuilds
+`dist/__server.js` once per invocation, so each variant requires its own run and
+run-to-run drift is no longer cancelled by an in-invocation control. Resolution
+degrades to **~1µs**, and anything smaller must be argued **structurally, not
+measured**. The sub-µs decompositions in §15–§17 came from configurations that
+*did* hold a control in-invocation; this one does not, and it is the only kind of
+comparison available for plugin internals.
+
+### Why the cost cannot be made non-existent
+
+`onResponse` exists for exactly one reason: a route that returns a **raw
+`Response`** never goes through framework response construction, so the baked
+static header set and `hidePoweredBy` must be applied to it after the fact.
+Framework-built responses (`ctx.json()`) already carry the baked set from
+construction, so for them the hook does nothing but probe
+`isDecoratedResponse` — a single `WeakSet.has`. That probe is the floor, and it
+is not removable by restructuring the plugin.
+
+Literal zero therefore means **not registering the hook at all**, which requires
+relocating raw-response decoration into `applySet` — the pass that already runs
+once per response. That is a 4–5 file, security-sensitive change:
+
+* `http/headers.ts` — `applySet` gains a defaults argument, applied to
+  non-decorated responses;
+* `phases/codegen/helpers.ts` — `__applySet` must receive `__DEFAULT_HEADERS`;
+* `COMPILER_CACHE_VERSION` bump;
+* `hidePoweredBy` is a header **deletion**, which a set-of-defaults cannot
+  express, so it needs its own carrier;
+* `security()` must decline to register the hook, but the listener protocol is
+  known only *after* `setServeBootInfo()` — i.e. after the plugin object is
+  constructed — so this needs a post-boot decision mechanism the plugin API does
+  not have today.
+
+This should be its own change with its own contract check and smoke run. It is
+not a drive-by edit: the raw-response path is precisely where the security
+headers matter most.

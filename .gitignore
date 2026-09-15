@@ -42,6 +42,10 @@ project.txt
 node_modules/
 dist/
 packages/*/dist
+
+# A/B build variants produced by the bench harness (dist-a, dist-abl, ...)
+# are build artifacts, not sources — they must never be linted or committed.
+bench/compare/servers/*/dist-*/
 .pre-monorepo-*
 .trash-packages-*
 *.pre-monorepo

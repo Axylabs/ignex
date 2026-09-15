@@ -8,6 +8,22 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The security plugin no longer touches the request URL, and no longer builds
+  its HSTS value per response.** `isHttpsRequest` now reads the *listener*
+  protocol captured at boot (`getServeBootInfo().protocol`) instead of
+  `ctx.req.url.startsWith("https:")`: `req.url` is a lazy native string in Bun,
+  and on the `Bun.serve({ routes })` path route matching happens in Rust, so
+  nothing has materialised it by the time the handler runs and the first read
+  pays the full cost. The `max-age=…; includeSubDomains; preload` value is now a
+  boot constant rather than three string concatenations per HTTPS response, and
+  with `trustProxy: false` the scheme probe is memoised after the first response
+  instead of running on every one (`trustProxy: true` still resolves per
+  request, as it must). **No throughput win is claimed:** an A/B against the
+  previous code at 15k rps measures **30.68 µs/req vs 30.41 µs/req** pooled over
+  6 samples each — a 0.27 µs difference against a ~1.2 µs standard deviation
+  (`docs/aot-perf-plan.md` §18). It is kept because the removed work is provably
+  gone, and because the hook's remaining cost is now understood: it exists only
+  to decorate raw `Response` passthroughs.
 - **Compiled servers are 79% smaller and boot 55% faster** (7-route reference
   app: `__server.js` **927 KB → 196 KB**, 24,738 → 5,611 lines; spawn → first
   response **51 ms → 23 ms**). The bundles were carrying subsystems the app
@@ -26,6 +42,13 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A/B build variants under `bench/compare/servers/*/dist-*/` are no longer
+  linted.** The `.gitignore` `dist` / `dist/` rules match a directory named
+  *exactly* `dist`, so variant builds (`dist-a`, `dist-abl`, …) were neither
+  ignored nor untracked-but-invisible — `oxlint` walked their generated
+  `__server.js` and failed `verify` on minified-variable warnings, and
+  `git add -A` would have committed the artifacts. Added
+  `bench/compare/servers/*/dist-*/`.
 - **The comparison benchmark was measuring its own load generator, not the
   servers — by a factor of ~34×.** `bench/compare` reported ~1,030 rps with
   p75–p99 latencies of 4–9 SECONDS for `bun`, `elysia` and `ignus` alike; the
