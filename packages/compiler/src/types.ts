@@ -7,7 +7,7 @@
  * - added route metadata for future validators/serializers/OpenAPI
  */
 
-import type { HttpMethod } from "@ignex/shared";
+import type { ContextUsage, HttpMethod } from "@ignex/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
 import type { SourceFile } from "./frontend/source-file";
 import type { SourceManager } from "./frontend/source-manager";
@@ -102,6 +102,23 @@ export interface AppConfigInfo {
    * anything off the context), exactly like `FULL_USAGE`.
    */
   readonly pluginCallsAllResolved: boolean;
+  /**
+   * Every context member the registered plugins' hooks may read — the merged
+   * DECLARED usage of the internal plugins, or `null` when the requirement is
+   * unknown.
+   *
+   * `null` is the safe default and is returned whenever the requirement cannot
+   * be fully established: the plugin list did not resolve, a plugin is not one
+   * of the framework's own, or an internal plugin carries no audited
+   * declaration. It is ALSO the current answer for any app using `cors()`, whose
+   * hook reads `ctx.method` — a member the specialized context cannot yet emit
+   * (see `docs/aot-perf-plan.md` §27).
+   *
+   * NOTE: this is the requirement of the PLUGIN layer alone. A non-`null` value
+   * is necessary but not sufficient to specialize a route — the lifecycle hook
+   * ladder still runs only on the `needsFull` path (§26).
+   */
+  readonly globalPluginUsage: Readonly<ContextUsage> | null;
 }
 
 /**

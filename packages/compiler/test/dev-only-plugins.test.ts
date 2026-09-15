@@ -17,6 +17,7 @@ import {
   analyzePluginCalls,
   debugbarStubRewrite,
 } from "../src/phases/analysis/dev-only-plugins";
+import { resolveGlobalPluginUsage } from "../src/phases/analysis/internal-plugins";
 import { parseToAst } from "../src/utils/ast/parse/bridge";
 import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
 
@@ -255,6 +256,46 @@ describe("analyzePluginCalls", () => {
     const r = analyze(`import { mine as cors } from "./mine";\nexport const plugins = [cors()];\n`);
     expect(r.allResolved).toBe(true);
     expect(r.calls).toEqual([{ name: "cors", source: "./mine" }]);
+  });
+});
+
+describe("resolveGlobalPluginUsage", () => {
+  const CORE = "@ignex/core";
+
+  it("merges the audited declaration of an internal plugin", () => {
+    const { usage } = resolveGlobalPluginUsage([{ name: "security", source: CORE }], true);
+    expect(usage).not.toBeNull();
+    expect(usage?.headers).toBe(true);
+    expect(usage?.req).toBe(true);
+    // Everything not declared must stay false, or the declaration is a lie.
+    expect(usage?.cookie).toBe(false);
+    expect(usage?.proxy).toBe(false);
+    expect(usage?.body).toBe(false);
+  });
+
+  it("returns null for cors, whose hook reads ctx.method the specialized context cannot emit", () => {
+    const { usage } = resolveGlobalPluginUsage([{ name: "cors", source: CORE }], true);
+    expect(usage).toBeNull();
+  });
+
+  it("returns null for a user plugin, an unknown internal name, or an unresolved list", () => {
+    expect(resolveGlobalPluginUsage([{ name: "mine", source: "./mine" }], true).usage).toBeNull();
+    expect(resolveGlobalPluginUsage([{ name: "nosuch", source: CORE }], true).usage).toBeNull();
+    expect(resolveGlobalPluginUsage([{ name: "security", source: CORE }], false).usage).toBeNull();
+  });
+
+  it("resolves the same plugin through the alternate publish path", () => {
+    const { usage } = resolveGlobalPluginUsage(
+      [{ name: "security", source: "@ignex/core/index" }],
+      true,
+    );
+    expect(usage?.headers).toBe(true);
+  });
+
+  it("yields an all-false requirement for an empty plugin list", () => {
+    const { usage } = resolveGlobalPluginUsage([], true);
+    expect(usage).not.toBeNull();
+    expect(Object.values(usage as unknown as Record<string, boolean>).some(Boolean)).toBe(false);
   });
 });
 

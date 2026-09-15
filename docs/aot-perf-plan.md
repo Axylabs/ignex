@@ -1936,3 +1936,58 @@ to report resolved plugin calls (the `dev-only-plugins.ts` walk already resolves
 call names and import sources for `debugbar`), (b) add the conservative
 "declared vs unknown" rule and a test that an unknown plugin still forces
 `needsFull`, (c) only then move the ladder into the specialized templates.
+
+---
+
+## 27. Second blocker: the specialized context cannot express what hooks read
+
+Step (b) is implemented — `INTERNAL_PLUGIN_USAGE` in
+`phases/analysis/internal-plugins.ts` declares, per internal plugin, which
+context members its hooks touch, and `resolveGlobalPluginUsage` merges them into
+`AppConfigInfo.globalPluginUsage` (`null` = unknown → keep forcing the full
+context). Auditing the two plugins for their declarations turned up a second,
+independent blocker for step (c).
+
+**What each hook actually reads** (grepped from the plugin sources):
+
+| plugin | members read | declarable? |
+|--------|--------------|-------------|
+| `security` | `ctx.headers.get("x-forwarded-proto")` (trustProxy path), `ctx.req.url` (boot-info fallback) | **yes** — both emitted by the specialized context |
+| `cors` | `ctx.headers.get("origin")`, `ctx.headers.get("access-control-request-headers")`, **`ctx.method`** | **no** — see below |
+
+`cors` needs `ctx.method` for its OPTIONS preflight branch. But:
+
+* `ContextUsage` has **no `method` flag** — its 23 flags are
+  `body/params/query/file/headers/state/json/text/html/redirect/stream/empty/`
+  `status/req/url/cookie/server/set/sendFile/proxy/forward/cache/loader/debug`;
+* the specialized context emits exactly those, and `method` is not among them —
+  `buildContextProps` covers set/params/body/query/headers/req/url/server/state/
+  json/text/html/stream/redirect/empty/status/sendFile/cookie/proxy/forward.
+
+So on the specialized tier `ctx.method` is `undefined`, and declaring `cors`
+narrow would hand its hook `undefined` and **silently break preflight handling**.
+It is therefore left undeclared, and an app using `cors()` still resolves to
+`globalPluginUsage: null`.
+
+The specialized context is likewise missing `route`, `path`, `requestId`, `ip`
+and `startTime`, which exist on `IgnexContextImpl` and which any plugin hook may
+legitimately read.
+
+### Consequence for step (c)
+
+(c) is therefore two changes, not one:
+
+1. **Make the specialized context able to satisfy hooks** — add the missing
+   members (`method` at minimum, plus `route`/`path`/`requestId`/`ip`/
+   `startTime`) *and* the `ContextUsage` flags to request them, so a declaration
+   can exist at all; and
+2. **Give the specialized templates the hook ladder** (§26).
+
+Both are needed before a single route can be specialized while a plugin runs.
+The prize is unchanged and modest — the hooks' own work (~1.65 µs, §15) still
+happens, so ~0.6–1 µs is recoverable — but the scope is now measured rather than
+guessed, and the ordering is unambiguous: (1) before (2), because a ladder on an
+incomplete context is worse than no ladder.
+
+**What landed here changes no runtime behaviour.** `needsFull` still requires
+`appConfigHasHooks`; the analysis is read-only. `verify` exit 0 (1969 tests).

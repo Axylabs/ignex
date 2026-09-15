@@ -18,6 +18,7 @@ import {
   lifecycleExportIsStaticallyEmpty,
 } from "./dev-only-plugins";
 import { safeReadFile } from "./fs";
+import { resolveGlobalPluginUsage } from "./internal-plugins";
 
 /**
  * Is this build production-shaped? Production builds bake `NODE_ENV=production`
@@ -88,6 +89,12 @@ export const resolveAppConfig = (
   // routing it through the opaque runtime hook chain. `allResolved` is the
   // conservative gate — when it is false the list must be treated as opaque.
   const pluginCalls = analyzePluginCalls(source);
+  // What the plugin layer needs off the context, when that is statically
+  // knowable. `null` = unknown, keep forcing the full context.
+  const globalPluginUsage = resolveGlobalPluginUsage(
+    pluginCalls.calls,
+    pluginCalls.allResolved,
+  ).usage;
 
   return {
     path: absPath,
@@ -98,6 +105,7 @@ export const resolveAppConfig = (
     hasActivePlugins,
     pluginCalls: pluginCalls.calls,
     pluginCallsAllResolved: pluginCalls.allResolved,
+    globalPluginUsage,
     // A kept `debugbar()` enables the lifecycle-stage instrumentation at
     // runtime; codegen folds it out entirely when none is kept.
     hasEnabledDebugbar: devOnly.kept > 0,
