@@ -2927,3 +2927,81 @@ both participants under `--smol` (a small heap forces far more GC) and compare h
 much each degrades. If ignus-aot degrades much more, allocation volume is the
 gap and it is quantifiable; if the two degrade alike, the gap is Bun's write path
 and the framework is done.
+
+---
+
+## 41. The gate now compares the WORK, not just the status — and that found real drift (2026-09-15)
+
+Motivated by a fair challenge: *why not compare the participants doing the same
+amount of work, so the benchmark is accurate?* The honest answer was that we
+never verified it — we assumed it, because the ports share helpers from
+`bench/compare/shared.ts` (rate limiter, query parser, IP resolution, security
+headers, validation). Two things were wrong with that assumption.
+
+### 41.1 `ignus-aot` was not in the contract gate at all
+
+```ts
+const SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-native"];
+```
+
+**The compiled participant — the one that ships, and the only one whose routes go
+through the compiler — was absent.** So §38's claim that "the contract gate would
+have caught this and simply wasn't run" is **wrong**: the gate drives the
+*interpreted* server, which takes `createContext` (full context) and never had
+the `ctx.url`/`ctx.cookie` bug. The gate tested the one path that was fine.
+
+It is now in the list, with `prebuildAot()` warming the compile first (a cold
+build inside a 15 s readiness window would make the gate flaky). All 11 of its
+contract checks pass — that is the check that was missing, and it would have
+caught the 500s on day one.
+
+### 41.2 The header block was never compared, and the header block is work
+
+The gate asserted status + body shape only. But the response header BLOCK is a
+large, easily-drifted part of per-request cost (Bun serializes per header,
+~230–400 ns/header at server level), so a participant can silently do different
+work. The gate now compares the non-volatile response header names across every
+participant. It immediately found two asymmetries:
+
+1. **`Strict-Transport-Security` inflating the other four.** The shared
+   `SECURITY_HEADERS` included HSTS; the framework participant correctly omits it
+   over plain http (it is inert there). So `bun`/`elysia`/`ignus`/`ignus-native`
+   each serialized one header per response that `ignus-aot` did not — a
+   differential cost, removed from the shared set with the rationale in code.
+   After that, `ignus`, `ignus-aot` and `ignus-native` match `bun` **exactly**.
+2. **Elysia does 4 more headers than everyone else.** `@elysia/cors` emits its
+   static allow-list — `access-control-allow-credentials`, `-allow-headers`,
+   `-allow-methods`, `-expose-headers` — on **every** response, even with no
+   `Origin` present, whereas the shared `corsHeaders()` returns `null` in that
+   case and the other four send no CORS headers at all.
+
+### 41.3 What (2) means for a claim we already made
+
+§25 concluded *"ignus-aot beats Elysia — ahead in both runs and in all five of
+run 2's alternating rounds."* §25 was itself a correction (Elysia's port skipped
+`requestIP`, a ~3.4 µs native lookup). **This is a second asymmetry, in the
+opposite direction: Elysia has been doing ~4 extra header writes and serializations
+per response, which flattered ignex.** So §25's result is **not like-for-like and
+must be re-qualified** — it cannot be stated as "ignex is faster than Elysia"
+until Elysia's CORS is aligned with the shared helper.
+
+The delta is now an **explicit, machine-checked, printed allowance**
+(`KNOWN_HEADER_DELTAS` in `verify-contract.ts`): any *other* drift fails the
+gate, and every run prints
+
+```
+⚠ [elysia] does 4 more header(s) than [bun] (…) — NOT like-for-like; see §41
+```
+
+Aligning it properly means replacing Elysia's CORS plugin with the shared
+`corsHeaders()` and hand-rolling preflight routes for every path (the plugin also
+answers `OPTIONS`) — real work with contract risk, deliberately not done here.
+
+### 41.4 The lesson
+
+**A benchmark that shares its workload through helpers still drifts, and the
+drift must be ASSERTED, not assumed.** Comparing status + body is not comparing
+work; the response header block, the request-header access pattern, and the
+native lookups each participant performs all have to be pinned — which is exactly
+how §25 and now §41 were both found. Two of the five participants have
+historically been credited or penalised for work they did not do.

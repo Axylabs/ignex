@@ -7,7 +7,51 @@
  */
 import { PORTS, type ServerKind } from "./shared";
 
-const SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-native"];
+/**
+ * `ignus-aot` MUST be in this list. It is the participant that actually ships
+ * and the only one whose routes go through the COMPILER, which is where this
+ * project's bugs live: a codegen defect that made it answer ~80% of the bench
+ * load with 500s went unnoticed through a whole round of perf work because the
+ * gate only drove the INTERPRETED server — a different code path that never had
+ * the bug. See docs/aot-perf-plan.md §38 and §41.
+ */
+const SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-aot", "ignus-native"];
+
+/**
+ * Response headers that legitimately differ per request or per participant. */
+const VOLATILE_HEADERS = new Set([
+  "date",
+  "x-request-id",
+  "vary",
+  "connection",
+  "transfer-encoding",
+]);
+
+/**
+ * KNOWN, EXPLICIT header-set deltas per participant — anything not listed here
+ * fails the gate, so drift cannot creep back in silently.
+ *
+ * `elysia`: `@elysia/cors` emits its static allow-list (credentials, headers,
+ * methods, expose-headers) on EVERY response, even with no `Origin`, whereas
+ * the shared `corsHeaders()` returns `null` in that case and the other four
+ * participants therefore send no CORS headers at all. So Elysia has been doing
+ * ~4 extra header writes + serialization per response in every comparison — a
+ * differential cost that FLATTERED ignex. Treat any "ignex beats Elysia"
+ * result as unqualified until this is aligned (see docs/aot-perf-plan.md §41).
+ */
+const KNOWN_HEADER_DELTAS: Record<string, readonly string[]> = {
+  elysia: [
+    "access-control-allow-credentials",
+    "access-control-allow-headers",
+    "access-control-allow-methods",
+    "access-control-expose-headers",
+  ],
+};
+
+/** Non-volatile response header NAMES, sorted — the work every participant must match. */
+const seenHeaders = new Map<string, string[]>();
+const headerNamesOf = (res: Response): string[] =>
+  [...res.headers.keys()].filter((k) => !VOLATILE_HEADERS.has(k)).sort();
 
 let failed = 0;
 const check = (label, ok, detail = "") => {
@@ -26,7 +70,9 @@ async function startServer(kind: ServerKind) {
     stderr: "ignore",
     env: { ...process.env },
   });
-  const deadline = Date.now() + 15_000;
+  // The AOT participant COMPILES the app on startup, so a cold build inside the
+  // readiness window would make this gate flaky; `prebuildAot()` warms it.
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
       throw new Error(`${kind} server exited during startup (code ${proc.exitCode})`);
@@ -54,6 +100,7 @@ async function probe(name, port) {
     r.status === 200 && j.ok === true && typeof j.requestId === "string",
     `status=${r.status} body=${JSON.stringify(j)}`,
   );
+  seenHeaders.set(name, headerNamesOf(r));
 
   // 2. GET /api/users query+cookies
   r = await fetch(`${base}/api/users?page=1&limit=20`, {
@@ -165,6 +212,22 @@ async function probe(name, port) {
   check("HEAD /health -> 200", r.status === 200, `status=${r.status}`);
 }
 
+/**
+ * Warm the AOT build before the loop: `ignus-aot-server.ts` runs the compiler on
+ * startup, so without this the first (cold) build would eat the readiness
+ * window and make the gate flaky.
+ */
+async function prebuildAot(): Promise<void> {
+  const proc = Bun.spawn(["bun", "run", "./bench/compare/servers/ignus-aot-server.ts"], {
+    stdout: "ignore",
+    stderr: "ignore",
+    env: { ...process.env, BENCH_BUILD_ONLY: "1" },
+  });
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(`ignus-aot build failed (exit ${code})`);
+}
+
+await prebuildAot();
 for (const kind of SERVERS) {
   console.log(`starting ${kind}...`);
   const proc = await startServer(kind);
@@ -172,6 +235,33 @@ for (const kind of SERVERS) {
     await probe(kind, PORTS[kind]);
   } finally {
     proc.kill();
+  }
+}
+
+// CPU per request is only comparable if every participant does the SAME work,
+// and the response header BLOCK is a big, easily-drifted part of it (Bun
+// serializes per header). The per-request checks above assert status and body
+// shape but never the headers, so a participant can silently send a different
+// set — which is a differential cost sitting inside the measurement. Assert it.
+{
+  const ref = seenHeaders.get(SERVERS[0]) ?? [];
+  for (const [name, keys] of seenHeaders) {
+    if (name === SERVERS[0]) continue;
+    const allowed = KNOWN_HEADER_DELTAS[name] ?? [];
+    const missing = ref.filter((k) => !keys.includes(k));
+    const extra = keys.filter((k) => !ref.includes(k)).filter((k) => !allowed.includes(k));
+    const tolerated = keys.filter((k) => allowed.includes(k));
+    check(
+      `[${name}] response header set == [${SERVERS[0]}]`,
+      missing.length === 0 && extra.length === 0,
+      `missing=[${missing}] extra=[${extra}]`,
+    );
+    if (tolerated.length) {
+      console.log(
+        `    ⚠ [${name}] does ${tolerated.length} more header(s) than [${SERVERS[0]}] ` +
+          `(${tolerated.join(", ")}) — NOT like-for-like; see §41`,
+      );
+    }
   }
 }
 

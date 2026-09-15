@@ -82,6 +82,17 @@ export const RATE_LIMIT_CONFIG = {
   windowMs: 60_000,
 } as const;
 
+/**
+ * Security headers shared by every participant, so the comparison measures the
+ * framework and not the workload.
+ *
+ * `Strict-Transport-Security` is deliberately ABSENT: it is inert over plain
+ * http, and the framework participant (core `security()`) correctly omits it
+ * there. Leaving it in made the other participants serialize one extra header
+ * per response — a differential cost that FLATTERED the framework (~200-400
+ * ns/response at server level). `bench:compare:verify` now asserts that every
+ * participant sends the same header set, so this must stay aligned.
+ */
 export const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy":
     "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' https: 'unsafe-inline'; upgrade-insecure-requests",
@@ -92,7 +103,6 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "X-XSS-Protection": "0",
-  "Strict-Transport-Security": "max-age=15552000; includeSubDomains",
 };
 
 /** Manual JSON-schema check shared by the raw Bun + Ignus servers. */
