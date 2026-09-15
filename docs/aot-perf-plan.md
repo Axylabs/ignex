@@ -2305,8 +2305,16 @@ CORS preflight and actual requests, the security header set, the plugin
 `plugins-specialize` fixture pins the codegen shape (specialized AND laddered AND
 `__applySet`, with a mutable context variable).
 
-**Not yet measured.** The throughput A/B needs the bench participant's `dist`
-rebuilt and `bench:compare` re-run. The codegen effect above is confirmed, but by
-this document's own rule the µs figure is a claim until it is measured — a
-statically-sync route traded nothing (it keeps the sync path), yet the honest
-statement stops at "the full context is gone from every benchmark route".
+**Not yet measured — and the first attempt was INVALID.** `bench/compare/cpu.ts`
+REBUILDS the AOT artifact on every run: `buildAot()` spaws
+`servers/ignus-aot-server.ts` with `BENCH_BUILD_ONLY=1`, i.e. it compiles the app
+with the CURRENT compiler into `dist/__server.js`. So swapping the artifact and
+re-running measures the same thing twice. Three consecutive runs produced
+ignus-aot at **26.24 / 29.50 / 30.00 µs** — all three the new-compiler output —
+with `ignus` drifting 32.54 → 35.51 → 38.12 in the very same runs. That is ±14%
+run-to-run noise, larger than any effect being chased. A valid A/B must run the
+harness from a checkout of the pre-change commit (`git worktree add … 0a6e21a`),
+not from `main`. What those runs DO show consistently: ignus-aot beat Elysia in
+every one (26.24/31.76, 29.50/33.09, 30.00/33.25), while still sitting at
+1.07–1.22× raw Bun — short of the harness's own 1.0× `CPU_GATE_TOLERANCE`. No µs
+figure for the ladder is claimed here.
