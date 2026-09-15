@@ -1347,3 +1347,103 @@ spread cost more than the `set` calls it saved. That verdict predates both
 for the `set` path and a refutation measured at only 0.46 µs difference on a
 noisier harness, **this is the top open lever and it deserves re-measuring with
 in-artifact instrumentation**, not another sampling profile.
+
+---
+
+## 20. Full per-request cost budget: the remaining levers are all small (2026-09-15)
+
+§19 measured two functions. This is the whole request path.
+
+**Method.** Wrap every framework function in the compiled artifact with a
+`performance.now()` timer (signature-preserving — the original parameter list is
+reused, no rest/spread, so no allocation is added). Report through
+**`writeSync` on `process.on("exit")`**: the generated server ends in
+`process.exit(0)`, which **drops buffered pipe writes** — a first attempt using
+`console.log` silently truncated every counter at its earliest sample and
+produced a table that looked plausible but was counting a fraction of the calls.
+Take the dump, divide by **route invocations** (231k), not by the measured
+window: the load script's readiness probe and 1.5 s warmup are served too.
+
+| function | calls | per call | per request |
+|----------|-------|----------|-------------|
+| route handler (avg of the 3 bench routes) | 231k | **21.9 µs** | 21.9 µs |
+| `createContext` | 231k | 1,301 ns | 1.30 µs |
+| `withBody` | 46.5k | 4,184 ns | 0.84 µs |
+| `runHooks` (2x/route) | 463k | 221 ns | 0.44 µs |
+| `createLazyBody` | 69k | 958 ns | 0.29 µs |
+| `applyStaticHeaders` | 46.5k | 1,341 ns | 0.27 µs |
+| `generateRequestId` | 231k | 248 ns | 0.25 µs |
+| `rateLimitCheck` | 231k | 208 ns | 0.21 µs |
+| `applySetHeaderRecord` | 46.5k | 896 ns | 0.18 µs |
+| `assertContentLength` | 69k | 406 ns | 0.12 µs |
+| `applySet` | 46.5k | 134 ns | 0.03 µs |
+
+**Total attributable framework cost ≈ 3.5 µs/request** (~11% of the 29–31 µs
+budget), of which the route handler already contains all of it. So ~18 µs of the
+handler is the route's own work plus Bun's `Response`/`Headers`/JSON
+materialisation, and ~8 µs sits outside the handler entirely (HTTP parse,
+response write, GC). Instrumentation overhead inflates these absolutes by
+roughly 13 wrappers × 2 clock reads per request; the ranking is unaffected.
+
+### The context constructor is a bigger lever than §19's implier, but still small
+
+`createContext` is literally `new IgnexContextImpl(...)`, so all 1,301 ns is the
+constructor. Reading the source showed why it looked promising:
+
+* every field is **declaration-only**, so TypeScript emits a bare `req;`,
+  `_url;`, … for each — a `[[DefineOwnProperty]]` with `undefined`, **16 of them
+  per construction**, all executing before the constructor body;
+* `this.set = { headers: emptyHeaders(), ...opts.set }` spreads `opts.set`,
+  which is `undefined` on the compiled path — a no-op that still walks
+  `copyDataProperties` on every request.
+
+Both were fixed and measured separately:
+
+| variant | `createContext` | vs baseline |
+|---------|-----------------|-------------|
+| baseline | 1,392 ns | — |
+| spread guard only | **1,301 ns** | **−91 ns** |
+| spread guard + `declare` fields | 1,324 ns | −68 ns |
+
+Two results. The spread guard is kept: it is exactly equivalent (`{...undefined}`
+adds nothing) and worth −91 ns/call ≈ −0.10 µs/request. And **removing the 16
+field defines is a PESSIMISATION** — the `declare` variant is 23 ns *slower* than
+the spread guard alone, because pre-defining the fields fixes the object's shape
+and the defines are cheaper than the shape transitions that follow their
+removal. It was reverted. This is the same lesson as the `{ __proto__: null }`
+refutation in §13: **a plausible "we are doing obviously redundant work" theory
+lost to the measurement.**
+
+`declare` was also rejected on its own merits: it changes the object's
+observable enumerable shape (`Object.keys(ctx)` would no longer list `_url`,
+`_cookie`, …), so it is not a free change even where it does win.
+
+### Conclusion: no large lever remains
+
+Every function that runs on the request path is now measured, and the largest is
+1.3 µs — the rest are 0.03–0.44 µs. Removing the *entire* framework layer would
+save ~3.5 µs of 29–31 µs. Consistent with §15's finding: this is not a hotspot
+problem and not a tuning problem. Parity needs the compiler to stop emitting the
+abstraction (a lean context tier, no per-request objects), which is the Phase 3
+project, not more micro-optimisation.
+
+### Two open questions this round could not close
+
+1. **`withBody`/`applyStaticHeaders`/`applySet` are called only 46.5k times —
+   exactly the `/health` count — although every generated handler ends in
+   `return __ABL_APPLYSET ? response : __applySet(response, ctx.set, …)` and
+   every bench route replies through `ctx.json()`.** Either the bundler inlines
+   those symbols into the `h0`–`h5` handlers (leaving the standalone definitions
+   reachable only from `h6`), or there is a second copy inside an indented scope
+   that a line-anchored match misses. Until this is settled, the header cost is
+   a floor: it is charged on at least 20% of responses, possibly all of them.
+2. **`queryParse` never reported a single call.** The bench's `parseQuery` is
+   definitely invoked on ~80% of routes, so its cost is inside the handler and
+   unreachable by definition-site instrumentation — the same inlining
+   hypothesis. The `−0.92 µs/request` attributed to the §19 fix is a
+   per-call figure; the per-request saving is at least that and may be larger.
+
+Both point at the same limitation: **wrapping the definition only observes
+non-inlined call sites.** For a bundler that inlines, per-call instrumentation
+undercounts, and the budget above should be read as a lower bound on the
+framework's share.

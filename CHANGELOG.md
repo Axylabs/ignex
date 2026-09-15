@@ -8,6 +8,20 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The request context no longer spreads an always-undefined `opts.set`.** The
+  `IgnexContextImpl` constructor built its header accumulator as
+  `{ headers: emptyHeaders(), ...opts.set }`; on the compiled path `opts.set` is
+  always `undefined`, so this was a no-op that still walked the spread
+  machinery (`copyDataProperties`) on **every request**. The literal is now
+  split on `opts.set === undefined`, which is exactly equivalent. Measured by
+  instrumenting the compiled artifact (per-call timers, not a sampling
+  profile): `createContext` **1,392 → 1,301 ns/call (−91 ns)**, ≈ −0.10 µs per
+  request. Also measured and **rejected**: converting the class's 16
+  declaration-only fields to `declare` to remove their per-construction
+  `[[DefineOwnProperty]]` calls is a *pessimisation* (1,324 ns — 23 ns slower
+  than the spread guard alone) because pre-defining the fields fixes the
+  object's shape; it also changes `Object.keys(ctx)`. Full per-request cost
+  budget in `docs/aot-perf-plan.md` §20.
 - **The comparison harness no longer charges a slow query parse to every
   participant except Elysia.** `bench/compare/shared.ts`'s `parseQuery(url: URL)`
   iterated `url.searchParams`; that helper is shared by the `bun`, `ignus`,

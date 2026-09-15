@@ -362,7 +362,14 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     // `status` is intentionally left unset: an explicitly-set `set.status`
     // overrides the response status (see `applySet`), but a default of 200
     // here would clobber handlers returning e.g. 401/redirects.
-    this.set = { headers: emptyHeaders(), ...opts.set };
+    //
+    // `opts.set` is undefined on the compiled path, and `{ ...undefined }` is a
+    // no-op that still walks the spread machinery (`copyDataProperties`) on
+    // every request — so split the literal instead of always spreading.
+    this.set =
+      opts.set === undefined
+        ? { headers: emptyHeaders() }
+        : { headers: emptyHeaders(), ...opts.set };
     // The `set.cookie` accumulator is always initialized so handlers can write
     // `ctx.set.cookie.name = {...}` directly even when they never read
     // `ctx.cookie` (the cookie-jar PROXY is created lazily on first `ctx.cookie`
