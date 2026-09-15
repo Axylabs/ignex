@@ -12,7 +12,11 @@ import { DiagnosticCodes } from "../../diagnostics";
 import type { SourceManager } from "../../frontend";
 import type { AppConfigInfo, CompilerContext, CompilerOptions } from "../../types";
 import { projectPath } from "../../utils/path";
-import { analyzeDevOnlyPlugins, lifecycleExportIsStaticallyEmpty } from "./dev-only-plugins";
+import {
+  analyzeDevOnlyPlugins,
+  analyzePluginCalls,
+  lifecycleExportIsStaticallyEmpty,
+} from "./dev-only-plugins";
 import { safeReadFile } from "./fs";
 
 /**
@@ -78,6 +82,13 @@ export const resolveAppConfig = (
     (devOnly.eliminated > 0 && devOnly.eliminated === devOnly.totalElements);
   const hasActivePlugins = hasPlugins && !staticallyEmptyOrAllDisabled;
 
+  // Which plugins is this, and from where? Attributing each call to its import
+  // source is what lets codegen recognise an INTERNAL plugin (`cors`,
+  // `security` from `@ignex/core`) and emit its behaviour itself rather than
+  // routing it through the opaque runtime hook chain. `allResolved` is the
+  // conservative gate — when it is false the list must be treated as opaque.
+  const pluginCalls = analyzePluginCalls(source);
+
   return {
     path: absPath,
     relPath,
@@ -85,6 +96,8 @@ export const resolveAppConfig = (
     hasLifecycle,
     hasServer: exportNames.has("server"),
     hasActivePlugins,
+    pluginCalls: pluginCalls.calls,
+    pluginCallsAllResolved: pluginCalls.allResolved,
     // A kept `debugbar()` enables the lifecycle-stage instrumentation at
     // runtime; codegen folds it out entirely when none is kept.
     hasEnabledDebugbar: devOnly.kept > 0,

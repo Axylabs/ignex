@@ -18,6 +18,35 @@ import type { OptimizationLevel } from "./options";
 // Re-export the canonical IR route type.
 export type { RouteIR } from "./ir/route";
 export type { Diagnostic, Logger };
+
+/** A plugin call resolved out of an app config's `plugins` export. */
+export interface PluginCallInfo {
+  /**
+   * The callee identifier **as bound in the config**, i.e. the LOCAL name.
+   * An aliased import reports the alias (`import { cors as c }` → `"c"`), not
+   * the original export name — so a consumer must require BOTH `name` and
+   * `source` to match before trusting this call as a known internal plugin.
+   */
+  readonly name: string;
+  /** Module the binding was imported from (e.g. `@ignex/core`). */
+  readonly source: string;
+}
+
+/**
+ * Result of resolving an app config's `plugins` export to concrete calls.
+ *
+ * `allResolved` is the conservative gate: true only when every element is a
+ * plain identifier-headed call with a known import source. Spreads,
+ * aliased/unimported callees, non-call elements, a missing export and a
+ * non-static array literal all clear it.
+ */
+export interface PluginCallAnalysis {
+  /** Resolved calls, in array order. Empty when nothing could be resolved. */
+  readonly calls: readonly PluginCallInfo[];
+  /** True when every array element resolved to a known import source. */
+  readonly allResolved: boolean;
+}
+
 /** Info about the discovered app config module (`src/app.config.ts`). */
 export interface AppConfigInfo {
   readonly path: string;
@@ -50,6 +79,29 @@ export interface AppConfigInfo {
    * `NODE_ENV=production` in the runtime environment.
    */
   readonly isProductionBuild: boolean;
+  /**
+   * Every call resolved out of the `plugins` export, in array order, with the
+   * module each callee was imported from. Empty when the export is a
+   * statically empty array or could not be resolved at all — check
+   * {@link pluginCallsAllResolved} before treating an empty list as "no
+   * plugins".
+   *
+   * This is the compile-time trigger surface for internal plugins: a callee
+   * that resolves to `@ignex/core` under a known name (`cors`, `security`) can
+   * have its behaviour emitted inline instead of being registered as an opaque
+   * runtime hook.
+   */
+  readonly pluginCalls: readonly PluginCallInfo[];
+  /**
+   * True only when EVERY element of the `plugins` export resolved to a plain
+   * identifier-headed call with a known import source.
+   *
+   * Spreads, aliased or unimported callees, non-call elements, a missing
+   * export and a non-static array literal all clear it. When it is false the
+   * plugin list must be treated as opaque (conservative: assume it can read
+   * anything off the context), exactly like `FULL_USAGE`.
+   */
+  readonly pluginCallsAllResolved: boolean;
 }
 
 /**

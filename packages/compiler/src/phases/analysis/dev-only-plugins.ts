@@ -21,6 +21,7 @@
  */
 
 import type { SourceFile } from "../../frontend";
+import type { PluginCallAnalysis, PluginCallInfo } from "../../types";
 import type {
   ArrayExpression,
   CallExpression,
@@ -154,6 +155,97 @@ const countKeptDebugbar = (
 };
 
 /**
+ * Locate the `plugins` export's array literal.
+ *
+ * Returns `undefined` when there is no such export or its initializer is not a
+ * static array literal (an identifier, a call, a spread, …).
+ */
+const findPluginsArray = (source: SourceFile): ArrayExpression | undefined => {
+  let pluginsArray: ArrayExpression | undefined;
+  walk(source.ast, (n) => {
+    if (pluginsArray) return false;
+    if (n.type !== "ExportNamedDeclaration") return;
+    const decl = n.declaration;
+    if (decl?.type !== "VariableDeclaration") return;
+    const declarator = decl.declarations?.[0];
+    if (declarator?.id.type !== "Identifier" || declarator.id.name !== "plugins") {
+      return;
+    }
+    const array = unwrap(declarator.init ?? undefined);
+    if (array?.type !== "ArrayExpression") return;
+    pluginsArray = array;
+    // The plugins export is the only construct this analysis needs — prune.
+    return false;
+  });
+  return pluginsArray;
+};
+
+/** Module `name` was imported from, or `undefined` when it was not imported. */
+const importSourceOf = (source: SourceFile, name: string): string | undefined => {
+  for (const imp of source.imports) {
+    if (imp.names.includes(name)) return imp.source;
+  }
+  return undefined;
+};
+
+/**
+ * Resolve the app config's `plugins` export to concrete, attributed calls.
+ *
+ * This is deliberately separate from {@link analyzeDevOnlyPlugins}: that one
+ * asks "does this list contribute per-request hooks at all", which is a
+ * count-level question. This one asks "which plugins is this, from where",
+ * which is what a compiler needs in order to emit an internal plugin's
+ * behaviour itself instead of registering it as an opaque runtime hook.
+ *
+ * Conservative by construction — anything it cannot attribute clears
+ * `allResolved`, so a caller can always fall back to treating the list as
+ * opaque.
+ *
+ * Attribution is `(local binding name, import source)` and BOTH must match for
+ * a call to be trusted as a known plugin. Two consequences a consumer must
+ * honour: an aliased import reports the alias, so it will not match a registry
+ * keyed on the original export name; and a DIFFERENT module's export aliased to
+ * a known plugin's name (`import { mine as cors } from "./mine"`) reports a
+ * matching name with a non-matching source. Requiring the source as well is
+ * what makes this safe to act on.
+ *
+ * @param source - The parsed app config.
+ * @returns The resolved calls plus the conservative `allResolved` gate.
+ */
+export const analyzePluginCalls = (source: SourceFile): PluginCallAnalysis => {
+  const array = findPluginsArray(source);
+  if (!array) return { calls: [], allResolved: false };
+
+  const elements = array.elements ?? [];
+  // A statically empty array (`export const plugins = []`) is fully resolved:
+  // there is genuinely nothing registered.
+  if (elements.length === 0) return { calls: [], allResolved: true };
+
+  const calls: PluginCallInfo[] = [];
+  let allResolved = true;
+
+  for (const el of elements) {
+    if (el?.type !== "CallExpression") {
+      allResolved = false;
+      continue;
+    }
+    const callee = unwrap(el.callee);
+    if (callee?.type !== "Identifier") {
+      allResolved = false;
+      continue;
+    }
+    const from = importSourceOf(source, callee.name);
+    if (from === undefined) {
+      allResolved = false;
+      continue;
+    }
+    calls.push({ name: callee.name, source: from });
+  }
+
+  return { calls, allResolved };
+};
+
+/**
  * Scan the app config's `plugins` export for dev-only plugin calls that are
  * provably disabled, so the compiler can restore AOT optimizations they would
  * otherwise force off.
@@ -172,22 +264,7 @@ export const analyzeDevOnlyPlugins = (
       break;
     }
   }
-  let pluginsArray: ArrayExpression | undefined;
-  walk(source.ast, (n) => {
-    if (pluginsArray) return false;
-    if (n.type !== "ExportNamedDeclaration") return;
-    const decl = n.declaration;
-    if (decl?.type !== "VariableDeclaration") return;
-    const declarator = decl.declarations?.[0];
-    if (declarator?.id.type !== "Identifier" || declarator.id.name !== "plugins") {
-      return;
-    }
-    const array = unwrap(declarator.init ?? undefined);
-    if (array?.type !== "ArrayExpression") return;
-    pluginsArray = array;
-    // The plugins export is the only construct this analysis needs — prune.
-    return false;
-  });
+  const pluginsArray = findPluginsArray(source);
 
   if (!importsDebugbar) {
     // No debugbar import: nothing to eliminate. Still report whether the

@@ -14,6 +14,7 @@ import { buildAsync } from "../src/index";
 import { isProductionBuild, resolveAppConfig } from "../src/phases/analysis/app-config";
 import {
   analyzeDevOnlyPlugins,
+  analyzePluginCalls,
   debugbarStubRewrite,
 } from "../src/phases/analysis/dev-only-plugins";
 import { parseToAst } from "../src/utils/ast/parse/bridge";
@@ -187,6 +188,73 @@ describe("debugbarStubRewrite (production artifact slimming)", () => {
         `import * as core from "@ignex/core";\nexport const p = [core.debugbar()];\n`,
       ),
     ).toBeNull();
+  });
+});
+
+describe("analyzePluginCalls", () => {
+  const analyze = (src: string) => {
+    const sm = new SourceManager();
+    const sf = sm.fromSource("/app/src/app.config.ts", "src/app.config.ts", src, {
+      warn() {},
+    } as never);
+    return analyzePluginCalls(sf);
+  };
+
+  it("attributes internal plugin calls to @ignex/core", () => {
+    const r = analyze(
+      `import { cors, security } from "@ignex/core";\n` +
+        `export const plugins = [cors({ origin: ["https://a"] }), security({ hsts: false })];\n`,
+    );
+    expect(r.allResolved).toBe(true);
+    expect(r.calls).toEqual([
+      { name: "cors", source: "@ignex/core" },
+      { name: "security", source: "@ignex/core" },
+    ]);
+  });
+
+  it("resolves a statically empty array to no plugins", () => {
+    const r = analyze(`export const plugins = [];\n`);
+    expect(r.allResolved).toBe(true);
+    expect(r.calls).toEqual([]);
+  });
+
+  it("clears allResolved for anything it cannot attribute", () => {
+    // Spread element.
+    expect(
+      analyze(
+        `import { cors } from "@ignex/core";\nimport { extra } from "./extra";\nexport const plugins = [cors(), ...extra()];\n`,
+      ).allResolved,
+    ).toBe(false);
+    // A callee that was never imported.
+    expect(
+      analyze(`import { cors } from "@ignex/core";\nexport const plugins = [cors(), mystery()];\n`)
+        .allResolved,
+    ).toBe(false);
+    // No `plugins` export at all.
+    expect(analyze(`export const server = {};\n`).allResolved).toBe(false);
+    // A non-static initializer (identifier, not an array literal).
+    expect(
+      analyze(
+        `import { cors } from "@ignex/core";\nconst list = [cors()];\nexport const plugins = list;\n`,
+      ).allResolved,
+    ).toBe(false);
+  });
+
+  it("reports an aliased import under its ALIAS, so a name-keyed registry misses it", () => {
+    // `source.imports` carries local binding names, so `cors as c` resolves to
+    // name "c". A registry keyed on `cors` will not match, which is the
+    // conservative outcome; the analyzer must not claim it is `cors`.
+    const r = analyze(`import { cors as c } from "@ignex/core";\nexport const plugins = [c()];\n`);
+    expect(r.allResolved).toBe(true);
+    expect(r.calls).toEqual([{ name: "c", source: "@ignex/core" }]);
+  });
+
+  it("reports a foreign export aliased to a known name with its REAL source", () => {
+    // A consumer must require the SOURCE too: this reports name "cors" from a
+    // user module, and must never be mistaken for @ignex/core's cors.
+    const r = analyze(`import { mine as cors } from "./mine";\nexport const plugins = [cors()];\n`);
+    expect(r.allResolved).toBe(true);
+    expect(r.calls).toEqual([{ name: "cors", source: "./mine" }]);
   });
 });
 
