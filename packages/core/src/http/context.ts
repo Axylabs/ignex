@@ -317,7 +317,6 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   readonly req: Request;
   readonly method: HttpMethod;
   readonly route: string;
-  readonly headers: Headers;
   params: P;
   readonly set: SetHeaders;
   readonly startTime: number;
@@ -333,6 +332,7 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
   }
 
   private _body: LazyBody | undefined;
+  private _headers: Headers | undefined;
   private _cookie: Record<string, Cookie<string | undefined>> | undefined;
   private _url: URL | undefined;
   private _path: string | undefined;
@@ -350,7 +350,6 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
     this.req = req;
     this.method = req.method as HttpMethod;
     this.route = opts.route ?? "";
-    this.headers = req.headers;
     this.params = params;
     // `body` and `cookie` are created LAZILY on first access (getters below),
     // so a request that never reads the body or cookies pays zero setup cost.
@@ -391,6 +390,22 @@ class IgnexContextImpl<P = Record<string, string>> implements IgnexContext<P, UR
 
   set body(value: LazyBody) {
     this._body = value;
+  }
+
+  /**
+   * Request headers, materialized on FIRST access.
+   *
+   * `req.headers` is a lazily-built native object in Bun: reading the property
+   * is what constructs it. Assigning it eagerly in the constructor made every
+   * full-context request pay for that construction even when nothing ever
+   * reads `ctx.headers` — and because plugins/hooks force the full context,
+   * that is the COMMON production path (the specialized context literal
+   * already gates the member on `usage.headers`). Lazy is free: a request that
+   * never reads it never builds it.
+   */
+  get headers(): Headers {
+    if (this._headers === undefined) this._headers = this.req.headers;
+    return this._headers;
   }
 
   get cookie(): Record<string, Cookie<string | undefined>> {

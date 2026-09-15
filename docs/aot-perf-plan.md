@@ -2862,10 +2862,68 @@ trade-off, not an improvement. It pays only for handlers that *enumerate*
 (`Object.entries(ctx.cookie)`, which is what the bench does). Also note the
 harness's own load sends **no** `Cookie` header (`cpu.ts` has no cookie code), so
 this cost does not appear in any `bench:compare:cpu` number — it is invisible to
-the instrument that has been driving this whole investigation.
+the instrument that has been driving this whole investigation. (The "and
+therefore `req.headers.get` is the 2 µs" reading of that ablation is **wrong** —
+see §40.)
 
 **If it is ever done**, the change is: return a plain object built at first
 access (parse + one `Cookie` view per key), keeping the lazy *parse*, and cover
 `Object.keys`/`entries`/`for…in`/`getOwnPropertyDescriptor`/`delete`/writes-to-
 new-keys, because today there is no `set` trap and `jar.newKey = "x"` already
 lands on the empty target rather than registering a cookie.
+
+---
+
+## 40. Correcting my own inference: request headers are NOT a µs-scale cost (2026-09-15)
+
+§39.3 explained §23's `cookiesRecord(ctx) -> {}` ablation (2.33 µs) by saying the
+empty jar only costs 134 ns, so the rest must be `req.headers.get("cookie")`
+forcing Bun to materialize the request `Headers`. That inference is **wrong, and
+the data to refute it was already on the page**:
+
+> `createContext` measured **199 ns/call over 141595 calls** — on an artifact
+> whose constructor still contained `this.headers = req.headers`. The request
+> `Headers` was therefore materialized *inside that 199 ns*, on every request.
+> **Request-header materialization is bounded by well under 200 ns, not µs.**
+
+So the 2.33 µs ablation was measuring something else — most likely the
+*throughput* harness's load, which (unlike `cpu.ts`) does send a 12-cookie
+`Cookie` header, plus that harness's then-±0.6-1 µs per-round spread. Lesson
+restated: an ablation bounds a *block of code*, and attributing its size to one
+line inside it is a guess until that line is measured on its own.
+
+### 40.1 LANDED: `ctx.headers` is now lazy (correct, free — but small)
+
+`IgnexContextImpl`'s constructor did `this.headers = req.headers;` while every
+other native-backed member (`body`, `cookie`, `url`, `path`, `query`,
+`requestId`, `ip`, `state`) is a memoized lazy getter with a comment explaining
+why. `headers` was simply missed. It is now the same memoized getter, so a
+request whose handler and hooks never read `ctx.headers` never touches the
+property. The specialized context *literal* already gated the member on
+`usage.headers || hasHeadersValidator`, so this closes the full-context path.
+
+Strictly an improvement (one fewer eager property read; nothing depends on
+`ctx.headers` being an own data property — the only assignment was that line),
+but sized honestly: **≤ ~200 ns, i.e. inside the `createContext` figure above**,
+not the ~2 µs I estimated in conversation before checking. It stays because it is
+free and consistent with the class's own design, not because it moves the number.
+
+### 40.2 Where the remaining ~5.5 µs is NOT
+
+- **Not context construction**: `createContext` is 199 ns *including* the headers
+  read, `__set`, the class allocation and the field defines.
+- **Not the response header block**: the Bun participant spreads the same
+  `SECURITY_HEADERS` and reads `req.headers.get("origin")` for CORS, so both
+  sides send a comparable header count and both materialize request headers.
+- **Not the reply path**: `withBody` (551 ns, native `Response` construction
+  included) beats Bun's own `Response.json` (1440 ns, §37).
+
+What is left is time that does not appear in *any* synchronous JS timer:
+**per-request allocation volume and the GC that collects it**, plus Bun's
+write-time serialization after the handler returns. That matches §15's old note
+that the ablations were *super-additive* (GC compounding). The next experiment is
+not another micro-optimisation but an **allocation-pressure differential**: run
+both participants under `--smol` (a small heap forces far more GC) and compare how
+much each degrades. If ignus-aot degrades much more, allocation volume is the
+gap and it is quantifiable; if the two degrade alike, the gap is Bun's write path
+and the framework is done.
