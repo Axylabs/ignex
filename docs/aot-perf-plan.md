@@ -2411,3 +2411,53 @@ ops) and the NUL-truncation correctness fix.
 
 **Actionable upstream item, low priority:** if session seal/open ever becomes
 hot, ask castrum for `session_seal_bytes` / `session_open_bytes`.
+
+## 34. The specialized tier + ladder is worth ~2.4 µs/req — MEASURED (2026-09-15)
+
+§32 shipped the change and refused to claim a number, because
+`bench:compare:cpu` rebuilds the AOT artifact on every run (`buildAot()`), so no
+artifact swap can A/B anything — it measures the same thing twice. The switch had
+to move to the BUILD SITE: `servers/ignus-aot-server.ts` now reads
+`BENCH_SPECIALIZE=0` to force every route onto the full context. Same app, same
+compiler, same options, ONE flag — which makes the tier a true single variable.
+
+The design that finally produced a readable answer:
+
+* `SERVER=bun,ignus-aot` keeps `bun` in EVERY run as an unchanged-artifact drift
+  control, and halves wall time versus all five participants.
+* `CPU_ROUNDS=7` (default 3).
+* Interleaved A/B/A/B, normalized to `bun` WITHIN each run.
+
+| run | variant | bun | ignus-aot | ratio to bun |
+|---|---|---|---|---|
+| 1 | full context | 25.92 | 34.36 | **1.326** |
+| 2 | specialized | 24.32 | 28.36 | **1.166** |
+| 3 | full context | 21.78 | 27.43 | **1.259** |
+| 4 | specialized | 21.61 | 25.06 | **1.159** |
+
+**The ratio to `bun` is the stable metric; absolute µs is not.** `bun` itself
+moved 25.92 → 21.78 across the four runs (17%), which is exactly why every
+single-run comparison in §32 failed. The within-run ratios replicate: the two
+full-context runs agree to 5% (1.326 / 1.259) and the two specialized runs to
+0.6% (1.166 / 1.159).
+
+**Result: −2.37 µs/req (−8.6%)**, from the cleanest pair (runs 3 → 4, with `bun`
+effectively constant at 21.78 / 21.61). In framework terms, ignus-aot's cost over
+raw Bun fell from **5.65 µs to 3.45 µs** — and 3.45 µs lands almost exactly on
+§22's independently derived "~3.5 µs is ignex's own JS", which is a useful
+cross-check on both measurements.
+
+This is a LARGER win than §26's 0.6–1 µs bound for the hook ladder alone, because
+the change did not only add a ladder: it also deleted `createContext` (measured
+1,301 ns) plus the full-lifecycle machinery from every route in a plugin app.
+
+*Artifact note:* run 1's rounds 3–4 are corrupt — `ignus-aot` reported 56.76 µs
+on only 73,543 requests, i.e. the generator could not hold the pinned 15,000 rps,
+so that round's CPU figure is meaningless. The 7-round median absorbed it; rounds
+5–7 of that run agree to 2.7%.
+
+**The next lever is now measurable.** The residual framework cost is **3.45
+µs**, with `withBody` and `applyStaticHeaders` as the named candidates. Before
+this, the noise floor (±14% absolute) was *larger* than the lever (~11%), so no
+further micro-optimization could be validated at all; normalizing to `bun` is
+what fixed that. Any future claim on this path should use the same method.

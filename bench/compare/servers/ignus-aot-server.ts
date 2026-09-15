@@ -38,7 +38,16 @@ await buildAsync({
   generateOpenAPI: false,
   generateClient: false,
 
-  specializeContext: true,
+  // `BENCH_SPECIALIZE=0` forces every route onto the FULL context instead of the
+  // usage-specialized tier.
+  //
+  // The harness rebuilds this app on EVERY run (`cpu.ts` → `buildAot()`), so an
+  // artifact swap cannot A/B anything — the switch has to live here, at the
+  // build site. This is the only way to price the two tiers honestly: the SAME
+  // app, the SAME compiler, the SAME options, one flag flipped. Anything that
+  // swaps artifacts or compares across compiler versions measures the harness,
+  // not the change.
+  specializeContext: process.env.BENCH_SPECIALIZE !== "0",
   hoistConstants: true,
   routeCache: true,
 
