@@ -1606,20 +1606,28 @@ input the marshalling dwarfs the parse.
   `content-length`.
 * **The framework's remaining ~3.5 µs is JS *object* work** — context
   construction, hook dispatch, `WeakSet` probes, small string ops. Crossing FFI
-  requires materialising those as bytes and reading results back, at a measured
-  ≥1.3 µs per crossing.
+  requires materialising those as bytes and reading results back.
 
 ### The arithmetic that settles it
 
-Making **100%** of the framework's JS free would save ~3.5 µs of a 29–31 µs
-budget (11%). At a measured cost of ≥1.3 µs per FFI crossing, **you can afford
-about two crossings per request before the FFI overhead exceeds every line of JS
-you removed** — and the ≥1.3 µs figure is for one *already-optimised*,
-byte-compatible, battle-tested op. `IGNEX_NATIVE=off` parity is a gate for a
-reason: on this request path native is not an acceleration, it is a tax.
+> **CORRECTED 2026-09-15 — see §37.** This section originally priced the crossing
+> at "≥1.3 µs". That is the NAPI transport (`scripts/bench-ffi.ts` states the
+> contrast in its own header: ~10–20 ns on the C-ABI path vs ~100–350 ns on
+> NAPI), or a whole-op figure. The real C-ABI crossing on these signatures is
+> **~3 ns** (`bun scripts/bench-ffi-boundary.ts`). The conclusion below survives,
+> but on a different mechanism than the one given: the cost is not the boundary,
+> it is **marshalling** — and JS *object* work has no cheap byte form at all.
 
-**Result: none of these costs can be profitably migrated to Rust FFI.** The
-lever is the compiler emitting less JS (§15 Phase 3), not a different execution
+Making **100%** of the framework's JS free would save ~3.5 µs of a 29–31 µs
+budget (11%). The barrier is not the boundary: you can cross ~100× per request
+for the price of one `JSON.parse`. It is that every field of a context or a hook
+payload is a JS string, and each one costs an encode out (~46 ns) or a transcode
+back (~40 ns+), not 3 ns — so the *shape* of the work, not the crossing count,
+is what decides. Byte-oriented work is a different story and does win: §37.
+
+**Result: the framework's own JS-object-shaped costs cannot be profitably
+migrated to Rust FFI** — on marshalling, not on boundary cost. The lever for
+them is the compiler emitting less JS (§15 Phase 3), not a different execution
 tier.
 
 ---
@@ -2551,3 +2559,116 @@ A per-call NUL guard was considered and rejected on cost: an `indexOf("\u0000")`
 scan per argument is tens of ns on a ~600 ns op, i.e. more than the hazard it
 defends — and the id is NUL-free in every real caller (cookie values cannot
 carry one).
+
+---
+
+## 37. The JS↔Rust boundary is ~3 ns; the cost is marshalling (2026-09-15)
+
+Two questions: can expensive work move into Rust, and can the compiler generate
+Rust route handlers and hand them to `Bun.serve({ routes })`?
+
+### 37.1 `routes` cannot be fed from Rust — and the routing part is already native
+
+`bun-types@1.4.0/serve.d.ts` is explicit:
+
+```ts
+type BaseRouteValue = Response | false | HTMLBundle | BunFile | DirectoryRouteOptions;
+type Routes<W, R extends string> = {
+  [Path in R]: BaseRouteValue | Handler<…> | Partial<Record<HTTPMethod, Handler | Response>>;
+};
+```
+
+Every value is a JS value. There is no function-pointer slot and no C ABI for a
+route table, so `routes: castrumRoutes` is **not expressible** — nothing in
+Bun's reference accepts a native handler. It is also unnecessary in the part
+that would matter: a `Response` / `BunFile` / `HTMLBundle` / `{dir}` value is not
+a handler, so **no user JS runs** for that route at all, and Bun's router itself
+is already native. The only thing that cannot be native is a handler *body*,
+because its return value must be a JS `Response`.
+
+### 37.2 The crossing is single-digit nanoseconds
+
+`bun scripts/bench-ffi-boundary.ts`, median of 7 interleaved trials:
+
+| call | ns | reads as |
+|---|---|---|
+| empty arrow fn | 1.25 | JS call floor |
+| `abs(7)` `[i32]->i32` | **3.47** | **the crossing** (+2.2 over a JS call) |
+| `strlen(NUL)`, 0 work, `u64` return | 15.61 | ⇒ a 64-bit return boxes a **BigInt: +12.1 ns** |
+| `strlen(NUL)`, *same symbol*, `u64_fast` | **10.20** | ⇒ **`u64_fast` removes the box** |
+| `strlen(ptr)` 256 B scan, `u64` | 32.61 | crossing + scan + BigInt box |
+| `memcpy(p,p,64)` `[ptr,ptr,u64]` | 21.26 | |
+| `memset(Uint8Array, …)` | 17.68 | a JS buffer as a `ptr` ARG, **not copied** |
+| `getpid()` `[]->i32` | **323.43** | a *syscall* under spectre mitigations — **not** FFI |
+| real castrum `…session_open_bytes`, 6 args | 37 | a real Rust entry point, whole round trip |
+
+(Absolute ns drift run to run — 3.2 vs 3.5 ns crossing, 447 vs 534 ns response — so
+read the ratios, per the discipline in §35.)
+
+§22's "≥1.3 µs per FFI crossing" was therefore wrong by ~35×; the correct model:
+
+* **the boundary is free.** ~100 crossings cost one `JSON.parse`.
+* **marshalling is the cost.** `toArrayBuffer` (a JS view over native memory) is
+  **227 ns — 65× a crossing**; `TextEncoder.encode` is 46 ns for a short string
+  and 192 ns for 1 KB.
+* **a 64-bit return boxes a BigInt (+12.1 ns), and `u64_fast` removes it** (10.20
+  ns for the same symbol) → a route ABI returning a length must use `u64_fast`
+  (or `u32`), never `u64`. (`FFIType.usize` is not in bun-types at all: the
+  member is `u64`, with `u64_fast` for the unboxed variant.)
+* a `Uint8Array`/`ArrayBuffer` passed as a `ptr` ARG is **not copied** (a
+  `memset` through it writes into the JS buffer), while a `string` as a `ptr` ARG
+  is **rejected** ("encode it as a buffer") — the same encode-then-transcode
+  lesson as §36.
+
+### 37.3 The safety fact that makes a byte path usable
+
+`new Response(view)` **copies at construction**: mutate the source view *and* the
+native bytes after construction, and `await res.text()` still returns the
+original bytes. So a native output buffer needs **no lifetime protocol** — no
+arena, no leak, no release callback. Build the Response, then free or reuse the
+buffer immediately.
+
+### 37.4 What the byte path is worth (1 KB JSON object)
+
+| | ns |
+|---|---|
+| Rust path: `toArrayBuffer` + `Uint8Array` + `new Response(bytes)` | **533.51** |
+| today: `new Response(JSON.stringify(obj))` | 1421.79 |
+| today: `Response.json(obj)` | 1450.44 |
+| today: `JSON.parse(payload)` — what a POST pays | 3440.52 |
+| `TextEncoder.encode(payload)` — 1 KB | 191.70 |
+
+⇒ **2.7× cheaper to emit** a response whose bytes Rust produced, and (parse +
+serialize + `Response.json` ≈ 4.9 µs replaced by `await req.bytes()` ≈ 450 ns +
+one crossing + Rust parse + 534 ns) roughly **4× cheaper to consume** a body that
+Rust parsed instead of `req.json()`.
+
+### 37.5 Verdict, and the condition that decides it
+
+The win is real, but it is a **serialization** win, not a **routing** win, and it
+depends entirely on **where the data lives**:
+
+* **Wins — byte-oriented work.** Parse/validate/serialize a request body, crypto
+  over buffers, render-to-bytes. Data crosses as bytes: one `await req.bytes()`
+  (~450 ns/KB), or zero-copy as a `ptr` arg.
+* **Still a tax — JS-*object*-shaped work** (context construction, hook
+  dispatch, `WeakSet` probes: §22's list, and the framework's residual). Every
+  field would cost an encode or a transcode (~46 ns / ~40 ns), not 3 ns. So
+  Rust-side serialization pays only when the data is **already native**: DB rows,
+  a cache entry, a decoded session/token.
+* **No win — routing.** Bun's router is native already and route values must be
+  JS regardless.
+
+**Per-route Rust code generation: not recommended.** With a ~3 ns crossing there
+is nothing on the JS side for a specialised entry point to save — a generic
+`(ptr, len) -> (ptr, len)` costs the same — and serde covers any shape at
+runtime, so generating Rust per route would buy only a Rust-internal dispatch
+(a Rust-side micro-optimisation). Against that: a cargo toolchain in every app
+build, per-platform `.so` compilation and cross-compilation, and a large new
+compiler surface, for a framework whose promise is "routes are files, bundled in
+one JS pass". If shape specialisation is wanted, get it *inside* castrum with
+generics/monomorphisation — compile-time and free — not from the JS compiler.
+
+**And the cheapest route optimisation needs neither:** a fully static response
+emitted as a `Response` *value* in the routes table runs with zero JS and zero
+Rust (§37.1).

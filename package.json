@@ -56,6 +56,7 @@
     "bench:jwt": "bun scripts/bench-jwt.ts",
     "bench:jwt:compare": "bun scripts/bench-jwt-compare.ts",
     "bench:ffi": "bun scripts/bench-ffi.ts",
+    "bench:ffi:boundary": "bun scripts/bench-ffi-boundary.ts",
     "bench:native:all": "bun scripts/bench-native.ts",
     "bench:bun-internals": "bun scripts/bench-bun-internals.ts",
     "bench:server": "bun scripts/bench-server.ts",
