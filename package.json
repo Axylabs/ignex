@@ -71,7 +71,7 @@
     "bench:compare:crud": "bun bench/compare/run-bench.ts crud",
     "bench:compare:soak": "bun bench/compare/run-bench.ts soak",
     "bench:compare:check": "bun scripts/check-compare-bench.ts",
-    "verify:perf": "bun run bench:server:check && bun run bench:compare:check && bun run bench:compare:gate",
+    "verify:perf": "bun run bench:compare:verify && bun run bench:server:check && bun run bench:compare:check && bun run bench:compare:gate",
     "bench:realworld": "bun scripts/bench-realworld.ts",
     "bench:hotpath": "bun scripts/bench-hotpath.ts",
     "bench:server:routes": "bun scripts/bench-server-routes.ts",
