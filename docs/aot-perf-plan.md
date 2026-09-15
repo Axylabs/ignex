@@ -3005,3 +3005,67 @@ work; the response header block, the request-header access pattern, and the
 native lookups each participant performs all have to be pinned — which is exactly
 how §25 and now §41 were both found. Two of the five participants have
 historically been credited or penalised for work they did not do.
+
+---
+
+## 42. RESULT: like-for-like, the compiled framework beats the Elysia port (2026-09-15)
+
+First comparison run **after** the workload was verified equal (§41: identical
+response header sets across `bun`/`ignus`/`ignus-aot`/`ignus-native`) and after
+§38 made the compiled participant actually serve its routes. `SERVER=bun,elysia,ignus-aot
+CPU_ROUNDS=5 CPU_SECS=8`, 15000 rps, alternating rounds, medians:
+
+| round | bun | elysia | ignus-aot |
+|---|---|---|---|
+| 1 | 24.75 | 35.14 | **33.46** |
+| 2 | 26.09 | 33.03 | **32.85** |
+| 3 | 27.61 | 39.44 | **35.90** |
+| 4 | 27.01 | 40.15 | **35.08** |
+| 5 | 28.47 | 38.70 | **36.66** |
+| **median** | **27.01** | 38.70 (**1.433x**) | **35.08 (1.299x)** |
+
+**ignus-aot is ahead of the Elysia port in all five alternating rounds, at
+~10% lower CPU per request** — and that is the *conservative* direction, because
+Elysia additionally serializes 4 more headers on every response (~1 u s of work,
+§41.2). Crediting Elysia for those still leaves it above 35.08.
+
+Two things this does **not** say:
+
+- **Not "faster than raw Bun".** 1.299x is the honest ratio, unchanged. Bun is
+  the baseline and wins.
+- **Not "the framework is the bottleneck".** Its own JS is ~1.5 u s of a 35 u s
+  request (§39), so the headline cannot be moved by more JS micro-optimisation.
+
+Note the drift: raw Bun itself moved 24.75 -> 28.47 (+15%) across the run, which
+is exactly why the ordering must be read from alternating rounds and medians, not
+from absolute u s — §35's discipline, still load-bearing.
+
+### Where we are "efficient enough", and what is left
+
+| | cost | status |
+|---|---|---|
+| Bun's HTTP floor | ~12.5 u s (36%) | untouchable |
+| workload-native work (requestIP, URL, header materialization, body parse) | ~9 u s | shared with raw Bun; §41 now asserts it |
+| **framework's own JS** | **~1.5 u s (4.5%)** | every lever measured; alternatives refuted |
+| unattributed remainder | ~6-8 u s | **the one open question** (§40.2) |
+
+So: the framework layer is efficient enough that further JS work is not the
+lever. The remaining gap is in time no synchronous JS timer observes — allocation
+volume/GC and Bun's write path — and the experiment that would attribute it is
+the staged ablation of the generated handler toward the raw-Bun shape (§40.2),
+not another micro-optimisation.
+
+### The Rust verdict (asked directly: do we need to modify castrum?)
+
+**Not for this gap.** §37 measured the JS↔Rust boundary at ~3 ns (a JIT-specialised
+crossing) — cheap enough that the "boundary cost" objection to moving work into
+castrum is dead — but the work on this request path is JS-*object*-shaped
+(context, hooks, reply), which has no cheap byte form: each field would cost an
+encode (~46 ns) or a transcode (~40 ns). §22 additionally measured native as a
+**tax** on the `/query` path (its gate is calibrated correctly), and §39/§23's
+ablations turn out to price the *workload's* native calls, which raw Bun pays too.
+
+Where castrum *would* pay is the **byte-body path** (§37): Rust-produced response
+bytes are 2.7x cheaper to emit and a Rust-parsed request body ~4x cheaper to
+consume, for routes whose payloads are JSON. That is a new capability for
+JSON-heavy routes, not a fix for the numbers above.
