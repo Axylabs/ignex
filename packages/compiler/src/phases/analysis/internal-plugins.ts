@@ -46,16 +46,16 @@ export const INTERNAL_PLUGIN_USAGE: Readonly<Record<string, Readonly<ContextUsag
     /**
      * `cors()` reads `ctx.headers.get("origin")`,
      * `ctx.headers.get("access-control-request-headers")` and — for the OPTIONS
-     * preflight branch — **`ctx.method`**.
+     * preflight branch — `ctx.method`.
      *
-     * `method` has no `ContextUsage` flag, and the specialized context does not
-     * emit it (`buildContextProps` covers set/params/body/query/headers/req/url/
-     * server/state/json/text/html/stream/redirect/empty/status/sendFile/cookie/
-     * proxy/forward only). Declaring this narrow would hand the hook `undefined`
-     * and silently break preflight handling. Undeclared until the specialized
-     * context can express `method` — see `docs/aot-perf-plan.md` §27.
+     * This was UNDECLARABLE until `method` gained its own `ContextUsage` flag
+     * and the specialized context began emitting `method: req.method`. It used
+     * to collapse onto the `url` flag, so codegen emitted `url` and nothing
+     * emitted `method` — declaring `cors` narrow would have handed the hook
+     * `undefined` and silently broken preflight. Both members are now
+     * expressible, so the declaration is sound.
      */
-    cors: null,
+    cors: Object.freeze({ ...EMPTY_USAGE, headers: true, method: true }),
   });
 
 /** The merged context requirement of an app's whole plugin layer. */

@@ -273,9 +273,17 @@ describe("resolveGlobalPluginUsage", () => {
     expect(usage?.body).toBe(false);
   });
 
-  it("returns null for cors, whose hook reads ctx.method the specialized context cannot emit", () => {
+  it("declares cors, now that ctx.method is expressible", () => {
+    // cors reads ctx.headers and ctx.method (OPTIONS preflight). It was
+    // undeclarable while `method` collapsed onto the `url` flag.
     const { usage } = resolveGlobalPluginUsage([{ name: "cors", source: CORE }], true);
-    expect(usage).toBeNull();
+    expect(usage).not.toBeNull();
+    expect(usage?.headers).toBe(true);
+    expect(usage?.method).toBe(true);
+    // Members cors does NOT read must stay false.
+    expect(usage?.cookie).toBe(false);
+    expect(usage?.set).toBe(false);
+    expect(usage?.body).toBe(false);
   });
 
   it("returns null for a user plugin, an unknown internal name, or an unresolved list", () => {

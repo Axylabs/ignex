@@ -1991,3 +1991,43 @@ incomplete context is worse than no ladder.
 
 **What landed here changes no runtime behaviour.** `needsFull` still requires
 `appConfigHasHooks`; the analysis is read-only. `verify` exit 0 (1969 tests).
+
+---
+
+## 28. `ctx.method` was `undefined` on specialized routes — a real bug
+
+§27 concluded that `cors` could not be declared because its hook reads
+`ctx.method` and the specialized context does not emit it. Unblocking that turned
+up a latent **bug**, not merely a missing flag.
+
+`USAGE_FLAGS` in `utils/ast/usage.ts` collapsed three members onto one flag:
+
+```ts
+url: "url",
+path: "url",
+method: "url",   // reasoned as: "all imply the request URL was read"
+```
+
+But `buildContextProps` emits exactly the **flagged** member and nothing else. So
+a handler that read `ctx.method` set `usage.url`, codegen emitted `url`, and the
+handler then read **`ctx.method === undefined`** — silently. It type-checks, it
+compiles, and it only fails at runtime, which is the worst failure mode this
+analyzer has.
+
+It is reachable: a route that reads only `ctx.method` and returns a reply trips
+none of the `needsFull` conditions, so it takes the specialized tier.
+
+**Fix.** `method` gets its own `ContextUsage` flag — added to the interface,
+`EMPTY_USAGE`, `FULL_USAGE`, and the canonical `FLAGS` list whose drift test
+exists precisely to catch a flag added in one place and not the other (it did).
+`USAGE_FLAGS` now maps `method: "method"`, and `buildContextProps` emits
+`method: req.method` — a plain property on the Request, so no URL is built for
+it. With that, `cors` is declarable and is declared as
+`{ headers: true, method: true }`, replacing §27's `null`.
+
+**`ctx.path` is the same bug and is still open.** It maps to `url`, nothing emits
+a `path` member, so `ctx.path` is `undefined` on a specialized route. Fixing it
+needs a `path` member whose value matches `pathnameOf(req.url)` exactly: that
+helper is core-internal and not exported, and `url.pathname` is not obviously
+identical for every URL shape. It deserves its own change rather than being
+folded into an unrelated one.

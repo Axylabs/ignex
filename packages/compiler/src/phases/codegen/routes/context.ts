@@ -32,6 +32,11 @@ const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
   if (usage.headers || hasHeadersValidator) props.push(`headers: req.headers`);
   if (usage.req) props.push(`req`);
   if (usage.url) props.push(`url`);
+  // `ctx.method` is a plain property on the Request — no URL needed. Emitting it
+  // is what lets a method-reading route specialize at all: previously `method`
+  // set the `url` flag, so codegen emitted `url` and the handler read
+  // `ctx.method === undefined`.
+  if (usage.method) props.push(`method: req.method`);
   if (usage.server) props.push(`server`);
   if (usage.state) {
     props.push(`state`);

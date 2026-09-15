@@ -14,8 +14,11 @@ import { walk } from "./walk";
 
 /**
  * Maps a context member name to the single {@link ContextUsage} flag it sets.
- * Several runtime members deliberately collapse onto one flag (e.g. `url`,
- * `path` and `method` all imply "request URL was read").
+ *
+ * NOTE: members must map to the flag whose EMITTED PROPERTY is the one the
+ * handler reads. Collapsing two members onto one flag (as `path`/`method` used
+ * to do with `url`) means codegen emits the flag's member and not the other, so
+ * the handler reads `undefined` — see `method` below.
  */
 const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
   body: "body",
@@ -29,8 +32,11 @@ const USAGE_FLAGS: Record<string, keyof ContextUsage> = {
   setState: "state",
   req: "req",
   url: "url",
+  // `path` still collapses onto `url` (the URL object is what codegen builds),
+  // but NOTHING emits the `path` member, so `ctx.path` is undefined on a
+  // specialized route. Tracked in docs/aot-perf-plan.md section 28.
   path: "url",
-  method: "url",
+  method: "method",
   cookie: "cookie",
   server: "server",
   set: "set",

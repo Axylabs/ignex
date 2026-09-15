@@ -53,6 +53,17 @@ describe("context usage soundness", () => {
     expect(usage.body).toBe(true);
   });
 
+  it("ctx.method gets its OWN flag, not `url`", () => {
+    // Regression: `method` used to collapse onto the `url` flag. Codegen emits
+    // the flagged member and nothing else, so a specialized route that read
+    // `ctx.method` got `url` emitted and `method` missing — the handler read
+    // `undefined` at runtime, silently. The two must be distinct flags.
+    const usage = analyze(`export default (ctx) => ctx.json({ m: ctx.method });`);
+    expect(usage.method).toBe(true);
+    // Reading the method does NOT need a URL object to be built.
+    expect(usage.url).toBe(false);
+  });
+
   it("body-level destructuring with defaults is tracked", () => {
     const usage = analyze(
       `

@@ -32,6 +32,12 @@ export interface ContextUsage {
 
   req: boolean;
   url: boolean;
+  /**
+   * `ctx.method`. Distinct from {@link url} on purpose: the two used to share
+   * one flag, so a handler that only read `ctx.method` got a specialized
+   * context carrying `url` and NOT `method` — reading `undefined` at runtime.
+   */
+  method: boolean;
 
   cookie: boolean;
   server: boolean;
@@ -65,6 +71,7 @@ export const EMPTY_USAGE: ContextUsage = Object.freeze({
 
   req: false,
   url: false,
+  method: false,
 
   cookie: false,
   server: false,
@@ -97,6 +104,7 @@ export const FULL_USAGE: ContextUsage = Object.freeze({
 
   req: true,
   url: true,
+  method: true,
 
   cookie: true,
   server: true,
