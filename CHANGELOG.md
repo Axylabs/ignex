@@ -70,6 +70,19 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`trustProxy: true` was silently ignored by `ctx.ip` — it reported the proxy's
+  address instead of the client's.** The getter resolved the socket address via
+  `readSocketIp`/`server.requestIP()` **first** and returned it if it was defined,
+  which it is on essentially every request; the forwarded-header branch below it
+  was therefore **unreachable dead code**. Any app that enabled `trustProxy` got
+  the reverse proxy's IP for every IP-keyed feature — rate limiting, logging,
+  allow-lists — which is precisely the deployment that opted in. The order is now
+  header-first when `trustProxy` is set, socket-second, and the behaviour is
+  pinned: `trustProxy: true` + `x-forwarded-for: 203.0.113.7` yields `203.0.113.7`,
+  while `trustProxy: false` still yields the socket address (a client-supplied
+  header is never trusted). This is also the cheaper order for a proxied
+  deployment: it skips a native peer-address lookup measured at **~3.4 µs per
+  request** in situ. Full measurement in `docs/aot-perf-plan.md` §23.
 - **A/B build variants under `bench/compare/servers/*/dist-*/` are no longer
   linted.** The `.gitignore` `dist` / `dist/` rules match a directory named
   *exactly* `dist`, so variant builds (`dist-a`, `dist-abl`, …) were neither

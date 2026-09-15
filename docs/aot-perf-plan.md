@@ -1621,3 +1621,82 @@ reason: on this request path native is not an acceleration, it is a tax.
 **Result: none of these costs can be profitably migrated to Rust FFI.** The
 lever is the compiler emitting less JS (§15 Phase 3), not a different execution
 tier.
+
+---
+
+## 23. Why is Elysia faster? Because the two ports don't do the same work
+
+§22 says ~12.5 µs of the 29–31 µs is Bun's floor and only ~3.5 µs is ignex's own
+JS, which makes the standing 2.68 µs gap to Elysia hard to explain. It is worth
+stating plainly: **a large part of that gap is the benchmark, not the
+framework.**
+
+The two ports differ on three per-request steps. Ablating exactly those from the
+compiled ignus artifact (same load, `base` run twice as a drift control:
+28.29 / 27.40, mean 27.85):
+
+| variant | cpu/req | Δ vs base |
+|---------|---------|-----------|
+| base (mean of 2) | 27.85 µs | — |
+| `ctx.ip` → constant | **24.48 µs** | **−3.37 µs** |
+| `cookiesRecord(ctx)` → `{}` | 25.52 µs | −2.33 µs |
+| `queryRecord(ctx)` → `{}` | 24.67 µs | −3.18 µs |
+| all three | **21.27 µs** | −6.58 µs |
+
+**Each of those three alone exceeds the entire 2.68 µs gap**, and together they
+are 6.58 µs — 2.5× it. Sub-additive (individual deltas sum to 8.88 µs), so they
+partly overlap in what they displace.
+
+What the Elysia port does instead of each:
+
+* **IP** — `ignus` calls `ctx.ip`, which resolves the peer address via
+  `server.requestIP()`. **Elysia's port never calls `requestIP`**: it reads
+  `x-forwarded-for` / `x-real-ip` and falls back to a constant
+  (`elysia-server.ts:72`). That single native call is ~780 ns isolated and
+  **3.37 µs served** — the largest attributable per-request item found anywhere
+  in §20–§23, larger than the whole rest of the framework's JS.
+* **Cookies** — `ignus` materialises a record from the lazy cookie-jar Proxy via
+  `Object.entries`; Elysia destructures its own already-parsed cookie context.
+* **Query** — `ignus`'s `queryRecord(ctx)` goes through `ctx.url`, i.e. a full
+  `new URL(req.url)` (which also forces the lazy `req.url` materialisation),
+  while Elysia's router has already parsed it.
+
+### Conclusion, stated carefully
+
+Elysia is not faster because ignus's framework machinery is heavier. It is faster
+largely because **its port performs measurably less work on three steps, one of
+which (the peer-address lookup) is worth more on its own than the whole gap.**
+Removing just `ctx.ip` puts ignus-aot at ~24.5 µs against Elysia's 26.45 µs.
+
+That is *not* a fair win and it is not claimed as one — it means the headline
+"Elysia beats ignus" on this benchmark is not a like-for-like result. A
+meaningful comparison needs all participants on the same IP, cookie and query
+strategy. What can be said with confidence is that ignex's own attributable
+overhead (§20: ~3.5 µs) does not explain a 2.68 µs deficit, because the deficit
+is smaller than any one of the three asymmetries.
+
+### Bug found and fixed while measuring: `trustProxy` was unreachable
+
+The IP ablation led to the `ctx.ip` getter, which resolved the **socket address
+first** and only consulted the forwarded headers if that failed:
+
+```ts
+const socketIp = readSocketIp(this.server, this.req);  // succeeds on ~every request
+if (socketIp !== undefined) return socketIp;           // ...so this always returns
+if (this._opts.trustProxy) { /* unreachable */ }
+```
+
+`server.requestIP()` returns the *proxy's* address, so with `trustProxy: true`
+the header branch was dead code and `ctx.ip` always reported the proxy — silently
+breaking every IP-keyed feature (rate limiting, logging, allow-lists) for exactly
+the deployments that opted in. The order is now header-first when `trustProxy`
+is set, socket-second, verified:
+
+```
+trustProxy: true  -> ctx.ip = 203.0.113.7   (client, from x-forwarded-for)
+trustProxy: false -> ctx.ip = 10.0.0.9      (socket)
+```
+
+This is also the cheapest order for a proxied deployment: it skips the ~3.4 µs
+native lookup entirely. `trustProxy: false` is unchanged — a client-supplied
+header is still never trusted.
