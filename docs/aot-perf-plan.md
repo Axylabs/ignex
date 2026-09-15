@@ -2140,25 +2140,48 @@ while the interpreted path returns a real value. That is the same
 compiled-vs-interpreted divergence as §28/§29 but a worse variant: there was no
 flag to collapse, the members were simply never in the vocabulary. `ctx.ip` is
 what rate limiting, allow-lists and access logs key on, so this is not cosmetic.
-(A related question the same audit raised, still unmeasured: `trustProxy` appears
-nowhere in the compiler, yet `IgnexContextImpl` reads `opts.trustProxy` — so what
-`ctx.ip` resolves to in a compiled app needs checking before anything is emitted
-for it.)
 
-**Fix.** Each gets a flag, and each forces `needsFull`. Marking them sentinel
-rather than emitting them on the specialized tier is deliberate: `ip` needs the
-trust-proxy order plus the socket lookup, `startTime` must match the instant the
-full context is created (emitting `performance.now()` a few µs later would
-silently change every `ctx.startTime` duration), and `requestId` must match the
-trace-header path. Emitting them is a worthwhile follow-up, but only by reusing
-the same core helpers. Routes that never read them are unaffected — they stay
-specialized, so the fast path is not taxed for a member it does not use.
+**Fix, stage 1 (shipped).** Each gets a flag, and each forces `needsFull`, so all
+four became correct immediately. Routes that never read them are unaffected and
+stay specialized, so the fast path is not taxed for a member it does not use.
 
-**The guard.** `context-members.test.ts` classifies all four as sentinel, and a
-`usage-soundness.test.ts` case asserts the analyzer sets their flags; drop the
-entries again and it fails.
+**Fix, stage 2 (shipped).** `route`, `requestId` and `startTime` are now EMITTED
+on the specialized context, each using the *exact* expression the full context
+uses — `route: <route.source.path>` (the same literal `__ctxOpts_<ref>` hands to
+`createContext`), `startTime: performance.now()` (mirroring the impl's
+`this.startTime = performance.now()`, both at request dispatch), and
+`requestId: generateRequestId()` (core's generator, now exported, so a compiled
+and an interpreted build cannot mint different ids). Only `ip` still forces the
+full context.
 
-**Still open.** The hook ladder (§27 step (2)) still needs at least `ip`,
-`route`, `requestId` and `startTime` emit-able on the specialized context; this
-change fixes the correctness hole but not the perf unlock, which remains the
-bounded ~0.6–1 µs of §26.
+**Why `ip` is the one that stays behind — and a second bug found doing it.**
+Emitting `ip` needs the trust-proxy setting at runtime, so the audit traced where
+a compiled app gets it from. It never does:
+
+```
+compiled:   ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts_<ref>)
+            __ctxOpts_<ref> = { body, route, responseDefaults }   // no trustProxy
+interpreted: createApp({ trustProxy }) -> lifecycle ctxOptions.trustProxy -> ctx.ip
+```
+
+`IgnexContextImpl.ip` reads `opts.trustProxy`, and the compiler's per-route opts
+never set it — `trustProxy` appears nowhere in the compiler at all. So in an AOT
+app `trustProxy: true` is inert for `ctx.ip`: the getter's header branch is
+skipped and every client resolves to the socket address (the proxy's, behind a
+proxy). That is the §25/`624ebf9` bug again, but only in compiled builds — which
+is exactly why it went unnoticed: the fix was verified against `createContext`
+callers that pass the option. Emitting `ip: resolveClientIp(server, req, false)`
+would preserve this status quo and hardcode it, so `ip` stays sentinel until
+`trustProxy` is plumbed properly. That plumbing needs a decision the compiler
+cannot make alone: `security({ trustProxy: true })` (the plugin's own option,
+used for `isHttpsRequest`) and `createApp({ trustProxy: true })` (the context
+option) are separate settings with the same name, and `PluginCallInfo` carries
+only `{name, source}` today, so neither is extractable without widening it.
+
+**The guard.** `context-members.test.ts` classifies `route`/`requestId`/
+`startTime` as emitted and `ip` as sentinel, and a `usage-soundness.test.ts` case
+asserts the analyzer sets all four flags; drop the entries again and it fails.
+
+**Still open.** The hook ladder (§27 step (2)) still needs `ip` emit-able on the
+specialized context, which is blocked on the `trustProxy` plumbing above; the
+perf unlock beyond that remains the bounded ~0.6–1 µs of §26.

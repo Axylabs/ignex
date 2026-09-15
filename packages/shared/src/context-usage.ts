@@ -51,16 +51,20 @@ export interface ContextUsage {
    * `route`, `requestId`, `startTime` and `ip` are the request's *identity*, and
    * none of them had a flag at all — so a handler reading one set NO flag, took
    * the specialized tier (whose object literal has no such member) and read
-   * `undefined`, where the interpreted path returned a real value. Until each
-   * can be emitted with exactly the full context's semantics they force
-   * `needsFull` (see docs/aot-perf-plan.md §30).
+   * `undefined`, where the interpreted path returned a real value.
+   *
+   * `route`/`requestId`/`startTime` are now EMITTED on the specialized context,
+   * using the exact expressions the full context uses. `ip` is not: it needs the
+   * trust-proxy setting, which the compiled context options do not carry yet (see
+   * docs/aot-perf-plan.md §30), so reading `ctx.ip` still forces the full
+   * context.
    */
   ip: boolean;
-  /** `ctx.route` (the matched pattern). Sentinel — see {@link ip}. */
+  /** `ctx.route` (the matched pattern). Emitted by the specialized context. */
   route: boolean;
-  /** `ctx.requestId`. Sentinel — see {@link ip}. */
+  /** `ctx.requestId`. Emitted by the specialized context. */
   requestId: boolean;
-  /** `ctx.startTime`. Sentinel — see {@link ip}. */
+  /** `ctx.startTime`. Emitted by the specialized context. */
   startTime: boolean;
 
   cookie: boolean;

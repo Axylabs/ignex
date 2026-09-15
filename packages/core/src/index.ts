@@ -263,6 +263,10 @@ export {
 export type { SetHeaders } from "./http/headers";
 export { applySet, headersToRecord, mutateHeaders } from "./http/headers";
 export { forwardRequest, proxyRequest } from "./http/proxy";
+// Value export: the usage-specialized context emits `requestId:
+// generateRequestId()` so a route that reads `ctx.requestId` can stay on the
+// fast tier, and it must be the SAME generator the full context uses.
+export { generateRequestId } from "./http/request-id";
 export {
   createRouter,
   type IgnexRouter,

@@ -118,14 +118,11 @@ export const generateRouteCode = (
     route.analysis.usage.sendFile ||
     route.analysis.usage.file ||
     route.analysis.usage.debug ||
-    // The request's identity is not expressible on the usage-specialized
-    // context. These four had NO flag, so a compact route reading `ctx.ip` (or
-    // route/requestId/startTime) took the specialized tier and read `undefined`
-    // where the full context returned a real value. See §30.
-    route.analysis.usage.ip ||
-    route.analysis.usage.route ||
-    route.analysis.usage.requestId ||
-    route.analysis.usage.startTime;
+    // `ctx.ip` is the one identity member the specialized context cannot emit:
+    // it needs the trust-proxy setting, and the compiled context options do not
+    // carry `trustProxy` at all. `route`/`requestId`/`startTime` ARE emitted
+    // there now, so only this one still forces the full context. See §30.
+    route.analysis.usage.ip;
 
   const cacheConfig = getCacheConfig(route, cfg);
   const coreName = coreHandlerName(route, !!cacheConfig);

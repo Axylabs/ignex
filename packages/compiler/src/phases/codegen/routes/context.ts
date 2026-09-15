@@ -19,7 +19,12 @@ import { emitValidatorThrow, validationFlags } from "./validate";
  * Extracted from {@link buildContextProps} to keep that function's cognitive
  * complexity under the lint ceiling.
  */
-const pushRequestMembers = (props: string[], usage: ContextUsage, usedCore: Set<string>): void => {
+const pushRequestMembers = (
+  props: string[],
+  usage: ContextUsage,
+  usedCore: Set<string>,
+  route: RouteIR,
+): void => {
   if (usage.req) props.push(`req`);
   if (usage.url) props.push(`url`);
   // `ctx.method` is a plain Request property — no URL object needed. Emitting it
@@ -35,6 +40,25 @@ const pushRequestMembers = (props: string[], usage: ContextUsage, usedCore: Set<
   if (usage.path) {
     usedCore.add("pathnameOf");
     props.push(`path: pathnameOf(req.url)`);
+  }
+  // The request's identity. Each of these is a member the full context gets for
+  // free (from `createContext`'s options or the impl's constructor) and the
+  // specialized object literal used to omit — so a route reading one read
+  // `undefined`. The emitted expressions are deliberately the SAME ones the full
+  // context uses, so the two builds cannot disagree:
+  //   - `route` is the same literal `__ctxOpts_<ref>` carries into
+  //     `createContext` (`route.source.path`),
+  //   - `startTime` mirrors the impl's `this.startTime = performance.now()`
+  //     (both run at request dispatch), and
+  //   - `requestId` calls the same generator the impl's lazy getter calls.
+  // `ip` is absent on purpose: it needs the trust-proxy setting, which the
+  // compiled context options do not carry (see docs/aot-perf-plan.md §30), so
+  // `usage.ip` keeps such routes on the full context instead.
+  if (usage.route) props.push(`route: ${JSON.stringify(route.source.path)}`);
+  if (usage.startTime) props.push(`startTime: performance.now()`);
+  if (usage.requestId) {
+    usedCore.add("generateRequestId");
+    props.push(`requestId: generateRequestId()`);
   }
 };
 
@@ -68,7 +92,7 @@ export const buildContextProps = (route: RouteIR, usedCore: Set<string>): string
   if (usage.body || hasBodyValidator) props.push(`body`);
   if (usage.query || hasQueryValidator) props.push(`query`);
   if (usage.headers || hasHeadersValidator) props.push(`headers: req.headers`);
-  pushRequestMembers(props, usage, usedCore);
+  pushRequestMembers(props, usage, usedCore, route);
   if (usage.server) props.push(`server`);
   if (usage.state) {
     props.push(`state`);

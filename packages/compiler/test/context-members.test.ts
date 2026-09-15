@@ -29,6 +29,7 @@ const routeWith = (flag: keyof ContextUsage): RouteIR =>
   ({
     analysis: { usage: { ...EMPTY_USAGE, [flag]: true } },
     decisions: {},
+    source: { path: "/probe" },
   }) as unknown as RouteIR;
 
 /** Flags whose member must appear on the specialized context. */
@@ -42,6 +43,9 @@ const EMITTED: readonly string[] = [
   "url",
   "method",
   "path",
+  "route",
+  "requestId",
+  "startTime",
   "cookie",
   "server",
   "set",
@@ -62,20 +66,11 @@ const EMITTED: readonly string[] = [
  * specialized tier and codegen has nothing to emit for them. `file`, `cache`,
  * `loader` and `debug` double as tripwires for "the analyzer gave up"
  * (`FULL_USAGE` sets all four), which is what keeps unresolvable handlers on the
- * full context. `ip`, `route`, `requestId` and `startTime` are the request's
- * identity: they had no flag at all until §30, so a compact route reading one
- * read `undefined` on the fast path while the full context returned a value.
+ * full context. `ip` is the one identity member the specialized context cannot
+ * express: it needs the trust-proxy setting, which the compiled context options
+ * do not carry (§30).
  */
-const SENTINEL: readonly string[] = [
-  "file",
-  "cache",
-  "loader",
-  "debug",
-  "ip",
-  "route",
-  "requestId",
-  "startTime",
-];
+const SENTINEL: readonly string[] = ["file", "cache", "loader", "debug", "ip"];
 
 const CLASSIFIED = new Set([...EMITTED, ...SENTINEL]);
 const KNOWN = new Set(Object.keys(EMPTY_USAGE));

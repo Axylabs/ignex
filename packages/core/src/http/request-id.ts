@@ -11,6 +11,17 @@ let requestIdCounter = 0;
 let lastMs = -1;
 let lastMsBase36 = "";
 
+/**
+ * Generate a request id: a base-36 millisecond stamp plus a monotonic counter.
+ *
+ * Exported so the compiler's usage-specialized context can emit
+ * `requestId: generateRequestId()` for a route that reads `ctx.requestId`
+ * without forcing the full context — it must be the SAME generator
+ * `IgnexContextImpl`'s lazy `requestId` getter calls, or a compiled build and an
+ * interpreted one would mint different ids for the same request.
+ *
+ * @returns A process-unique id, e.g. `"mb3k4f-1a2"`.
+ */
 export const generateRequestId = (): string => {
   // `Math.floor` avoids the fractional `.` produced by
   // `performance.now().toString(36)` (and its `.replace` copy); the monotonic
