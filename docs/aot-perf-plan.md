@@ -2772,3 +2772,100 @@ against an artifact that answered 80% of its load with 500s. **Any change to the
 analyzer's conservatism must be followed immediately by the end-to-end contract
 gate, not just the unit suite** — the unit suite asserts the bitmap, and the
 bitmap was self-consistently wrong.
+
+---
+
+## 39. Validated budget on the FIXED artifact — and three results that close routes off (2026-09-15)
+
+Re-measured after §38, with the instrument working (`/tmp/inj3.ts`: definition-
+site wrapping of 14 framework functions, writeSync dumps, driven by the CPU
+harness's exact load).
+
+⚠️ **First, a harness bug of mine, because it produced a plausible-looking wrong
+answer:** `PORT=9333 bun server.js` does NOT set the *shell* variable, so the
+follow-up `bun /tmp/pl.ts "$PORT"` was passed an empty port and drove `:0`. The
+run reported a healthy `served 119400 (14925 rps)` — all of it connection
+failures — and an empty counter dump. **A load driver that swallows errors and
+counts failures as `served` will happily report a benchmark that never happened.**
+
+### 39.1 The framework's own JS is ~1.5 µs of a 30.46 µs request
+
+141595 route invocations, 119100 served (rate + warmup included, as in §20):
+
+| function | calls | ns/call | ns/req |
+|---|---|---|---|
+| `withBody` | 141595 | **551** | 551 |
+| `createContext` | 141595 | 199 | 199 |
+| `queryRecord` | 113131 | 186 | 148 |
+| `applyStaticHeaders` | 141595 | 176 | 176 |
+| `cookiesRecord` | 113131 | 108 | 86 |
+| `runHooks` | 283190 | 88 | 176 (2/req) |
+| `parseQuery3` | 113131 | 85 | 66 |
+| `createLazyBody` | 42571 | 47 | 14 |
+| `generateRequestId` | 141595 | 39 | 39 |
+| `okEnvelope` | 141595 | 33 | 33 |
+| `rateLimitCheck` | 141595 | 31 | 31 |
+| `__applySet` | 141595 | 13 | 13 |
+| `__finalize` | 141595 | 9 | 9 |
+| **total** | | | **≈ 1.5 µs (5%)** |
+
+This is a **lower bound** — `jsonReply2` recorded 0 calls because its call sites
+are inlined, and definition-site wrapping cannot see inlined callers.
+
+Two corrections to earlier sections: `createContext` is **199 ns**, not the
+1301 ns §20/§21 recorded (that measured an older, heavier context), and the
+reply-path JS (`withBody` + `applyStaticHeaders` + `__applySet` + `__finalize` =
+749 ns) is now *smaller* than every earlier estimate. **There is no 3.5 µs of
+framework JS left to remove**; the remaining gap to raw Bun (23.47 vs 30.46) is
+native materialization the workload forces (`server.requestIP`, `new URL`,
+`req.headers.get`), which raw Bun's own participant also pays.
+
+### 39.2 NEGATIVE RESULT: cross-module usage union is worth ~0.2 µs, not 2.4 µs
+
+§38.4 proposed recovering the specialized tier for delegating routes via
+cross-module usage union. **Do not fund it for performance.** The tier's whole
+win is `createContext` (199 ns) + the class-ctor path versus an object literal —
+so the ceiling is ~**0.15–0.2 µs/req (0.5%)**, not §34's 2.4 µs (which was
+measured on the 500-ing artifact). It remains worth doing only as an ergonomic
+choice if the full-context fallback ever becomes unacceptable, never as a perf
+item.
+
+Worse, §38's escape rule made **every** route in the bench app full-context —
+`/health` also passes `ctx` to `okEnvelope(ctx, …)`. So the specialized tier
+currently applies to nothing in that app, and that is the *correct* outcome.
+
+### 39.3 The cookie jar: the one real addressable cost, and it is a trade-off
+
+`createLazyCookieJar` returns a `Proxy` (traps: `get`, `ownKeys`,
+`getOwnPropertyDescriptor`). Measured against a plain object (pure primitives,
+so in-process is valid here):
+
+| | 12 cookies | empty |
+|---|---|---|
+| `Object.entries(plain)` | 353.6 ns | 28.4 ns |
+| `Object.entries(jar)` | **2548.9 ns** | 67.5 ns |
+| `Object.keys(jar)` | 1607.3 ns | 75.4 ns |
+| jar creation | 63.1 ns | 63.1 ns |
+| fresh jar + entries | 3364.5 ns | 134.1 ns |
+
+So enumeration of a populated jar is **7x** a plain object: ~25 Proxy trap
+invocations plus a descriptor, an options spread and a `Cookie` view per key.
+This exactly accounts for §23's `cookiesRecord(ctx) -> {}` ablation (2.33 µs) —
+but note the mechanism: with **no** `Cookie` header the whole path is 134 ns, so
+that ablation was really pricing the jar *plus* `req.headers.get("cookie")`,
+which forces Bun to materialize the request `Headers`.
+
+**Why this is not a free win.** The per-key `Proxy` exists so reading one cookie
+costs one view (17 ns once cached). Materialising all views on first access
+makes enumeration ~400 ns but makes single-cookie reads pay for every key — a
+trade-off, not an improvement. It pays only for handlers that *enumerate*
+(`Object.entries(ctx.cookie)`, which is what the bench does). Also note the
+harness's own load sends **no** `Cookie` header (`cpu.ts` has no cookie code), so
+this cost does not appear in any `bench:compare:cpu` number — it is invisible to
+the instrument that has been driving this whole investigation.
+
+**If it is ever done**, the change is: return a plain object built at first
+access (parse + one `Cookie` view per key), keeping the lazy *parse*, and cover
+`Object.keys`/`entries`/`for…in`/`getOwnPropertyDescriptor`/`delete`/writes-to-
+new-keys, because today there is no `set` trap and `jar.newKey = "x"` already
+lands on the empty target rather than registering a cookie.
