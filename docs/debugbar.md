@@ -299,9 +299,12 @@ export async function findUser(id: string) {
 }
 ```
 
-`debugSpan(name, kind, fn)`, `debugQuery(sql, params, fn)`, `debugCache(...)`,
-`debugEvent(name, attrs)`, `debugError(err)` — all no-ops when no request
-trace is active (background jobs, production, plugin absent).
+`debugSpan(name, kind, fn)` and `debugQuery(sql, params, fn)` — both no-ops when
+no request trace is active (background jobs, production, plugin absent).
+Other helpers are reached through `ctx.debug` (see the `DebugApi` surface):
+`ctx.debug.event(name, attrs)`, `ctx.debug.error(err)` and `ctx.debug.cache(...)`
+record an instantaneous note, an error, or a cache hit/miss against the current
+request.
 
 ### Span kinds and the waterfall
 

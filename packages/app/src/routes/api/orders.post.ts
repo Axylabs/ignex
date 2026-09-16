@@ -38,7 +38,7 @@ const OrderBody = Type.Object({
  * value to the handler (`ctx.body.json = async () => __body`).
  *
  * Measured faster option first: precompiled Ajv is ~7.7x faster than castrum
- * `fast_schema` on this payload (`docs/performance-baseline-2026-08.md`), and
+ * `fast_schema` on this payload, and
  * the `bun run bench:native:all` median audit reconfirms it (native/js 0.08x on the
  * probe; 1.4-1.6x slower than `JSON.parse` + Ajv on the real 15KB body, at
  * every size). `createSchemaValidator` is therefore pinned to the JS path in

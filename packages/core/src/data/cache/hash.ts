@@ -31,8 +31,10 @@ const bunWyhash = (
  * for cross-runtime key stability). Otherwise it delegates to `@ignex/native`
  * `fnv1a64`, whose selection table owns the impl choice (castrum native, with
  * a deterministic pure-TS fallback).
+ *
+ * Module-local: {@link entityTag} is the exported surface.
  */
-export function fastHash(input: string | ArrayBuffer | Uint8Array): string {
+function fastHash(input: string | ArrayBuffer | Uint8Array): string {
   const bytes = toBytes(input);
   if (bunWyhash) return bunWyhash(bytes).toString(36);
   return fnv1a64(bytes).toString(36);

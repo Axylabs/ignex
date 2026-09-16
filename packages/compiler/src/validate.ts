@@ -8,12 +8,12 @@
  *   them, so a typo or a newer-version option never hard-fails a build.
  */
 
+import type { Result } from "@ignex/shared";
+import { err, ok } from "@ignex/shared";
 import Ajv from "ajv";
 import { defu } from "defu";
 import { Type } from "typebox";
 import { DiagnosticCodes, type DiagnosticCollector } from "./diagnostics";
-import type { Result } from "./fp";
-import { err, ok } from "./fp";
 import type { CompilerOptions } from "./types";
 import { DEFAULT_OPTS, type OptimizationLevel, optimizationPresets } from "./types";
 

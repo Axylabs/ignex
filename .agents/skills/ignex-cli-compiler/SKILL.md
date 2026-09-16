@@ -61,7 +61,7 @@ sdk/         SDK generation support
 
 - Compiler phases are small pure-ish functions over an options/state object —
   follow the existing phase structure; add a phase via `phases/` + `pipeline.ts`.
-- FP utilities come from `compiler/fp.ts` and `@ignex/shared` — no ad-hoc
+- FP utilities come from `@ignex/shared` — no ad-hoc
   monad implementations.
 - Cache versions must bump when the generated-code shape changes
   (`COMPILER_CACHE_VERSION`, `MODULES_CACHE_VERSION`) — see

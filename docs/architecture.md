@@ -13,8 +13,8 @@ codebase and make changes without breaking the AOT contract.
 | `@ignex/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
 | `@ignex/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
 | `@ignex/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
-| `@ignex/nova`     | Typed realtime transport — **external** (ignex-nova repo)         | —               |
-| `@ignex/ninox`    | Schema-first MongoDB toolkit — **external** (ignex-mongodb repo) | —               |
+| `@ignex/nova`     | Typed realtime transport — **external** (`nova` repo)           | —               |
+| `@ignex/ninox`    | Schema-first MongoDB toolkit — **external** (`ninox` repo)       | —               |
 | `@ignex/test-utils` | Shared vitest arbitraries + matchers                            | `src/index.ts`  |
 | `packages/app`   | Example application (routes, views, hooks) + benchmarks           | `builder.ts`    |
 
@@ -42,14 +42,14 @@ addon), mapped through root tsconfig `paths` so the repo type-checks even
 when the addon isn't installed.
 
 **Nova and ninox are external standalone packages** (no ambient stubs):
-`@ignex/nova` and `@ignex/ninox` are developed in their own repos
-(`ignex-nova`, `ignex-mongodb`) and consumed here via registry semver ranges
-with local `file:` overrides (root `package.json` → `overrides`). The tsconfig
-`paths` entries that previously shadowed `@ignex/nova/*` with a type-only stub
-(and broke `novaPlugin`'s lazy `import()` under Bun, which honors `paths` at
-runtime) are deleted. `novaPlugin` lazily imports `@ignex/nova/server` in
-`init()` (optional peer) and keeps `options.loader` for tests; the app
-consumes ninox through the same override.
+`@ignex/nova` and `@ignex/ninox` are developed in their own repos (`nova`,
+`ninox`) and consumed here through **registry semver ranges**; local work uses
+`bun link` (`docs/ai/LOCAL_DEV.md`), not `file:` overrides — the root
+`package.json` has no `overrides` block. The tsconfig `paths` entries that
+previously shadowed `@ignex/nova/*` with a type-only stub (and broke
+`novaPlugin`'s lazy `import()` under Bun, which honors `paths` at runtime) are
+deleted. `novaPlugin` lazily imports `@ignex/nova/server` in `init()` (optional
+peer) and keeps `options.loader` for tests; the app consumes ninox the same way.
 
 The runtime is the single source of truth. The compiler imports runtime
 primitives (`runHooks`, `createContext`, `serializeCookie`,

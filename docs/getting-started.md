@@ -114,9 +114,13 @@ Scaffold a route from the CLI instead of hand-writing it:
 
 ```sh
 bun run route -- products/[id].get --schema
-bun run hook -- require-auth            # named per-route hook
-bun run hook -- log-requests --global   # global lifecycle hook
+ignex hook require-auth            # named per-route hook (src/hooks/…)
+ignex hook log-requests --global   # global lifecycle hook
 ```
+
+Only the commands in the scaffold's `package.json` (`dev`, `build`, `start`,
+`route`, `lint`, `format`, `typecheck`, `test`) can be run with `bun run`; every
+other CLI command is invoked directly as `ignex <command>`.
 
 ## 4. Build, run, and check
 

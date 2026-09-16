@@ -2,12 +2,13 @@
 /**
  * The cost of the JS↔Rust boundary, pinned — signature by signature.
  *
- * `docs/aot-perf-plan.md` §22 closed the "can this move to Rust?" question with
- * "≥1.3 µs per FFI crossing". That figure is the NAPI transport, not the C-ABI
- * crossing (`scripts/bench-ffi.ts` says so in its own header: ~10–20 ns here vs
- * ~100–350 ns on NAPI). The difference decides an architecture, so it is
+ * `docs/perf-methodology.md` §7.2 settles the "can this move to Rust?" question:
+ * the framework's JS *object* work cannot, and the reason is NOT the crossing.
+ * The often-quoted "≥1.3 µs per FFI crossing" is the NAPI transport, not the
+ * C-ABI crossing (`scripts/bench-ffi.ts` says so in its own header: ~10–20 ns
+ * here vs ~100–350 ns on NAPI). The difference decides an architecture, so it is
  * measured here rather than argued: **the crossing is free; MARSHALLING is the
- * cost.** See §37 for what that does and does not license.
+ * cost** — encoding a JS string out or transcoding it back costs ~40–46 ns.
  *
  *   A  the crossing by signature — why a no-arg libc call looks like 300 ns of
  *      FFI when it is 300 ns of syscall

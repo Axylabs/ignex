@@ -3,7 +3,9 @@
 Everything in this file was learned by getting it wrong first. Follow it and you
 do not have to re-litigate "is this real?" every time the native layer is
 touched. Companion reading: `docs/native-acceleration.md` (what the native
-layer is), `docs/performance-baseline-2026-08.md` (the measured history).
+layer is), `docs/comparison-bench.md` (the cross-framework harness).
+§7 is the consolidated record of the framework's own measured cost budget —
+the numbers, the hypotheses already refuted, and the rules for measuring them.
 
 ## 1. The three-level ladder
 
@@ -233,8 +235,7 @@ Verified against Bun 1.4.2 (`bun:ffi` docs), measured where measurable:
 * **castrum Rust**: `rust/ingress/native_route.rs` (route wire v3),
   `rust/ffi/route.rs` (`castrum_route_*` C-ABI), `rust/ingress/{packed,api}.rs`,
   `rust/util/bytes.rs` (lenient decoders).
-* **castrum checkout**: `/home/adeel/poc/castrum` (the older
-  `bun-rust-runtime-bench` path in some notes is stale). `cargo test --release`
+* **castrum checkout**: `/home/adeel/poc/castrum`. `cargo test --release`
   is the crate gate; `cargo clippy --release --lib -- -D warnings` and
   `cargo fmt --check` too. ignex installs the **registry** build
   (`node_modules/.bun/castrum@0.9.4+…`), so a local build must be injected to be
@@ -273,8 +274,7 @@ for the same compiled entry spawned alone. It made the AOT participant look
 (`BENCH_BUILD_ONLY=1`) and measures `dist/__server.js` in a clean process.
 
 Layer attribution is done with matched variants (same harness, one layer
-removed): see `docs/aot-perf-plan.md` §2 for the current table and the
-per-layer costs.
+removed) — see §7.1 for the table.
 
 Baseline (2026-09-14, 3×8s @ 15k rps, medians): `bun` 23.28µs, `elysia` 26.96µs,
 `ignus-aot` 33.24µs (1.428x), `ignus` 34.35µs, `ignus-native` 34.55µs.
@@ -308,3 +308,87 @@ was worth 2.35µs; the head-to-head measured **0.79µs** (dict 33.14µs vs liter
 32.35µs). Cross-run deltas on this machine are not trustworthy — several
 "no measurable change" readings during the same investigation were real effects
 sitting below the resolution limit.
+
+## 7. The framework's own cost budget — measured, and what is already ruled out
+
+Everything below was measured on the comparison bench over 2026-09-14 → 09-15.
+It is kept so the same questions are not re-litigated: **most plausible-sounding
+optimisations here were tried and lost to the measurement.** Numbers move as the
+codegen changes; the *conclusions* have held.
+
+### 7.1 Layer attribution (matched variants, one layer removed; medians ±0.2µs)
+
+| config | CPU/req | delta vs `bun` |
+| --- | --- | --- |
+| `bun` (raw `Bun.serve` routes) | 20.72µs | — |
+| `bare` ignex (no plugins, no hooks) | 23.62µs | **+2.90** — framework core |
+| `+ cors + security` | 28.90µs | +5.28 — **plugin dispatch** |
+| `+ guard` (one `beforeHandle` hook) | 34.45µs | +5.55 — **hook dispatch** |
+
+The plugin bodies are one `headers.get("origin")` and one `WeakSet` probe: the
+cost is *dispatching* the work, not doing it.
+
+### 7.2 Where the cost ended up (after the AOT work)
+
+- The framework's own JS is **~1.5µs of a 30.46µs request**; routing + wrapper +
+  context + reply finalize ("plumbing") is **~1.25µs**.
+- **No dispatch/context/reply bottleneck remains.** Routing is already
+  `Bun.serve({ routes })` (Bun's native trie) plus thin wrappers; every function
+  on the request path has been measured, the largest being 1.3µs.
+- ~12.5µs of the budget is Bun's own HTTP floor and ~4.5µs is its header/JSON
+  serialisation — not reachable from JS.
+- **The framework's JS cannot be profitably moved to Rust FFI.** The C-ABI
+  crossing is ~3ns, so the boundary is not the barrier — **marshalling** is:
+  every context/hook field is a JS string costing ~40–46ns to encode or
+  transcode. Byte-oriented work does win (§4); object-shaped work does not.
+
+### 7.3 Ruled-out hypotheses — do not re-attempt
+
+| Hypothesis | Result |
+| --- | --- |
+| Reply path (`JSON.stringify`+`encode` vs `Response.json`) | Already **wins**: manual encode 1.30M ops/s vs `Response.json` 844k. |
+| Response header-construction shape / post-hoc `Headers.set` | Fixed (0 `Headers.set`/request, proven with a prototype counter). **No measurable change.** |
+| HSTS / `isHttpsRequest` per response | **Free** — 34.33 vs 34.45µs. |
+| Async stage runners / microtask hops | **Noise** (~0.1µs); reverted. |
+| `applySet` / `serializeCookie` allocations | Fixed and verified. **No measurable change.** |
+| Object pooling, boot-time hoisting, Bun-specific APIs | **No win.** The context constructor's cost is not its allocations. |
+| Rust/castrum for the JS object path | **Not applicable** — see §7.2. |
+| Cross-module usage union in the analyzer | ~0.2µs, not the 2.4µs it was expected to be worth. |
+| Request headers as a µs-scale cost | **Refuted.** `ctx.headers` is lazy (correct, free, small). |
+| Micro-optimisation generally | Each lands ~0.2µs against a multi-µs gap. The profile shows **~406 functions/request vs Bun's ~50** — the cost is the count, not a hotspot. |
+
+The one codegen-shaped lever left is **declarative plugin context requirements**:
+a plugin's `onResponse`/`beforeHandle` receives the context, so the compiler must
+assume the full context and no route specializing behind a plugin can use the
+lean tier (measured cost of that: **2.24µs**). Letting a plugin *declare* what it
+needs — the pattern `responseDefaults` already uses — is the change that unlocks
+it. A plugin that declares nothing must keep forcing the full context, so it is a
+plugin-API change with its own compatibility story, not a codegen tweak.
+
+### 7.4 Measurement rules earned here
+
+- **Pace at ≥12k rps** (`SERVER=` on `bench:compare:cpu`): the curve is steep
+  below ~8k and flat above ~12k. Always include ≥3 identical variants as the
+  control and report the control next to every number.
+- **AOT source changes resolve to ~1µs, not 0.1µs.** Each variant needs its own
+  run (`cpu.ts` rebuilds `dist/__server.js` once per invocation), so run-to-run
+  drift is no longer cancelled in-invocation. Below ~1µs, argue the change
+  **structurally, not from the number**.
+- **Ablate in ONE process with alternating rounds**, never as sequential runs:
+  four sequential variants once reported `nocookie` — which *removes* work — as
+  *worse* than base, which is impossible.
+- **Clear `dist/` before every build** when A/B-ing a source change: the compiler
+  cache will otherwise reuse a stale bundle and silently re-measure the previous
+  variant.
+- **`Bun.serve`'s `headers` option is silently ignored** — it does not merge into
+  responses. Verify a "free" header is actually on the wire.
+- **A plugin's in-situ cost is ~10–20× its hot-loop cost** (cold call sites / ICs
+  / GC). Price plugin work by serving it, not by looping it.
+- **Wrapping a definition only observes non-inlined call sites.** When the
+  bundler inlines, per-function instrumentation undercounts — read any
+  per-function budget as a **lower bound**.
+- **Check what the other participant is doing before quoting a cross-framework
+  gap.** `ctx.ip` alone costs **3.37µs served** (780ns isolated) because it calls
+  `server.requestIP()`; a port that skips that call, or reuses an already-parsed
+  query/cookie state, is doing measurably less work. See
+  `docs/comparison-bench.md`.

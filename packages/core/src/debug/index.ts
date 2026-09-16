@@ -9,15 +9,7 @@
  * plugin (`@ignex/core`).
  */
 
-export {
-  createDebugApi,
-  debugCache,
-  debugError,
-  debugEvent,
-  debugQuery,
-  debugSpan,
-  NOOP_DEBUG_API,
-} from "./api";
+export { createDebugApi, debugQuery, debugSpan, NOOP_DEBUG_API } from "./api";
 export {
   ClientRegistry,
   type ClientRegistryOptions,

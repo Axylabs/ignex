@@ -122,11 +122,21 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
     release if output-affecting files changed without a cache-version bump.
     `MODULES_CACHE_VERSION` bumped 1→2 for the persist changes.
 
-### 🟠 Server perf gate was doubly-soft (baseline now committed)
+### 🟠 Server perf gate was doubly-soft (baseline not actually committed)
 
-- **Status:** ✅ 2026-08-17 — `bench/results/server/baseline.json` committed
-  (`.gitignore` negation added); `check-server-bench.ts` native-vs-baseline
-  check is live when run params match. Job still soft pending `/api/big`.
+- **Status:** ✅ 2026-08-17 — the `.gitignore` negation for
+  `bench/results/server/baseline.json` was added; job stayed soft pending
+  `/api/big`. **✅ 2026-08-19** — `/api/big` closed (~2% native-mode gap), so
+  the job is a **hard** gate again.
+- **⚠️ Corrected 2026-09-17:** the baseline is **not** in the repo —
+  `git ls-files bench/results/` lists only the four selection JSONs. The
+  negation was also **dead**: `bench/results/server` excluded the directory
+  itself, and git cannot re-include a file under an excluded directory. The
+  pattern is now `bench/results/server/*` + `!…/baseline.json`, so a baseline
+  can be committed. Until one is, `check-server-bench.ts` falls back to
+  `latest.json` (`baseline = latest`) and therefore only detects
+  native-vs-fallback drift **within** a run, not regressions across runs. See
+  §6 item 11.
 
 ### 🟡 `@ignex/native` memory-exhaustion cap (fixed)
 
@@ -178,8 +188,11 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 - **`native-parity`** (hard): builds castrum; `test:native:real` + `native-bench`,
   `verify:native:ffi` + `verify:native:route` (plain Bun), C-ABI forced + NAPI
   forced suites, batch stability probe.
-- **`server-bench`** (soft — see `/api/big` risk): server bench + regression gate
-  vs committed baseline.
+- **`server-bench`** (hard): server bench + native-vs-fallback check, plus the
+  regression check against `bench/results/server/baseline.json` **when one is
+  committed** (none is committed today — see the baseline risk row in §2).
+  It was soft until the `/api/big` investigation closed the ~2% native-mode gap
+  (2026-08-19); the `/api/big` risk rows below are the history of that.
 - **`nightly.yml`** (scheduled 02:00 UTC): native parity + C-ABI, perf regression,
   compare-bench soak. Failures are signals, not PR blockers.
 
@@ -246,7 +259,29 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 7. **Publish readiness** — `@ignex/mcp` tarball was missing its `bin/` entry
    (`files: ['src']` excluded the declared `bin/ignex-mcp.js`); fixed
    2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
-   `castrum@0.9.1` is already published on npm and resolves via
+   `castrum@0.9.6` is already published on npm and resolves via
    `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
-   `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo
-   packages (manual step — no credentials in this environment).
+   `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo.
+8. **DX dogfood gate** — a `scripts/dx-journey.ts` under `verify:*`: scaffold a
+   temp app, run the realtime event → frontend journey (create → `ignex event
+   bus` → build → SDK → receive), and fail if **any** manual fix is needed
+   (assert `tsc --noEmit` is clean and the E2E delivery works with zero edits).
+   The journey is at 5 steps / 0 undocumented fixes (from ~13 / ~6); the gate is
+   what keeps it there. Pair it with the error-message pass: every runtime error
+   a user can hit must name the API they called and the exact fix.
+9. **Realtime hardening** — (a) verify `SCHEMA_FINGERPRINT` in the
+   welcome/handshake and reject loudly instead of decoding a stale registry
+   silently wrong (the fix lives in `@ignex/nova`, sibling repo); (b) default the
+   nova port from env (`NOVA_PORT`) or derive it from the server port, and
+   support `port: 0` with the real port exposed on the plugin, so
+   dev/test/tools never clash; (c) `ignex doctor` should flag realtime
+   misconfiguration (`realtime.json` / bindings / events wiring) before runtime.
+10. **Compiler-native `config.guards`** — `withGuards()` is the shipped path;
+    hoisting guards into the route config lets the compiler keep constant-folding
+    those routes. Includes the EdDSA-vs-HS256 FFI sign/verify bench that decides
+    whether EdDSA belongs in `FFI_WINS`.
+11. **Commit a `bench/results/server/baseline.json`** (the ignore pattern is now
+    correct, so it can be). Measure it on the same runner class as CI, or the
+    numbers are not comparable — `check-server-bench.ts` only compares when the
+    run parameters match, and without a baseline it degrades to
+    `baseline = latest`.

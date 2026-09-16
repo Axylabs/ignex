@@ -35,9 +35,6 @@ try {
   bunFfi = null;
 }
 
-/** True when the bun:ffi read fast path is live (Bun only). */
-export const isFfiReadAvailable = (): boolean => bunFfi !== null;
-
 /**
  * A native output buffer pinned for fast reads. Under Bun `p` is the buffer's
  * pointer (resolved once, so hot loops never re-call `ptr()`); under Node `p`
@@ -71,11 +68,3 @@ export const ffiString = (b: FfiBuf, offset: number, len: number): string => {
     ? new bunFfi.CString(b.p, offset, len)
     : decoder.decode(b.buf.subarray(offset, offset + len));
 };
-
-/** Convenience single-shot u32 read (pins + reads). */
-export const readU32 = (buf: Uint8Array, offset: number): number => ffiU32(ffiBuf(buf), offset);
-/** Convenience single-shot u64 read (pins + reads). */
-export const readU64 = (buf: Uint8Array, offset: number): bigint => ffiU64(ffiBuf(buf), offset);
-/** Convenience single-shot string read (pins + reads). */
-export const readString = (buf: Uint8Array, offset: number, len: number): string =>
-  ffiString(ffiBuf(buf), offset, len);

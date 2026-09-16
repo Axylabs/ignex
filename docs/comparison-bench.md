@@ -1,8 +1,13 @@
-# Comparison benchmark: Bun vs Elysia vs Ignus
+# Comparison benchmark: Bun vs Elysia vs ignex
 
 End-to-end HTTP comparison between the framework and raw Bun / Elysia doing
-**the same amount of work**, ported from the `bun-rust-runtime-bench` (castrum)
+**the same amount of work**, ported from the `castrum`
 project's benchmark so the methodology and route contract match that project's.
+
+> **Naming:** the ignex participants keep the legacy ids `ignus`, `ignus-aot`
+> and `ignus-native` (`bench/compare/servers/ignus*.ts`, the `SERVER=` filter,
+> and the keys in `bench/results/compare/*`). They are this repo — three build
+> modes of it — not a different framework.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

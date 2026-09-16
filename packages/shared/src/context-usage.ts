@@ -55,9 +55,8 @@ export interface ContextUsage {
    *
    * `route`/`requestId`/`startTime` are now EMITTED on the specialized context,
    * using the exact expressions the full context uses. `ip` is not: it needs the
-   * trust-proxy setting, which the compiled context options do not carry yet (see
-   * docs/aot-perf-plan.md §30), so reading `ctx.ip` still forces the full
-   * context.
+   * trust-proxy setting, which the compiled context options do not carry yet, so
+   * reading `ctx.ip` still forces the full context.
    */
   ip: boolean;
   /** `ctx.route` (the matched pattern). Emitted by the specialized context. */

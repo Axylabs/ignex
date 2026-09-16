@@ -2,28 +2,30 @@
 
 ignex is a framework monorepo that consumes three **external standalone
 projects** (each with its own git repo, CI and release cycle). They are never
-copied into this monorepo; ignex references them through registry semver
-ranges with local `file:` overrides for development.
+copied into this monorepo; ignex resolves them through **registry semver ranges**
+and, for local development, through `bun link` (see `docs/ai/LOCAL_DEV.md`).
 
-| Project | Repo | Package | Version (current) | Role in ignex |
+## Declared dependencies (the publish contract)
+
+| Package | Declared by | Range | Sibling checkout (`/home/adeel/poc/`) | Role in ignex |
 |---|---|---|---|---|
-| ignex (this repo) | `/home/adeel/poc/ignus` | `ignex` (root) / `@ignex/*` | 0.1.7 | framework + compiler + CLI |
-| ninox | `/home/adeel/poc/ignex-mongodb` | `@ignex/ninox` | 0.1.3 | schema-first MongoDB toolkit |
-| nova | `/home/adeel/poc/ignex-nova` | `@ignex/nova` | 0.1.1 | typed realtime transport (FlatBuffer pub/sub, Rust FFI, NATS) |
-| castrum | `/home/adeel/poc/bun-rust-runtime-bench` | `castrum` | 0.9.1 | Rust NAPI addon consumed by `@ignex/native` |
+| `@ignex/nova` | root devDeps; `packages/core` peer (optional) | `^0.1.7` / `^0.1.1` | `nova` (0.1.7) | typed realtime transport (FlatBuffer pub/sub, Rust FFI, NATS) |
+| `@ignex/ninox` | `packages/app` | `^0.1.3` | `ninox` (0.1.6) | schema-first MongoDB toolkit |
+| `castrum` | `packages/native` `optionalDependencies` | `^0.9.6` | `castrum` (0.9.7) | Rust addon consumed only through `@ignex/native` |
+
+The ignex version lives in the root `package.json` (and `CHANGELOG.md`);
+`@ignex/nova` and `@ignex/ninox` are the only external packages linked into
+this repo during development.
 
 ## Consumption model
 
-- Manifests declare **registry semver ranges** (the publish contract):
-  - root `package.json` devDependencies: `@ignex/nova ^0.1.1`, `@ignex/ninox ^0.1.3`
-  - `packages/app`: `@ignex/ninox ^0.1.3`
-  - `packages/core`: peerDependency `@ignex/nova ^0.1.1` (optional)
-  - `packages/native`: optionalDependency `castrum ^0.9.1`
-- Local development resolves through the root `overrides` block
-  (`package.json` → `overrides`), which points `@ignex/nova` and
-  `@ignex/ninox` at the standalone repos via `file:` links. When a new
-  version is published, bump the semver ranges and drop/refresh the
-  overrides as needed.
+- Manifests declare **registry semver ranges** — that is the publish contract.
+  `@ignex/native` never imports `castrum` directly; the loader `require()`s it
+  and every primitive ships a byte-compatible pure-TS fallback.
+- **Local development uses `bun link`, not `file:`/`overrides`.** The root
+  `package.json` has no `overrides` block and the root `tsconfig.json` has no
+  `@ignex/nova` paths: both were removed. To test a local castrum/nova/ninox,
+  follow `docs/ai/LOCAL_DEV.md`.
 - `@ignex/nova` is an **optional peer** of `@ignex/core`: `novaPlugin` and the
   notifier lazy-import it (`@ignex/nova/server`, `@ignex/nova/events`) and
   degrade gracefully when it is absent.
@@ -63,13 +65,13 @@ uses, not the full generated `index.d.ts` from the castrum repo.
    type-checking.
 3. The debugbar integration: ninox's `traceDbOp` lazily imports
    `@ignex/core/debug` and records `db` spans. Its integration test lives in
-   ignus (`packages/core/test/trace-db-op.integration.test.ts`) and imports
+   this repo (`packages/core/test/trace-db-op.integration.test.ts`) and imports
    ninox's source from the standalone repo, so the coupling is exercised
    without shipping ignex inside ninox.
 
 ## Keeping them in sync
 
-When code changes flow between ignus and a standalone repo (either
+When code changes flow between this repo and a standalone repo (either
 direction), the reconciliation procedure used for the 2026-08-22
 de-consolidation is the reference:
 

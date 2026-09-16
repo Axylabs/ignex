@@ -37,7 +37,6 @@
   "ignoreBinaries": ["oha", "builder.ts", "demo", "flatc"],
   "ignoreExportsUsedInFile": true,
   "includeEntryExports": false,
-  "ignore": ["packages/native/src/execution.ts", "packages/core/src/security/csrf.ts"],
   "rules": {
     "duplicates": "off"
   }

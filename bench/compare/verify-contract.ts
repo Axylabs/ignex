@@ -13,7 +13,8 @@ import { PORTS, type ServerKind } from "./shared";
  * project's bugs live: a codegen defect that made it answer ~80% of the bench
  * load with 500s went unnoticed through a whole round of perf work because the
  * gate only drove the INTERPRETED server — a different code path that never had
- * the bug. See docs/aot-perf-plan.md §38 and §41.
+ * the bug. Keeping `ignus-aot` in the gate (and comparing the header block, not
+ * just the status) is the guard against that class of silent drift.
  */
 const SERVERS: ServerKind[] = ["bun", "elysia", "ignus", "ignus-aot", "ignus-native"];
 
@@ -37,7 +38,7 @@ const VOLATILE_HEADERS = new Set([
  * participants therefore send no CORS headers at all. So Elysia has been doing
  * ~4 extra header writes + serialization per response in every comparison — a
  * differential cost that FLATTERED ignex. Treat any "ignex beats Elysia"
- * result as unqualified until this is aligned (see docs/aot-perf-plan.md §41).
+ * result as unqualified until this is aligned.
  */
 const KNOWN_HEADER_DELTAS: Record<string, readonly string[]> = {
   elysia: [

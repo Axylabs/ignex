@@ -10,7 +10,7 @@ import {
 
 /** GET /api/users — parse query + cookies, echo back in ApiOk. */
 export default get(async (ctx) => {
-  // Measurement-only ablations (docs/aot-perf-plan.md §43): each isolates one
+  // Measurement-only ablations: each isolates one
   // call's served cost so the framework's per-route overhead can be attributed
   // against the shared-helpers implementation in the `bun` participant.
   const ABL = process.env.ABL ?? "";

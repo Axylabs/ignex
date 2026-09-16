@@ -91,21 +91,10 @@ export {
   type FfiSurface,
   getFfi,
   getFfiInstances,
-  getFfiMode,
   getFfiRoute,
   isFfiActive,
 } from "./ffi";
-export {
-  type FfiBuf,
-  ffiBuf,
-  ffiString,
-  ffiU32,
-  ffiU64,
-  isFfiReadAvailable,
-  readString,
-  readU32,
-  readU64,
-} from "./ffi-read";
+export { type FfiBuf, ffiBuf, ffiString, ffiU32, ffiU64 } from "./ffi-read";
 export { crc32, fnv1a64, fnv1a64Fallback, fnv1a64String } from "./hash";
 export {
   type AcceptNegotiator,

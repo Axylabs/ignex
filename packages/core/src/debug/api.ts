@@ -1,10 +1,10 @@
 /**
  * @fileoverview Debug helper API — the free-function tracing surface.
  *
- * The `debugSpan` / `debugQuery` / `debugEvent` / `debugError` / `debugCache`
- * free functions record against the ALS-propagated trace of the current
- * request (no-op pass-throughs when no trace is active), and
- * `NOOP_DEBUG_API` / `createDebugApi` build the `ctx.debug` surface. Split
+ * The `debugSpan` / `debugQuery` free functions record against the
+ * ALS-propagated trace of the current request (no-op pass-throughs when no
+ * trace is active), and `NOOP_DEBUG_API` / `createDebugApi` build the
+ * `ctx.debug` surface. Split
  * from `./tracer` (the `Trace` engine) so consumers of the helper API don't
  * drag in the span-tree machinery.
  */
@@ -97,44 +97,6 @@ export function debugQuery<T>(
     });
   }
   return settle(result);
-}
-
-/** Attach an instantaneous event/note to the active request (no-op without one). */
-export function debugEvent(name: string, attrs?: SpanAttrs): void {
-  const trace = currentTrace();
-  if (!trace) return;
-  trace.event(name, attrs);
-}
-
-/** Record an error against the active request (no-op without one). */
-export function debugError(err: unknown, attrs?: SpanAttrs): void {
-  const trace = currentTrace();
-  if (!trace) return;
-  trace.recordError(err, attrs);
-}
-
-/** Record a cache operation against the active request. */
-export function debugCache(
-  hit: boolean,
-  label: string,
-  durationMs?: number,
-  attrs?: SpanAttrs,
-): void {
-  const trace = currentTrace();
-  if (!trace) return;
-  const span = trace.start(label, "cache", {
-    hit,
-    ...(durationMs !== undefined ? { ms: durationMs } : {}),
-    ...attrs,
-  });
-  // ALWAYS end: a cache record is instantaneous bookkeeping — leaving it open
-  // dangles until finalize, which flags every such span "span left open" (a
-  // false error row on the waterfall). The caller-measured duration (when
-  // provided) replaces the ~0ms measured here.
-  trace.end(span);
-  if (durationMs !== undefined && Number.isFinite(durationMs)) {
-    span.durationMs = Math.max(0, durationMs);
-  }
 }
 
 // ============================================================================

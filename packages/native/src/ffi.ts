@@ -251,9 +251,6 @@ function selfTestEd25519(
   );
 }
 
-/** Current transport mode in effect (`ffi` only when actually bound). */
-export const getFfiMode = (): FfiMode => resolveFfiMode();
-
 /** True when the C-ABI transport is live (bound + self-test passed). */
 export const isFfiActive = (): boolean => getFfi() !== null;
 

@@ -256,7 +256,7 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
 - **Real-workload benchmark:** `bench/real-data.ts` fixtures, 6 real-data app
   routes, `bench/servers/raw-bun-server.ts` (naive baseline), and per-route
   isolated measurement (`scripts/bench-server-routes.ts`). See
-  `docs/performance-baseline-2026-08.md` for the full table.
+  `docs/perf-methodology.md` §4 for the full table.
 
 - **Native preflight pipeline is now a default request stage** (`nativePreflight()`
   in the example app, previously opt-in). One castrum FFI call per request enforces
@@ -320,7 +320,7 @@ micro-benchmark + semantic-fit evidence, not on assumptions.
 | Crypto | `security/*` | `hmacSha256`, `jwtSign/Verify`, `signCookie/Verify`, `csrfToken/Verify`, `passwordHash/Verify`, `aeadEncrypt/Decrypt`, `randomToken`, **EdDSA JWT** | proven wins (argon2 ~18x, csrf ~13x, cookie-sign ~9x, aead **1.5-2.0×** on C-ABI, EdDSA JWT sign **1.80×** / verify **1.45×**). The EdDSA ops were pinned-but-not-resolving until 2026-09: napi exports `jwtSignEddsa`, the op name is `jwtSignEdDsa`, so the symbol check failed and the JS fallback ran |
 | Compression | `plugins/compression.ts` (native buffered gzip) | `gzipCompress` | native zlib-rs |
 | Templates | `content/template.ts` | `renderTemplate`/`createTemplate` (minijinja) | compiled renderer |
-| Validation | `data/validation.ts` | `validateUuid`/`validateIpv6` (C-ABI `cstring`) | native **1.13×** (uuid) / **2.49×** (ipv6) on varied input. `validateEmail` (JS 3.6×) and `validateIpv4` (JS 1.75×) deliberately stay JS — the Rust cstring round-trip costs more than the JS regex |
+| Validation | `@ignex/native` (`validation.ts`) | `validateUuid`/`validateIpv6` (C-ABI `cstring`) | native **1.13×** (uuid) / **2.49×** (ipv6) on varied input. `validateEmail` (JS 3.6×) and `validateIpv4` (JS 1.75×) deliberately stay JS — the Rust cstring round-trip costs more than the JS regex |
 | Route manager | `plugins/native.ts` (`nativePreflight`, opt-in) | `createNativePipeline` (ingress pre-flight) | native pipeline |
 | Rate limiting (opt-in) | `plugins/ratelimit.ts` (`native: true`) | `createRateLimiter` (Rust fixed-window) | see note below |
 | Eager init | `createApp.init()` | `initNative()` (rayon pool + dlopen at boot) | removes first-request latency |
@@ -544,7 +544,7 @@ framework default because plugins/hooks/error semantics live there.
 
 ## 2026-08-22 — interpreted-router hot path + format-validator decision
 
-Two measured-gate decisions from the castrum survey (`/home/adeel/poc/bun-rust-runtime-bench`):
+Two measured-gate decisions from the castrum survey (`/home/adeel/poc/castrum`):
 
 1. **Memoized path compilation (wired).** The interpreted router recompiled a
    RegExp + keys array on EVERY request (`matchDynamic` → `pathToRegex`).
@@ -663,7 +663,7 @@ surface, so the contract is guarded by castrum's own CI.
 bun run test:native
 
 # Real-addon mode (build castrum first, then point IGNEX_NATIVE_PATH at the .node):
-IGNEX_NATIVE_PATH=/home/adeel/poc/bun-rust-runtime-bench/castrum.linux-x64-gnu.node \
+IGNEX_NATIVE_PATH=/home/adeel/poc/castrum/castrum.linux-x64-gnu.node \
   bun run test:native
 ```
 

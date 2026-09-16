@@ -106,7 +106,7 @@ export async function buildProject(
   // generated wire stack (bindings + typed facade), so the SDK must exist
   // before route compilation. Emitting realtime.json + regenerating the SDK
   // here also guarantees the bundle never embeds a STALE wire stack (a stale
-  // stack silently corrupts frames — see docs/dx-improvement-plan.md).
+  // stack silently corrupts frames — no error, just mis-decoded fields).
   const realtimeOutDir = String(rootedOpts.outDir ?? ".ignex");
   try {
     if (await emitRealtimeArtifact(root, realtimeOutDir)) {

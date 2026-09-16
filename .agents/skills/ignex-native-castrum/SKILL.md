@@ -69,7 +69,7 @@ resolved — a lingering `IGNEX_NATIVE_PATH` export silently wins over the link:
 - `IGNEX_NATIVE=off` must behave identically (the `smoke:fallback` gate runs
   this way); `IGNEX_NATIVE_PATH` points at a custom addon build.
 - The cstring/zero-text-encoding FFI conventions live in castrum
-  (`bun-rust-runtime-bench/docs/FFI_BUN_GUIDE.md`); when changing the wire
+  (`/home/adeel/poc/castrum`, `docs/FFI_BUN_GUIDE.md`); when changing the wire
   contract here, keep byte parity with castrum's `castrum_route_*` exports.
 - `@ignex/core` re-exports the whole unified surface (`backend`, `SELECTION`,
   `implFor`, `createNativeRoute`, …) — consumers get it from `@ignex/core`.

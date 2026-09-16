@@ -45,6 +45,6 @@ implement the fallback, export wrapper + `*Fallback`, add parity vectors to
 ## Note on `castrum`
 
 `castrum` is an `optionalDependencies` entry pointing at an out-of-repo path
-(`file:../../../bun-rust-runtime-bench`). On machines without it, install just
+(`file:../../../castrum`). On machines without it, install just
 warns and the pure-TS fallbacks are used — the loader never throws. CI and
 fresh clones run the parity suite against the fallbacks.

@@ -79,7 +79,7 @@ my-api/
 │   ├── routes/            ← your API lives here
 │   ├── app.config.ts      ← plugins, lifecycle, server options
 │   └── config/env.ts      ← validated environment variables
-├── ignex.config.ts        ← compiler settings
+├── ignex.config.mjs       ← compiler settings
 ├── test/                  ← a scaffolded integration test
 └── package.json
 ```

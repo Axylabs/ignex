@@ -1,8 +1,8 @@
 /**
  * Session management — signed-cookie (stateless) and store-backed sessions.
  *
- * `createSessionManager` returns a reusable manager; `withSession` turns it
- * into a request hook that exposes the current session through
+ * `createSessionManager` returns a reusable manager; `manager.middleware()`
+ * turns it into a request hook that exposes the current session through
  * {@link getSession}. Session mutations are write-through: `session.save()`
  * signs + writes the cookie (and the backing store when configured) via the
  * context's cookie jar, so responses automatically carry the right
@@ -91,7 +91,7 @@ export interface SessionManager {
 const SESSION_KEY = Symbol.for("ignex.session");
 
 /**
- * Read the session attached by `withSession` middleware.
+ * Read the session attached by the session middleware.
  *
  * When the middleware runs with `createIfMissing: "lazy"`, the session is
  * created here — on first read by a handler — instead of eagerly on every
@@ -532,12 +532,3 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
 
   return { load, loadOrCreate, middleware, close };
 };
-
-/**
- * @deprecated Prefer `createSessionManager(options).middleware(opts)` — this
- * thin alias is kept for back-compat but creates a fresh manager per call.
- */
-export const withSession = (
-  options: SessionManagerOptions,
-  middlewareOptions?: { createIfMissing?: boolean | "lazy" },
-): HookFn => createSessionManager(options).middleware(middlewareOptions);

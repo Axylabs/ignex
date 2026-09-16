@@ -7,7 +7,7 @@
 > replaces (median, interleaved trials) AND byte-compatible**. Otherwise the
 > row records "keep" and the code stays as-is. This mirrors castrum's decision
 > matrix (`docs/bun-builtins-decision-matrix.md` in
-> `/home/adeel/poc/bun-rust-runtime-bench`) / the `BUN_WINS` set in
+> `/home/adeel/poc/castrum`) / the `BUN_WINS` set in
 > `packages/native/src/selection.ts`.
 > 
 > Swaps are re-measured with `bun run bench:bun-internals`; the shipped
@@ -28,7 +28,7 @@ Measured on `Bun v1.4.0-canary` (Linux), 2026-08-20, 5 interleaved trials.
 | `Bun.CryptoHasher("sha1")` | `node:crypto createHash("sha1")` (WS accept key) | **1.12×** | **swap** | `native/src/payload.ts` `wsAcceptKey` prefers Bun SHA-1. |
 | `crypto.getRandomValues` | `node:crypto randomBytes` (CSPRNG) | **87×** | **swap** | `native` csrf fallback, `core` password salt, `cli` ops token. |
 | `Bun.gzipSync` | `node:zlib gzipSync` | 1.77× | **already wired** | `native/src/bun.ts` `bunGzipSync` + `BUN_WINS` (baseline). |
-| `Bun.hash.wyhash` | `fnv1a64` (native/TS) | **16.5×** / **917×** | **swap (runtime-local only)** | `core/src/data/cache/hash.ts` `fastHash`/`entityTag`. Compiler **cache keys stay fnv1a64** (cross-runtime key stability). |
+| `Bun.hash.wyhash` | `fnv1a64` (native/TS) | **16.5×** / **917×** | **swap (runtime-local only)** | `core/src/data/cache/hash.ts` `entityTag` (module-local `fastHash`). Compiler **cache keys stay fnv1a64** (cross-runtime key stability). |
 | `Bun.hash.crc32` | native addon / TS table | 0.97× / **115×** | **already wired** | `native/src/bun.ts` `bunCrc32` + `BUN_WINS` (baseline). |
 | `Bun.password.hashSync` (argon2id) | native argon2id `passwordHash` | 0.16× | keep | Native Rust is ~6× faster; **do not swap**. |
 | `Bun.password.hashSync` (argon2id) | scrypt fallback | 0.31× | keep | Fallback stays. |

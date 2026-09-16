@@ -1,4 +1,4 @@
-# RULES.md — ignex (ignus monorepo)
+# RULES.md — ignex (ignus framework monorepo)
 
 Non-negotiable rules for writing code in this monorepo. Read before editing.
 Enforced by convention and CI (`bun run verify` / `verify:full`). `AGENTS.md`
@@ -14,7 +14,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 - **Performance comes from the Rust core** via `@ignex/native`, the single
   typed bridge over the **castrum** addon (`optionalDependencies` in
   `packages/native/package.json`; the dev checkout lives at
-  `/home/adeel/poc/bun-rust-runtime-bench`). Before writing a hot loop in TS,
+  `/home/adeel/poc/castrum`). Before writing a hot loop in TS,
   check whether the op exists in `@ignex/native` (crypto, hashing, jwt,
   ed25519, json, packed, route-wire v3, …). Measure before/after with
   `bun run bench:*` — never assume.
@@ -36,7 +36,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   a bare `import` is stubbed out by tsconfig paths), nova/ninox only as
   optional-peer/lazy integrations (e.g. `@ignex/nova/events`).
 - The cstring/zero-text-encoding FFI conventions live in castrum
-  (`bun-rust-runtime-bench`, `docs/FFI_BUN_GUIDE.md`); when changing
+  (`/home/adeel/poc/castrum`, `docs/FFI_BUN_GUIDE.md`); when changing
   `packages/native`, keep byte parity with castrum's wire contracts
   (`route-wire v3`, `verify-native-route.ts`, `verify-native-ffi.ts`).
 
@@ -96,11 +96,23 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 
 - Docs must match code. Never document behavior you did not verify in the
   source; if a doc and the code disagree, fix the doc.
+- **One doc per topic.** The authoritative list is the "Doc index" table in
+  `AGENTS.md` — add a row there, do not add a second doc on a covered topic.
+- **No plan, log or session docs.** A completed plan is deleted, with its
+  still-live conclusion folded into the owning doc (or `CHANGELOG.md`). Dated
+  measurement logs get their durable numbers and ruled-out hypotheses folded
+  into `docs/perf-methodology.md` §7. `git log` is the archive.
+- Never leave a dangling reference: grep for the filename before deleting or
+  renaming a doc (`docs/`, `AGENTS.md`, `RULES.md`, `.agents/skills/`, source
+  comments, `CHANGELOG.md`, `.github/workflows/`).
 - When you add/rename/move files or exports, update `AGENTS.md`, `RULES.md`,
   the relevant `.agents/skills/`, `docs/*.md`, and regenerate the scaffolding
   map (`bun run gen:ai-map`).
-- Keep `CHANGELOG.md` in sync with `package.json` (currently 0.1.11); keep
-  JSDoc on exported symbols (`jsdoc:check:strict`).
+- Keep `CHANGELOG.md` in sync with the workspace version (all `packages/*` and
+the root are `0.1.32`). Every change lands under the single `[Unreleased]`
+heading; `scripts/release.ts` finalizes it into `## [<version>] — <date>` at
+release time, so do **not** hand-write release headings. Keep JSDoc on exported
+symbols (`jsdoc:check:strict`).
 
 ## 7. Local development with core projects (maintainers & AI only)
 

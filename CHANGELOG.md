@@ -6,8 +6,74 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Dead exports removed from the published surfaces** (breaking for anyone
+  importing them; each had zero consumers in the repo):
+  - `@ignex/native`: `isFfiReadAvailable`, `readU32`, `readU64`, `readString`
+    (single-shot wrappers around the pinned `ffiBuf`/`ffiU32`/`ffiU64`/
+    `ffiString` path, never called) and `getFfiMode` (superseded by
+    `isFfiActive()` + `backend.status()`).
+  - `@ignex/core`: the `debugEvent` / `debugError` / `debugCache` free functions
+    (the `ctx.debug.event/error/cache` methods are the supported surface and are
+    unchanged), `withSession` (a per-call wrapper around
+    `createSessionManager(...).middleware()` that created a fresh manager every
+    call), and the redundant root-barrel re-exports of seven FP helpers that
+    live in `@ignex/shared` (`flatMapResult`, `mapErr`, `taskChain`,
+    `taskFromResult`, `taskMap`, `tryCatchAsync`, `unwrapOrElse`) — import them
+    from `@ignex/shared`, or `tryCatchOr`/`mapResult`/`unwrapOr` from
+    `@ignex/core` as before.
+  - `@ignex/native`'s `selection.ts` no longer exports a second `implFor` (it
+    only ever built the `SELECTION` table; the public one is `execution.ts`'s),
+    and `core`'s `security/csrf.ts` no longer re-exports `csrfToken`/
+    `csrfVerify` (the barrel exports them from `security/crypto`).
+- **Two pure re-export shims deleted:** `packages/core/src/data/validation.ts`
+  (`@ignex/core` now re-exports the validators straight from `@ignex/native`)
+  and `packages/compiler/src/fp.ts` (`compiler/validate.ts` imports
+  `err`/`ok`/`Result` from `@ignex/shared` directly). `native/src/execution.ts`
+  also drops a redundant `export type { … }` block whose 15 types are exported
+  from their real modules by `native/src/index.ts`.
+- **Five docs deleted** — three completed/orphaned plans
+  (`docs/dx-improvement-plan.md`, `docs/elysia-test-port.md`,
+  `docs/orm-rbac-integration.md`) and two dated logs
+  (`docs/performance-baseline-2026-08.md`, `docs/aot-perf-plan.md`). Their
+  still-live content was folded in first: the perf cost budget, the
+  do-not-re-attempt list and the measurement rules now live in
+  `docs/perf-methodology.md` §7 (all 12 source comments that cited the old
+  §-numbers were repointed), and the open follow-ups moved to
+  `docs/stability.md` §6 items 8–11. `AGENTS.md` gained a **Doc index** table
+  (one owner per topic) and `RULES.md` §6 now forbids plan/log docs and
+  dangling references.
+
 ### Changed
 
+- **Docs corrected against the code** (they described a repo that no longer
+  exists): `ignus` → `ignex`, `bun-rust-runtime-bench` → `/home/adeel/poc/castrum`,
+  `ignex-nova` → `nova`, `ignex-mongodb` → `ninox` across `RULES.md`,
+  `docs/ai/LOCAL_DEV.md`, `docs/compatibility.md`, `docs/architecture.md`,
+  `docs/native-acceleration.md`, `docs/bun-internals.md`,
+  `docs/comparison-bench.md`, `docs/release-process.md` and the native/castrum
+  skills; the version table in `docs/compatibility.md` and the
+  `CHANGELOG` ↔ `package.json` note in `AGENTS.md`/`RULES.md` now say 0.1.32.
+  `docs/architecture.md` no longer claims nova/ninox are consumed through a root
+  `overrides` block (there is none — it is `bun link`),
+  `docs/getting-started.md` uses `ignex hook` (there is no `bun run hook`
+  script) and `README.md` shows `ignex.config.mjs` (what `ignex create` writes).
+- **`.gitignore`: the committed-baseline negation was dead code.** Two
+  `bench/results/server` entries excluded the *directory*, and git cannot
+  re-include a file under an excluded directory, so
+  `!bench/results/server/baseline.json` never applied. The pattern is now
+  `bench/results/server/*` + the negation, which verifies with `git check-ignore`.
+  Note the baseline file itself is still absent, so
+  `check-server-bench.ts` degrades to `baseline = latest` — documented in
+  `docs/stability.md` (new §6 item 11) and in the `server-bench` CI job comment.
+- **`knip.json` no longer hides two live files.** The `ignore` entries for
+  `packages/native/src/execution.ts` and `packages/core/src/security/csrf.ts`
+  were false positives (both are imported), and removing them is what surfaced
+  the two duplicate surface blocks removed above. `ignoreExportsUsedInFile`
+  stays `true` deliberately: this is a library whose barrels are the public
+  surface, and enforcing the opposite reports ~85 findings, nearly all of them
+  published types.
 - **Compiled routes now take the usage-specialized context path when they only
   set headers or read cookies — previously that entire tier was unreachable dead
   code.** The compiler already emitted `const __set = { headers, cookie }`, a
@@ -27,8 +93,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   appConfigHasHooks` still forces the full context for every route, because a
   runtime plugin hook may read any context member. Bench A/B: 27.92 µs with
   plugins vs 25.68 µs without. Unlocking that needs plugins to *declare* their
-  context requirements (the `responseDefaults` pattern). See
-  `docs/aot-perf-plan.md` §24.
+  context requirements (the `responseDefaults` pattern) — see
+  `docs/perf-methodology.md` §7.3.
 - **The request context no longer spreads an always-undefined `opts.set`.** The
   `IgnexContextImpl` constructor built its header accumulator as
   `{ headers: emptyHeaders(), ...opts.set }`; on the compiled path `opts.set` is
@@ -42,7 +108,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `[[DefineOwnProperty]]` calls is a *pessimisation* (1,324 ns — 23 ns slower
   than the spread guard alone) because pre-defining the fields fixes the
   object's shape; it also changes `Object.keys(ctx)`. Full per-request cost
-  budget in `docs/aot-perf-plan.md` §20.
+  budget in `docs/perf-methodology.md` §7.2.
 - **The comparison harness no longer charges a slow query parse to every
   participant except Elysia.** `bench/compare/shared.ts`'s `parseQuery(url: URL)`
   iterated `url.searchParams`; that helper is shared by the `bun`, `ignus`,
@@ -70,7 +136,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   request, as it must). **No throughput win is claimed:** an A/B against the
   previous code at 15k rps measures **30.68 µs/req vs 30.41 µs/req** pooled over
   6 samples each — a 0.27 µs difference against a ~1.2 µs standard deviation
-  (`docs/aot-perf-plan.md` §18). It is kept because the removed work is provably
+  (`docs/perf-methodology.md` §7.4). It is kept because the removed work is provably
   gone, and because the hook's remaining cost is now understood: it exists only
   to decorate raw `Response` passthroughs.
 - **Compiled servers are 79% smaller and boot 55% faster** (7-route reference
@@ -104,8 +170,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   no observable change. Two independent runs now put `ignus-aot` ahead of Elysia
   (run 2: 33.51 vs 35.79 µs/request, with ignus-aot faster in all five
   alternating rounds). This is a **measurement correction, not a framework
-  speedup** — the ratio to raw Bun is unchanged at ~1.22–1.29x. See
-  `docs/aot-perf-plan.md` §25.
+  speedup** — the ratio to raw Bun is unchanged at ~1.22–1.29x
+  (`docs/perf-methodology.md` §7.4).
 - **`trustProxy: true` was silently ignored by `ctx.ip` — it reported the proxy's
   address instead of the client's.** The getter resolved the socket address via
   `readSocketIp`/`server.requestIP()` **first** and returned it if it was defined,
@@ -118,7 +184,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   while `trustProxy: false` still yields the socket address (a client-supplied
   header is never trusted). This is also the cheaper order for a proxied
   deployment: it skips a native peer-address lookup measured at **~3.4 µs per
-  request** in situ. Full measurement in `docs/aot-perf-plan.md` §23.
+  request** in situ (`docs/perf-methodology.md` §7.4).
 - **A/B build variants under `bench/compare/servers/*/dist-*/` are no longer
   linted.** The `.gitignore` `dist` / `dist/` rules match a directory named
   *exactly* `dist`, so variant builds (`dist-a`, `dist-abl`, …) were neither
@@ -285,7 +351,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `http://…` everywhere — in the compiled server and the interpreted
   `createApp().serve()` path alike.
 - **`ignex event bus` output now compiles and runs out of the box** (DX
-  dogfood findings — see `docs/dx-improvement-plan.md`):
+  dogfood findings):
   - Scaffolds the wire contract (`src/realtime.ts`), a pre-wired
     `src/realtime.plugin.ts` (`novaPlugin` with the events layer + generated
     `bindings`), the typed facade re-export (`src/lib/events.ts`), the publish
@@ -874,7 +940,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `--no-heat`) flushed to `<outDir>/hot-routes.json` that the analysis phase
   merges log-scaled into `hotnessScore` — inline-budget priority and
   dedup-leader choice are now profile-guided. `COMPILER_CACHE_VERSION`
-  → 0.9.1. See `docs/performance-baseline-2026-08.md` Round 16.
+  → 0.9.1.
 
 ### Fixed
 

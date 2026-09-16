@@ -11,8 +11,6 @@ import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { HttpMethod } from "../types";
 
-export { csrfToken, csrfVerify } from "@ignex/native";
-
 /** Options for {@link createCsrfGuard}. */
 export interface CsrfGuardOptions {
   secret: string | Uint8Array;

@@ -205,8 +205,11 @@ const hasPinnedSymbol = (op: OpName): boolean => {
  * native crossing) and `MEASURED_JS_WINS` (ignex's median audit contradicts
  * `opImpl`). Bound once at module load — the implementation never changes for
  * the life of the process.
+ *
+ * Module-local: it only builds the `SELECTION` table below. The public
+ * `implFor` (reads the table back) lives in `./execution`.
  */
-export const implFor = (op: OpName): ExecutionBackend =>
+const implFor = (op: OpName): ExecutionBackend =>
   (isBun() && BUN_WINS.has(op)) || MEASURED_JS_WINS.has(op)
     ? "js"
     : getNative() != null && PINNED_NATIVE.has(op) && hasPinnedSymbol(op)

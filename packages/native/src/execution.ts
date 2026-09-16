@@ -28,11 +28,8 @@ import {
   csrfVerify,
   hmacSha256,
   hmacSha256Verify,
-  type JwtSignOptions,
-  type JwtVerifyOptions,
   jwtSign,
   jwtVerify,
-  type PasswordHashOptions,
   passwordHash,
   passwordVerify,
   randomToken,
@@ -41,20 +38,13 @@ import {
 } from "./crypto";
 import { crc32, fnv1a64, fnv1a64String } from "./hash";
 import {
-  type AcceptNegotiator,
-  type ConditionalRequest,
   cookiePairs,
   createAcceptNegotiator,
   createConditionalRequest,
-  type EncodingPrefResult,
   etag,
   formPairs,
-  type MediaTypeResult,
-  type MultipartLimits,
-  type MultipartPart,
   mediaTypeMatches,
   multipartParse,
-  type Pairs,
   parseAcceptEncoding,
   parseCookie,
   parseForm,
@@ -62,25 +52,19 @@ import {
   parseQuery,
   queryPairs,
 } from "./http";
-import { createSchemaValidator, jsonPatch, jsonValid, type SchemaValidator } from "./json";
+import { createSchemaValidator, jsonPatch, jsonValid } from "./json";
 import {
   brotliCompress,
   brotliDecompress,
   gzipCompress,
   gzipDecompress,
   sseEncode,
-  type WsFrame,
   wsAcceptKey,
   wsFrameDecode,
   wsFrameEncode,
 } from "./payload";
 import { createNativePipeline } from "./pipeline";
-import {
-  createRateLimiter,
-  type RateCheck,
-  type RateLimiter,
-  type RateLimiterOptions,
-} from "./ratelimit";
+import { createRateLimiter } from "./ratelimit";
 import { backendName, native } from "./runtime";
 import { type ExecutionBackend, OPS, type OpName, SELECTION } from "./selection";
 import { createTaskRuntime } from "./tasks";
@@ -221,21 +205,3 @@ export const executionStatus = (): ExecutionStatus => backend.status();
 
 /** The implementation the selection table binds an op to. */
 export const implFor = (op: OpName): ExecutionBackend => SELECTION[op].impl;
-
-export type {
-  AcceptNegotiator,
-  ConditionalRequest,
-  EncodingPrefResult,
-  JwtSignOptions,
-  JwtVerifyOptions,
-  MediaTypeResult,
-  MultipartLimits,
-  MultipartPart,
-  Pairs,
-  PasswordHashOptions,
-  RateCheck,
-  RateLimiter,
-  RateLimiterOptions,
-  SchemaValidator,
-  WsFrame,
-};

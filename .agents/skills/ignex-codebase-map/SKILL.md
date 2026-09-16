@@ -1,6 +1,6 @@
 ---
 name: ignex-codebase-map
-description: Orient inside the ignex monorepo (/home/adeel/poc/ignus) — where each package and script lives, how the AOT pipeline fits together, and which doc is authoritative for what. Use first when starting any task here.
+description: Orient inside the ignex monorepo (/home/adeel/poc/ignex) — where each package and script lives, how the AOT pipeline fits together, and which doc is authoritative for what. Use first when starting any task here.
 ---
 
 # ignex: Codebase map

@@ -68,6 +68,10 @@ export {
   type TaskRuntimeOptions,
   type TaskStats,
   useNative,
+  validateEmail,
+  validateIpv4,
+  validateIpv6,
+  validateUuid,
   verifyCookieBatch,
 } from "@ignex/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
@@ -75,24 +79,17 @@ export {
   always,
   compose,
   err,
-  flatMapResult,
   identity,
   isErr,
   isOk,
-  mapErr,
   mapResult,
   ok,
   pipe,
   type Result,
   type Task,
-  taskChain,
-  taskFromResult,
-  taskMap,
   tryCatch,
-  tryCatchAsync,
   tryCatchOr,
   unwrapOr,
-  unwrapOrElse,
 } from "@ignex/shared";
 // ── client / openapi (consumer-facing) ──────────────────────────
 export type { ClientOptions, ClientResponse, IgnexClient } from "./client";
@@ -182,14 +179,7 @@ export {
   type StoreManagerOptions,
   type StoreSetOptions,
 } from "./data/store";
-export { validateEmail, validateIpv4, validateIpv6, validateUuid } from "./data/validation";
-export {
-  debugCache,
-  debugError,
-  debugEvent,
-  debugQuery,
-  debugSpan,
-} from "./debug/api";
+export { debugQuery, debugSpan } from "./debug/api";
 // ── debug (developer dashboard primitives) ──────────────────────
 export { ClientRegistry, type PublishedClient } from "./debug/clients";
 export { analyzeSamples, forceGc, linearTrend } from "./debug/leaks";
@@ -580,7 +570,6 @@ export {
   createSessionStoreFromStore,
   createSqliteSessionStore,
   getSession,
-  withSession,
 } from "./security/session";
 
 // ── types ───────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ cutting a release. Every package is versioned independently
 ## Publishing the external standalone packages
 
 `@ignex/nova` and `@ignex/ninox` are published from their **own repos**
-(`ignex-nova`, `ignex-mongodb`), not from this monorepo:
+(`nova`, `ninox`), not from this monorepo:
 
 - **Nova** — source-published (`files: index.ts public src rust prebuilds docs`);
   keep the `events`/`bindings`/`generate` subpaths stable (the notifier + CLI
@@ -49,7 +49,7 @@ cutting a release. Every package is versioned independently
   staged into `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
 - **Ninox** — ships `dist/` (tsup); keep the `@ignex/ninox` name and the
   `check:api` gate (API.md ↔ barrel). Run `bun run prepublishOnly` from
-  `ignex-mongodb`.
+  `ninox`.
 
 This monorepo consumes them through registry semver ranges; the root
 `overrides` block points them at local `file:` links for development. When a
