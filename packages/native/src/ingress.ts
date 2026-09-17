@@ -745,7 +745,15 @@ export const createNativeIngress = (
     const methodKind = METHOD_KIND[request.method] ?? METHOD_KIND_UNKNOWN;
     const headers = packSelectedHeaders(request, plan, methodKind);
     growOutput(L.outDataStart);
-    let w = call();
+    // The shared castrum writers THROW on containment (the old in-repo
+    // binding returned 0). Contain here so the fault policy (telemetry +
+    // fail-closed 503) still governs — never break the request flow.
+    let w = 0;
+    try {
+      w = call();
+    } catch (err) {
+      return fault(`native ingress call failed: ${String(err)}`);
+    }
     if (w === 0) {
       return fault("native ingress returned 0 — security pipeline degraded to pass-through");
     }
@@ -760,7 +768,11 @@ export const createNativeIngress = (
     }
     if (w > output.length) {
       growOutput(w);
-      w = call();
+      try {
+        w = call();
+      } catch (err) {
+        return fault(`native ingress retry failed: ${String(err)}`);
+      }
       if (w === 0) {
         return fault(
           "native ingress retry after buffer growth failed — security pipeline degraded",

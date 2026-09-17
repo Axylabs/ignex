@@ -47,6 +47,69 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`@ignex/native`'s ingress C-ABI binding now comes from castrum itself.**
+  `getFfiIngress()` delegates to the shared `getIngressBinding()` export
+  (castrum ≥ 0.9.7): the duplicate `dlopen` symbol map, `buffer`/`buffer_length`
+  probe and ingress-only cache in `packages/native/src/ffi.ts` are deleted
+  (−163 lines), and the writers are byte-identical functions of castrum's
+  bind-time self-tested transport, with a `realpath` check that refuses to send
+  an opaque ingress handle across different binaries. Two behavior notes:
+  castrum's writers **throw** on native failure instead of returning 0 (the
+  pre-flight `runOnce` contains them into the existing fault policy — telemetry
+  + `failClosed` 503, pinned by a fault-injection test), and the transport
+  binds at module load rather than lazily. No `@ignex/native` API or wire
+  format changed.
+
+- **Interpreted router registration and dispatch scale linearly.** Exact static
+  paths resolve through a per-path index and 405 allow-lists are maintained
+  incrementally at registration (previously rebuilt from all registrations on
+  every route — 1,000 routes cost ~353 ms; now ~2 ms). Dispatch precedence
+  (first registration wins, static before dynamic), HEAD semantics, duplicate
+  warnings and the served `Bun.serve` table are unchanged; regression tests
+  pin the precedence contract.
+- **`GET {path}/api/state` no longer builds the KT document.** The state
+  snapshot reads the router registration count (interpreted apps) or a
+  manifest-only route count (AOT apps) and the plugin-name list directly, so
+  the debug state endpoint no longer pays for docs/SDK/area scans, Markdown
+  rendering or HTML sanitization. KT pages are unaffected.
+- **HTTP response-cache policy is centralized and conservative.** Response
+  eligibility/lifetimes are decided by one policy: `no-store`/`no-cache`/
+  `private`, `set-cookie`, unrepresentable `Vary` (incl. `*`), and
+  `max-age=0`/`s-maxage=0` responses are never stored; `must-revalidate`
+  entries are not served stale. Store failures follow a new `onStoreError`
+  option (`"open"` default: warn once and bypass; `"throw"` keeps strict
+  behavior). Cold misses no longer read the store back; oversized fills stop
+  reading at `maxBodyBytes` without consuming the caller's response; concurrent
+  callers each get an independently consumable response.
+- **Response finalization skips redundant status re-wrapping.** `applySet`
+  treats an explicit status equal to the response's current status as unchanged,
+  retaining the existing no-op/in-place header paths. Cookies, tracing, redirects
+  and genuine status changes retain their behavior. Focused Bun 1.4.2 probes
+  including response construction dropped from ~0.93 to ~0.34 µs without header
+  mutations and ~1.11 to ~0.54 µs with one header; these are not server-throughput
+  measurements.
+- **HTTP response-cache single-flight gives every caller its own Response.**
+  Concurrent cold misses still hit the origin once, but callers no longer
+  share one consumable `Response` instance (which left losers with a locked /
+  disturbed body). The initiator keeps the original; coalesced callers clone
+  it before consumption, preserving origin status and headers even when the
+  response is not stored. Cold fills need no backing-store read-back.
+- **`arrayBuffer → blob` body conversion no longer decodes the buffer.**
+  Converting a binary body no longer pays for a discarded UTF-8 string.
+  Both old and new paths construct the Blob from the original buffer, preserving
+  bytes; this is a performance fix, not a data-corruption fix. Text/JSON targets
+  keep the decode. Regression coverage checks byte equality and zero decode calls.
+- **HTTP response-cache hits read the backing store once**, reusing that entry
+  for response construction and stale-while-revalidate decisions. This removes
+  a second sequential read for asynchronous stores; sync/async hit and 304
+  regression tests cover the read count.
+- **Hot-path benchmark compatibility restored:** supply the no-default-headers
+  constant and adapt module-only `import.meta.dir` in its isolated helper
+  evaluator. Production helper sources are unchanged.
+- **KT rendering separated from collection:** extracted the pure Markdown
+  renderer from `debug/kt.ts` into `debug/knowledge-markdown.ts`, with one
+  shared span-description catalog. Existing exports and Markdown output are
+  preserved; empty/populated snapshot tests guard output and input immutability.
 - **Docs corrected against the code** (they described a repo that no longer
   exists): `ignus` → `ignex`, `bun-rust-runtime-bench` → `/home/adeel/poc/castrum`,
   `ignex-nova` → `nova`, `ignex-mongodb` → `ninox` across `RULES.md`,

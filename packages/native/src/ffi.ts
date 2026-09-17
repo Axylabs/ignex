@@ -22,6 +22,7 @@
  *   IGNEX_NATIVE=off disables ffi too (getFfi() returns null).
  */
 import { createRequire } from "node:module";
+import { getSharedIngressBinding } from "./ingress-binding";
 import { getAddonPath, getNative, type NativeAddon } from "./loader";
 import { reportDegradation } from "./telemetry";
 import { decoder, toBytes } from "./util";
@@ -1135,40 +1136,6 @@ export interface FfiIngressSurface {
   ingressLayout(out: Uint8Array): number;
 }
 
-let ingressCached: FfiIngressSurface | null | undefined;
-
-/**
- * Probe whether this Bun accepts the `buffer`/`buffer_length` ABI pair in
- * `dlopen` (an earlier canary threw "invalid ABI type" for it). When supported
- * we bind every `(ptr,len)` pair as `(buffer, buffer_length)` — the engine
- * reads ptr + byteLength off the SAME view at call time (atomic snapshot, one
- * JS arg instead of two); otherwise we fall back to explicit `(ptr, usize)`.
- */
-function probeBufferLength(
-  dlopen: (
-    path: string,
-    symbols: Record<string, { args: readonly string[]; returns: string }>,
-  ) => { symbols: Record<string, (...a: unknown[]) => unknown>; close(): void },
-  path: string,
-): boolean {
-  try {
-    const { symbols, close } = dlopen(path, {
-      castrum_crc32: {
-        args: ["buffer", "buffer_length"] as unknown as readonly string[],
-        returns: "u32",
-      },
-    });
-    const view = new Uint8Array([1, 2, 3]);
-    const out = symbols.castrum_crc32?.(view, view);
-    close();
-    return typeof out === "number" && out >= 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Lazy bind of the ingress C-ABI surface (`null` when absent). */
-
 /**
  * The metrics-registry C-ABI surface (`castrum_metrics_*`) — caller-owned
  * registry handle + cstring declare / record_str updates. Bound LAZILY and
@@ -1297,132 +1264,5 @@ export const getFfiMetrics = (): FfiMetricsSurface | null => {
   }
 };
 
-/** Lazy bind of the ingress C-ABI surface (null when absent). */
-export const getFfiIngress = (): FfiIngressSurface | null => {
-  if (ingressCached !== undefined) return ingressCached;
-  ingressCached = null;
-  if (process.env.IGNEX_NATIVE === "off") return null;
-
-  const path = getAddonPath();
-  if (!path) return null;
-
-  type DlopenFn = (
-    path: string,
-    symbols: Record<string, { args: readonly string[]; returns: string }>,
-  ) => { symbols: Record<string, (...a: unknown[]) => number | bigint | undefined>; close(): void };
-
-  let dlopen: DlopenFn;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = createRequire(import.meta.url)("bun:ffi") as { dlopen: DlopenFn };
-    dlopen = mod.dlopen;
-  } catch {
-    return null;
-  }
-
-  try {
-    const useBufferLength = probeBufferLength(
-      dlopen as (
-        p: string,
-        s: Record<string, { args: readonly string[]; returns: string }>,
-      ) => {
-        symbols: Record<string, (...a: unknown[]) => unknown>;
-        close(): void;
-      },
-      path,
-    );
-    // Convert `(ptr, usize)` pairs → `(buffer, buffer_length)` when supported
-    // (scalar args like the `usize` inner handle pass through unchanged).
-    const abi = (shape: readonly string[]): readonly string[] => {
-      if (!useBufferLength) return shape;
-      const out: string[] = [];
-      for (let i = 0; i < shape.length; i++) {
-        // len-bound loop → `shape[i]` is always defined (noUncheckedIndexedAccess).
-        const t = shape[i] as string;
-        if (t === "ptr") {
-          out.push("buffer", "buffer_length");
-          i++;
-        } else {
-          out.push(t);
-        }
-      }
-      return out;
-    };
-    const { symbols } = dlopen(path, {
-      castrum_ingress_handle_components: {
-        args: abi([
-          "usize",
-          "u8",
-          "cstring",
-          "cstring",
-          "ptr",
-          "usize",
-          "ptr",
-          "usize",
-          "ptr",
-          "usize",
-          "ptr",
-          "usize",
-        ]),
-        returns: "usize",
-      },
-      castrum_ingress_handle_packed: {
-        args: abi(["usize", "ptr", "usize", "ptr", "usize", "ptr", "usize"]),
-        returns: "usize",
-      },
-      castrum_ingress_layout: { args: abi(["ptr", "usize"]), returns: "usize" },
-    });
-    const s = symbols as Record<string, (...a: unknown[]) => number | bigint | undefined>;
-    // Partial binding → treat the surface as absent (see getFfiRoute).
-    const required = [
-      "castrum_ingress_handle_components",
-      "castrum_ingress_handle_packed",
-      "castrum_ingress_layout",
-    ] as const;
-    if (required.some((name) => typeof s[name] !== "function")) return null;
-    // Under `buffer`/`buffer_length` the length slot is the SAME view (the
-    // engine reads its byteLength); under `(ptr,len)` it's the explicit length.
-    // Bind-time constant → the JIT folds the branch away.
-    const lenOrView = (v: Uint8Array): Uint8Array | number => (useBufferLength ? v : v.length);
-    ingressCached = {
-      ingressHandleComponents(inner, methodKind, url, ip, rid, headers, body, out) {
-        return Number(
-          s.castrum_ingress_handle_components?.(
-            inner,
-            methodKind,
-            url,
-            ip,
-            rid,
-            lenOrView(rid),
-            headers,
-            lenOrView(headers),
-            body ?? EMPTY_VIEW,
-            body ? lenOrView(body) : lenOrView(EMPTY_VIEW),
-            out,
-            lenOrView(out),
-          ) ?? 0,
-        );
-      },
-      ingressHandlePacked(inner, input, body, out) {
-        return Number(
-          s.castrum_ingress_handle_packed?.(
-            inner,
-            input,
-            lenOrView(input),
-            body ?? EMPTY_VIEW,
-            body ? lenOrView(body) : lenOrView(EMPTY_VIEW),
-            out,
-            lenOrView(out),
-          ) ?? 0,
-        );
-      },
-      ingressLayout(out) {
-        return Number(s.castrum_ingress_layout?.(out, lenOrView(out)) ?? 0);
-      },
-    };
-  } catch {
-    // Addon lacks the ingress surface — not an error.
-    ingressCached = null;
-  }
-  return ingressCached;
-};
+/** Shared castrum ingress C-ABI surface (null when unavailable). */
+export const getFfiIngress = getSharedIngressBinding;
