@@ -3,6 +3,7 @@
  * Lifecycle hooks, extensibility, composable plugins.
  */
 
+import type { ContextUsage } from "@ignex/shared";
 import type { IgnexContext } from "../http/context";
 import { sanitizeHeaderValue } from "../http/finalize";
 import type { IgnexRouter } from "../http/router";
@@ -72,6 +73,29 @@ export interface IgnexPlugin {
    * client resolved to the socket address, i.e. the proxy's, behind a proxy.
    */
   readonly contextOptions?: { readonly trustProxy?: boolean };
+
+  /**
+   * The `ctx` members this plugin's hooks read or write.
+   *
+   * Declaring them lets the COMPILED server run the plugin layer on the
+   * usage-specialized context (see `packages/compiler/.../routes/context.ts`)
+   * instead of forcing every route to the full context — the declaration is
+   * the missing "plugin-API" piece of that optimization.
+   *
+   * The compiler cannot execute plugin factories, so for compiled builds the
+   * same declaration is read STATICALLY from the plugin module (a module-level
+   * `export const contextUsage = { ... }`). The module export is the audited,
+   * machine-readable form and wins when both exist; this field is the
+   * runtime-visible API surface (introspection, interpreted tooling).
+   *
+   * Optional and opt-in. An UNDECLARED plugin keeps today's behavior: the
+   * compiler treats the plugin layer as opaque and every route uses the full
+   * context. A declared member the specialized context cannot emit also forces
+   * the full context (fail-safe — never a silent `undefined` on the lean
+   * tier). Only `true` values are meaningful; a `false`/`undefined` value
+   * reads as "not used".
+   */
+  readonly contextUsage?: Readonly<Partial<ContextUsage>>;
 
   // Lifecycle
   init?(): MaybePromise<void>;

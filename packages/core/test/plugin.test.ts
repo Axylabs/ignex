@@ -7,6 +7,7 @@ import {
   createApp,
   createContext,
   createPluginContext,
+  type IgnexPlugin,
   pluginContextToLifecycle,
 } from "@ignex/core";
 import { describe, expect, it } from "vitest";
@@ -219,5 +220,27 @@ describe("pattern-scoped global middleware", () => {
     const other = await app.handler(new Request("http://localhost:3000/other"));
     expect(other.headers.get("x-api-version")).toBeNull();
     expect(tags).toEqual(["scoped"]);
+  });
+});
+
+describe("IgnexPlugin.contextUsage (declared context requirements)", () => {
+  it("accepts a declared subset of ContextUsage members", () => {
+    // Type-level assertion: the field is part of the public plugin contract.
+    const declared: IgnexPlugin = {
+      name: "p",
+      contextUsage: { headers: true, req: true },
+    };
+    expect(declared.name).toBe("p");
+  });
+
+  it("is optional — an undeclared plugin keeps the opaque default", () => {
+    const undeclared: IgnexPlugin = { name: "q" };
+    expect(undeclared.name).toBe("q");
+  });
+
+  it("rejects unknown members at the type level", () => {
+    // @ts-expect-error — unknown members are not part of the declaration contract
+    const bad: IgnexPlugin = { name: "r", contextUsage: { nope: true } };
+    void bad;
   });
 });
