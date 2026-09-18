@@ -13,6 +13,7 @@
 
 import { currentTrace, debugStageEnd, isTracingEnabled } from "../debug/tracer";
 import type { SpanKind } from "../debug/types";
+import { abortedResponse } from "../http/abort";
 import type { IgnexContext } from "../http/context";
 import { applySet } from "../http/headers";
 import { errorToResponse } from "../platform/errors";
@@ -326,7 +327,8 @@ export const runLifecycle = async (
   // short-circuited: hooks and the handler never run (the client is gone).
   // Matches Elysia's behavior (200 empty). Aborts DURING handling remain
   // observable via `ctx.req.signal` so app code can cancel its own work.
-  if (ctx.req.signal.aborted) return new Response(null, { status: 200 });
+  // Shared with the AOT core fn (`http/abort.ts`) so the two paths agree.
+  if (ctx.req.signal.aborted) return abortedResponse();
 
   // `current` mirrors the ctx seen by the error stage: it is advanced after
   // the pre-handler chain succeeds so a parse/handler failure reports the ctx

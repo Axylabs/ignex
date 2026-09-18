@@ -73,6 +73,26 @@ Bun native router (path/method match)
   → error stage on throw (guarded, never masks the original)
 ```
 
+## Pre-aborted requests
+
+A request whose `req.signal` is ALREADY aborted before the pipeline starts is
+short-circuited to an empty `200` — no hooks, no validation, no handler — on
+both paths:
+
+- **Interpreted** — `runLifecycle` checks `ctx.req.signal.aborted` first and
+  returns `abortedResponse()` (`packages/core/src/http/abort.ts`).
+- **AOT-compiled** — every generated route core fn opens with
+  `if (req.signal.aborted) return __abortedResponse;`, where `__abortedResponse`
+  is the same shared helper hoisted once at boot. Context creation, the
+  pre-handler stages, validation, and the handler are all skipped.
+
+The client is gone, so the work would be wasted; the empty `200` matches the
+interpreted path and Elysia. Aborts that happen WHILE handling remain
+observable to app code via `ctx.req.signal`, so a slow handler can still cancel
+its own work. The behavior is pinned by `packages/core/test/abort-port.test.ts`
+(interpreted), `packages/compiler/test/abort-port.test.ts` (compiled), and the
+plain-Bun `scripts/verify-aot-abort.ts` (build → boot → invoke).
+
 ## 404 / 405 / OPTIONS / HEAD
 
 - **Unmatched path** → `404 { error, status, code }` (same envelope as the

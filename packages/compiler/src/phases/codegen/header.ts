@@ -84,6 +84,16 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   // `new TextEncoder()` per response allocated a fresh encoder per reply.
   header.push(`const __encoder = new TextEncoder();`);
 
+  // Pre-aborted-request short-circuit, shared with the interpreted lifecycle
+  // (`abortedResponse()` in @ignex/core). Hoisted so an already-gone client
+  // pays ZERO per-request allocation: the route core fns return this same
+  // bodyless 200 before creating a context, running hooks, or calling the
+  // handler. Mirrors `runLifecycle`'s pre-check so AOT and interpreted agree.
+  // `@__PURE__` lets the linker drop the constant + its import entirely on
+  // constant-only builds (no core fn references it).
+  header.push(`const __abortedResponse = /* @__PURE__ */ abortedResponse();`);
+  state.usedCore.add("abortedResponse");
+
   header.push(`const EXPOSE_ERRORS = ${cfg.exposeErrorDetails ? "true" : "false"};`);
   header.push(`const __TRACE = ${cfg.enableTraceHeaders ? "true" : "false"};`);
   header.push(`const __ACCESS_LOG = ${cfg.enableAccessLog ? "true" : "false"};`);

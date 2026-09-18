@@ -227,6 +227,10 @@ export type {
   SystemStats,
 } from "./debug/types";
 // ── http ────────────────────────────────────────────────────────
+// Value export: the AOT-generated route core fn hoists `abortedResponse()`
+// into a module constant and the interpreted lifecycle calls it for a
+// pre-aborted request, so it must be reachable from the entry.
+export { abortedResponse } from "./http/abort";
 export type { LazyBody, LazyBodyOptions } from "./http/body";
 export { BodyParseError, createLazyBody, readBodyBounded } from "./http/body";
 export type { ContextOptions, IgnexContext, IgnexServer } from "./http/context";

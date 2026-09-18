@@ -90,6 +90,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     : "";
 
   return `${sync ? "" : "async "}function ${coreName}(req, params, server) {
+  if (req.signal.aborted) return __abortedResponse;
   let ctx;
   try {
     ${pre.join("\n")}
@@ -179,6 +180,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
     : "";
 
   const syncBody = `function ${coreName}(req, params, server) {
+  if (req.signal.aborted) return __abortedResponse;
   let ctx;
   try {
     ${pre.join("\n")}
