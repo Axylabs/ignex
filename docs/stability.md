@@ -157,6 +157,24 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   > (`bun run bench:server:baseline`) before treating failures as
   > authoritative.
 
+### 🟠 Compare gate could pass on stale reports (fixed)
+
+- **Status:** ✅ 2026-09-19 — `scripts/check-compare-gate.ts` reads **saved**
+  reports, so a stale `bench/results/compare/` tree could pass while fresh code
+  regressed. The gate now:
+  - has a stale-evidence guard — every compared report's `generatedAt`
+    (falling back to file mtime) must be newer than the producer reference
+    (`--since`, default = the newest `bench/compare/**/*.ts` mtime; missing
+    timestamps count as stale);
+  - exposes `--allow-stale` (deliberate old-tree re-check) and `--since`;
+  - proves it can fail via a deterministic `--self-test`
+    (`bun run bench:compare:gate:self`, wired into `verify:perf` as its first
+    step): injected ×10 p50 regression must violate, control must pass, stale /
+    timestamp-less reports must be rejected.
+  The p50 decision lives in the pure `scripts/lib/compare-gate.ts`, so the CLI
+  and self-test share it and it is unit-reasonable without a bench run.
+  `KNOWN_SLOWER` / `GATE_TOLERANCE` semantics are unchanged.
+
 ### 🟡 `@ignex/native` memory-exhaustion cap (fixed)
 
 - **Status:** ✅ 2026-08-17 — `MAX_VAR_OUTPUT` lowered 1 GiB → 128 MiB,
@@ -193,13 +211,14 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 |---|---|
 | `bun run verify` | Fast local gate: typecheck (root+cli) + lint (oxlint+biome) + tests + JSDoc strict. |
 | `bun run verify:full` | Local equivalent of the CI `quality` job: adds coverage thresholds, build, smoke (native+fallback), cache-version check. |
-| `bun run verify:perf` | `bench:server:check` + `bench:compare:check` (perf regression gates). |
+| `bun run verify:perf` | `bench:compare:gate:self` + `bench:server:check` + `bench:compare:check` + `bench:compare:gate` (perf regression gates; the compare gate now refuses stale reports). |
 | `bun run bench:server:baseline` | Re-runs `bench:server` and promotes `latest.json` → the committed server-bench baseline (run on the CI runner class). |
 | `bun run bench:server:check:self` | Deterministic self-test of the server-bench comparator (no benchmark run). |
+| `bun run bench:compare:gate:self` | Deterministic self-test of the compare gate — injected p50 regression must fail, control must pass, stale/timestamp-less reports must be rejected (no benchmark run). |
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
 | `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |
-| `bun run bench:compare:gate` | Elysia-relative perf gate: ignus-aot per-route median p50 ≤ elysia × tolerance (default 1.10; KNOWN_SLOWER scenarios looser). Nightly job. |
+| `bun run bench:compare:gate` | Elysia-relative perf gate: ignus-aot per-route median p50 ≤ elysia × tolerance (default 1.10; KNOWN_SLOWER scenarios looser) **and** every compared report newer than the producer reference (default = newest `bench/compare/**/*.ts` mtime; `--since` / `--allow-stale` override). Nightly job. |
 
 ### CI gate matrix (see `.github/workflows/ci.yml`)
 

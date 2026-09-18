@@ -73,6 +73,8 @@ bun run bench:compare:stress      # 03-stress
 bun run bench:compare:soak        # 05-soak + 18-json-validation-soak (long)
 bun run bench:compare             # all non-soak scenarios, all servers
 bun run bench:compare:check       # gate: 0 unexpected failures, cross-server parity
+bun run bench:compare:gate        # gate: ignus-aot p50 ≤ elysia p50 × tolerance + freshness
+bun run bench:compare:gate:self   # deterministic self-test of the compare gate
 ```
 
 The orchestrator (`bench/compare/run-bench.ts`) boots each server on its own
@@ -145,6 +147,46 @@ load-bearing:
 Latency percentiles use a log-bucket histogram (1.1% relative error) instead of
 retaining every sample: merging N shards is then exact, and memory stays flat on
 long soaks.
+
+## The Elysia-relative gate (`bench:compare:gate`)
+
+`bun run bench:compare:gate` turns the report tree into a pass/fail claim: for
+every scenario that both `elysia` and `ignus-aot` produced, the median per-route
+p50 of `ignus-aot` must be ≤ that of `elysia` × tolerance (`GATE_TOLERANCE`,
+default `1.10`). Scenarios where ignus-aot is expected to trail use the looser
+per-scenario tolerances in `KNOWN_SLOWER` (`03-stress` 1.35×, `06-edge-cases`
+1.25×, …). A scenario with no route p50 data is a violation, never a silent
+pass.
+
+### Stale-evidence guard
+
+The gate reads **saved** reports, so a report tree that predates the code it is
+supposed to describe could pass while fresh code regressed. Every compared
+report must therefore be newer than a producer reference:
+
+- **Timestamp** = the report's own `generatedAt` (preferred — it cannot be
+  rewritten by a copy/checkout), falling back to the file mtime when absent.
+- **Reference** = `--since <ISO-8601 | epoch-ms>`, defaulting to the newest
+  `bench/compare/**/*.ts` mtime — i.e. if the benchmark harness or the measured
+  app source changed **after** the run, the results are stale.
+- A report with no timestamp at all counts as stale (missing evidence is not
+  fresh evidence).
+- `--allow-stale` disables the guard for a deliberate re-check of an old tree.
+
+Stale reports print one line each and fail the gate (`exit 1`); re-run
+`bun run bench:compare` to refresh. The CLI prints the resolved reference time
+on every run.
+
+### Self-test
+
+`bun run bench:compare:gate:self` (wired into `verify:perf` as its first step)
+proves the gate can **fail**: a control within tolerance passes, an injected
+×10 p50 regression violates, the `KNOWN_SLOWER` tolerances are honoured on both
+sides, and the stale guard rejects an old / timestamp-less report while
+`--allow-stale` opts out. It is deterministic and needs no benchmark run; when a
+saved report pair exists it additionally clones + regresses it to exercise the
+real loader. The decision itself lives in the pure
+`scripts/lib/compare-gate.ts`.
 
 ## Methodology notes (ported from the rust project)
 
