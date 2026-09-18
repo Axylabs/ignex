@@ -21,11 +21,13 @@ import { createPatternMatcher, type RoutePattern } from "./plugin";
 
 /** A direct plugin hook in a fused chain: the plugin's own `onRequest`/`onResponse`
  * (or its pattern-wrapped form). `undefined` passes through, a `Response` halts
- * (pre) or replaces (post). */
-export type FusedFn = (ctx: IgnexContext, response?: Response) => unknown;
+ * (pre) or replaces (post). Internal to this module (the compiler's generated
+ * output never imports these types, and no public API surfaces them) — emitted
+ * lanes are plain JS. */
+type FusedFn = (ctx: IgnexContext, response?: Response) => unknown;
 
 /** Boot-composed direct plugin-hook chains (see {@link buildFusedChains}). */
-export interface FusedChains {
+interface FusedChains {
   /** Direct onRequest fns in registration order (pattern-wrapped). */
   readonly preParse: readonly FusedFn[];
   /** Direct onResponse fns in REVERSE registration order (pattern-wrapped). */
@@ -33,7 +35,7 @@ export interface FusedChains {
 }
 
 /** Outcome of running a fused chain: continue with `ctx`, or halt with a `response`. */
-export interface FusedResult {
+interface FusedResult {
   ctx: IgnexContext;
   response?: Response;
 }
