@@ -8,7 +8,7 @@
  * has attributed its whole plugin layer statically can instead compose the
  * plugin hooks DIRECTLY at boot (once) and run them with the narrow
  * interpretation this module implements — the plugin contract itself
- * (`Response` | truthy ctx | `undefined` | Promise). Per-request savings:
+ * (`Response` | truthy ctx | `undefined` | thenable). Per-request savings:
  * no container wrapper frame, no synthesized result object, no stage-array
  * walk. `buildFusedChains` mirrors `pluginsToLifeCycle`'s filter/pattern/
  * order decisions exactly, so the two chains are equivalent by construction;
@@ -50,8 +50,20 @@ const isPluginLike = (v: unknown): v is PluginLike =>
   typeof v === "object" && v !== null && "name" in v;
 
 /**
+ * True when `value` is a thenable (Promise or PromiseLike). Mirrors the
+ * runtime's `isThenable` (plugin.ts): the RUNTIME calls plugin hooks through
+ * containers that normalize thenables into real Promises before `runHooks`
+ * sees them, but the fused runners call the plugin hooks DIRECTLY — so they
+ * must detect and await any thenable themselves to match `pluginsToLifeCycle`
+ * + `runHooks` exactly (a bare PromiseLike is a legal plugin-hook result).
+ */
+const isThenable = <T>(value: T | PromiseLike<T> | undefined): value is PromiseLike<T> =>
+  value != null && typeof (value as { then?: unknown }).then === "function";
+
+/**
  * Compose direct plugin-hook chains from the runtime plugin objects.
- * Mirrors `pluginsToLifeCycle` (plugin.ts): dev-only plugins are dropped,
+ * Mirrors `pluginsToLifeCycle` (plugin.ts): the list is flattened the same
+ * way (factories may return nested bundles), dev-only plugins are dropped,
  * unscoped hooks stay direct, scoped hooks are wrapped with their compiled
  * matcher (reading `ctx.path` ONLY for scoped plugins), and onResponse runs
  * in reverse registration order (onion way-out).
@@ -59,7 +71,7 @@ const isPluginLike = (v: unknown): v is PluginLike =>
 export const buildFusedChains = (plugins: readonly unknown[]): FusedChains => {
   const preParse: FusedFn[] = [];
   const post: FusedFn[] = [];
-  for (const p of plugins) {
+  for (const p of plugins.flat()) {
     if (!isPluginLike(p) || p.__ignexDevOnly === true) continue;
     const matcher = p.pattern === undefined ? null : createPatternMatcher(p.pattern);
     const { onRequest, onResponse } = p;
@@ -90,7 +102,7 @@ const settle = (raw: unknown, fallback: IgnexContext): FusedResult => {
 
 /**
  * Run the pre-handler plugin chain. Sync-fast: the all-sync path returns a
- * plain `FusedResult`; the FIRST promise result seeds the async continuation
+ * plain `FusedResult`; the FIRST thenable result seeds the async continuation
  * for itself and every later fn (exactly one call per plugin, mirroring
  * `runHooks`'s thenable branch).
  */
@@ -101,7 +113,7 @@ export const runFusedPre = (
   let current = ctx;
   for (let i = 0; i < fns.length; i++) {
     const r = fns[i]!(current);
-    if (r instanceof Promise) {
+    if (isThenable(r)) {
       return (async () => {
         const out = settle(await r, current);
         return out.response !== undefined ? out : runFusedPreFrom(fns, i + 1, out.ctx);
@@ -121,7 +133,7 @@ async function runFusedPreFrom(
   let current = ctx;
   for (let i = start; i < fns.length; i++) {
     const r = fns[i]!(current);
-    if (r instanceof Promise) {
+    if (isThenable(r)) {
       const out = settle(await r, current);
       if (out.response !== undefined) return out;
       current = out.ctx;
@@ -147,7 +159,7 @@ export const runFusedPost = (
   let current: Response | undefined = response;
   for (let i = 0; i < fns.length; i++) {
     const r = fns[i]!(ctx, current as Response);
-    if (r instanceof Promise) {
+    if (isThenable(r)) {
       return (async () => {
         const raw = (await r) as Response | undefined;
         const next = raw instanceof Response ? raw : current;
@@ -169,7 +181,7 @@ async function runFusedPostFrom(
   let current: Response | undefined = response;
   for (let i = start; i < fns.length; i++) {
     const r = fns[i]!(ctx, current as Response);
-    if (r instanceof Promise) {
+    if (isThenable(r)) {
       const raw = (await r) as Response | undefined;
       if (raw instanceof Response) current = raw;
       continue;
