@@ -243,6 +243,39 @@ const __hasMapResponse = (__lc.mapResponse ?? []).length > 0;
 const __hasAfterResponse = (__lc.afterResponse ?? []).length > 0;
 const __hasTrace = (__lc.trace ?? []).length > 0;`);
 
+  // Fused lifecycle dispatchers (WS1): when the app's plugin layer is fully
+  // statically attributed AND carries no user lifecycle, the artifact
+  // composes DIRECT plugin-hook chains at boot and runs them with the narrow
+  // fused runners (core/lifecycle/fused.ts) instead of walking the
+  // HookContainer stage arrays — no per-hook synthesized result object, no
+  // container dispatch. `__fusedOK` is a boot-time STRUCTURAL gate: the fused
+  // chain must exactly mirror the runtime stage counts (plugins produce only
+  // `request` + a composed `afterHandle` container; user lifecycle hooks
+  // would add containers and trip one of the count checks). Any mismatch
+  // falls back to `runHooks`, so the emitted lanes behave identically either
+  // way. The dispatchers are emitted in EVERY build (config-less servers get
+  // the runHooks-only fallback) so the route lanes have one emission shape.
+  if (state.hasAppConfig) {
+    header.push(`const __fused = buildFusedChains(__appPlugins);
+const __fusedOK =
+  __fused.preParse.length === __preParseStages.length &&
+  __lc.mapResponse.length === 0 &&
+  __lc.afterHandle.length === (__fused.post.length > 0 ? 1 : 0);
+const __runPreParse = __fusedOK
+  ? (ctx) => runFusedPre(__fused.preParse, ctx)
+  : (ctx) => runHooks(__preParseStages, ctx);
+const __runAfter = __fusedOK
+  ? (ctx, response) => runFusedPost(__fused.post, ctx, response)
+  : (ctx, response) => runHooks(__lc.afterHandle, ctx, response);`);
+    state.usedCore.add("buildFusedChains");
+    state.usedCore.add("runFusedPre");
+    state.usedCore.add("runFusedPost");
+  } else {
+    header.push(`const __fusedOK = false;
+const __runPreParse = (ctx) => runHooks(__preParseStages, ctx);
+const __runAfter = (ctx, response) => runHooks(__lc.afterHandle, ctx, response);`);
+  }
+
   // Measurement-only ablation of the generated route wrapper. Enabled at BUILD
   // time with IGNEX_ABLATE_BUILD=1 and selected per server process with
   // IGNEX_ABLATE=<finalize|hooks|applyset>, so ONE build can be driven as many

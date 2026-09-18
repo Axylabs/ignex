@@ -46,8 +46,12 @@ import { projectPath } from "./utils/path";
  * the pinned EdDSA JWT ops now actually resolve their addon symbol (the
  * napi `jwtSignEddsa` vs op name `jwtSignEdDsa` mismatch defeated the pin) —
  * the SELECTION baked into generated servers changed on Bun.
+ * 0.9.15 — WS1 lifecycle fusion: generated headers now emit the fused
+ * lifecycle dispatchers (`__fused`/`__fusedOK`/`__runPreParse`/`__runAfter`)
+ * and route lanes call them; generated output shape changed, so stale whole-
+ * build caches must be invalidated.
  */
-export const COMPILER_CACHE_VERSION = "0.9.14";
+export const COMPILER_CACHE_VERSION = "0.9.15";
 
 const CACHE_FILE = ".ignex-cache.json";
 
