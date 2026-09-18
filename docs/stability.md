@@ -128,8 +128,8 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   `bench/results/server/baseline.json` was added; job stayed soft pending
   `/api/big`. **✅ 2026-08-19** — `/api/big` closed (~2% native-mode gap), so
   the job is a **hard** gate again.
-- **⚠️ Corrected 2026-09-17:** the baseline is **not** in the repo —
-  `git ls-files bench/results/` lists only the four selection JSONs. The
+- **⚠️ Corrected 2026-09-17:** the baseline was **not** in the repo —
+  `git ls-files bench/results/` listed only the four selection JSONs. The
   negation was also **dead**: `bench/results/server` excluded the directory
   itself, and git cannot re-include a file under an excluded directory. The
   pattern is now `bench/results/server/*` + `!…/baseline.json`, so a baseline
@@ -137,6 +137,17 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   `latest.json` (`baseline = latest`) and therefore only detects
   native-vs-fallback drift **within** a run, not regressions across runs. See
   §6 item 11.
+- **✅ Resolved 2026-09-19:** `bench/results/server/baseline.json` is now
+  committed (from a real `bun run bench:server` run) and
+  `scripts/check-server-bench.ts` compares `latest.json` against it, so a
+  native-vs-baseline regression **across runs** fails the gate (the
+  baseline-relative check only applies when run params match; the in-run
+  native-vs-fallback check is always applied). Refresh it with
+  `bun run bench:server:baseline` — re-runs `bench:server`, then copies
+  `latest.json` → `baseline.json` and prints the route table. Do this on the
+  same runner class as CI, or the absolute req/s is not comparable. The
+  comparison is a pure module (`scripts/lib/server-bench-compare.ts`) with a
+  deterministic `--self-test` (`bun run bench:server:check:self`).
 
 ### 🟡 `@ignex/native` memory-exhaustion cap (fixed)
 
@@ -175,6 +186,8 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 | `bun run verify` | Fast local gate: typecheck (root+cli) + lint (oxlint+biome) + tests + JSDoc strict. |
 | `bun run verify:full` | Local equivalent of the CI `quality` job: adds coverage thresholds, build, smoke (native+fallback), cache-version check. |
 | `bun run verify:perf` | `bench:server:check` + `bench:compare:check` (perf regression gates). |
+| `bun run bench:server:baseline` | Re-runs `bench:server` and promotes `latest.json` → the committed server-bench baseline (run on the CI runner class). |
+| `bun run bench:server:check:self` | Deterministic self-test of the server-bench comparator (no benchmark run). |
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
 | `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |
@@ -189,8 +202,9 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   `verify:native:ffi` + `verify:native:route` (plain Bun), C-ABI forced + NAPI
   forced suites, batch stability probe.
 - **`server-bench`** (hard): server bench + native-vs-fallback check, plus the
-  regression check against `bench/results/server/baseline.json` **when one is
-  committed** (none is committed today — see the baseline risk row in §2).
+  regression check against the committed `bench/results/server/baseline.json`
+  (refreshed via `bun run bench:server:baseline`; see the baseline risk row in
+  §2).
   It was soft until the `/api/big` investigation closed the ~2% native-mode gap
   (2026-08-19); the `/api/big` risk rows below are the history of that.
 - **`nightly.yml`** (scheduled 02:00 UTC): native parity + C-ABI, perf regression,
@@ -280,8 +294,10 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     hoisting guards into the route config lets the compiler keep constant-folding
     those routes. Includes the EdDSA-vs-HS256 FFI sign/verify bench that decides
     whether EdDSA belongs in `FFI_WINS`.
-11. **Commit a `bench/results/server/baseline.json`** (the ignore pattern is now
-    correct, so it can be). Measure it on the same runner class as CI, or the
-    numbers are not comparable — `check-server-bench.ts` only compares when the
-    run parameters match, and without a baseline it degrades to
-    `baseline = latest`.
+11. ~~**Commit a `bench/results/server/baseline.json`** (the ignore pattern is
+    now correct, so it can be).~~ ✅ 2026-09-19 — committed from a real
+    `bun run bench:server` run; refresh with `bun run bench:server:baseline`.
+    `check-server-bench.ts` now compares `latest.json` against it whenever the
+    run parameters match (otherwise it degrades to the in-run
+    native-vs-fallback check). Measure on the same runner class as CI, or the
+    numbers are not comparable.

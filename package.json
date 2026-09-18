@@ -61,6 +61,8 @@
     "bench:bun-internals": "bun scripts/bench-bun-internals.ts",
     "bench:server": "bun scripts/bench-server.ts",
     "bench:server:check": "bun scripts/check-server-bench.ts",
+    "bench:server:check:self": "bun scripts/check-server-bench.ts --self-test",
+    "bench:server:baseline": "bun run bench:server && bun scripts/check-server-bench.ts --update-baseline",
     "bench:compare": "bun bench/compare/run-bench.ts",
     "bench:compare:verify": "bun bench/compare/verify-contract.ts",
     "bench:compare:cpu": "bun bench/compare/cpu.ts",
