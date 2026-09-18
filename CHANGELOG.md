@@ -47,6 +47,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **AOT servers run plugin hooks through fused lifecycle lanes.** When the whole
+  plugin layer is statically attributed and carries no user lifecycle, the
+  generated server composes the plugin hooks directly at boot
+  (`buildFusedChains`, `@ignex/core`) and dispatches them with the narrow
+  `runFusedPre`/`runFusedPost` runners instead of walking the HookContainer
+  stage arrays per request — no container wrapper frame, no synthesized result
+  object per hook. The dispatchers are emitted in every build behind a
+  boot-time structural gate (`__fusedOK`), falling back to `runHooks` on any
+  count mismatch, so emitted semantics are identical either way; correctness is
+  pinned by a fused-vs-runtime parity net and the compiled smoke gates.
+  `COMPILER_CACHE_VERSION` bumped to 0.9.15.
 - **`@ignex/native`'s ingress C-ABI binding now comes from castrum itself.**
   `getFfiIngress()` delegates to the shared `getIngressBinding()` export
   (castrum ≥ 0.9.7): the duplicate `dlopen` symbol map, `buffer`/`buffer_length`

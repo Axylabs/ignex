@@ -282,6 +282,13 @@ Refreshed from the 2026-09-14 baseline (`bun` 23.28µs … `ignus-aot` 33.24µs,
 1.428x) after the specialized-context tier landed 2026-09-15 → 09-18 — that
 work moved the AOT ratio from **1.428x down to 1.306x**.
 
+Same-day WS1 refresh (after fused lifecycle lanes, 09-18): `bun` 22.49µs,
+`ignus` 33.42µs, `ignus-aot` 28.68µs (**1.275x**). The ~0.7µs/req move is
+below the §6 resolution floor (round spread 28.47–30.10µs overlaps the WS0
+value), so the fused lanes are argued *structurally*, not from this run
+(§7.2) — semantics parity is gated by the boot-time `__fusedOK` count check +
+the fused-vs-runtime parity net.
+
 #### Resolution limit — read this before concluding "no change"
 
 **`bench:compare:cpu`'s ratio has ±2–3% run-to-run noise.** Concretely: the
@@ -355,6 +362,16 @@ cost is *dispatching* the work, not doing it.
   `GET /health` request after full `gc()` settles at **~1–5 B** (5 rounds × 10k
   reqs, 32-way; median 68.5 B once the first rounds' JIT warm-up transients are
   included) — the request path retains essentially nothing per request.
+- **WS1 fused lifecycle lanes (2026-09-18):** an app whose whole plugin layer is
+  statically attributed and carries no user lifecycle now composes the plugin
+  hooks DIRECTLY at boot (`buildFusedChains` → `runFusedPre`/`runFusedPost` in
+  `core/lifecycle/fused.ts`) instead of walking the HookContainer stage arrays
+  on every request. Per-request saving by construction: no container wrapper
+  frame, no synthesized `{ ctx }` result object per hook, no stage-array walk.
+  The compiler emits the dispatchers in every build with a boot-time structural
+  gate (`__fusedOK` count check) and falls back to `runHooks` on any mismatch,
+  so the lanes are identical semantics by construction; correctness is gated by
+  the fused-vs-runtime parity net and the emitted-lane smoke runs.
 
 ### 7.3 Ruled-out hypotheses — do not re-attempt
 
