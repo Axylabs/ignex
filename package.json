@@ -75,6 +75,7 @@
     "bench:realworld": "bun scripts/bench-realworld.ts",
     "bench:hotpath": "bun scripts/bench-hotpath.ts",
     "bench:allocations": "bun --expose-gc scripts/bench-allocations.ts",
+    "check:rss": "bun scripts/check-rss-stability.ts",
     "bench:server:routes": "bun scripts/bench-server-routes.ts",
     "fuzz:malformed": "bun scripts/fuzz-malformed-input.ts",
     "bench:products": "oha http://localhost:3000/products/123",
