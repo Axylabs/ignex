@@ -17,14 +17,16 @@
  *   (none)             run the gate (default)
  *   --self-test        run deterministic synthetic checks of the comparator and
  *                      exit 0/1 (no benchmark run, no files needed)
- *   --update-baseline  copy `latest.json` → `baseline.json` and print the route
- *                      table (used by `bun run bench:server:baseline`)
+ *   --update-baseline  promote `latest.json` → `baseline.json` (with a trailing
+ *                      newline) and print the route table; fails loudly if the
+ *                      latest run is missing `native`/`fallback` modes
+ *                      (used by `bun run bench:server:baseline`)
  *
  * Env overrides:
  *   NATIVE_RPS_REGRESSION     — allowed native-vs-baseline drop (default 0.10)
  *   NATIVE_VS_FALLBACK_DEGRADE— allowed native-vs-fallback drop (default 0.15)
  */
-import { copyFile, readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   compareServerReports,
@@ -55,12 +57,31 @@ function printRouteTable(report: ServerBenchReport): void {
   }
 }
 
-/** `--update-baseline`: promote the current latest run to the committed baseline. */
+/**
+ * `--update-baseline`: promote the current latest run to the committed baseline.
+ *
+ * Fails loudly if `latest.json` is missing or does not contain both `native` and
+ * `fallback` modes — a partial run must never become the baseline (the gate
+ * needs both to apply its checks).
+ */
 async function updateBaseline(): Promise<void> {
-  const latest = await readReport("latest.json");
-  await copyFile(join(RESULTS_DIR, "latest.json"), join(RESULTS_DIR, "baseline.json"));
+  const latestPath = join(RESULTS_DIR, "latest.json");
+  const raw = await readFile(latestPath, "utf8");
+  const latest = JSON.parse(raw) as ServerBenchReport;
+
+  const modes = new Set(latest.modes.map((m) => m.mode));
+  const missing = ["native", "fallback"].filter((m) => !modes.has(m));
+  if (missing.length > 0) {
+    console.error(
+      `cannot update baseline: latest.json is missing mode(s) ${missing.join(", ")} — re-run \`bun run bench:server\` with MODE=both (or all).`,
+    );
+    process.exit(1);
+  }
+
+  const baselinePath = join(RESULTS_DIR, "baseline.json");
+  await writeFile(baselinePath, raw.endsWith("\n") ? raw : `${raw}\n`);
   printRouteTable(latest);
-  console.log(`\nbaseline updated from latest.json: ${join(RESULTS_DIR, "baseline.json")}`);
+  console.log(`\nbaseline updated from latest.json: ${baselinePath}`);
 }
 
 type BenchParams = Pick<ServerBenchReport, "durationSec" | "warmupSec" | "concurrency" | "repeats">;
@@ -168,10 +189,15 @@ async function runGate(): Promise<void> {
   let baseline: ServerBenchReport;
   try {
     baseline = await readReport("baseline.json");
-  } catch {
-    // No committed baseline yet — the latest run becomes the reference.
-    // (This degrades to the in-run native-vs-fallback check only.)
-    baseline = latest;
+  } catch (err) {
+    // baseline.json is committed; a missing/unreadable baseline must be LOUD.
+    // Silently falling back to `latest` would only re-run the in-run
+    // native-vs-fallback check and could print "gate OK" — exactly the
+    // false-assurance this gate exists to prevent.
+    console.error(
+      `server-bench gate cannot run: baseline.json is missing or unreadable (${err instanceof Error ? err.message : String(err)}). Run \`bun run bench:server:baseline\` to create it.`,
+    );
+    process.exit(1);
   }
 
   const { failures, paramsMatch } = compareServerReports(latest, baseline, thresholds);
@@ -194,7 +220,9 @@ async function runGate(): Promise<void> {
 const args = process.argv.slice(2);
 
 if (args.includes("--self-test")) {
-  process.exit(runSelfTest() ? 0 : 1);
+  // Only exit(1) on failure; on success fall through so redirected stdout is
+  // flushed before the process ends (process.exit can truncate it).
+  if (!runSelfTest()) process.exit(1);
 } else if (args.includes("--update-baseline")) {
   await updateBaseline();
 } else {

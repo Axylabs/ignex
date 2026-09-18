@@ -142,12 +142,20 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
   `scripts/check-server-bench.ts` compares `latest.json` against it, so a
   native-vs-baseline regression **across runs** fails the gate (the
   baseline-relative check only applies when run params match; the in-run
-  native-vs-fallback check is always applied). Refresh it with
-  `bun run bench:server:baseline` — re-runs `bench:server`, then copies
-  `latest.json` → `baseline.json` and prints the route table. Do this on the
-  same runner class as CI, or the absolute req/s is not comparable. The
-  comparison is a pure module (`scripts/lib/server-bench-compare.ts`) with a
-  deterministic `--self-test` (`bun run bench:server:check:self`).
+  native-vs-fallback check is always applied). A missing/unreadable
+  `baseline.json` now **fails the gate loudly** (exit 1) instead of silently
+  comparing against `latest`. Refresh it with `bun run bench:server:baseline`
+  — re-runs `bench:server`, then promotes `latest.json` → `baseline.json`
+  (fails if the latest run lacks `native`/`fallback` modes) and prints the
+  route table. The comparison is a pure module
+  (`scripts/lib/server-bench-compare.ts`) with a deterministic `--self-test`
+  (`bun run bench:server:check:self`).
+  > **Runner-class caveat (read before trusting a failure):** the committed
+  > baseline was measured on a **dev-class host** (2026-09-18, bun 1.4.2), not
+  > the CI runner. A CI runner >10% slower will false-fail the
+  > baseline-relative check. Refresh `baseline.json` on the CI runner class
+  > (`bun run bench:server:baseline`) before treating failures as
+  > authoritative.
 
 ### 🟡 `@ignex/native` memory-exhaustion cap (fixed)
 
@@ -299,5 +307,8 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     `bun run bench:server` run; refresh with `bun run bench:server:baseline`.
     `check-server-bench.ts` now compares `latest.json` against it whenever the
     run parameters match (otherwise it degrades to the in-run
-    native-vs-fallback check). Measure on the same runner class as CI, or the
-    numbers are not comparable.
+    native-vs-fallback check) and **fails loudly** if `baseline.json` is
+    missing. **The committed baseline was measured on a dev-class host** — a CI
+    runner >10% slower will false-fail the baseline-relative check; refresh it
+    on the CI runner class (`bun run bench:server:baseline`) before treating
+    failures as authoritative.
