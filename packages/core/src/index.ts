@@ -308,6 +308,8 @@ export {
   type WSConnections,
   type WSUpgradeOptions,
 } from "./http/ws";
+export type { FusedChains, FusedFn, FusedResult } from "./lifecycle/fused";
+export { buildFusedChains, runFusedPost, runFusedPre } from "./lifecycle/fused";
 // ── lifecycle ───────────────────────────────────────────────────
 export type { HookFn, HookResult } from "./lifecycle/hooks";
 export {

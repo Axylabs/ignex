@@ -40,6 +40,8 @@ import {
 } from "./plugin";
 import { buildPostStages, buildPreStages, runLifecycle } from "./run";
 
+export type { FusedChains, FusedFn, FusedResult } from "./fused";
+export { buildFusedChains, runFusedPost, runFusedPre } from "./fused";
 export {
   buildPostStages,
   buildPreStages,
