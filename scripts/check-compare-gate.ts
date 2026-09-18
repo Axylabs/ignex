@@ -56,9 +56,11 @@ import {
   type CompareScenarioInput,
   type CompareTolerances,
   DEFAULT_COMPARE_TOLERANCE,
+  DEFAULT_COMPARE_TOLERANCES,
   evaluateCompareGate,
   evaluateFreshness,
   KNOWN_SLOWER,
+  medianRouteP50,
   reportFreshness,
 } from "./lib/compare-gate";
 
@@ -159,22 +161,32 @@ function parseArgs(args: string[]): {
   selfTest: boolean;
   allowStale: boolean;
   since: string | undefined;
+  sinceFlagPresent: boolean;
 } {
   let since: string | undefined;
+  let sinceFlagPresent = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === undefined) continue;
     if (arg === "--since") {
-      since = args[i + 1];
+      sinceFlagPresent = true;
+      const next = args[i + 1];
+      // A following flag is not a value: `--since --allow-stale` (or a trailing
+      // `--since`) is a missing value, reported as a hard error by the caller —
+      // never a silent fallback to the default reference.
+      if (next !== undefined && !next.startsWith("--")) since = next;
       i++;
     } else if (arg.startsWith("--since=")) {
-      since = arg.slice("--since=".length);
+      sinceFlagPresent = true;
+      const inline = arg.slice("--since=".length);
+      if (inline.length > 0) since = inline;
     }
   }
   return {
     selfTest: args.includes("--self-test"),
     allowStale: args.includes("--allow-stale"),
     since,
+    sinceFlagPresent,
   };
 }
 
@@ -188,6 +200,10 @@ function printChecks(evaluation: ReturnType<typeof evaluateCompareGate>): void {
       );
     } else if (check.verdict === "slower") {
       console.error(`  ✗ ${evaluation.violations.find((v) => v.startsWith(`${check.scenario}:`))}`);
+    } else if (check.verdict === "invalid") {
+      console.error(
+        `  ✗ ${check.scenario}: invalid tolerance ${check.tolerance} — refusing to pass`,
+      );
     } else {
       console.error(`  ✗ ${check.scenario}: missing route p50 data`);
     }
@@ -196,6 +212,14 @@ function printChecks(evaluation: ReturnType<typeof evaluateCompareGate>): void {
 
 /** Default mode: evaluate tolerance + freshness over the saved reports. */
 async function runGate(options: { allowStale: boolean; since: string | undefined }): Promise<void> {
+  if (!Number.isFinite(tolerances.default)) {
+    // Fail CLOSED before touching reports: a malformed GATE_TOLERANCE must never
+    // make the gate pass. (The pure decision also guards, per-scenario.)
+    console.error(
+      `[compare-gate] invalid GATE_TOLERANCE "${process.env.GATE_TOLERANCE}" — refusing to run.`,
+    );
+    process.exit(1);
+  }
   const scenarioList = scenarios();
   if (scenarioList.length === 0) {
     console.error("[compare-gate] no shared scenario reports found — run bench:compare first.");
@@ -207,6 +231,15 @@ async function runGate(options: { allowStale: boolean; since: string | undefined
     const elysia = load("elysia", scenario);
     const aot = load("ignus-aot", scenario);
     if (elysia && aot) loaded.push({ scenario, elysia, aot });
+  }
+
+  // Never reach "OK … on all 0 scenarios": reports listed but none loadable is a
+  // failure, not a pass.
+  if (loaded.length === 0) {
+    console.error(
+      `[compare-gate] ${scenarioList.length} shared scenario name(s) listed but no elysia+ignus-aot report pair could be loaded — run bench:compare first.`,
+    );
+    process.exit(1);
   }
 
   console.log(
@@ -221,46 +254,7 @@ async function runGate(options: { allowStale: boolean; since: string | undefined
   printChecks(evaluation);
 
   // ── Stale-evidence guard ──
-  const sinceMs =
-    options.since !== undefined ? parseSince(options.since) : newestProducerMtime(PRODUCER_DIR);
-  let staleCount = 0;
-  if (sinceMs === null) {
-    if (options.since !== undefined) {
-      console.error(
-        `[compare-gate] invalid --since value "${options.since}" (want ISO-8601 or epoch-ms).`,
-      );
-      process.exit(1);
-    }
-    console.warn(
-      "[compare-gate] freshness check skipped: no --since and no bench/compare/**/*.ts source found.",
-    );
-  } else {
-    const freshnessInputs = loaded.flatMap(({ scenario, elysia, aot }) => [
-      reportFreshness("elysia", scenario, elysia.report, elysia.mtimeMs),
-      reportFreshness("ignus-aot", scenario, aot.report, aot.mtimeMs),
-    ]);
-    const freshness = evaluateFreshness(freshnessInputs, sinceMs, {
-      allowStale: options.allowStale,
-    });
-    staleCount = freshness.stale;
-    if (options.allowStale) {
-      console.log(
-        `[compare-gate] freshness guard DISABLED (--allow-stale); reference ${new Date(sinceMs).toISOString()}`,
-      );
-    } else {
-      console.log(
-        `[compare-gate] freshness: reference ${new Date(sinceMs).toISOString()} ` +
-          `(newest bench/compare/ source mtime); ${freshness.checked} report(s) checked`,
-      );
-      if (freshness.stale > 0) {
-        for (const violation of freshness.violations) console.error(`  ✗ ${violation}`);
-        console.error(
-          `[compare-gate] ${freshness.stale} stale report(s) — re-run \`bun run bench:compare\` ` +
-            "or pass --allow-stale to override.",
-        );
-      }
-    }
-  }
+  const { staleCount, referenceMs } = runFreshnessGuard(loaded, options);
 
   if (evaluation.violations.length > 0) {
     console.error(
@@ -272,8 +266,64 @@ async function runGate(options: { allowStale: boolean; since: string | undefined
 
   console.log(
     `[compare-gate] OK — ignus-aot within tolerance on all ${loaded.length} scenarios` +
-      (staleCount === 0 && sinceMs !== null ? " and all reports fresh." : "."),
+      (staleCount === 0 && referenceMs !== null && !options.allowStale
+        ? " and all reports fresh."
+        : "."),
   );
+}
+
+/**
+ * Apply the stale-evidence guard over the compared reports.
+ *
+ * Resolves the producer reference (`--since`, else the newest `bench/compare/**\/*.ts`
+ * mtime), evaluates freshness, prints the outcome, and returns the stale count
+ * plus the resolved reference (`null` when no reference was available, so the
+ * caller does not claim freshness). Exits on an invalid `--since`.
+ */
+function runFreshnessGuard(
+  loaded: Array<{ scenario: string; elysia: LoadedReport; aot: LoadedReport }>,
+  options: { allowStale: boolean; since: string | undefined },
+): { staleCount: number; referenceMs: number | null } {
+  const referenceMs =
+    options.since !== undefined ? parseSince(options.since) : newestProducerMtime(PRODUCER_DIR);
+  if (referenceMs === null) {
+    if (options.since !== undefined) {
+      console.error(
+        `[compare-gate] invalid --since value "${options.since}" (want ISO-8601 or epoch-ms).`,
+      );
+      process.exit(1);
+    }
+    console.warn(
+      "[compare-gate] freshness check skipped: no --since and no bench/compare/**/*.ts source found.",
+    );
+    return { staleCount: 0, referenceMs: null };
+  }
+
+  const freshnessInputs = loaded.flatMap(({ scenario, elysia, aot }) => [
+    reportFreshness("elysia", scenario, elysia.report, elysia.mtimeMs),
+    reportFreshness("ignus-aot", scenario, aot.report, aot.mtimeMs),
+  ]);
+  const freshness = evaluateFreshness(freshnessInputs, referenceMs, {
+    allowStale: options.allowStale,
+  });
+  if (options.allowStale) {
+    console.log(
+      `[compare-gate] freshness guard DISABLED (--allow-stale); reference ${new Date(referenceMs).toISOString()}`,
+    );
+  } else {
+    console.log(
+      `[compare-gate] freshness: reference ${new Date(referenceMs).toISOString()} ` +
+        `(newest bench/compare/ source mtime); ${freshness.checked} report(s) checked`,
+    );
+    if (freshness.stale > 0) {
+      for (const violation of freshness.violations) console.error(`  ✗ ${violation}`);
+      console.error(
+        `[compare-gate] ${freshness.stale} stale report(s) — re-run \`bun run bench:compare\` ` +
+          "or pass --allow-stale to override.",
+      );
+    }
+  }
+  return { staleCount: freshness.stale, referenceMs };
 }
 
 /**
@@ -319,7 +369,7 @@ function runSelfTest(): boolean {
           aot: make("ignus-aot", "01-smoke", [1, 2, 3], FRESH),
         },
       ],
-      tolerances,
+      DEFAULT_COMPARE_TOLERANCES,
     );
     report(
       "control — ratio 1.0 within tolerance",
@@ -338,7 +388,7 @@ function runSelfTest(): boolean {
           aot: make("ignus-aot", "01-smoke", [10, 20, 30], FRESH),
         },
       ],
-      tolerances,
+      DEFAULT_COMPARE_TOLERANCES,
     );
     report(
       "injected regression — x10 p50 violates",
@@ -358,7 +408,7 @@ function runSelfTest(): boolean {
             aot: make("ignus-aot", "03-stress", [ratio], FRESH),
           },
         ],
-        tolerances,
+        DEFAULT_COMPARE_TOLERANCES,
       );
     const inside = at(1.2);
     const outside = at(1.4);
@@ -366,6 +416,32 @@ function runSelfTest(): boolean {
       "KNOWN_SLOWER — x1.2 passes / x1.4 fails 03-stress",
       inside.violations.length === 0 && outside.violations.length === 1,
       `inside=${inside.violations.length}, outside=${outside.violations.length}`,
+    );
+  }
+
+  // 3b. A malformed tolerance must fail CLOSED, never pass. `ratio <= NaN` and
+  // `ratio <= Infinity` would both be false, but the old `ratio > tolerance`
+  // shape made NaN a silent pass — pin the guard.
+  {
+    const malformed = (tolerance: number) =>
+      evaluateCompareGate(
+        [
+          {
+            scenario: "01-smoke",
+            elysia: make("elysia", "01-smoke", [1, 2, 3], FRESH),
+            aot: make("ignus-aot", "01-smoke", [1, 2, 3], FRESH),
+          },
+        ],
+        { default: tolerance, knownSlower: {} },
+      );
+    const nan = malformed(Number.NaN);
+    const inf = malformed(Number.POSITIVE_INFINITY);
+    report(
+      "malformed tolerance — NaN / Infinity fail closed",
+      nan.violations.length === 1 &&
+        nan.checks[0]?.verdict === "invalid" &&
+        inf.violations.length === 1,
+      `nan=${nan.violations.length}, inf=${inf.violations.length}`,
     );
   }
 
@@ -429,7 +505,11 @@ function runSelfTest(): boolean {
 
 /**
  * Clone the first saved elysia/ignus-aot report pair, multiply ignus-aot's p50s
- * by 100, and run the pure gate. `null` when no pair is available.
+ * by 100, and run the pure gate with the DEFAULT tolerances (so the probe is
+ * independent of any hostile `GATE_TOLERANCE`). `null` when no pair is
+ * available, when the aot median p50 is 0 (a ratio stays 0 under any
+ * multiplier, so the probe could not fail), or when the unregressed pair
+ * already violates (the violation could not be attributed to the injection).
  */
 function realReportRegressionProbe(): boolean | null {
   const scenario = scenarios()[0];
@@ -437,13 +517,20 @@ function realReportRegressionProbe(): boolean | null {
   const elysia = load("elysia", scenario);
   const aot = load("ignus-aot", scenario);
   if (!elysia || !aot) return null;
+  const aotMedian = medianRouteP50(aot.report);
+  if (aotMedian === null || aotMedian === 0) return null;
+  const baseline = evaluateCompareGate(
+    [{ scenario, elysia: elysia.report, aot: aot.report }],
+    DEFAULT_COMPARE_TOLERANCES,
+  );
+  if (baseline.violations.length > 0) return null;
   const regressed: CompareReport = {
     ...aot.report,
     routes: aot.report.routes.map((route) => ({ ...route, p50: route.p50 * 100 })),
   };
   const evaluation = evaluateCompareGate(
     [{ scenario, elysia: elysia.report, aot: regressed }],
-    tolerances,
+    DEFAULT_COMPARE_TOLERANCES,
   );
   return evaluation.violations.length > 0;
 }
@@ -456,5 +543,9 @@ if (parsed.selfTest) {
   // flushed before the process ends (process.exit can truncate it).
   if (!runSelfTest()) process.exit(1);
 } else {
+  if (parsed.sinceFlagPresent && parsed.since === undefined) {
+    console.error("[compare-gate] --since requires a value (ISO-8601 date or epoch-ms).");
+    process.exit(1);
+  }
   await runGate({ allowStale: parsed.allowStale, since: parsed.since });
 }

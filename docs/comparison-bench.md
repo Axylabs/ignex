@@ -156,7 +156,8 @@ p50 of `ignus-aot` must be ≤ that of `elysia` × tolerance (`GATE_TOLERANCE`,
 default `1.10`). Scenarios where ignus-aot is expected to trail use the looser
 per-scenario tolerances in `KNOWN_SLOWER` (`03-stress` 1.35×, `06-edge-cases`
 1.25×, …). A scenario with no route p50 data is a violation, never a silent
-pass.
+pass. A malformed (non-finite) `GATE_TOLERANCE` **fails closed** — the gate
+refuses to run rather than letting every comparison pass.
 
 ### Stale-evidence guard
 

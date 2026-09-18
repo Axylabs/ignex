@@ -131,7 +131,7 @@ export interface CompareCheck {
   /** `aotP50 / elysiaP50` when both are present, else `null`. */
   ratio: number | null;
   tolerance: number;
-  verdict: "ok" | "slower" | "missing";
+  verdict: "ok" | "slower" | "missing" | "invalid";
 }
 
 /** Result of evaluating every shared scenario. */
@@ -172,14 +172,22 @@ export function evaluateCompareGate(
     }
 
     const ratio = aotP50 / elysiaP50;
-    if (ratio > tolerance) {
+    if (!Number.isFinite(tolerance)) {
+      // Fail CLOSED: a malformed GATE_TOLERANCE (`NaN`) or an infinite override
+      // must never turn every scenario into a silent pass. The old
+      // `ratio > tolerance` test returned false for NaN — i.e. "ok".
+      checks.push({ scenario, elysiaP50, aotP50, ratio, tolerance, verdict: "invalid" });
+      violations.push(
+        `${scenario}: invalid tolerance ${tolerance} — refusing to pass (check GATE_TOLERANCE / KNOWN_SLOWER)`,
+      );
+    } else if (ratio <= tolerance) {
+      checks.push({ scenario, elysiaP50, aotP50, ratio, tolerance, verdict: "ok" });
+    } else {
       checks.push({ scenario, elysiaP50, aotP50, ratio, tolerance, verdict: "slower" });
       violations.push(
         `${scenario}: ignus-aot ${aotP50.toFixed(3)}ms vs elysia ${elysiaP50.toFixed(3)}ms ` +
           `(x${ratio.toFixed(2)}, tolerance x${tolerance})`,
       );
-    } else {
-      checks.push({ scenario, elysiaP50, aotP50, ratio, tolerance, verdict: "ok" });
     }
   }
 

@@ -211,7 +211,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 |---|---|
 | `bun run verify` | Fast local gate: typecheck (root+cli) + lint (oxlint+biome) + tests + JSDoc strict. |
 | `bun run verify:full` | Local equivalent of the CI `quality` job: adds coverage thresholds, build, smoke (native+fallback), cache-version check. |
-| `bun run verify:perf` | `bench:compare:gate:self` + `bench:server:check` + `bench:compare:check` + `bench:compare:gate` (perf regression gates; the compare gate now refuses stale reports). |
+| `bun run verify:perf` | `bench:compare:gate:self` + `bench:compare:verify` + `bench:server:check` + `bench:compare:check` + `bench:compare:gate` (perf regression gates; the compare gate now refuses stale reports). |
 | `bun run bench:server:baseline` | Re-runs `bench:server` and promotes `latest.json` → the committed server-bench baseline (run on the CI runner class). |
 | `bun run bench:server:check:self` | Deterministic self-test of the server-bench comparator (no benchmark run). |
 | `bun run bench:compare:gate:self` | Deterministic self-test of the compare gate — injected p50 regression must fail, control must pass, stale/timestamp-less reports must be rejected (no benchmark run). |
