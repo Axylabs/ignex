@@ -161,6 +161,7 @@ Payload unless stated: 60 query params (2055 B, 80 `%` escapes) + 30 cookies (60
 | `aeadEncrypt` ADDON (napi) vs JS, same sizes | 0.89x / 0.93x / 0.86x (js wins — hence the transport split) |
 | body validate — valid / invalid, native vs `JSON.parse`+Ajv | natives 40.0 µs (2.23x SLOWER) / 12.9 µs (**1.45x faster**) |
 | ingress pipeline (query+cookie+CORS) vs JS equivalent | 10.8 µs vs 13.9 µs |
+| retained heap growth per `GET /health`, WS0 protocol (5 × 10k, post-full-GC; `bench:allocations`, 2026-09-18) | **median 4.8 B/req** (JIT first round ~85 B excluded; rounds 2–5: 1.1–19.6 B) |
 
 Rule of thumb from the table: **native wins where no JS values are
 materialized** (verdicts, rejects, preflight) and **loses where they are**
