@@ -58,6 +58,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   count mismatch, so emitted semantics are identical either way; correctness is
   pinned by a fused-vs-runtime parity net and the compiled smoke gates.
   `COMPILER_CACHE_VERSION` bumped to 0.9.15.
+- **User plugins can declare their context requirements and keep AOT
+  specialization.** An optional `IgnexPlugin.contextUsage` field
+  (`@ignex/core`), mirrored by a statically-read module-level
+  `export const contextUsage = { … }`, tells the compiler which `ctx` members a
+  user plugin's hooks read. Previously ANY non-framework plugin forced every
+  route onto the full context; a fully-attributed and fully-declared plugin
+  layer now lets routes stay on the usage-specialized tier. Fail-safe: an
+  undeclared plugin, a non-literal/unknown-member declaration, or a member the
+  specialized context cannot emit all keep the full context — the compiler
+  never hands a hook `undefined`. `COMPILER_CACHE_VERSION` bumped to 0.9.16.
 - **`@ignex/native`'s ingress C-ABI binding now comes from castrum itself.**
   `getFfiIngress()` delegates to the shared `getIngressBinding()` export
   (castrum ≥ 0.9.7): the duplicate `dlopen` symbol map, `buffer`/`buffer_length`

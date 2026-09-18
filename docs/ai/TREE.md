@@ -297,6 +297,7 @@ packages/compiler/
 │  │  ├─ analysis/
 │  │  │  ├─ app-config.ts
 │  │  │  ├─ conflicts.ts
+│  │  │  ├─ declared-usage.ts
 │  │  │  ├─ dev-only-plugins.ts
 │  │  │  ├─ fs.ts
 │  │  │  ├─ heat.ts
@@ -467,10 +468,12 @@ packages/compiler/
 │  ├─ conflicts.test.ts
 │  ├─ context-members.test.ts
 │  ├─ debug-usage.test.ts
+│  ├─ declared-usage.test.ts
 │  ├─ dev-only-plugins.test.ts
 │  ├─ diagnostics.test.ts
 │  ├─ dispatch-shell.test.ts
 │  ├─ edge.test.ts
+│  ├─ emission-fused.test.ts
 │  ├─ fail-fast.test.ts
 │  ├─ features.test.ts
 │  ├─ guards.test.ts
@@ -572,6 +575,40 @@ packages/core/
 │  ├─ styles.css
 │  ├─ theme.ts
 │  └─ toast.tsx
+├─ .gen-debug-ui-SG6nam/
+│  ├─ components/
+│  │  ├─ detail-parts.js
+│  │  ├─ keyed.ts
+│  │  └─ widgets.js
+│  ├─ views/
+│  │  ├─ ai.js
+│  │  ├─ clients.js
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.js
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.js
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.js
 ├─ .gen-debug-ui-UpImCM/
 │  ├─ components/
 │  │  ├─ detail-parts.js
@@ -652,6 +689,7 @@ packages/core/
 │  │  │  ├─ hash.ts
 │  │  │  ├─ http-cache.ts
 │  │  │  ├─ index.ts
+│  │  │  ├─ response-policy.ts
 │  │  │  └─ types.ts
 │  │  ├─ drivers/
 │  │  │  └─ manager.ts
@@ -722,6 +760,7 @@ packages/core/
 │  │  ├─ curl.ts
 │  │  ├─ dashboard-client.gen.ts
 │  │  ├─ index.ts
+│  │  ├─ knowledge-markdown.ts
 │  │  ├─ kt.ts
 │  │  ├─ leaks.ts
 │  │  ├─ logs.ts
@@ -733,6 +772,7 @@ packages/core/
 │  │  ├─ replay.ts
 │  │  ├─ respond.ts
 │  │  ├─ sourcemaps.ts
+│  │  ├─ span-kind-names.ts
 │  │  ├─ state.ts
 │  │  ├─ store.ts
 │  │  ├─ system.ts
@@ -768,6 +808,7 @@ packages/core/
 │  │  ├─ uploads.ts
 │  │  └─ ws.ts
 │  ├─ lifecycle/
+│  │  ├─ fused.ts
 │  │  ├─ hooks.ts
 │  │  ├─ lifecycle.ts
 │  │  ├─ plugin.ts
@@ -832,12 +873,15 @@ packages/core/
 │  ├─ jobs.ts
 │  └─ openapi.ts
 ├─ test/
+│  ├─ __snapshots__/
+│  │  └─ knowledge-markdown.test.ts.snap
 │  ├─ helpers/
 │  │  └─ inject.ts
 │  ├─ abort-port.test.ts
 │  ├─ auth-module.test.ts
 │  ├─ body.test.ts
 │  ├─ cache-depth.test.ts
+│  ├─ cache-policy.test.ts
 │  ├─ cache.test.ts
 │  ├─ clients.test.ts
 │  ├─ codegen-parity.test.ts
@@ -849,6 +893,7 @@ packages/core/
 │  ├─ debug-mongo.test.ts
 │  ├─ debug-server.test.ts
 │  ├─ debug-sourcemaps.test.ts
+│  ├─ debug-state-lightweight.test.ts
 │  ├─ debug-ui-router.test.ts
 │  ├─ debugbar-dashboard-runtime.test.ts
 │  ├─ debugbar-events.test.ts
@@ -869,6 +914,8 @@ packages/core/
 │  ├─ i18n.test.ts
 │  ├─ jobs-durable.test.ts
 │  ├─ jobs.test.ts
+│  ├─ knowledge-markdown.test.ts
+│  ├─ lifecycle-fused.test.ts
 │  ├─ lifecycle-port.test.ts
 │  ├─ lifecycle.test.ts
 │  ├─ mailer.test.ts
@@ -894,6 +941,7 @@ packages/core/
 │  ├─ request-handling.test.ts
 │  ├─ request.test.ts
 │  ├─ response-port.test.ts
+│  ├─ router-perf.test.ts
 │  ├─ router-utils.test.ts
 │  ├─ router.test.ts
 │  ├─ rpc-kit.test.ts
@@ -987,6 +1035,7 @@ packages/native/
 │  ├─ ffi.ts
 │  ├─ hash.ts
 │  ├─ index.ts
+│  ├─ ingress-binding.ts
 │  ├─ ingress.ts
 │  ├─ json.ts
 │  ├─ loader.ts
@@ -1011,6 +1060,7 @@ packages/native/
 │  ├─ execution.test.ts
 │  ├─ hardening.test.ts
 │  ├─ http-property.test.ts
+│  ├─ ingress-binding.test.ts
 │  ├─ ingress-stages.test.ts
 │  ├─ metrics.test.ts
 │  ├─ native-handler.test.ts
@@ -1115,6 +1165,12 @@ docs/
 ├─ ai/
 │  ├─ LOCAL_DEV.md
 │  └─ TREE.md
+├─ superpowers/
+│  ├─ plans/
+│  │  ├─ 2026-09-18-perf-levers.execution.md
+│  │  └─ 2026-09-18-perf-levers.md
+│  └─ specs/
+│     └─ 2026-09-18-perf-levers-design.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md
@@ -1280,6 +1336,15 @@ bench/
 │  │  ├─ 2026-09-11T14-57-00-266Z.json
 │  │  ├─ 2026-09-11T14-57-31-265Z.json
 │  │  ├─ 2026-09-11T15-06-48-253Z.json
+│  │  ├─ 2026-09-17T22-30-17-884Z.json
+│  │  ├─ 2026-09-17T22-31-07-537Z.json
+│  │  ├─ 2026-09-17T22-31-28-698Z.json
+│  │  ├─ 2026-09-17T22-31-50-031Z.json
+│  │  ├─ 2026-09-17T22-32-11-230Z.json
+│  │  ├─ 2026-09-17T22-32-32-613Z.json
+│  │  ├─ 2026-09-17T22-32-53-810Z.json
+│  │  ├─ 2026-09-17T22-33-14-979Z.json
+│  │  ├─ 2026-09-18T13-08-23-832Z.json
 │  │  └─ latest.json
 │  ├─ batch-selection.json
 │  ├─ bun-internals.json

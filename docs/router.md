@@ -108,6 +108,42 @@ Start with the router for simplicity and good performance; move to AOT when you
 want precompiled validators/serializers, constant hoisting, and handler
 inlining on top of the same routing story.
 
+### Plugin context declarations
+
+The AOT compiler statically computes which `ctx` members each route touches and
+emits a usage-specialized context (an object literal with only those members)
+instead of the full `IgnexContextImpl`. Plugins are opaque runtime objects — the
+compiler can't see which members their hooks read — so an undeclared plugin
+forces every route to the full context.
+
+Declaring the plugin's context requirements lets the specialized tier survive
+even with user plugins in the pipeline:
+
+1. **`IgnexPlugin.contextUsage`** — a type-safe optional field on the plugin
+   object:
+   ```ts
+   const myPlugin: IgnexPlugin = {
+     name: "my-plugin",
+     contextUsage: { headers: true, method: true },
+     onRequest(ctx) { /* reads ctx.headers and ctx.method */ },
+   };
+   ```
+
+2. **Module-level `export const contextUsage`** — the audited,
+   machine-readable form for compiled builds:
+   ```ts
+   export const contextUsage = { headers: true, method: true };
+   ```
+   The compiler reads this statically from the plugin module via the build's
+   `SourceManager`; the field on the object is the runtime-visible API surface
+   (introspection, interpreted tooling).
+
+Only `true` values are meaningful. Unknown members are rejected. A member the
+specialized context cannot emit (e.g. `ip`, `debug`) also forces the full
+context — the fail-safe rule: **the compiler never hands a hook `undefined` on a
+specialized route.** An undeclared plugin keeps today's behavior: the full
+context for every route.
+
 ## Tests
 
 `packages/core/test/router.test.ts` (dispatch, params, wildcards, schemas,
