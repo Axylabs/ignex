@@ -110,7 +110,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
         : ""
     }
     if (__hasAfterHandle && !__ABL_HOOKS) {
-      const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response);
+      const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response);
       const after = __r1 instanceof Promise ? await __r1 : __r1;
       ctx = after.ctx ?? ctx;
       response = after.response ?? response;
@@ -206,7 +206,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
         : ""
     }
     if (__hasAfterHandle) {
-      const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response);
+      const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response);
       if (__r1 instanceof Promise) return ${resumeName}(ctx, response, 6, __r1);
       const after = __r1;
       ctx = after.ctx ?? ctx;
@@ -283,7 +283,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
         : ""
     }
     if (stage <= 6 && __hasAfterHandle) {
-      const __r1 = stage === 6 ? await value : await (__TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => runHooks(__lc.afterHandle, ctx, response)) : runHooks(__lc.afterHandle, ctx, response));
+      const __r1 = stage === 6 ? await value : await (__TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response));
       const after = __r1;
       ctx = after.ctx ?? ctx;
       response = after.response ?? response;

@@ -224,7 +224,7 @@ export const buildFullContextPrelude = (
   // remainder is handed to the async resume (cold path — only fires for async
   // hooks, never for all-sync apps).
   if (__hasPreParse) {
-    const __r = runHooks(__preParseStages, ctx);
+    const __r = __runPreParse(ctx);
     if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
     const __globalPre = __r;
     // The request stage is what creates the debug trace (the debugbar
@@ -242,7 +242,7 @@ export const buildFullContextPrelude = (
   // compiled stage order aligned with the interpreted runLifecycle. Skipped
   // entirely when no pre-parse hooks are registered.
   if (__hasPreParse) {
-    const __r = runHooks(__preParseStages, ctx);
+    const __r = __runPreParse(ctx);
     const __globalPre = __r instanceof Promise ? await __r : __r;
     // The request stage is what creates the debug trace (the debugbar
     // plugin's onRequest runs inside it), so its waterfall row is recorded
@@ -360,7 +360,7 @@ export const buildSpecializedContext = (
   pre.push(
     sync
       ? `if (__hasPreParse) {
-  const __r = runHooks(__preParseStages, ctx);
+  const __r = __runPreParse(ctx);
   if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
   const __globalPre = __r;
   if (__TRACE_DEBUG) debugStageEnd("request");
@@ -368,7 +368,7 @@ export const buildSpecializedContext = (
   ctx = __globalPre.ctx ?? ctx;
 }`
       : `if (__hasPreParse) {
-  const __r = runHooks(__preParseStages, ctx);
+  const __r = __runPreParse(ctx);
   const __globalPre = __r instanceof Promise ? await __r : __r;
   if (__TRACE_DEBUG) debugStageEnd("request");
   if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);

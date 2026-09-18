@@ -27,6 +27,12 @@ describe("WS1 fused lifecycle dispatchers", () => {
     expect(result.code).toContain("const __fused = buildFusedChains(__appPlugins);");
     expect(result.code).toContain("const __runPreParse = __fusedOK");
     expect(result.code).toContain("const __runAfter = __fusedOK");
+    // Route lanes now run through the dispatchers, not the stage arrays.
+    expect(result.code).toContain("const __r = __runPreParse(ctx);");
+    expect(result.code).toContain("__runAfter(ctx, response)");
+    // The ROUTE LANE no longer calls the stage arrays directly (the dispatcher
+    // fallback for non-fused builds legitimately still references them).
+    expect(result.code).not.toContain("const __r = runHooks(__preParseStages, ctx);");
   });
 
   it("emits the __fusedOK gate with the preParse/afterHandle count checks", async () => {
