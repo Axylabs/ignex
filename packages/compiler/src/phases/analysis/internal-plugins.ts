@@ -16,7 +16,9 @@
  */
 
 import { type ContextUsage, EMPTY_USAGE } from "@ignex/shared";
+import type { SourceManager } from "../../frontend";
 import type { PluginCallInfo } from "../../types";
+import { readDeclaredContextUsage } from "./declared-usage";
 
 /** Modules the framework's own plugins are published from. */
 const INTERNAL_PLUGIN_SOURCES: ReadonlySet<string> = new Set(["@ignex/core", "@ignex/core/index"]);
@@ -73,24 +75,38 @@ export interface GlobalPluginUsage {
  *
  * Yields `usage: null` — i.e. "treat the plugin layer as opaque" — whenever the
  * requirement cannot be fully established, which is any of: the plugin list did
- * not fully resolve; a plugin did not come from the framework's own package (a
- * user plugin); or an internal plugin carries no declaration. Only a fully
- * attributed AND fully declared list produces a usable requirement.
+ * not fully resolve; a plugin did not come from the framework's own package AND
+ * its module carries no statically-parseable `contextUsage` declaration (see
+ * {@link readDeclaredContextUsage}); or an internal plugin carries no
+ * declaration. Only a fully attributed AND fully declared list produces a
+ * usable requirement.
  *
  * @param calls - Resolved plugin calls from {@link analyzePluginCalls}.
  * @param allResolved - That analysis's conservative gate.
+ * @param sources - The build's source manager, needed to read declaration
+ * modules for user plugins. When absent, user plugins are opaque.
+ * @param fromPath - Absolute path of the app config, the base for resolving a
+ * user plugin's import specifier.
  * @returns The merged requirement, or `null` usage when unknown.
  */
 export const resolveGlobalPluginUsage = (
   calls: readonly PluginCallInfo[],
   allResolved: boolean,
+  sources?: SourceManager,
+  fromPath?: string,
 ): GlobalPluginUsage => {
   if (!allResolved) return { usage: null };
 
   const merged: MutableUsage = { ...EMPTY_USAGE };
   for (const call of calls) {
-    if (!INTERNAL_PLUGIN_SOURCES.has(call.source)) return { usage: null };
-    const declared = INTERNAL_PLUGIN_USAGE[call.name];
+    let declared: Readonly<ContextUsage> | null;
+    if (INTERNAL_PLUGIN_SOURCES.has(call.source)) {
+      declared = INTERNAL_PLUGIN_USAGE[call.name];
+    } else {
+      // A user plugin — attribute it through its module's declaration, if any.
+      if (!sources || !fromPath) return { usage: null };
+      declared = readDeclaredContextUsage(sources, call.source, fromPath);
+    }
     if (!declared) return { usage: null };
     for (const key of Object.keys(declared) as (keyof ContextUsage)[]) {
       if (declared[key]) merged[key] = true;

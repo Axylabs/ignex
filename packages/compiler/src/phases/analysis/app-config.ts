@@ -90,10 +90,13 @@ export const resolveAppConfig = (
   // conservative gate — when it is false the list must be treated as opaque.
   const pluginCalls = analyzePluginCalls(source);
   // What the plugin layer needs off the context, when that is statically
-  // knowable. `null` = unknown, keep forcing the full context.
+  // knowable. `null` = unknown, keep forcing the full context. User plugins
+  // are attributed through their module's exported `contextUsage` declaration.
   const globalPluginUsage = resolveGlobalPluginUsage(
     pluginCalls.calls,
     pluginCalls.allResolved,
+    sources,
+    absPath,
   ).usage;
 
   return {
