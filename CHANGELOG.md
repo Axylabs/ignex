@@ -1367,6 +1367,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   any rendered ReferenceError/"is not defined"/"is not a function" panel
   fails CI — syntax-only checks cannot catch this bug class.
 
+- perf: re-baselined bench:compare:cpu + hotpath after the specialized-context tier (see perf-methodology §7)
+
 ## [0.1.7] — 2026-08
 
 Initial open-source milestone: AOT compiler pipeline with persistent parse

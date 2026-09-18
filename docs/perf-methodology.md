@@ -276,8 +276,11 @@ for the same compiled entry spawned alone. It made the AOT participant look
 Layer attribution is done with matched variants (same harness, one layer
 removed) — see §7.1 for the table.
 
-Baseline (2026-09-14, 3×8s @ 15k rps, medians): `bun` 23.28µs, `elysia` 26.96µs,
-`ignus-aot` 33.24µs (1.428x), `ignus` 34.35µs, `ignus-native` 34.55µs.
+Baseline (2026-09-18, 3×8s @ 15k rps, medians): `bun` 23.25µs, `elysia` 31.76µs,
+`ignus-aot` 30.35µs (**1.306x**), `ignus` 34.88µs, `ignus-native` 34.91µs.
+Refreshed from the 2026-09-14 baseline (`bun` 23.28µs … `ignus-aot` 33.24µs,
+1.428x) after the specialized-context tier landed 2026-09-15 → 09-18 — that
+work moved the AOT ratio from **1.428x down to 1.306x**.
 
 #### Resolution limit — read this before concluding "no change"
 
@@ -312,9 +315,12 @@ sitting below the resolution limit.
 ## 7. The framework's own cost budget — measured, and what is already ruled out
 
 Everything below was measured on the comparison bench over 2026-09-14 → 09-15.
-It is kept so the same questions are not re-litigated: **most plausible-sounding
-optimisations here were tried and lost to the measurement.** Numbers move as the
-codegen changes; the *conclusions* have held.
+The specialized-context tier landed 2026-09-15 → 09-18 and changed the
+baseline (see the dated line in §6): `ignus-aot` fell from 33.24µs (1.428x) to
+30.35µs (**1.306x** vs bun 23.25µs). It is kept so the same questions are not
+re-litigated: **most plausible-sounding optimisations here were tried and lost
+to the measurement.** Numbers move as the codegen changes; the *conclusions*
+have held.
 
 ### 7.1 Layer attribution (matched variants, one layer removed; medians ±0.2µs)
 
@@ -341,6 +347,14 @@ cost is *dispatching* the work, not doing it.
   crossing is ~3ns, so the boundary is not the barrier — **marshalling** is:
   every context/hook field is a JS string costing ~40–46ns to encode or
   transcode. Byte-oriented work does win (§4); object-shaped work does not.
+- **Re-baselined (2026-09-18):** a CPU profile under the same 03-stress mix at
+  15k rps, both participants driven through `cpu-wrap.ts`, sampled **66
+  distinct named functions** in the AOT artifact vs **23** in raw Bun (a **2.9x**
+  function-count gap; cf. the older "~406 vs ~50 functions/request" figure in
+  §7.3, which was a different per-request metric). Retained heap growth per
+  `GET /health` request after full `gc()` settles at **~1–5 B** (5 rounds × 10k
+  reqs, 32-way; median 68.5 B once the first rounds' JIT warm-up transients are
+  included) — the request path retains essentially nothing per request.
 
 ### 7.3 Ruled-out hypotheses — do not re-attempt
 
