@@ -32,6 +32,7 @@
 export {
   backend,
   backendName,
+  clearNativeSchemaCache,
   createExecutionBackend,
   createNativeRoute,
   createTaskRuntime,
@@ -44,6 +45,8 @@ export {
   type ExecutionOpStatus,
   type ExecutionStatus,
   executionStatus,
+  type FlushNativeMemoryOptions,
+  flushNativeMemory,
   hmacSha256Batch,
   hmacSha256VerifyBatch,
   type IgnexExecution,

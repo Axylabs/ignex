@@ -154,6 +154,11 @@ export {
   type NativeInitResult,
 } from "./loader";
 export {
+  clearNativeSchemaCache,
+  type FlushNativeMemoryOptions,
+  flushNativeMemory,
+} from "./memory";
+export {
   createMetricsRegistry,
   createMetricsRegistryFallback,
   createNativeMetricsRegistry,
