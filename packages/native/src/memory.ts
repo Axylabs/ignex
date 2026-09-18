@@ -15,10 +15,16 @@
  * failure (loader rejects, the hook itself throws) is reported through
  * {@link reportDegradation} instead of being swallowed silently.
  *
- * @remarks The loader is consulted per call rather than cached: maintenance is
- * a rare, explicit operation, and `loadCastrumModule`'s underlying dynamic
- * `import()` is already cached by the runtime, so only the cheap package
- * resolution repeats.
+ * @remarks `IGNEX_NATIVE=off` short-circuits at ENTRY (before the loader runs):
+ * `loadCastrumModule` itself has no off-gate, so without this check it would
+ * still import castrum's TS entry and reach the real hooks (mirrors
+ * `ingress-binding.ts` / `ffi.ts`).
+ *
+ * @remarks The loader is consulted per call rather than memoized. Unlike
+ * `loadCastrumModule`'s dynamic `import()` (which the runtime caches), its
+ * package DIRECTORY resolution re-walks the filesystem on every call. That is
+ * accepted here because maintenance is a rare, explicit operation; memoize like
+ * `tasks.ts` if a hot caller ever needs it.
  */
 import { loadCastrumModule } from "./loader";
 import { reportDegradation } from "./telemetry";
@@ -38,9 +44,9 @@ export interface FlushNativeMemoryOptions {
  * `rust` object (with a defensive top-level alias accepted too).
  */
 interface CastrumMemoryModule {
-  flushMemory?: (options?: FlushNativeMemoryOptions) => void;
-  rust?: { clearSchemaCache?: () => void };
-  clearSchemaCache?: () => void;
+  flushMemory?: (options?: FlushNativeMemoryOptions) => void | Promise<void>;
+  rust?: { clearSchemaCache?: () => void | Promise<void> };
+  clearSchemaCache?: () => void | Promise<void>;
 }
 
 const describeError = (error: unknown): string =>
@@ -62,6 +68,7 @@ const describeError = (error: unknown): string =>
  * ```
  */
 export const flushNativeMemory = async (options?: FlushNativeMemoryOptions): Promise<void> => {
+  if (process.env.IGNEX_NATIVE === "off") return;
   try {
     const mod = (await loadCastrumModule()) as CastrumMemoryModule | null;
     const flush = mod?.flushMemory;
@@ -77,7 +84,7 @@ export const flushNativeMemory = async (options?: FlushNativeMemoryOptions): Pro
       }
       return;
     }
-    flush.call(mod, options);
+    await flush.call(mod, options);
   } catch (error) {
     reportDegradation("call-failed", "memory.flush", describeError(error));
   }
@@ -100,6 +107,7 @@ export const flushNativeMemory = async (options?: FlushNativeMemoryOptions): Pro
  * ```
  */
 export const clearNativeSchemaCache = async (): Promise<void> => {
+  if (process.env.IGNEX_NATIVE === "off") return;
   try {
     const mod = (await loadCastrumModule()) as CastrumMemoryModule | null;
     const rust = mod?.rust;
@@ -114,7 +122,7 @@ export const clearNativeSchemaCache = async (): Promise<void> => {
       }
       return;
     }
-    clear.call(rust ?? mod);
+    await clear.call(rust ?? mod);
   } catch (error) {
     reportDegradation("call-failed", "memory.schema-cache", describeError(error));
   }
