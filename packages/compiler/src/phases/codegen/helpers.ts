@@ -13,13 +13,6 @@
  * server entry; the linker's bundler removes whatever no route references.
  */
 export const HELPER_SOURCES: Record<string, string> = {
-  __applyStaticHeaders: `const __applyStaticHeaders = (target, record) => {
-  // The record is the frozen boot-time __DEFAULT_HEADERS, already sanitized at
-  // build time (see the __DEFAULT_HEADERS emission) — so unlike the per-request
-  // ctx.set.headers path this skips Object.hasOwn and regex sanitizing, which
-  // cost ~18 ns/header when paid per response.
-  for (const k in record) target.set(k, record[k]);
-};`,
   __withBody: `const __staticBaseHeaders = new Map();
 const __staticBaseFor = (type) => {
   let __base = __staticBaseHeaders.get(type);
@@ -32,39 +25,49 @@ const __staticBaseFor = (type) => {
 const __withBody = (payload, type, init) => {
   const ih = init && init.headers;
   let __response;
-  // Fast path: app-invariant static defaults (plugin-declared security
-  // headers + server.headers) present and no init headers. A boot-memoized
-  // base Headers — content-type plus the defaults — is handed to Response,
-  // which COPIES it (the base is never mutated, so one base serves every
-  // concurrent request); only the dynamic content-length is set per request.
-  // This replaces the former per-response loop of N native Headers.set calls
-  // with one native copy (measured ~2.1x faster for the 8-header set). The
-  // base is built lazily from __DEFAULT_HEADERS, a module constant.
-  if (!ih && __DEFAULT_HEADERS) {
+  if (__DEFAULT_HEADERS) {
+    // App-invariant static defaults (plugin-declared security headers +
+    // server.headers): one boot-memoized base Headers per content-type is the
+    // shared skeleton. With NO per-request init headers it is handed to Response
+    // — which COPIES it, so one base serves every concurrent request — and only
+    // the dynamic content-length is set per request. When init headers ARE
+    // present, the base is CLONED once (one native copy) and the request's own
+    // headers are applied to the copy: re-building the record and re-applying
+    // every static default through N Headers.set calls measured ~2.6x slower for
+    // the 9-header set (a full-base clone costs ~57ns against ~205ns just to
+    // build a 2-key record, Bun 1.4.2).
     const __base = __staticBaseFor(type);
-    if (init === undefined) __response = new Response(payload, { headers: __base });
-    else {
-      const { headers: _ignored, ...rest } = init;
-      __response = new Response(payload, { ...rest, headers: __base });
+    let __headers = __base;
+    if (ih) {
+      __headers = new Headers(__base);
+      if (payload !== null) __headers.set("content-length", String(typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : payload.byteLength));
+      if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
+        (ih.forEach)((value, key) => __headers.set(key, value));
+      } else if (Array.isArray(ih)) {
+        for (const [k, v] of ih) __headers.set(k, v);
+      } else {
+        for (const [k, v] of Object.entries(ih)) if (v != null) __headers.set(k, String(v));
+      }
     }
-    if (payload !== null) __response.headers.set("content-length", String(typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : payload.byteLength));
+    // ResponseInit is exactly { status, statusText, headers }: passing the
+    // three known fields avoids the per-request destructure + rest-spread of
+    // the caller's init object (measured ~95ns on the status-only path).
+    if (init === undefined) __response = new Response(payload, { headers: __headers });
+    else __response = new Response(payload, { status: init.status, statusText: init.statusText, headers: __headers });
+    if (!ih && payload !== null) __response.headers.set("content-length", String(typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : payload.byteLength));
   } else {
-    // General path: a small base record plus incremental header sets. Bun's
-    // bulk plain-object header init costs more per header than Headers.set, so
-    // a record built as 2 headers + N sets is cheaper than one merged object
-    // (~56 vs ~84 ns/header). init/route headers are applied afterward.
+    // No static defaults: a small base record plus incremental header sets.
+    // Bun's bulk plain-object header init costs more per header than
+    // Headers.set, so a record built as 2 headers + N sets is cheaper than one
+    // merged object (~56 vs ~84 ns/header). init/route headers are applied
+    // afterward.
     const h = { "content-type": type };
     if (payload !== null) h["content-length"] = String(typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : payload.byteLength);
     if (!ih) {
       if (init === undefined) __response = new Response(payload, { headers: h });
-      else {
-        const { headers: _ignored, ...rest } = init;
-        __response = new Response(payload, { ...rest, headers: h });
-      }
-      if (__DEFAULT_HEADERS) __applyStaticHeaders(__response.headers, __DEFAULT_HEADERS);
+      else __response = new Response(payload, { status: init.status, statusText: init.statusText, headers: h });
     } else {
       const hh = new Headers(h);
-      if (__DEFAULT_HEADERS) __applyStaticHeaders(hh, __DEFAULT_HEADERS);
       if (ih instanceof Headers || (typeof ih.forEach === "function" && !Array.isArray(ih))) {
         (ih.forEach)((value, key) => hh.set(key, value));
       } else if (Array.isArray(ih)) {
@@ -72,7 +75,7 @@ const __withBody = (payload, type, init) => {
       } else {
         for (const [k, v] of Object.entries(ih)) if (v != null) hh.set(k, String(v));
       }
-      __response = new Response(payload, { ...init, headers: hh });
+      __response = new Response(payload, { status: init.status, statusText: init.statusText, headers: hh });
     }
   }
   // Tell decorating plugins (security) these headers are already baked in, so

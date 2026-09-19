@@ -145,27 +145,6 @@ const applySetHeaderRecord = (target: Headers, record: Record<string, string>): 
 };
 
 /**
- * Apply an app-invariant header record to a fresh `Headers`.
- *
- * `record` MUST be a boot-time frozen constant whose values were sanitized
- * once when it was built (see `collectResponseDefaults`, and the compiler's
- * `__DEFAULT_HEADERS`) — which is exactly why this skips the `Object.hasOwn`
- * guard and `sanitizeHeaderValue` that `applySetHeaderRecord` needs for
- * request-derived values. Paying those per request costs ~18 ns/header, i.e.
- * ~250 ns on a 14-header response (measured on Bun 1.4.2, 300k iterations,
- * body read included):
- *
- *   for..in + set()                       70.8 ns/header
- *   for..in + hasOwn + sanitize + set()   88.4 ns/header
- *
- * @param target - The `Headers` to mutate (in place).
- * @param record - Frozen, pre-sanitized header name → value pairs.
- */
-const applyStaticHeaders = (target: Headers, record: Record<string, string>): void => {
-  for (const k in record) target.set(k, record[k] as string);
-};
-
-/**
  * Per-(defaults record → content-type → base `Headers`) memo.
  *
  * `defaults` is the app-invariant frozen record from
@@ -198,13 +177,21 @@ const contentLengthOf = (payload: Uint8Array | string): string =>
   String(typeof payload === "string" ? textByteLength(payload) : payload.byteLength);
 
 /**
- * Fast path: app-invariant static defaults and no explicit init headers.
+ * Static-defaults response path.
  *
- * A boot-memoized base `Headers` (content-type + defaults) is handed to
- * `Response` — which copies it — and only the dynamic `content-length` is set
- * per request. The base is never mutated, so sharing it across requests is
- * safe. Replaces a per-response loop of N `Headers.set` calls with one native
- * copy (~2.1× faster for the 8-header security set, Bun 1.4.2).
+ * A boot-memoized base `Headers` (content-type + defaults) is the shared
+ * skeleton. When the request carries NO per-request headers (`setHeaders` and
+ * `init.headers` both absent) the base is handed straight to `Response`, which
+ * copies it, and only the dynamic `content-length` is set afterwards — the base
+ * is never mutated, so one instance serves every concurrent request.
+ *
+ * When the per-request headers DO differ (`ctx.set.headers` or an explicit
+ * `init.headers`), the base is cloned ONCE with a native `Headers` copy and the
+ * dynamic values are applied to the copy. This is the "clone only when
+ * per-request headers differ" contract: re-building the record and re-applying
+ * every static default through N `Headers.set` calls measured ~2.6× slower for
+ * the 9-header set (Bun 1.4.2) — a clone of the full base costs ~57 ns against
+ * ~205 ns just to build a 2-key record.
  */
 const withStaticBase = (
   payload: Uint8Array | string | null,
@@ -215,24 +202,34 @@ const withStaticBase = (
 ): Response => {
   const body = payload as BodyInit;
   const base = baseHeadersFor(defaults, type);
+  const ih = init?.headers;
   let response: Response;
 
-  if (setHeaders) {
-    // Request-derived headers need a mutable copy (and sanitizing), so the
-    // (rare) `setHeaders` path clones the base instead of sharing it.
+  if (setHeaders || ih) {
+    // Per-request headers differ from the app-invariant base: clone it once and
+    // add the dynamic content-length plus the request's own headers. Re-applying
+    // the static defaults here (the old general path) cost a native set each.
     const hh = new Headers(base);
     if (payload !== null) hh.set("content-length", contentLengthOf(payload));
-    applySetHeaderRecord(hh, setHeaders);
+    if (setHeaders) applySetHeaderRecord(hh, setHeaders);
+    applyInitHeaders(hh, ih);
     response =
       init === undefined
         ? new Response(body, { headers: hh })
-        : new Response(body, { ...init, headers: hh });
+        : new Response(body, {
+            status: init.status,
+            statusText: init.statusText,
+            headers: hh,
+          });
   } else {
     if (init === undefined) {
       response = new Response(body, { headers: base });
     } else {
-      const { headers: _ignored, ...rest } = init;
-      response = new Response(body, { ...rest, headers: base });
+      response = new Response(body, {
+        status: init.status,
+        statusText: init.statusText,
+        headers: base,
+      });
     }
     if (payload !== null) {
       response.headers.set("content-length", contentLengthOf(payload));
@@ -256,7 +253,6 @@ const withGeneralBody = (
   payload: Uint8Array | string | null,
   type: string,
   init: ResponseInit | undefined,
-  defaults: Record<string, string> | null | undefined,
   setHeaders: Record<string, string> | null | undefined,
 ): Response => {
   const ih = init?.headers;
@@ -269,20 +265,24 @@ const withGeneralBody = (
     if (init === undefined) {
       response = new Response(body, { headers: h });
     } else {
-      const { headers: _ignored, ...rest } = init;
-      response = new Response(body, { ...rest, headers: h });
+      response = new Response(body, {
+        status: init.status,
+        statusText: init.statusText,
+        headers: h,
+      });
     }
-    if (defaults) applyStaticHeaders(response.headers, defaults);
     if (setHeaders) applySetHeaderRecord(response.headers, setHeaders);
   } else {
     const hh = new Headers(h);
-    if (defaults) applyStaticHeaders(hh, defaults);
     if (setHeaders) applySetHeaderRecord(hh, setHeaders);
     applyInitHeaders(hh, ih);
-    response = new Response(body, { ...init, headers: hh });
+    response = new Response(body, {
+      status: init.status,
+      statusText: init.statusText,
+      headers: hh,
+    });
   }
 
-  if (defaults) decoratedResponses.add(response);
   return response;
 };
 
@@ -326,10 +326,10 @@ export const withBody = (
   defaults?: Record<string, string> | null,
   setHeaders?: Record<string, string> | null,
 ): Response => {
-  if (defaults && !init?.headers) {
+  if (defaults) {
     return withStaticBase(payload, type, init, defaults, setHeaders);
   }
-  return withGeneralBody(payload, type, init, defaults, setHeaders);
+  return withGeneralBody(payload, type, init, setHeaders);
 };
 
 /** Encode `data` as a JSON response (one `Buffer.byteLength` pass, exact length). */

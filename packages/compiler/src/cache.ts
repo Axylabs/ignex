@@ -58,8 +58,12 @@ import { projectPath } from "./utils/path";
  * built base `Headers` (content-type + `__DEFAULT_HEADERS`) straight to
  * `Response` and sets only the dynamic content-length per request, instead of
  * looping N `Headers.set` calls. Generated output shape changed.
+ * 0.9.19 — `__withBody` clones the memoized base when per-request `init.headers`
+ * are present (one native `Headers` copy) instead of re-building the record and
+ * re-applying every static default with a `Headers.set` each. Generated output
+ * shape changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.18";
+export const COMPILER_CACHE_VERSION = "0.9.19";
 
 const CACHE_FILE = ".ignex-cache.json";
 

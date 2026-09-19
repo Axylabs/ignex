@@ -30,14 +30,11 @@ interface EvaledHelpers {
 
 /**
  * Evaluate the codegen helpers exactly as emitted, with a non-null
- * `__DEFAULT_HEADERS` so the memoized fast path is exercised. `__applyStaticHeaders`
- * and `markDecoratedResponse` are the module-scope deps the emitted helpers
- * reference.
+ * `__DEFAULT_HEADERS` so the memoized base path is exercised.
+ * `markDecoratedResponse` is the module-scope dep the emitted helpers reference.
  */
 const evaledWithDefaults = (() => {
-  const body = ["__applyStaticHeaders", ...PARITY_HELPERS]
-    .map((h) => HELPER_SOURCES[h])
-    .join("\n\n");
+  const body = PARITY_HELPERS.map((h) => HELPER_SOURCES[h]).join("\n\n");
   const prelude = `const __DEFAULT_HEADERS = ${JSON.stringify(DEFAULTS)};
 const __encoder = new TextEncoder();
 const markDecoratedResponse = () => {};`;
@@ -101,6 +98,42 @@ describe("memoized static response headers", () => {
     expect(r2.headers.get("x-mut")).toBeNull();
     expect(r2.headers.get("content-length")).toBe("3");
     expect(r2.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+  });
+
+  it("clones the memoized base for per-request init headers (core ↔ codegen)", async () => {
+    const init = { status: 201, headers: { "x-route": "1", "x-frame-options": "DENY" } };
+    const [core, compiled] = await Promise.all([
+      snapshot(
+        withBody(encoder.encode("hello"), "application/json; charset=utf-8", init, DEFAULTS),
+      ),
+      snapshot(
+        evaledWithDefaults.__withBody(
+          encoder.encode("hello"),
+          "application/json; charset=utf-8",
+          init,
+        ),
+      ),
+    ]);
+    expect(compiled).toEqual(core);
+    // The request's own header wins over the static default; the rest survive.
+    expect(compiled.frame).toBe("DENY");
+    expect(compiled.nosniff).toBe("nosniff");
+    expect(compiled.status).toBe(201);
+    expect(compiled.cl).toBe("5");
+  });
+
+  it("never mutates the shared base when init headers are applied (codegen)", () => {
+    // First call clones the base and overrides a default; the second shares the
+    // untouched base and must still see the ORIGINAL default.
+    const first = evaledWithDefaults.__withBody("x", "text/plain", {
+      headers: { "x-frame-options": "DENY" },
+    });
+    expect(first.headers.get("x-frame-options")).toBe("DENY");
+    expect(first.headers.get("content-security-policy")).toBe("default-src 'self'");
+
+    const second = evaledWithDefaults.__withBody("yy", "text/plain", undefined);
+    expect(second.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(second.headers.get("content-length")).toBe("2");
   });
 
   it("explicit init headers still override the static defaults (core)", () => {

@@ -74,6 +74,36 @@ lean JS with memoized `Headers` (the memoized-base path in `withBody` /
 `__withBody`). Source: the castrum `native-bottleneck` + `wire-v6` reports and
 the removal of the ignex route-wire bridge.
 
+## JS reply-path hoisting — the durable wire-v4/v5/v6 lessons (2026-09-19)
+
+The native response lane was abandoned, but the experiments produced five
+transferable rules for the JS reply path. They are applied to ignex's
+`withBody` / `__withBody` (see `packages/core/src/http/finalize.ts` and
+`packages/compiler/src/phases/codegen/helpers.ts`).
+
+| # | Rule | Where it lives now |
+| - | ---- | ------------------ |
+| L1 | Memoize/pre-build the base `Headers`; clone only when per-request headers differ | one boot-memoized base per content-type (`baseHeadersFor` / `__staticBaseFor`); shared when no per-request headers, cloned once otherwise |
+| L2 | Pre-encode static templates; splice dynamic values in | constant routes bound as pre-built `Response` values; precompiled serializers; `ResponseInit` passed as explicit `{status,statusText,headers}` instead of a destructure + rest-spread |
+| L3 | Never re-encode a constant per request | CORS `methods`/`expose`/`max-age` strings joined once at factory time; HSTS value pre-built; `__DEFAULT_HEADERS` sanitized once at boot |
+| L4 | Avoid decode -> re-parse | n/a on this path (the body is built, not parsed); the native lane's full-frame decode was the L4 violation, now removed |
+| L5 | Bake static plugin effects at build/boot time | `security()` declares `responseDefaults`, folded into `__DEFAULT_HEADERS`; `server.headers` is baked at construction (Bun 1.4.2 has NO `server.headers` sink — verified) |
+
+Measured with the reply-path micro A/B (9-header default set, median of 9
+rounds, `Bun.nanoseconds`): the init-headers path fell from ~1582 ns to ~792 ns
+(**-50%**), the status-only path from 581 to 538 ns (~-7%), and the no-init path
+is unchanged (~450 ns — it already shared the memoized base). A server-bound A/B
+of the changed branch measured **91.9k -> 94.2k RPS (+2.5%)**.
+
+Not safely bakeable, deliberately skipped: static `cors()` cannot declare a fixed
+`responseDefaults` set without changing observable CORS bytes (the plugin emits
+`Access-Control-Allow-Origin` only when the request carries an `Origin`, and
+echoes it for a wildcard), and `security()`'s `onResponse` cannot be elided
+because HSTS is request/protocol-conditional and raw `Response` passthroughs
+still need the static set. The per-request `content-length` set (~190 ns) is kept
+because it is what lets `compression()` skip buffering; dropping it would change
+the in-process header visible to transforming plugins.
+
 ## Off-thread tasks (castrum 0.9.6)
 
 CPU-bound native work can stall the JS event loop for tens-to-hundreds of

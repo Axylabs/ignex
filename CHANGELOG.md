@@ -47,6 +47,20 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **AOT reply path clones the memoized header base only when per-request
+  headers differ.** `withBody` / `__withBody` keep one boot-memoized base
+  `Headers` per content-type (`content-type` + plugin `responseDefaults` +
+  `server.headers`): shared when the request has no per-request headers, CLONED
+  once (a native `Headers` copy) when it does — replacing a record rebuild plus
+  a `Headers.set` per static default. `ResponseInit` is passed as its explicit
+  `status` / `statusText` / `headers` fields instead of a destructure +
+  rest-spread. Measured micro A/B (9-header set, median of 9 rounds): the
+  init-headers path fell ~1582 -> ~792 ns (**-50%**), the status-only path
+  ~581 -> ~538 ns (~-7%), and the no-init path is unchanged (~450 ns); a
+  server-bound A/B of the changed branch measured 91.9k -> 94.2k RPS (**+2.5%**).
+  CORS constant fragments (`methods` / `expose` / `max-age`) are joined once at
+  factory time. `COMPILER_CACHE_VERSION` bumped to 0.9.19.
+
 - **AOT servers run plugin hooks through fused lifecycle lanes.** When the whole
   plugin layer is statically attributed and carries no user lifecycle, the
   generated server composes the plugin hooks directly at boot

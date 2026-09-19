@@ -73,6 +73,28 @@ Bun native router (path/method match)
   → error stage on throw (guarded, never masks the original)
 ```
 
+## Response construction (reply path)
+
+Framework-built responses (`ctx.json` / `text` / `html` on both paths, and the
+compiled `__withBody`) share ONE boot-memoized base `Headers` per content-type:
+`content-type` plus the app-invariant defaults (plugin `responseDefaults`, e.g.
+`security()`, merged with `server.headers`). With no per-request headers the base
+is handed to `Response`, which copies it, and only the dynamic `content-length`
+is set per request. When per-request headers DO differ (`ctx.set.headers` or an
+explicit `init.headers`), the base is CLONED once with a native `Headers` copy
+and the request's own headers are applied to the copy — the base is never
+mutated, so one instance safely serves concurrent requests. `ResponseInit` is
+passed as its three explicit fields (`status`/`statusText`/`headers`) instead of
+a destructure + rest-spread of the caller's init object.
+
+Measured (Bun 1.4.2, 9-header set, micro A/B, median of 9 rounds): the
+init-headers path fell from ~1582 ns to ~792 ns (**-50%**); the no-init path is
+unchanged (~450 ns) and the status-only path fell ~7% (581 -> 538 ns). A
+server-bound A/B of the changed branch measured 91.9k -> 94.2k RPS (**+2.5%**).
+`Bun.serve`'s `headers` option is silently ignored on 1.4.2, so app static
+headers are baked at response CONSTRUCTION (the memoized base), never via a
+server sink.
+
 ## Pre-aborted requests
 
 A request whose `req.signal` is ALREADY aborted before the pipeline starts is

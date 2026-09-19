@@ -44,6 +44,14 @@ export const cors = (options: CorsOptions = {}): IgnexPlugin => {
     );
   }
 
+  // Constant header fragments, encoded ONCE at factory time (L3): the allow
+  // methods / expose headers / max-age strings never change between requests, so
+  // re-joining and re-stringifying them inside `onResponse` was pure per-request
+  // work (and the OPTIONS path paid it on every preflight).
+  const methodsValue = methods.join(", ");
+  const exposedHeadersValue = exposedHeaders?.length ? exposedHeaders.join(", ") : undefined;
+  const maxAgeValue = String(maxAge);
+
   const isOriginAllowed = (requestOrigin: string, ctx: IgnexContext): boolean => {
     if (origin === "*") return true;
     if (typeof origin === "string") return origin === requestOrigin;
@@ -71,8 +79,8 @@ export const cors = (options: CorsOptions = {}): IgnexPlugin => {
       headers.set("Access-Control-Allow-Origin", "*");
     }
 
-    if (exposedHeaders?.length) {
-      headers.set("Access-Control-Expose-Headers", exposedHeaders.join(", "));
+    if (exposedHeadersValue !== undefined) {
+      headers.set("Access-Control-Expose-Headers", exposedHeadersValue);
     }
   };
 
@@ -86,7 +94,7 @@ export const cors = (options: CorsOptions = {}): IgnexPlugin => {
         const headers = new Headers();
 
         setCorsHeaders(ctx, headers);
-        headers.set("Access-Control-Allow-Methods", methods.join(", "));
+        headers.set("Access-Control-Allow-Methods", methodsValue);
 
         if (allowedHeaders?.length) {
           headers.set("Access-Control-Allow-Headers", allowedHeaders.join(", "));
@@ -98,7 +106,7 @@ export const cors = (options: CorsOptions = {}): IgnexPlugin => {
           }
         }
 
-        headers.set("Access-Control-Max-Age", String(maxAge));
+        headers.set("Access-Control-Max-Age", maxAgeValue);
 
         if (preflightContinue) return ctx;
 

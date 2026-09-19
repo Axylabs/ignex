@@ -219,9 +219,9 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   // when neither source is present (a module constant, so the branch folds
   // away and unconfigured servers pay nothing).
   //
-  // The merged values are sanitized ONCE here because `__withBody` applies
-  // them through `__applyStaticHeaders`, which deliberately skips the
-  // per-value CRLF/NUL check (~18 ns/header when paid per response). Doing it
+  // The merged values are sanitized ONCE here because `__withBody` bakes them
+  // into the memoized base `Headers` without re-checking each value
+  // (~18 ns/header when paid per response). Doing it
   // at boot keeps the response-splitting guarantee for free at request time.
   // Mirrors `sanitizeHeaderValue` in `@ignex/core`'s `http/finalize.ts`.
   header.push(`const __CTL_TEST = /[\\r\\n\\0]/;
