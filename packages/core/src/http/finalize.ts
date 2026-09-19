@@ -166,6 +166,127 @@ const applyStaticHeaders = (target: Headers, record: Record<string, string>): vo
 };
 
 /**
+ * Per-(defaults record → content-type → base `Headers`) memo.
+ *
+ * `defaults` is the app-invariant frozen record from
+ * {@link collectResponseDefaults} — normally ONE object per app — so the outer
+ * `WeakMap` is bounded by the number of app configs in the process. The inner
+ * `Headers` holds `content-type` plus the static defaults and is handed
+ * straight to `new Response`, which COPIES it at construction (verified on Bun
+ * 1.4.2: the source `Headers` is never mutated), so one base safely serves
+ * every concurrent request. Measured ~2.1× faster than the former 2-key record
+ * + per-header `Headers.set` loop for the 8-header security set.
+ */
+const baseHeadersCache = new WeakMap<Record<string, string>, Map<string, Headers>>();
+
+const baseHeadersFor = (defaults: Record<string, string>, type: string): Headers => {
+  let byType = baseHeadersCache.get(defaults);
+  if (byType === undefined) {
+    byType = new Map();
+    baseHeadersCache.set(defaults, byType);
+  }
+  let base = byType.get(type);
+  if (base === undefined) {
+    base = new Headers({ "content-type": type, ...defaults });
+    byType.set(type, base);
+  }
+  return base;
+};
+
+/** UTF-8 byte length of a string body, or the byte length of pre-encoded bytes. */
+const contentLengthOf = (payload: Uint8Array | string): string =>
+  String(typeof payload === "string" ? textByteLength(payload) : payload.byteLength);
+
+/**
+ * Fast path: app-invariant static defaults and no explicit init headers.
+ *
+ * A boot-memoized base `Headers` (content-type + defaults) is handed to
+ * `Response` — which copies it — and only the dynamic `content-length` is set
+ * per request. The base is never mutated, so sharing it across requests is
+ * safe. Replaces a per-response loop of N `Headers.set` calls with one native
+ * copy (~2.1× faster for the 8-header security set, Bun 1.4.2).
+ */
+const withStaticBase = (
+  payload: Uint8Array | string | null,
+  type: string,
+  init: ResponseInit | undefined,
+  defaults: Record<string, string>,
+  setHeaders: Record<string, string> | null | undefined,
+): Response => {
+  const body = payload as BodyInit;
+  const base = baseHeadersFor(defaults, type);
+  let response: Response;
+
+  if (setHeaders) {
+    // Request-derived headers need a mutable copy (and sanitizing), so the
+    // (rare) `setHeaders` path clones the base instead of sharing it.
+    const hh = new Headers(base);
+    if (payload !== null) hh.set("content-length", contentLengthOf(payload));
+    applySetHeaderRecord(hh, setHeaders);
+    response =
+      init === undefined
+        ? new Response(body, { headers: hh })
+        : new Response(body, { ...init, headers: hh });
+  } else {
+    if (init === undefined) {
+      response = new Response(body, { headers: base });
+    } else {
+      const { headers: _ignored, ...rest } = init;
+      response = new Response(body, { ...rest, headers: base });
+    }
+    if (payload !== null) {
+      response.headers.set("content-length", contentLengthOf(payload));
+    }
+  }
+
+  decoratedResponses.add(response);
+  return response;
+};
+
+/**
+ * General path (no defaults, or explicit init headers): build the small base
+ * record and add the (potentially large) header sets INCREMENTALLY. Bun's bulk
+ * plain-object header init costs ~84 ns/header against ~56 ns/header for
+ * `Headers.set`, so a record built as 2 headers + N sets is cheaper than one
+ * merged object; the memoized-base fast path is cheaper still. Array-valued
+ * headers are skipped here and left to `applySet`, which alone can express
+ * `append` semantics.
+ */
+const withGeneralBody = (
+  payload: Uint8Array | string | null,
+  type: string,
+  init: ResponseInit | undefined,
+  defaults: Record<string, string> | null | undefined,
+  setHeaders: Record<string, string> | null | undefined,
+): Response => {
+  const ih = init?.headers;
+  const body = payload as BodyInit;
+  const h: Record<string, string> = { "content-type": type };
+  if (payload !== null) h["content-length"] = contentLengthOf(payload);
+  let response: Response;
+
+  if (!ih) {
+    if (init === undefined) {
+      response = new Response(body, { headers: h });
+    } else {
+      const { headers: _ignored, ...rest } = init;
+      response = new Response(body, { ...rest, headers: h });
+    }
+    if (defaults) applyStaticHeaders(response.headers, defaults);
+    if (setHeaders) applySetHeaderRecord(response.headers, setHeaders);
+  } else {
+    const hh = new Headers(h);
+    if (defaults) applyStaticHeaders(hh, defaults);
+    if (setHeaders) applySetHeaderRecord(hh, setHeaders);
+    applyInitHeaders(hh, ih);
+    response = new Response(body, { ...init, headers: hh });
+  }
+
+  if (defaults) decoratedResponses.add(response);
+  return response;
+};
+
+/**
  * Build a `Response` with an exact `content-length`.
  *
  * Mirrors the compiled `__withBody`. The body is NOT pre-encoded by the
@@ -178,19 +299,17 @@ const applyStaticHeaders = (target: Headers, record: Record<string, string>): vo
  *
  * `defaults` are app-invariant response headers (baked plugin output such as
  * the `security()` header set) and `setHeaders` is the request's accumulated
- * `ctx.set.headers`. Both are applied INCREMENTALLY via `Headers.set` after
- * construction rather than as a bulk plain-object header init, because Bun's
- * bulk path is measurably more expensive per header (measured on Bun 1.4.2,
- * 14 headers, 200k iterations):
- *
- *   new Headers(<14-key object>)    1268 ns   (84.2 ns/header)
- *   new Headers() + 14x set()        877 ns   (56.3 ns/header)
- *
- * i.e. bulk object init is ~45% slower than incremental `set()`. The same
- * holds for `Response`'s `init.headers`. `defaults` is further applied by
- * `applyStaticHeaders` (no `hasOwn`/sanitize) since it is a frozen boot-time
- * constant — see that helper. Responses built with `defaults` are registered
- * in `decoratedResponses` so decorating plugins can skip them.
+ * `ctx.set.headers`. When `defaults` is present and the response has no
+ * `init.headers`, a boot-memoized base `Headers` (content-type + defaults) is
+ * handed to `Response` and only the dynamic `content-length` is set per
+ * request — `Response` copies the base, so it is never mutated and can serve
+ * every concurrent request. This replaces the former per-request loop of N
+ * `Headers.set` calls with one native copy (measured ~2.1× faster for the
+ * 8-header security set, Bun 1.4.2). Without `defaults`, or with explicit
+ * `init.headers`, the small base record is built and the (potentially large)
+ * sets are added incrementally, which measurably beats Bun's bulk plain-object
+ * header init (~56 vs ~84 ns/header). Responses built with `defaults` are
+ * registered in `decoratedResponses` so decorating plugins can skip them.
  *
  * @param payload - The body: a string (Bun encodes it internally — the
  * preferred path) or pre-encoded bytes, or `null` for an empty body.
@@ -207,52 +326,10 @@ export const withBody = (
   defaults?: Record<string, string> | null,
   setHeaders?: Record<string, string> | null,
 ): Response => {
-  const ih = init?.headers;
-  // Fast path: no init headers — plain-object headers (no `Headers` alloc),
-  // and no rest/spread when init is undefined (the common `ctx.json(data)`).
-  const h: Record<string, string> = { "content-type": type };
-  if (payload !== null) {
-    // `textByteLength` uses native `Buffer.byteLength`, which computes the
-    // UTF-8 length WITHOUT materializing the array (see `http/body/size.ts`).
-    h["content-length"] = String(
-      typeof payload === "string" ? textByteLength(payload) : payload.byteLength,
-    );
+  if (defaults && !init?.headers) {
+    return withStaticBase(payload, type, init, defaults, setHeaders);
   }
-
-  const body = payload as BodyInit;
-  let response: Response;
-
-  if (!ih) {
-    if (init === undefined) {
-      response = new Response(body, { headers: h });
-    } else {
-      const { headers: _ignored, ...rest } = init;
-      response = new Response(body, { ...rest, headers: h });
-    }
-
-    // Add the (potentially large) header sets INCREMENTALLY — see the note
-    // above: Bun's bulk plain-object header init costs ~84 ns/header against
-    // ~56 ns/header for `Headers.set`, so a 14-header response is cheaper built
-    // as 2 headers + 12 sets. Array-valued headers are skipped here and left to
-    // `applySet`, which alone can express `append` semantics.
-    //
-    // Re-tested at SERVER level (workload-free /health, 4 interleaved rounds):
-    // merging the defaults into the construction record instead measured SLOWER
-    // (17.06us vs 16.60us) — the per-request ~10-key spread outweighs the cost
-    // of the extra `set` calls. Do not "optimise" this back to a merge without
-    // re-measuring on a served server.
-    if (defaults) applyStaticHeaders(response.headers, defaults);
-    if (setHeaders) applySetHeaderRecord(response.headers, setHeaders);
-  } else {
-    const hh = new Headers(h);
-    if (defaults) applyStaticHeaders(hh, defaults);
-    if (setHeaders) applySetHeaderRecord(hh, setHeaders);
-    applyInitHeaders(hh, ih);
-    response = new Response(body, { ...init, headers: hh });
-  }
-
-  if (defaults) decoratedResponses.add(response);
-  return response;
+  return withGeneralBody(payload, type, init, defaults, setHeaders);
 };
 
 /** Encode `data` as a JSON response (one `Buffer.byteLength` pass, exact length). */

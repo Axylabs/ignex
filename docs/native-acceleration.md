@@ -56,6 +56,24 @@ an acceleration layer — importing it **never throws**.
   semantics), the fallback is updated to match the native (RFC-correct)
   semantics — never both divergent.
 
+## Measured: native response assembly loses to lean JS for small routes (2026-09-19)
+
+A native declarative response lane (route-wire v4/v5/v6, op-program executor)
+was prototyped and then **removed** as a failed experiment. Under the
+server-bound comparison config it lost to a lean JS `Bun.serve` route by ~20%
+and to ignex's own ingress by ~17% on small JSON-envelope routes: the native
+request-frame encode + FFI crossing + response decode/re-assemble round trip
+costs MORE JS than the response/header/envelope construction it replaces. The
+public lane's own phase decomposition put ~2.3-2.6 µs of JS wire work around a
+~0.3 µs native program for the shape the JS route does in ~0.9 µs.
+
+Durable rule: **native pays for byte-heavy work, not small-route assembly.**
+Use native for large-payload parse/validate/compress/schema and route
+pre-flight; keep small-route response, header, and envelope construction in
+lean JS with memoized `Headers` (the memoized-base path in `withBody` /
+`__withBody`). Source: the castrum `native-bottleneck` + `wire-v6` reports and
+the removal of the ignex route-wire bridge.
+
 ## Off-thread tasks (castrum 0.9.6)
 
 CPU-bound native work can stall the JS event loop for tens-to-hundreds of

@@ -54,8 +54,12 @@ import { projectPath } from "./utils/path";
  * `if (req.signal.aborted) return __abortedResponse;` (the shared empty 200 the
  * interpreted lifecycle already returned), so a disconnected client pays no
  * context/hook/handler work. Generated output shape changed.
+ * 0.9.18 — memoized static response headers: `__withBody` now hands a boot-
+ * built base `Headers` (content-type + `__DEFAULT_HEADERS`) straight to
+ * `Response` and sets only the dynamic content-length per request, instead of
+ * looping N `Headers.set` calls. Generated output shape changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.17";
+export const COMPILER_CACHE_VERSION = "0.9.18";
 
 const CACHE_FILE = ".ignex-cache.json";
 

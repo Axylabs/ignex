@@ -101,6 +101,36 @@ interface CompileResult {
 | `verbose` | `false` | Verbose compiler logging. |
 | `serviceName`, `exposeErrorDetails`, `reusePort`, … | — | Server/feature flags. |
 
+### Multi-process scaling with `reusePort`
+
+`reusePort: true` (compiler option) or `server.reusePort: true` (runtime
+`app.config.server`) makes `Bun.serve` set `SO_REUSEPORT`, so several OS
+processes of the same artifact can bind the SAME `port` and the kernel spreads
+connections across them. This is the cheapest way past a single Bun event
+loop's ceiling: the shared castrum/ignex measurement saw **+78% RPS at 2
+processes** (and near-linear at 4 on a quiet host; beyond that is
+host-dependent). Run it with an external supervisor (`PORT` + N replicas) — for
+example a container orchestrator, `systemd` template units, or a small
+`Bun.spawn` loop.
+
+Caveat: **per-process state is not shared.** ignex's `rateLimit` plugin and the
+castrum `SHARED_LIMITERS` are per-process, so N replicas give each client N×
+the configured budget unless the limiter is backed by the shared `store`
+(Redis et al.). Externalize rate-limit/session/cache state before scaling out.
+
+### Static response headers are baked, not per-request
+
+Plugin `responseDefaults` (e.g. `security()`) and `server.headers` are folded
+at boot into the emitted `__DEFAULT_HEADERS`, which every framework-built
+response carries at construction — with one memoized base `Headers` (content-
+type + defaults) handed to `Response`, so the static set costs one native copy
+per response rather than N `Headers.set` calls. Note Bun 1.4.2's `Bun.serve`
+has **no** `headers` option (it is silently ignored), so a global Bun-level
+header sink is not available on this runtime; the emitted `__serveOptions.headers`
+line is forward-compatible only. Responses the framework did not build (raw
+`Response` passthroughs) are still decorated by the owning plugin's
+`onResponse`.
+
 ### Removed options
 
 Options removed from the surface are treated as UNKNOWN (warned + stripped,
