@@ -93,6 +93,33 @@ describe("body pure helpers", () => {
     expect(convertBody(state, "json")).toEqual({ a: 1 });
   });
 
+  it("convertBody arrayBuffer → blob preserves bytes without decoding", async () => {
+    // Binary content that is NOT valid UTF-8 — a decode-based implementation
+    // would substitute U+FFFD and lose the original bytes.
+    const bytes = Uint8Array.from([0x00, 0xff, 0xfe, 0x80, 0x7f, 0x01]);
+    const decodeBytes: number[] = [];
+    const RealDecoder = TextDecoder;
+    const real = new RealDecoder();
+    class CountingDecoder {
+      decode(input?: ArrayBuffer | ArrayBufferView): string {
+        decodeBytes.push(input?.byteLength ?? 0);
+        return real.decode(input);
+      }
+    }
+    // @ts-expect-error test-only global shim to observe decoding work
+    globalThis.TextDecoder = CountingDecoder;
+    try {
+      const blob = convertBody({ kind: "arrayBuffer", value: bytes.buffer }, "blob") as Blob;
+      const out = new Uint8Array(await blob.arrayBuffer());
+      expect([...out]).toEqual([...bytes]);
+      expect(blob.size).toBe(bytes.byteLength);
+      expect(decodeBytes).toEqual([]);
+    } finally {
+      // @ts-expect-error test-only global shim teardown
+      globalThis.TextDecoder = RealDecoder;
+    }
+  });
+
   it("convertBody text → formData parses urlencoded", () => {
     const fd = convertBody({ kind: "text", value: "a=1&b=2" }, "formData");
     expect(fd).toBeInstanceOf(FormData);

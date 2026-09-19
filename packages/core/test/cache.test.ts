@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import type { CachedHttpResponse, HttpResponseCacheStore } from "../src/data/cache/types";
 import {
   cacheControl,
   entityTag,
@@ -101,6 +102,47 @@ describe("HttpResponseCache", () => {
     expect(await second.text()).toBe("body");
   });
 
+  it.each([false, true])("reads a fresh hit once (async store: %s)", async (asyncStore) => {
+    const entries = new Map<string, CachedHttpResponse>();
+    let reads = 0;
+    let calls = 0;
+    const store: HttpResponseCacheStore = {
+      get(key) {
+        reads++;
+        const entry = entries.get(key);
+        return asyncStore ? Promise.resolve(entry) : entry;
+      },
+      set(key, entry) {
+        entries.set(key, entry);
+      },
+    };
+    const cache = new HttpResponseCache({ store });
+    const factory = async () => {
+      calls++;
+      return new Response("cached body");
+    };
+    await cache.getOrSet(req(), factory);
+    reads = 0;
+
+    const hit = await cache.getOrSet(req(), factory);
+    expect(await hit.text()).toBe("cached body");
+    expect(hit.headers.get("x-cache")).toBe("hit");
+    expect(calls).toBe(1);
+    expect(reads).toBe(1);
+
+    reads = 0;
+    const etag = hit.headers.get("etag");
+    expect(etag).toBeTruthy();
+    const conditional = await cache.getOrSet(
+      req("http://x/", { headers: { "if-none-match": etag as string } }),
+      factory,
+    );
+    expect(conditional.status).toBe(304);
+    expect(await conditional.text()).toBe("");
+    expect(reads).toBe(1);
+    expect(calls).toBe(1);
+  });
+
   it("single-flights concurrent cold misses", async () => {
     const cache = new HttpResponseCache();
     let calls = 0;
@@ -116,9 +158,149 @@ describe("HttpResponseCache", () => {
     ]);
 
     expect(calls).toBe(1);
-    // Single-flight shares the same Response instance across concurrent callers,
-    // so only read the body once.
-    expect(await (results[0] as Response).text()).toBe("body");
+    expect(await Promise.all(results.map((response) => response.text()))).toEqual([
+      "body",
+      "body",
+      "body",
+    ]);
+  });
+
+  it("single-flight gives every caller an independently consumable response", async () => {
+    const cache = new HttpResponseCache();
+    let calls = 0;
+    const factory = async () => {
+      calls += 1;
+      return new Response("shared-origin", { status: 200 });
+    };
+
+    const results = await Promise.all([
+      cache.getOrSet(req(), factory),
+      cache.getOrSet(req(), factory),
+      cache.getOrSet(req(), factory),
+    ]);
+
+    expect(calls).toBe(1);
+    // Every caller must be able to read the body — not only the first one to
+    // try. (Before independent responses, callers 2/3 shared the winner's
+    // already-consumed Response and saw a disturbed/locked body.)
+    expect(results.length).toBe(3);
+    for (const [i, r] of results.entries()) {
+      expect(r).toBeInstanceOf(Response);
+      if (i > 0) expect(r).not.toBe(results[0]);
+      expect(await (r as Response).text()).toBe("shared-origin");
+    }
+  });
+
+  it.each(["cacheable", "non-cacheable", "oversized", "declined write"])(
+    "single-flight preserves independent origin responses (%s)",
+    async (mode) => {
+      const cache = new HttpResponseCache({
+        ...(mode === "oversized" ? { maxBodyBytes: 1 } : {}),
+        ...(mode === "declined write" ? { maxBytes: 1 } : {}),
+      });
+      const factory = vi.fn(
+        async () =>
+          new Response("origin body", {
+            status: 200,
+            statusText: "Origin",
+            headers: {
+              "x-origin": "yes",
+              ...(mode === "non-cacheable" ? { "cache-control": "no-store" } : {}),
+            },
+          }),
+      );
+      const responses: Response[] = [];
+      const consume = async (response: Response) => {
+        responses.push(response);
+        expect(response.status).toBe(200);
+        expect(response.statusText).toBe("Origin");
+        expect(response.headers.get("x-origin")).toBe("yes");
+        expect(response.headers.has("x-cache")).toBe(false);
+        return response.text();
+      };
+      // Consume each response as soon as it arrives, not after all resolve.
+      const bodies = await Promise.all([
+        cache.getOrSet(req(), factory).then(consume),
+        cache.getOrSet(req(), factory).then(consume),
+        cache.getOrSet(req(), factory).then(consume),
+      ]);
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(new Set(responses).size).toBe(3);
+      expect(bodies).toEqual(["origin body", "origin body", "origin body"]);
+      const hit = await cache.get(req(), cache.key(req()));
+      if (mode === "cacheable") {
+        expect(await hit?.text()).toBe("origin body");
+      } else {
+        expect(hit).toBeNull();
+      }
+    },
+  );
+
+  it.each([0, 4, 5])("enforces the cache body boundary (%i bytes)", async (size) => {
+    const cache = new HttpResponseCache({ maxBodyBytes: 4 });
+    const request = req();
+    const payload = new Uint8Array(size).fill(7);
+    const response = new Response(payload);
+    expect(await cache.set(cache.key(request), response)).toBe(response);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(payload);
+    const hit = await cache.get(request, cache.key(request));
+    if (size > 4) {
+      expect(hit).toBeNull();
+    } else {
+      expect(hit).not.toBeNull();
+      if (!hit) throw new Error("Expected a cached response");
+      expect(new Uint8Array(await hit.arrayBuffer())).toEqual(payload);
+    }
+  });
+
+  it("stops an oversized cache fill without consuming the caller's response", async () => {
+    const cache = new HttpResponseCache({ maxBodyBytes: 4 });
+    let chunksRead = 0;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          chunksRead += 1;
+          controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+          if (chunksRead === 20) controller.close();
+        },
+      }),
+    );
+    const request = req();
+    const returned = await cache.set(cache.key(request), response);
+
+    expect(returned).toBe(response);
+    // Allow stream prefetch, but never drain the oversized body for caching.
+    expect(chunksRead).toBeLessThan(20);
+    expect(response.bodyUsed).toBe(false);
+    expect(await cache.get(request, cache.key(request))).toBeNull();
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+      Uint8Array.from({ length: 80 }, (_, index) => (index % 4) + 1),
+    );
+  });
+
+  it("fills a cold miss without re-reading the store", async () => {
+    const backing = new Map<string, CachedHttpResponse>();
+    const gets: string[] = [];
+    const sets: string[] = [];
+    const store: HttpResponseCacheStore = {
+      get(key) {
+        gets.push(key);
+        return backing.get(key);
+      },
+      set(key, value) {
+        sets.push(key);
+        backing.set(key, value);
+      },
+    };
+    const cache = new HttpResponseCache({ store });
+
+    await cache.getOrSet(req(), async () => new Response("v", { status: 200 }));
+
+    // The fill builds the entry itself — storing it must not require a
+    // read-back (async stores would pay an extra sequential round-trip per
+    // cold miss).
+    expect(sets).toEqual(["GET:/:"]);
+    expect(gets).toEqual(["GET:/:"]);
   });
 
   it("does not cache non-GET/HEAD methods", async () => {

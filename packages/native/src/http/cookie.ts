@@ -38,3 +38,25 @@ export const cookiePairsFallback = (input: string | Uint8Array): Pairs => {
 /** Parse a `Cookie` header into an object (last value wins per key). */
 export const parseCookie = (input: string | Uint8Array): Record<string, string> =>
   pairsToObject(cookiePairs(input));
+
+/**
+ * Bulk fused cookie-pairs STATS — twin of {@link cookiePairsStats} over the
+ * cookie header glue (count + total decoded byte length, no per-pair string
+ * materialization). Native gate mirrors {@link cookiePairs}'s gate selection
+ * exactly (a cookie header is a flat `;`-list; native is NOT selected for
+ * cookiePairs — the stats walk twins the same gate, so parity holds).
+ */
+export const cookiePairsStats = (
+  input: string | Uint8Array,
+): { readonly count: number; readonly totalDecodedLen: number } =>
+  cookiePairsStatsFallback(input);
+
+/** Pure-TS fallback for {@link cookiePairsStats} (identical behavior). */
+export const cookiePairsStatsFallback = (
+  input: string | Uint8Array,
+): { readonly count: number; readonly totalDecodedLen: number } => {
+  const pairs = cookiePairsFallback(input);
+  let total = 0;
+  for (const [name, value] of pairs) total += name.length + value.length;
+  return { count: pairs.length, totalDecodedLen: total };
+};

@@ -286,3 +286,60 @@ export const pairsToObject = (pairs: ReadonlyArray<[string, string]>): Record<st
   for (const [k, v] of pairs) out[k] = v;
   return out;
 };
+
+/**
+ * Unpack ONLY the count + total decoded byte length of a packed pairs section
+ * — the fused-stats twin of {@link readPairsSection} (same wire walk, same
+ * bounds guards, NO per-pair `ffiString` slices and NO JS tuple array).
+ *
+ * This is the `readPairsStatsPacked` surface — the ignex glue that reads
+ * `count` and `Σ(nameLen + valueLen)` from the packed buffer castrum already
+ * fused in ONE FFI call, without materializing the 60 doomed JS tuples a
+ * count/length-only consumer never reads.
+ *
+ * Layout: `[u32 count]{[u32 name_len][name][u32 value_len][value]}` (the exact
+ * packed pairs wire). Throws {@link PackedWireError} on any declared length
+ * that leaves the buffer — byte-parity with the full {@link readPairsSection}
+ * guards, which is what keeps this read honest on malformed input.
+ */
+export const readPairsStatsSection = (
+  b: FfiBuf,
+  start: number,
+): { readonly count: number; readonly totalDecodedLen: number; readonly nextPos: number } => {
+  const buf = b.buf;
+  const len = buf.byteLength;
+  const count = u32Checked(b, start, "pairs");
+  if (count > (len - start - 4) / MIN_PAIR_BYTES) {
+    throw new PackedWireError(
+      "pairs",
+      `pair count ${count} exceeds capacity of ${Math.max(0, len - start - 4)}B payload`,
+    );
+  }
+  let pos = start + 4;
+  let total = 0;
+  for (let i = 0; i < count; i++) {
+    const nameLen = u32Checked(b, pos, "pairs");
+    pos += 4;
+    if (nameLen > len - pos) {
+      throw new PackedWireError("pairs", `name length ${nameLen} exceeds buffer`);
+    }
+    total += nameLen;
+    pos += nameLen;
+    const valueLen = u32Checked(b, pos, "pairs");
+    pos += 4;
+    if (valueLen > len - pos) {
+      throw new PackedWireError("pairs", `value length ${valueLen} exceeds buffer`);
+    }
+    total += valueLen;
+    pos += valueLen;
+  }
+  return { count, totalDecodedLen: total, nextPos: pos };
+};
+
+/**
+ * Bulk pairs-stats: count + total decoded byte length of a packed pairs
+ * buffer — ONE native FFI call; no 60 JS tuples. {@link PackedWireError} on
+ * malformed input (byte-parity with {@link readPairsPacked}).
+ */
+export const readPairsStatsPacked = (buf: Uint8Array): { count: number; totalDecodedLen: number } =>
+  readPairsStatsSection(ffiBuf(buf), 0);

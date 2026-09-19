@@ -72,7 +72,8 @@ interface BoundStages {
 
 interface AllowedEntry {
   readonly re: RegExp;
-  readonly allow: string;
+  /** Mutable: an incremental registration can widen a path's method set. */
+  allow: string;
 }
 
 /** The interpreted router returned by {@link createRouter}. */
@@ -185,6 +186,16 @@ export const createRouter = (): IgnexRouter => {
   let exposeErrors = false;
   let allowedStatic: Record<string, string> = Object.create(null);
   let allowedDynamic: AllowedEntry[] = [];
+  /** Dynamic-path allow entries, addressable by pattern for in-place updates. */
+  const dynamicAllow = new Map<string, AllowedEntry>();
+  /** path → registered methods (incremental; avoids per-registration rebuilds). */
+  const methodsByPath = new Map<string, Set<RouterMethod>>();
+  /** Exact static paths → registrations in FIRST-registration order (dispatch index). */
+  const exactIndex = new Map<string, RouteRegistration[]>();
+  /** Dynamic-path registrations (contains `:` or `*`) in registration order. */
+  const dynamicRegs: RouteRegistration[] = [];
+  /** First registration per `METHOD\0path` — duplicate detection in O(1). */
+  const firstByMethodPath = new Map<string, RouteRegistration>();
 
   const ensureBound = (): BoundStages =>
     stages ?? {
@@ -434,10 +445,12 @@ export const createRouter = (): IgnexRouter => {
     return Object.fromEntries(keys.map((k, i) => [k, safeDecode(m[i + 1] ?? "")]));
   };
 
-  /** Pass 1 — exact static-path match for `method` (Bun-native specificity). */
+  /** Pass 1 — indexed exact static-path match for `method` (Bun-native specificity). */
   const findExact = (method: string, pathname: string): RouteRegistration | undefined => {
-    for (const reg of registrations) {
-      if (methodMatches(reg.method, method) && reg.path === pathname) return reg;
+    const bucket = exactIndex.get(pathname);
+    if (!bucket) return undefined;
+    for (const reg of bucket) {
+      if (methodMatches(reg.method, method)) return reg;
     }
     return undefined;
   };
@@ -447,7 +460,10 @@ export const createRouter = (): IgnexRouter => {
     method: string,
     pathname: string,
   ): { reg: RouteRegistration; params: Record<string, string> } | undefined => {
-    for (const reg of registrations) {
+    // Static paths never match a pattern, and pass 1 already covered them —
+    // scanning only dynamic registrations keeps pass 2 proportional to the
+    // dynamic route count.
+    for (const reg of dynamicRegs) {
       if (!methodMatches(reg.method, method)) continue;
       const captured = matchDynamic(reg, pathname);
       if (captured !== undefined) return { reg, params: captured };
@@ -455,30 +471,44 @@ export const createRouter = (): IgnexRouter => {
     return undefined;
   };
 
-  /** Rebuild the 405 allow-lists from the current registrations. */
-  const rebuildAllowed = (): void => {
-    const byPath = new Map<string, Set<RouterMethod>>();
-    for (const reg of registrations) {
-      const set = byPath.get(reg.path) ?? new Set<RouterMethod>();
-      set.add(reg.method);
-      byPath.set(reg.path, set);
-    }
-    const staticMap: Record<string, string> = Object.create(null);
-    const dynamic: AllowedEntry[] = [];
-    for (const [path, methods] of byPath) {
-      // Bun auto-answers HEAD for GET routes and OPTIONS on every path.
-      const effective = new Set(methods);
-      if (effective.has("GET")) effective.add("HEAD");
-      effective.add("OPTIONS");
-      const allow = [...effective].sort().join(",");
-      if (path.includes(":") || path.includes("*")) {
-        dynamic.push({ re: pathToRegex(path).re, allow });
+  /** Recompute one path's allow header from its registered methods. */
+  const recomputeAllow = (path: string): void => {
+    const raw = methodsByPath.get(path);
+    if (!raw) return;
+    // Bun auto-answers HEAD for GET routes and OPTIONS on every path.
+    const effective = new Set(raw);
+    if (effective.has("GET")) effective.add("HEAD");
+    effective.add("OPTIONS");
+    const allow = [...effective].sort().join(",");
+    if (path.includes(":") || path.includes("*")) {
+      const existing = dynamicAllow.get(path);
+      if (existing) {
+        existing.allow = allow;
       } else {
-        staticMap[path] = allow;
+        const entry: AllowedEntry = { re: pathToRegex(path).re, allow };
+        dynamicAllow.set(path, entry);
+        allowedDynamic.push(entry);
       }
+    } else {
+      allowedStatic[path] = allow;
     }
-    allowedStatic = staticMap;
-    allowedDynamic = dynamic;
+  };
+
+  /** Rebuild the 405 allow-lists from the current registrations (bulk form). */
+  const rebuildAllowed = (): void => {
+    methodsByPath.clear();
+    dynamicAllow.clear();
+    allowedStatic = Object.create(null);
+    allowedDynamic = [];
+    for (const reg of registrations) {
+      let set = methodsByPath.get(reg.path);
+      if (!set) {
+        set = new Set<RouterMethod>();
+        methodsByPath.set(reg.path, set);
+      }
+      set.add(reg.method);
+    }
+    for (const path of methodsByPath.keys()) recomputeAllow(path);
   };
 
   const register = (
@@ -514,14 +544,31 @@ export const createRouter = (): IgnexRouter => {
     // while programmatic dispatch returns the FIRST — the two entry points
     // would run different handlers for the same route. Warn so the conflict
     // is surfaced instead of silently diverging.
-    if (registrations.some((r) => r !== reg && r.method === method && r.path === path)) {
+    const dupKey = `${method}\u0000${path}`;
+    if (firstByMethodPath.has(dupKey)) {
       console.warn(
         `[ignex] duplicate route registration: ${method} ${path} — the served table uses the LAST handler, dispatch() the FIRST. Remove one of the registrations.`,
       );
+    } else {
+      firstByMethodPath.set(dupKey, reg);
     }
-    // Keep the 405 allow-lists current at registration time so `dispatch` /
-    // `fetch` / `optionsHandler` resolve allows without a prior `buildRoutes()`.
-    rebuildAllowed();
+    // Index + incremental allow-list maintenance: keep `dispatch` / `fetch` /
+    // `optionsHandler` correct without a full rebuild per registration.
+    const isDynamic = path.includes(":") || path.includes("*");
+    if (isDynamic) dynamicRegs.push(reg);
+    let bucket = exactIndex.get(path);
+    if (!bucket) {
+      bucket = [];
+      exactIndex.set(path, bucket);
+    }
+    bucket.push(reg);
+    let methods = methodsByPath.get(path);
+    if (!methods) {
+      methods = new Set<RouterMethod>();
+      methodsByPath.set(path, methods);
+    }
+    methods.add(method);
+    recomputeAllow(path);
     return router;
   };
 
@@ -547,7 +594,24 @@ export const createRouter = (): IgnexRouter => {
         return register(methodOrReg as RouterMethod, path as string, handler, schema);
       }
       registrations.push(methodOrReg);
-      rebuildAllowed();
+      const regMethod = methodOrReg.method;
+      const regPath = methodOrReg.path;
+      const dupKey = `${regMethod}\u0000${regPath}`;
+      if (!firstByMethodPath.has(dupKey)) firstByMethodPath.set(dupKey, methodOrReg);
+      if (regPath.includes(":") || regPath.includes("*")) dynamicRegs.push(methodOrReg);
+      let bucket = exactIndex.get(regPath);
+      if (!bucket) {
+        bucket = [];
+        exactIndex.set(regPath, bucket);
+      }
+      bucket.push(methodOrReg);
+      let methods = methodsByPath.get(regPath);
+      if (!methods) {
+        methods = new Set<RouterMethod>();
+        methodsByPath.set(regPath, methods);
+      }
+      methods.add(regMethod);
+      recomputeAllow(regPath);
       return router;
     },
     listRoutes: () => registrations.slice(),

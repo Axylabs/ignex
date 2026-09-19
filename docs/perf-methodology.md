@@ -363,6 +363,7 @@ cost is *dispatching* the work, not doing it.
   `GET /health` request after full `gc()` settles at **~1–5 B** (5 rounds × 10k
   reqs, 32-way; median 68.5 B once the first rounds' JIT warm-up transients are
   included) — the request path retains essentially nothing per request.
+- **WS3 resource pass (2026-09-18):** allocation-count bench (bench:allocations, post-full-GC, 5 rounds x 10k reqs) reports median 4.8 B/req retained (JIT first round ~85 B excluded; rounds 2-5: 1.1-19.6 B, consistent with WS0 1-5 B). RSS-stability probe (check-rss-stability, 3 min load + full-GC settle every 5s) reports bounded drift - end drift -11.2% vs 20% threshold; peak drift 1.27% (informational); verdict PASS. ignus-aot/bun 1.264x (29.24us vs bun 23.13us, bench:compare:cpu at 15k rps pinned, 8s x 3 alternating rounds).
 - **WS1 fused lifecycle lanes (2026-09-18):** an app whose whole plugin layer is
   statically attributed and carries no user lifecycle now composes the plugin
   hooks DIRECTLY at boot (`buildFusedChains` → `runFusedPre`/`runFusedPost` in

@@ -245,6 +245,69 @@ describe("applySet", () => {
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
+  it("keeps the original response when set.status equals the response status", async () => {
+    const response = new Response("ok");
+    const out = applySet(response, { status: 200, headers: { "x-a": "1" } });
+    // Same status = nothing to re-wrap: mutate in place, keep body + identity.
+    expect(out).toBe(response);
+    expect(out.status).toBe(200);
+    expect(out.headers.get("x-a")).toBe("1");
+    await expect(out.text()).resolves.toBe("ok");
+  });
+
+  it("keeps the body stream intact on a same-status applySet", async () => {
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("chunk"));
+          controller.close();
+        },
+      }),
+    );
+    const out = applySet(response, { status: 200, headers: { "x-a": "1" } });
+    expect(out).toBe(response);
+    await expect(out.text()).resolves.toBe("chunk");
+  });
+
+  it.each([200, 201, 204, 205, 304])("skips a no-op status override (%i)", (status) => {
+    const response = new Response(null, { status });
+    expect(applySet(response, { status, headers: {} })).toBe(response);
+  });
+
+  it("still applies cookies and tracing with an equal status", async () => {
+    const response = new Response("ok", { status: 201 });
+    const out = applySet(
+      response,
+      {
+        status: 201,
+        headers: {},
+        cookie: { sid: { value: "abc", httpOnly: true } },
+      },
+      "req-same",
+      true,
+    );
+    expect(out).toBe(response);
+    expect(out.headers.get("set-cookie")).toContain("sid=abc");
+    expect(out.headers.get("x-request-id")).toBe("req-same");
+    expect(await out.text()).toBe("ok");
+  });
+
+  it("still redirects when the explicit status equals the original status", async () => {
+    const response = new Response("old body", { status: 302 });
+    const out = applySet(response, { status: 302, redirect: "/login", headers: {} });
+    expect(out).not.toBe(response);
+    expect(out.headers.get("location")).toBe("/login");
+    expect(await out.text()).toBe("");
+  });
+
+  it("re-wraps when the requested status differs", () => {
+    const response = new Response("ok");
+    const out = applySet(response, { status: 201, headers: { "x-a": "1" } });
+    expect(out).not.toBe(response);
+    expect(out.status).toBe(201);
+    expect(out.headers.get("x-a")).toBe("1");
+  });
+
   it("handles redirect before other mutations", () => {
     const response = applySet(new Response("ok"), {
       redirect: "http://localhost/login",

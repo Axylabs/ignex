@@ -53,3 +53,44 @@ export const queryPairsFallback = (input: string | Uint8Array): Pairs =>
 /** Parse a query string into an object (last value wins per key). */
 export const parseQuery = (input: string | Uint8Array): Record<string, string> =>
   pairsToObject(queryPairs(input));
+
+/**
+ * Bulk fused query-pairs STATS: walk the SAME packed buffer
+ * `queryParsePacked` returns (batch count + total decoded byte length),
+ * WITHOUT materializing the per-pair JS strings the full
+ * {@link queryPairs} read must build.
+ *
+ * Selection + native op are IDENTICAL to {@link queryPairs} (same
+ * `queryPairs` gate, same single fused `queryParsePacked` FFI call) — the
+ * ONLY difference is the JS read: `readPairsStatsPacked` sums the packed
+ * length prefixes castrum already wrote instead of slicing 60 strings. A
+ * consumer that only needs `count`/`totalDecodedLen` (search-stat routes,
+ * form length guards) skips the 60-tuple materialization entirely.
+ *
+ * Gate/parity contract mirrors {@link queryPairs} byte-for-byte.
+ */
+export const queryPairsStats = (
+  input: string | Uint8Array,
+): { readonly count: number; readonly totalDecodedLen: number } => {
+  if (sizeGateAllowsNative("queryPairs", input.length)) {
+    const n = nativeFor("queryPairs");
+    if (n) return readPairsStatsPacked(n.queryParsePacked(toBytes(input)));
+  }
+  return queryPairsStatsFallback(input);
+};
+
+/** Pure-TS fallback for {@link queryPairsStats} (identical behavior). */
+export const queryPairsStatsFallback = (
+  input: string | Uint8Array,
+): { readonly count: number; readonly totalDecodedLen: number } => {
+  let count = 0;
+  let total = 0;
+  for (const [name, value] of (typeof input === "string"
+    ? queryPairsFallback(input)
+    : queryPairsFallback(input) // byte-parity: fallback handles both inputs identically
+  )) {
+    count += 1;
+    total += name.length + value.length;
+  }
+  return { count, totalDecodedLen: total };
+};

@@ -150,6 +150,8 @@ const __preStages = [];
 const __postStages = [];
 const __allowedStatic = Object.freeze({});
 const __allowedDynamic = [];
+// These benchmarks model a server without default response headers.
+const __DEFAULT_HEADERS = null;
 `;
 
 const HELPERS_ORDER = [
@@ -179,9 +181,14 @@ function evalHelpers(
   const body = HELPERS_ORDER.filter((h) => sources[h])
     .map((h) => sources[h])
     .join("\n\n");
+  // `__fallback` references `import.meta.dir`, which cannot parse inside a
+  // `new Function` scope (non-module). The hot-path benches never call
+  // `__fallback`, so the token is neutralized to a plain identifier stub —
+  // timing targets are the reply/context helpers, not the fallback body.
+  const sanitizable = body.replaceAll("import.meta.dir", "__hotpathImportMetaDir");
   const factory = new Function(
     ...Object.keys(core),
-    `${prelude}\n${body}\nreturn { ${HELPERS_ORDER.join(", ")} };`,
+    `${prelude}\nconst __hotpathImportMetaDir = "";\n${sanitizable}\nreturn { ${HELPERS_ORDER.join(", ")} };`,
   );
   return factory(...Object.values(core)) as Record<string, unknown>;
 }
@@ -382,7 +389,7 @@ groups.push({
 async function main(): Promise<void> {
   if (!AS_JSON) {
     console.log("AOT hot-path bench — interleaved trials, median, Bun.gc() between");
-    console.log(`  bun ${process.version ?? ""}  ·  win threshold x${WIN_RATIO}`);
+    console.log(`  bun ${Bun.version}  ·  win threshold x${WIN_RATIO}`);
   }
 
   const all: Record<string, Record<string, number>> = {};

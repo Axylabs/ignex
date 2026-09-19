@@ -81,7 +81,7 @@ export const createEndpointTable = (
 
   const requestDetail = createRequestDetailHandler(deps, routeIndex);
   const replay = createReplayHandler(deps);
-  const stateHandler = createStateHandler(deps, ktData);
+  const stateHandler = createStateHandler(deps);
   const sdksHandler = createSdksHandler(deps, ktData);
   const routesHandler = createRoutesHandler(deps, ktData);
   const aiSummary = createAiSummaryHandler(deps, ktData);

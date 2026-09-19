@@ -22,7 +22,7 @@ Public surface = `src/index.ts` barrel + documented subpaths
 | `platform/` | `env` (typed accessors), `config` (`defineConfig` — `@ignex/core/config`), `coerce`, `jobs` (durable + store), `errors` (`HTTPError` family), `sqlite`, `metrics`, `mailer`, `notifier`, `scheduler` |
 | `content/` | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |
 | `plugins/` | ready-made `IgnexPlugin` factories: auth-module, auth, session, csrf, cors, compression, security, logger, ratelimit, rbac, native, nova, openapi, debugbar, metrics |
-| `debug/` | debugbar + observatory (logs, metrics/Prometheus, SQLite history, leak diagnostics) |
+| `debug/` | debugbar + observatory (logs, metrics/Prometheus, SQLite history, leak diagnostics); KT collection in `kt.ts`, pure rendering in `knowledge-markdown.ts`, shared span descriptions in `span-kind-names.ts` |
 | `types/` | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
 
 Top-level: `client.ts` (typed fetch client), `openapi.ts` (OpenAPI 3.1 spec

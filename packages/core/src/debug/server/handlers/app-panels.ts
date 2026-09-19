@@ -7,7 +7,7 @@
 import type { IgnexContext } from "../../../http/context";
 import type { IgnexRouter } from "../../../http/router";
 import type { NovaEventTrace, NovaEventTraceRow } from "../../../plugins/nova";
-import { buildAppKnowledge, formatKnowledgeMarkdown } from "../../kt";
+import { buildAppKnowledge, countManifestRoutes, formatKnowledgeMarkdown } from "../../kt";
 import { analyzeSamples } from "../../leaks";
 import { renderMarkdownHtml } from "../../markdown";
 import type { NatsEventSummary, NatsEventTracker } from "../../nats-tracker";
@@ -148,28 +148,28 @@ export const createKtData =
   };
 
 /** `GET /api/state` — application/process snapshot. */
-export const createStateHandler =
-  (deps: HandlerDeps, ktData: () => Promise<{ knowledge: AppKnowledge }>) =>
-  async (): Promise<Response> => {
-    const { knowledge } = await ktData();
-    return json(
-      buildAppState({
-        serviceName: deps.state.serviceName,
-        version: deps.state.version,
-        debugMode: deps.state.enabled,
-        routeCount: knowledge.routes.length,
-        plugins: knowledge.plugins.map((p) => p.name),
-        tracesRetained: deps.state.store.size,
-        logsRetained: deps.state.logs.size,
-        activeRequests: deps.state.active.size,
-        features: {
-          logs: true,
-          metrics: true,
-          persist: deps.state.sink?.status().available === true,
-        },
-      }),
-    );
-  };
+export const createStateHandler = (deps: HandlerDeps) => async (): Promise<Response> => {
+  const routeCount = deps.state.router
+    ? deps.state.router.listRoutes().length
+    : await countManifestRoutes(deps.state.manifestPaths);
+  return json(
+    buildAppState({
+      serviceName: deps.state.serviceName,
+      version: deps.state.version,
+      debugMode: deps.state.enabled,
+      routeCount,
+      plugins: deps.state.plugins,
+      tracesRetained: deps.state.store.size,
+      logsRetained: deps.state.logs.size,
+      activeRequests: deps.state.active.size,
+      features: {
+        logs: true,
+        metrics: true,
+        persist: deps.state.sink?.status().available === true,
+      },
+    }),
+  );
+};
 
 /** Probe paths for the Clients panel: sdkPaths + clientPaths, deduped. */
 export const clientProbePaths = (deps: HandlerDeps): string[] => {

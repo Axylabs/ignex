@@ -42,10 +42,13 @@ const fromText = (value: unknown, target: BodyKind): unknown => {
 
 const fromArrayBuffer = (value: unknown, target: BodyKind): unknown => {
   const buf = value as ArrayBuffer;
+  // Binary passthrough first: wrapping the buffer needs no decoding. Only the
+  // text-shaped targets below pay the UTF-8 decode (and its lossy-replacement
+  // semantics for non-UTF-8 bytes).
+  if (target === "blob") return new Blob([buf]);
   const text = new TextDecoder().decode(buf);
   if (target === "text") return text;
   if (target === "json") return JSON.parse(text);
-  if (target === "blob") return new Blob([buf]);
   return undefined;
 };
 

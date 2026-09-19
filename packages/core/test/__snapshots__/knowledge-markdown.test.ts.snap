@@ -1,0 +1,140 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatKnowledgeMarkdown > preserves the empty snapshot's Markdown without mutating its input 1`] = `
+"# Example — how this app works
+
+> Auto-generated from this deployment: 0 routes, 0 plugin(s), 0 lifecycle stage(s), 0 doc(s), 0 distinct DB statement(s) observed. Debug mode: **on**.
+
+## Where things live
+
+_No conventional app directories found (routes/models/middleware/…). This may be a library or a non-standard layout._
+> Conventions: routes are files under \`routes/\` — the filename encodes method + path (\`health.get.ts\` → \`GET /health\`, \`users/[id].get.ts\` → \`GET /users/:id\`). Cross-cutting behavior lives in plugins (\`app.config.ts\`) and middleware; per-request work is composed in handlers.
+
+## Request anatomy
+
+Every request flows: \`Bun.serve\` native router → context → lifecycle stages (\`start\` → \`request\` → \`parse\` → \`transform\` → \`beforeHandle\`) → handler → (\`afterHandle\` → \`mapResponse\`) → response. A pre-stage may halt the chain with a response (auth, rate limits, CORS). Errors run the \`error\` stage. The debugbar records each stage + every \`ctx.debug\` span as a waterfall row.
+
+## Plugins
+
+_None registered._
+
+## Lifecycle stages
+
+_No lifecycle hooks registered._
+
+## Routes
+
+_No routes discovered (no manifest.json artifact and no router). Run \`ignex build\`._
+
+## Database activity
+
+_No DB queries observed in the retained request window. Wrap calls in \`ctx.debug.query(sql, params, fn)\` or \`debugQuery()\` — then every statement this app runs shows up here with timing and the routes that perform it._
+
+## Span kinds you can trace
+
+
+## Published SDK
+
+_No published SDK detected. Run \`ignex sdk\` (or set \`debugbar({ sdkPaths })\`) to generate one._
+
+## Documentation
+
+_No markdown docs found (scanned \`docs/\` and the project root). Set \`debugbar({ docsPaths: [...] })\` if your docs live elsewhere._
+
+## Environment
+
+| Key | Value |
+| --- | --- |
+| Runtime | Bun 1.4.0 on linux/x64 (pid 42) |
+"
+`;
+
+exports[`formatKnowledgeMarkdown > preserves the populated snapshot's Markdown without mutating its input 1`] = `
+"# Example — how this app works
+
+> Auto-generated from this deployment: 2 routes, 1 plugin(s), 2 lifecycle stage(s), 1 doc(s), 2 distinct DB statement(s) observed. Debug mode: **on**.
+
+## Where things live
+
+### \`src/routes/\` — Routes
+
+Request handlers.
+
+- \`health.get.ts\`
+
+### \`app.config.ts\` — Configuration
+
+Application configuration.
+
+> Conventions: routes are files under \`routes/\` — the filename encodes method + path (\`health.get.ts\` → \`GET /health\`, \`users/[id].get.ts\` → \`GET /users/:id\`). Cross-cutting behavior lives in plugins (\`app.config.ts\`) and middleware; per-request work is composed in handlers.
+
+## Request anatomy
+
+Every request flows: \`Bun.serve\` native router → context → lifecycle stages (\`start\` → \`request\` → \`parse\` → \`transform\` → \`beforeHandle\`) → handler → (\`afterHandle\` → \`mapResponse\`) → response. A pre-stage may halt the chain with a response (auth, rate limits, CORS). Errors run the \`error\` stage. The debugbar records each stage + every \`ctx.debug\` span as a waterfall row.
+
+## Plugins
+
+| Plugin | What it does |
+| --- | --- |
+| \`logger\` | Request logging. |
+
+## Lifecycle stages
+
+| # | Stage | Hooks |
+| --- | --- | --- |
+| 0 | \`request\` | 1 |
+| 1 | \`afterHandle\` | 2 |
+
+## Routes
+
+| Method | Path | Source | Usage |
+| --- | --- | --- | --- |
+| GET | \`/health\` | src/routes/health.get.ts | query, headers |
+| POST | \`/refresh\` | Refresh state | — |
+
+## Database activity
+
+> Observed across the retained request traces — what each route actually does to the database. Per-request detail lives in the Queries tab of a trace.
+
+| Action | Table | Calls | Total ms | Statement | Routes |
+| --- | --- | --- | --- | --- | --- |
+| SELECT | users | 2 | 3.5 | \`SELECT * FROM users WHERE id = ?\` | \`GET /users/:id\` |
+| SELECT | — | 1 | 1 | \`SELECT ?\` | — |
+
+## Span kinds you can trace
+
+- \`request\` — the request itself.
+- \`lifecycle\` — framework lifecycle stages.
+- \`db\` — database queries / transactions.
+- \`cache\` — cache operations.
+- \`http\` — outbound HTTP calls.
+- \`render\` — template rendering / static file serving.
+- \`auth\` — authentication / sessions / security checks.
+- \`custom\` — application code.
+- \`error\` — failed operations.
+
+## Published SDK
+
+- **@example/sdk@1.0.0** at \`sdk\`
+- Files: \`index.ts\`, \`types.ts\`
+- Git tags: \`sdk-v1.0.0\` (tagged ✓)
+- Generated with \`ignex sdk\`; frontend teams install it and get typed endpoints.
+
+## Documentation
+
+| Document | Title |
+| --- | --- |
+| \`docs/start.md\` | Getting started |
+
+## Environment
+
+| Key | Value |
+| --- | --- |
+| Runtime | Bun 1.4.0 on linux/x64 (pid 42) |
+| \`NODE_ENV\` | \`test\` |
+
+## Notes
+
+- Example deployment.
+"
+`;

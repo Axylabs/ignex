@@ -12,20 +12,11 @@ import { stripHopByHopHeaders } from "../../http/headers";
 import { LRUCache } from "../lru";
 import { parseCacheControl } from "./cache-control";
 import { entityTag } from "./hash";
+import { type ResponseCachePolicyOptions, responseCachePolicy } from "./response-policy";
 import type { CachedHttpResponse, HttpResponseCacheOptions, HttpResponseCacheStore } from "./types";
 
 function sanitizeHeaders(headers: Headers): [string, string][] {
   return Array.from(stripHopByHopHeaders(headers).entries());
-}
-
-function isCacheableResponse(response: Response): boolean {
-  if (response.headers.has("set-cookie")) return false;
-
-  const cc = response.headers.get("cache-control") || "";
-  if (cc.includes("no-store")) return false;
-  if (cc.includes("private")) return false;
-
-  return [200, 203, 204, 300, 301, 404, 410].includes(response.status);
 }
 
 interface StoredEntry {
@@ -50,7 +41,9 @@ export class HttpResponseCache {
   private store: HttpResponseCacheStore;
   private maxBodyBytes: number;
   private defaultTtlMs: number;
-  /** In-flight factories keyed by cache key — single-flight (thundering-herd) guard. */
+  private onStoreError: "open" | "throw";
+  private storeWarningEmitted = false;
+  /** In-flight cache fills keyed by cache key — single-flight (thundering-herd) guard. */
   private inflight = new Map<string, Promise<Response>>();
   /** Keys currently being background-refreshed (stale-hit revalidation). */
   private refreshing = new Set<string>();
@@ -58,6 +51,7 @@ export class HttpResponseCache {
   constructor(opts: HttpResponseCacheOptions = {}) {
     this.maxBodyBytes = opts.maxBodyBytes ?? 1_048_576;
     this.defaultTtlMs = opts.ttlMs ?? 60_000;
+    this.onStoreError = opts.onStoreError ?? "open";
 
     this.store =
       opts.store ??
@@ -78,21 +72,38 @@ export class HttpResponseCache {
     return `${req.method}:${url.pathname}${url.search}:${varyKey}`;
   }
 
-  /** Read the stored entry (stale allowed) with a staleness flag. */
-  private readEntry(key: string): StoredEntry | Promise<StoredEntry | null> | null {
-    const stored = this.store.get(key, { allowStale: true });
-    if (stored instanceof Promise) {
-      // Async backing store: resolve, then compute staleness.
-      return stored.then((entry) =>
-        entry ? { entry, stale: Date.now() - entry.storedAt > entry.ttlMs } : null,
+  private handleStoreError(error: unknown): null {
+    if (this.onStoreError === "throw") throw error;
+    if (!this.storeWarningEmitted) {
+      this.storeWarningEmitted = true;
+      console.warn(
+        "[ignex] response cache: backing store failed; bypassing cache (onStoreError: open)",
       );
     }
-    if (!stored) return null;
+    return null;
+  }
 
-    return {
-      entry: stored,
-      stale: Date.now() - stored.storedAt > stored.ttlMs,
-    };
+  private storedEntry(entry: CachedHttpResponse | undefined): StoredEntry | null {
+    if (!entry) return null;
+    const stale = Date.now() - entry.storedAt >= entry.ttlMs;
+    if (stale && entry.mustRevalidate) return null;
+    return { entry, stale };
+  }
+
+  /** Read once; only backing-store errors use the configured failure policy. */
+  private readEntry(key: string): StoredEntry | Promise<StoredEntry | null> | null {
+    let stored: ReturnType<HttpResponseCacheStore["get"]>;
+    try {
+      stored = this.store.get(key, { allowStale: true });
+    } catch (error) {
+      return this.handleStoreError(error);
+    }
+    return stored instanceof Promise
+      ? stored.then(
+          (entry) => this.storedEntry(entry),
+          (error) => this.handleStoreError(error),
+        )
+      : this.storedEntry(stored);
   }
 
   async get(req: Request, key: string): Promise<Response | null> {
@@ -100,8 +111,10 @@ export class HttpResponseCache {
     const resolved = found instanceof Promise ? await found : found;
     if (!resolved) return null;
 
-    const { entry } = resolved;
+    return this.responseFromEntry(req, resolved.entry);
+  }
 
+  private responseFromEntry(req: Request, entry: CachedHttpResponse): Response {
     if (isNotModified(req, entry.etag)) {
       return new Response(null, {
         status: 304,
@@ -122,16 +135,40 @@ export class HttpResponseCache {
   async set(
     key: string,
     response: Response,
-    opts: { ttlMs?: number; staleTtlMs?: number; etag?: boolean } = {},
+    opts: ResponseCachePolicyOptions = {},
   ): Promise<Response> {
-    if (!isCacheableResponse(response)) return response;
+    const policy = responseCachePolicy(response, opts, this.defaultTtlMs);
+    if (!policy) return response;
 
     const clone = response.clone();
-    const body = await clone.arrayBuffer();
-
-    if (body.byteLength > this.maxBodyBytes) {
-      return response;
+    const reader = clone.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > this.maxBodyBytes) {
+            // Cancelling a tee branch can wait for the caller's branch to finish.
+            // Do not await it: the original response must remain consumable.
+            void reader.cancel().catch(() => {});
+            return response;
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
     }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = bytes.buffer;
 
     const headers = sanitizeHeaders(response.headers);
     const etag = opts.etag === false ? undefined : entityTag(body);
@@ -146,17 +183,22 @@ export class HttpResponseCache {
       headers,
       body,
       storedAt: Date.now(),
-      ttlMs: opts.ttlMs ?? this.defaultTtlMs,
+      ttlMs: policy.ttlMs,
+      ...(policy.mustRevalidate ? { mustRevalidate: true } : {}),
     };
 
     if (etag) {
       cached.etag = etag;
     }
 
-    await this.store.set(key, cached, {
-      ...(opts.ttlMs !== undefined ? { ttlMs: opts.ttlMs } : {}),
-      ...(opts.staleTtlMs !== undefined ? { staleTtlMs: opts.staleTtlMs } : {}),
-    });
+    try {
+      await this.store.set(key, cached, {
+        ttlMs: policy.ttlMs,
+        ...(policy.staleTtlMs !== undefined ? { staleTtlMs: policy.staleTtlMs } : {}),
+      });
+    } catch (error) {
+      this.handleStoreError(error);
+    }
 
     return response;
   }
@@ -226,24 +268,24 @@ export class HttpResponseCache {
     }
 
     const key = this.key(req, opts.vary);
-    const hit = await this.get(req, key);
+    const found = this.readEntry(key);
+    const resolved = found instanceof Promise ? await found : found;
 
-    if (hit) {
-      // Serve the hit; when it's stale, refresh in the background so the next
-      // request gets fresh data without paying the origin latency now.
-      const found = this.readEntry(key);
-      const resolved = found instanceof Promise ? await found : found;
-      if (resolved?.stale && !this.refreshing.has(key)) {
+    if (resolved) {
+      const hit = this.responseFromEntry(req, resolved.entry);
+      // Reuse the same entry for freshness and response construction: async
+      // stores must not pay a second read on every cache hit.
+      if (resolved.stale && !this.refreshing.has(key)) {
         this.startBackgroundRefresh(key, factory, opts);
       }
       return hit;
     }
 
-    // Single-flight: coalesce concurrent cold misses on the same key so the
-    // origin is hit once. Concurrent callers await the same in-flight factory
-    // instead of each re-fetching (thundering-herd protection).
+    // Coalesce the origin work, not the consumable response. Waiters clone
+    // during the fill promise's reactions, before the initiating caller can
+    // consume the original. No store read-back or retained spare clone is needed.
     const inFlight = this.inflight.get(key);
-    if (inFlight) return inFlight;
+    if (inFlight) return (await inFlight).clone();
 
     const promise = (async () => {
       try {
@@ -256,6 +298,6 @@ export class HttpResponseCache {
     })();
 
     this.inflight.set(key, promise);
-    return promise;
+    return await promise;
   }
 }

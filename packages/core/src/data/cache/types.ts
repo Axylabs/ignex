@@ -37,6 +37,8 @@ export interface HttpResponseCacheOptions {
    * semantics — the Laravel-style cache driver story.
    */
   store?: HttpResponseCacheStore;
+  /** Store failures: "open" (default) warns once and bypasses; "throw" propagates. */
+  onStoreError?: "open" | "throw";
 }
 
 /**
@@ -70,6 +72,8 @@ export interface CachedHttpResponse {
   etag?: string;
   /** Epoch ms when the entry was stored (drives staleness + revalidation). */
   storedAt: number;
+  /** Do not serve this entry after its freshness lifetime, even if the store retains it. */
+  mustRevalidate?: boolean;
   /** Effective freshness lifetime of this entry, in ms. */
   ttlMs: number;
 }

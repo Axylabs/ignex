@@ -626,6 +626,11 @@ the event flow.
 
 ## KT — knowledge transfer
 
+Implementation: `packages/core/src/debug/kt.ts` collects the snapshot;
+`knowledge-markdown.ts` renders it without filesystem or runtime dependencies.
+Both use `span-kind-names.ts` for the span inventory and descriptions. The
+existing `formatKnowledgeMarkdown` export from `kt.ts` remains available.
+
 The **KT · How it works** page is generated from real artifacts, never prose —
 it answers the questions a new developer asks on day one:
 

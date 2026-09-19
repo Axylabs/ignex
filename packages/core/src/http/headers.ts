@@ -285,7 +285,7 @@ export const applySet = (
   // nothing at all — the common case for routes that only use `ctx.json()`.
   if (
     !trace &&
-    status === undefined &&
+    (status === undefined || status === response.status) &&
     redirect === undefined &&
     !hasOwnKeys(headers) &&
     !hasOwnKeys(cookie)
@@ -306,7 +306,7 @@ export const applySet = (
   // Header/cookie-only mutations (no status change): mutate the response's
   // headers IN PLACE when possible (Bun) instead of re-wrapping — preserves the
   // body stream and content-length and avoids a new Response per request.
-  if (status === undefined) {
+  if (status === undefined || status === response.status) {
     return mutateHeaders(response, (h) => applySetHeaders(h, headers, cookie, trace, requestId));
   }
 
