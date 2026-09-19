@@ -101,6 +101,8 @@ export {
   type ConditionalRequest,
   cookiePairs,
   cookiePairsFallback,
+  cookiePairsStats,
+  cookiePairsStatsFallback,
   createAcceptNegotiator,
   createAcceptNegotiatorFallback,
   createConditionalRequest,
@@ -126,6 +128,8 @@ export {
   parseQuery,
   queryPairs,
   queryPairsFallback,
+  queryPairsStats,
+  queryPairsStatsFallback,
 } from "./http";
 export {
   buildIngressHeaderPlan,

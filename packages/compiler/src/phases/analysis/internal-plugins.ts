@@ -101,7 +101,7 @@ export const resolveGlobalPluginUsage = (
   for (const call of calls) {
     let declared: Readonly<ContextUsage> | null;
     if (INTERNAL_PLUGIN_SOURCES.has(call.source)) {
-      declared = INTERNAL_PLUGIN_USAGE[call.name];
+      declared = INTERNAL_PLUGIN_USAGE[call.name] ?? null;
     } else {
       // A user plugin — attribute it through its module's declaration, if any.
       if (!sources || !fromPath) return { usage: null };

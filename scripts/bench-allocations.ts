@@ -39,7 +39,8 @@ const N_PER_ROUND = 10_000; // identical requests per round
 const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b);
   const mid = s.length >> 1;
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  const hi = s[mid] ?? 0;
+  return s.length % 2 ? hi : ((s[mid - 1] ?? 0) + hi) / 2;
 };
 
 const serverPath = pathArg ? resolve(pathArg) : DEFAULT_SERVER;
@@ -117,7 +118,9 @@ if (AS_JSON) {
   console.log(JSON.stringify(report, null, 2));
 } else {
   for (let r = 0; r < ROUNDS; r++) {
-    console.log(`round ${r + 1}  ${rounds[r].toFixed(3)} B/req retained (${N_PER_ROUND} reqs)`);
+    console.log(
+      `round ${r + 1}  ${(rounds[r] ?? 0).toFixed(3)} B/req retained (${N_PER_ROUND} reqs)`,
+    );
   }
   console.log("── retained heap growth per request ───────────────");
   console.log(`median  ${report.medianBytesPerReq} B/req   (post-full-GC, ${ROUNDS} rounds)`);

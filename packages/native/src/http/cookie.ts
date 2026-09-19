@@ -48,8 +48,7 @@ export const parseCookie = (input: string | Uint8Array): Record<string, string> 
  */
 export const cookiePairsStats = (
   input: string | Uint8Array,
-): { readonly count: number; readonly totalDecodedLen: number } =>
-  cookiePairsStatsFallback(input);
+): { readonly count: number; readonly totalDecodedLen: number } => cookiePairsStatsFallback(input);
 
 /** Pure-TS fallback for {@link cookiePairsStats} (identical behavior). */
 export const cookiePairsStatsFallback = (

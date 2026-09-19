@@ -2,7 +2,7 @@
  * @fileoverview Query-string parsing.
  */
 
-import { pairsToObject, readPairsPacked } from "../packed";
+import { pairsToObject, readPairsPacked, readPairsStatsPacked } from "../packed";
 import { nativeFor } from "../runtime";
 import { sizeGateAllowsNative } from "../selection";
 import { fromBytes, toBytes } from "../util";
@@ -85,10 +85,10 @@ export const queryPairsStatsFallback = (
 ): { readonly count: number; readonly totalDecodedLen: number } => {
   let count = 0;
   let total = 0;
-  for (const [name, value] of (typeof input === "string"
+  for (const [name, value] of typeof input === "string"
     ? queryPairsFallback(input)
-    : queryPairsFallback(input) // byte-parity: fallback handles both inputs identically
-  )) {
+    : queryPairsFallback(input)) {
+    // byte-parity: fallback handles both inputs identically
     count += 1;
     total += name.length + value.length;
   }

@@ -122,7 +122,9 @@ const readContextUsageFromAst = (ast: Program): Readonly<ContextUsage> | null =>
       if (declarator.id.type !== "Identifier" || declarator.id.name !== "contextUsage") continue;
       seen += 1;
       const init = unwrap(declarator.init ?? undefined);
-      if (init?.type === "ObjectExpression") literal = init;
+      if ((init as { type?: string } | undefined)?.type === "ObjectExpression") {
+        literal = init as ObjectExpression;
+      }
     }
   });
 
@@ -130,7 +132,7 @@ const readContextUsageFromAst = (ast: Program): Readonly<ContextUsage> | null =>
   if (seen !== 1 || literal === null) return null;
 
   const usage: MutableUsage = { ...EMPTY_USAGE };
-  for (const prop of literal.properties ?? []) {
+  for (const prop of (literal as ObjectExpression).properties ?? []) {
     // Spreads / methods / accessors are not statically-parseable declarations.
     if (prop.type !== "Property" || prop.kind === "get" || prop.kind === "set" || prop.method) {
       return null;
