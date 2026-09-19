@@ -62,8 +62,15 @@ import { projectPath } from "./utils/path";
  * are present (one native `Headers` copy) instead of re-building the record and
  * re-applying every static default with a `Headers.set` each. Generated output
  * shape changed.
+ * 0.9.20 — static-default passthrough: a raw `Response`, the 404/405 fallback,
+ * an OPTIONS preflight, an error response and a pre-handler short-circuit now
+ * carry the emitted `__DEFAULT_HEADERS` (`server.headers` + plugin
+ * `responseDefaults`) through the new `__decorateWithDefaults` helper —
+ * previously only `__withBody`-built replies baked them, so those paths missed
+ * `server.headers` on Bun 1.4.2 (which ignores `Bun.serve({ headers })`).
+ * Generated output shape changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.19";
+export const COMPILER_CACHE_VERSION = "0.9.20";
 
 const CACHE_FILE = ".ignex-cache.json";
 

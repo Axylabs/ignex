@@ -95,6 +95,16 @@ server-bound A/B of the changed branch measured 91.9k -> 94.2k RPS (**+2.5%**).
 headers are baked at response CONSTRUCTION (the memoized base), never via a
 server sink.
 
+Paths that do NOT construct through that base — a raw `Response` passthrough
+(e.g. `ctx.sendFile`, a direct `Response.json`), the 404/405 fallback, the
+OPTIONS preflight, an error response, a pre-handler short-circuit — are decorated
+by the compiled `__decorateWithDefaults` helper, which fills ONLY the headers the
+response does not already carry (route-specific values win) and marks the
+response decorated so a decorating plugin's chain skips its static loop. For an
+already-baked reply that is a single `WeakSet` probe returned unchanged, so the
+hot success path pays no per-header work; with no declared defaults the guard
+const-folds away entirely.
+
 ## Pre-aborted requests
 
 A request whose `req.signal` is ALREADY aborted before the pipeline starts is
@@ -123,6 +133,10 @@ plain-Bun `scripts/verify-aot-abort.ts` (build → boot → invoke).
   the registered methods (+ auto-`HEAD`/`OPTIONS`).
 - **OPTIONS** → runs the pre-handler chain (so the CORS plugin can answer
   preflight), otherwise a `204` with `Allow`.
+- Every one of these paths carries the app's static default headers
+  (`server.headers` + plugin `responseDefaults`), applied by
+  `__decorateWithDefaults` when they bypass the reply-construction bake
+  (`packages/compiler/test/static-defaults-passthrough.test.ts`).
 - **HEAD** → auto-answered by the `GET` handler with the body stripped.
 - Lifecycle hooks (CORS, security headers) apply to 404/405 responses too,
   matching the compiled server.

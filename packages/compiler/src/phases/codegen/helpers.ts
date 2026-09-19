@@ -83,6 +83,53 @@ const __withBody = (payload, type, init) => {
   if (__DEFAULT_HEADERS) markDecoratedResponse(__response);
   return __response;
 };`,
+  /**
+   * Apply the app's boot-memoized static default headers (`__DEFAULT_HEADERS`,
+   * i.e. plugin `responseDefaults` + `server.headers`) to a response the
+   * framework did NOT construct through `__withBody` — a raw `Response`
+   * passthrough, the 404/405 fallback, an OPTIONS preflight, or an error.
+   *
+   * `__withBody` bakes the defaults into the header record at CONSTRUCTION and
+   * registers the response as decorated; every other path missed them (Bun
+   * 1.4.2 ignores `Bun.serve({ headers })`, so there is no runtime sink). This
+   * helper only fills headers the response does not already carry, so a
+   * route/plugin-specific value wins (matching `__withBody`'s init-header
+   * precedence and `security()`'s Content-Security-Policy guard), then marks
+   * the response decorated so the decorating plugin chain skips its static
+   * loop (HSTS and other request-conditional headers still apply).
+   *
+   * Cost: for an already-decorated framework reply this is one `WeakSet` probe
+   * that returns it unchanged; for an app with NO static defaults the
+   * `__DEFAULT_HEADERS` guard const-folds the whole call away. It adds no
+   * per-header work to the hot `__withBody` success path.
+   */
+  __decorateWithDefaults: `const __decorateWithDefaults = (response) => {
+  if (!__DEFAULT_HEADERS || isDecoratedResponse(response)) return response;
+  const __headers = response.headers;
+  try {
+    // Bun allows in-place response-header mutation: it keeps the body,
+    // content-length and every existing header (including multiple
+    // set-cookie values) intact, with no re-wrap allocation.
+    for (const __k in __DEFAULT_HEADERS) {
+      if (!__headers.has(__k)) __headers.set(__k, __DEFAULT_HEADERS[__k]);
+    }
+    markDecoratedResponse(response);
+    return response;
+  } catch {
+    // Headers are immutable on a spec-strict runtime: copy + re-wrap.
+    const __copy = new Headers(__headers);
+    for (const __k in __DEFAULT_HEADERS) {
+      if (!__copy.has(__k)) __copy.set(__k, __DEFAULT_HEADERS[__k]);
+    }
+    const __out = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: __copy,
+    });
+    markDecoratedResponse(__out);
+    return __out;
+  }
+};`,
   jsonReply: `const jsonReply = (data, init) => {
   const s = JSON.stringify(data);
   if (s === undefined) return __withBody(null, "application/json; charset=utf-8", init);
@@ -105,8 +152,18 @@ const __withBody = (payload, type, init) => {
   // headers/status/cookies exactly once. Applying set inside __finalize AND
   // again in the route core fn caused duplicated set-cookie headers.
   const set = ctx?.set;
-  if (result instanceof Response) return result;
-  if (result === undefined || result === null) return new Response(null, { status: set?.status ?? 204 });
+  // A raw handler Response passthrough (e.g. ctx.sendFile, a direct
+  // Response.json, a stream) never went through __withBody, so apply the
+  // app's static defaults here. Decorated replies are returned unchanged by
+  // the helper (one WeakSet probe; const-folded when there are no defaults).
+  if (result instanceof Response) {
+    return __DEFAULT_HEADERS ? __decorateWithDefaults(result) : result;
+  }
+  if (result === undefined || result === null) {
+    return __DEFAULT_HEADERS
+      ? __decorateWithDefaults(new Response(null, { status: set?.status ?? 204 }))
+      : new Response(null, { status: set?.status ?? 204 });
+  }
   let status = set?.status;
   let body = result;
   if (typeof result === "object" && result !== null && "status" in result && "body" in result && Number.isInteger(result.status)) {
@@ -122,11 +179,15 @@ const __withBody = (payload, type, init) => {
   try {
     const __r = __TRACE_DEBUG ? runTimed("error", "lifecycle", () => runHooks(__lc.error, ctx, err)) : runHooks(__lc.error, ctx, err);
     const r = __r instanceof Promise ? await __r : __r;
-    if (r.response) return __applySet(r.response, r.ctx?.set ?? ctx?.set);
+    if (r.response) {
+      const __hooked = __applySet(r.response, r.ctx?.set ?? ctx?.set);
+      return __DEFAULT_HEADERS ? __decorateWithDefaults(__hooked) : __hooked;
+    }
   } catch {
     // An error-stage hook that throws must not mask the original error.
   }
-  return errorToResponse(err, EXPOSE_ERRORS);
+  const __errorResponse = errorToResponse(err, EXPOSE_ERRORS);
+  return __DEFAULT_HEADERS ? __decorateWithDefaults(__errorResponse) : __errorResponse;
 }`,
   __schemaFor: `const __schemaFor = (m) => m?.schema ?? m?.default?.schema ?? undefined;`,
   __validatePart: `async function __validatePart(schemaPart, input, on) {
@@ -290,6 +351,16 @@ const __withBody = (payload, type, init) => {
     headers.set("Allow", allow);
   }
 
+  // A preflight short-circuits BEFORE the post-handler stages, so a
+  // decorating plugin's onResponse never runs here: apply the app's static
+  // defaults explicitly (a no-op when the app declares none).
+  if (__DEFAULT_HEADERS) {
+    return __decorateWithDefaults(new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }));
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -332,7 +403,8 @@ async function __fallback(req, server) {
       const __body = __DEV_OVERLAY_HTML.replace("__MESSAGE__", () =>
         __message.replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       );
-      return new Response(__body, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
+      const __overlay = new Response(__body, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
+      return __DEFAULT_HEADERS ? __decorateWithDefaults(__overlay) : __overlay;
     }
   }
 
@@ -374,7 +446,8 @@ async function __fallback(req, server) {
         const __intercepted = __post.response ?? pre.response;
         const __r3 = __TRACE_DEBUG ? runTimed("afterResponse", "lifecycle", () => runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted)) : runHooks(__lc.afterResponse ?? [], pre.ctx, __intercepted);
         if (__r3 instanceof Promise) await __r3;
-        return __applySet(__intercepted, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+        const __shortCircuit = __applySet(__intercepted, pre.ctx.set, __TRACE ? pre.ctx.requestId : undefined);
+        return __DEFAULT_HEADERS ? __decorateWithDefaults(__shortCircuit) : __shortCircuit;
       }
 
       const __r2 = __TRACE_DEBUG ? runTimed("response", "lifecycle", () => runHooks(__postStages, pre.ctx, response)) : runHooks(__postStages, pre.ctx, response);
@@ -388,7 +461,9 @@ async function __fallback(req, server) {
     }
   }
 
-  return response;
+  // A no-lifecycle 404/405 never ran a decorating plugin, so apply the app's
+  // static defaults explicitly (already-decorated responses are untouched).
+  return __DEFAULT_HEADERS ? __decorateWithDefaults(response) : response;
 }`,
 };
 

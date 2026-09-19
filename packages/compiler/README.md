@@ -103,15 +103,17 @@ interface CompileResult {
 
 ### Multi-process scaling with `reusePort`
 
-`reusePort: true` (compiler option) or `server.reusePort: true` (runtime
-`app.config.server`) makes `Bun.serve` set `SO_REUSEPORT`, so several OS
-processes of the same artifact can bind the SAME `port` and the kernel spreads
-connections across them. This is the cheapest way past a single Bun event
-loop's ceiling: the shared castrum/ignex measurement saw **+78% RPS at 2
-processes** (and near-linear at 4 on a quiet host; beyond that is
-host-dependent). Run it with an external supervisor (`PORT` + N replicas) — for
-example a container orchestrator, `systemd` template units, or a small
-`Bun.spawn` loop.
+`reusePort: true` (compiler option), `server.reusePort: true` (runtime
+`app.config.server`), or `IGNEX_REUSE_PORT=1` makes `Bun.serve` set
+`SO_REUSEPORT`, so several OS processes of the same artifact can bind the SAME
+`port` and the kernel spreads connections across them. Precedence: build option
+> `server.reusePort` > env. This is the cheapest way past a single Bun event
+loop's ceiling: the shared castrum/ignex measurement saw **+66–78% RPS and
+roughly half the p50 at 2 processes** (and near-linear at 4 on a quiet host;
+beyond that is host-dependent). It requires N processes — a SINGLE process gains
+nothing. Run it with an external supervisor (`PORT` + N replicas) — for example
+a container orchestrator, `systemd` template units, or a small `Bun.spawn`
+loop. See `docs/deployment.md` §3.
 
 Caveat: **per-process state is not shared.** ignex's `rateLimit` plugin and the
 castrum `SHARED_LIMITERS` are per-process, so N replicas give each client N×

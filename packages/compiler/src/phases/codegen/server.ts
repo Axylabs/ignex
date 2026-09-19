@@ -48,6 +48,7 @@ const HELPER_CORE = [
   "createContext",
   "debugStageEnd",
   "errorToResponse",
+  "isDecoratedResponse",
   "markDecoratedResponse",
   "runHooks",
   "runTimed",
@@ -77,7 +78,7 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   functions.push(`const __serveOptions = {
   port: Number(process.env.PORT ?? __serverCfg.port ?? 3000),
   hostname: __serverCfg.hostname,
-  reusePort: ${cfg.reusePort ? "true" : "(__serverCfg.reusePort ?? false)"},
+  reusePort: ${cfg.reusePort ? "true" : "(__serverCfg.reusePort ?? process.env.IGNEX_REUSE_PORT === '1')"},
   maxRequestBodySize: __serverCfg.maxRequestBodySize ?? ${
     opts.maxRequestBodySize ?? "DEFAULT_MAX_REQUEST_BODY_SIZE"
   },

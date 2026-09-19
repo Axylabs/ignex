@@ -87,6 +87,55 @@ export const redisLimiter = createRedisRateLimitStore({ url: process.env.REDIS_U
 // sessions({ store: redis }), rateLimit({ store: redisLimiter }), cache: redis, …
 ```
 
+### Same port, N processes (`reusePort`)
+
+A single Bun event loop is the ceiling for one process. `reusePort` maps to
+`SO_REUSEPORT`, so N processes of the SAME artifact can bind the SAME port and
+the kernel spreads accepted connections across them — no external load
+balancer, no `cluster` module. It is the cheapest way past the single-loop
+ceiling.
+
+```sh
+# N processes, one port. Either of these works:
+IGNEX_REUSE_PORT=1 PORT=3000 ./ignex-server &   # env
+IGNEX_REUSE_PORT=1 PORT=3000 ./ignex-server &
+```
+
+Or declare it once in `src/app.config.ts` (or pass `reusePort: true` to the
+compiler — see `packages/compiler/README.md`):
+
+```ts
+// src/app.config.ts
+export const server = {
+  port: 3000,
+  reusePort: true,   // SO_REUSEPORT; requires N processes to matter
+};
+```
+
+Precedence, highest first:
+
+1. the compiler build option `reusePort: true` (baked as a literal);
+2. `server.reusePort` in the runtime app config;
+3. `IGNEX_REUSE_PORT=1` (or any other value — only `1` enables it).
+
+**Requires N processes.** A SINGLE process gains nothing from `reusePort` — the
+flag is only useful when several processes share the port. Run at least 2, and
+keep the count at or below a small multiple of the core count (beyond that the
+kernel's spreading plus per-process state makes it host-dependent). The shared
+castrum/ignex measurement saw **+66–78% RPS and roughly half the p50 at 2
+processes**.
+
+**Per-process state is not shared.** Each replica has its own in-memory rate
+limiter, session store, and HTTP cache, so N processes give each client N× the
+configured limit unless the backing store is shared (see the table above).
+Externalize rate-limit/session/cache state before scaling out. Workers/scheduler
+processes (`queue:work`, `schedule:run`) are unaffected — run them as usual.
+
+Use an external supervisor to keep N replicas alive: a container orchestrator
+(`replicas: N` with the same port and `reusePort` on), a systemd template unit,
+or a small `Bun.spawn` loop. Health/readiness probes are unchanged — each
+replica answers them independently.
+
 ### Readiness vs liveness
 
 `GET /health` is LIVENESS: it never touches dependencies (a dead DB must not

@@ -255,6 +255,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **App static response headers now reach every passthrough path.** `server.headers`
+  plus plugin `responseDefaults` were baked only into `__withBody`-constructed
+  replies; raw `Response` passthroughs (e.g. `ctx.sendFile`, a direct
+  `Response.json`), the 404/405 fallback, the OPTIONS preflight, error responses
+  and pre-handler short-circuits missed them (Bun 1.4.2 silently ignores
+  `Bun.serve({ headers })`, so there is no runtime sink). The compiled server now
+  runs `__decorateWithDefaults` over those paths: it fills only the missing
+  defaults in place and marks the response decorated, so the hot success path
+  pays a single `WeakSet` probe and no per-header merge (and an app with no
+  static defaults const-folds the call away). `COMPILER_CACHE_VERSION`
+  0.9.19 → 0.9.20.
 - **The comparison benchmark credited Elysia for work it was not doing, which is
   why it appeared faster than `ignus-aot`.** The load generator sends no
   forwarded header, so `bun`'s port (`getClientIp` → `srv.requestIP(req)`) and
@@ -471,6 +482,11 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`reusePort` can be enabled with `IGNEX_REUSE_PORT=1`** on top of the existing
+  `reusePort` build option and `server.reusePort` app-config setting (precedence:
+  build option > app config > env). `SO_REUSEPORT` still only helps with N
+  processes behind the same port — a single process gains nothing. Documented in
+  `docs/deployment.md` §3.
 - **Off-thread task runtime bridge (`createTaskRuntime`)** — castrum 0.9.6's
   "castrum Tasks" (PBKDF2/Argon2id verification, gzip/brotli) is now exposed
   through `@ignex/native` (`backend.tasks.createTaskRuntime`). The async factory

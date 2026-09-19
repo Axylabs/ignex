@@ -95,6 +95,40 @@ function expectHeaderContains(res: Response, name: string, needle: string): void
   }
 }
 
+/**
+ * The app's declared static security headers (`server.headers` in
+ * `src/app.config.ts`). Bun 1.4.2 IGNORES `Bun.serve({ headers })`, so these
+ * survive only because the compiler bakes them into `__DEFAULT_HEADERS`; every
+ * response path — including raw passthroughs, 404/405 and OPTIONS — must carry
+ * them byte-for-byte. `access-control-allow-origin` is excluded here because a
+ * preflight echoes the request origin rather than the static `*`.
+ */
+const STATIC_SECURITY_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "content-security-policy",
+    "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' https: 'unsafe-inline'",
+  ],
+  ["cross-origin-embedder-policy", "require-corp"],
+  ["cross-origin-opener-policy", "same-origin"],
+  ["cross-origin-resource-policy", "same-origin"],
+  ["x-frame-options", "DENY"],
+  ["x-content-type-options", "nosniff"],
+  ["referrer-policy", "no-referrer"],
+  ["x-xss-protection", "0"],
+];
+
+/** Assert every static security header is present with its exact value. */
+function expectStaticSecurityHeaders(res: Response, label: string): void {
+  for (const [name, expected] of STATIC_SECURITY_HEADERS) {
+    const value = res.headers.get(name);
+    if (value !== expected) {
+      throw new Error(
+        `${label}: header ${name} = ${JSON.stringify(value)} (expected ${JSON.stringify(expected)})`,
+      );
+    }
+  }
+}
+
 type Json = Record<string, unknown>;
 
 async function expectJson(res: Response, status: number): Promise<Json> {
@@ -695,6 +729,42 @@ try {
     // HSTS is deliberately HTTPS-only — never sent on plain HTTP.
     expectHeader(res, "strict-transport-security", null);
   });
+
+  /* ---------- static-header passthrough (raw / 404 / OPTIONS) ---------- */
+  // Bun 1.4.2 ignores `Bun.serve({ headers })`: the compiled reply bake is the
+  // ONLY delivery path for `server.headers`, so paths that bypass it must be
+  // decorated explicitly (see `__decorateWithDefaults`).
+  await check("GET unknown route → 404 carries static security headers", async () => {
+    const res = await fetch(`${BASE}/missing-route`);
+    expectStatus(res, 404);
+    expectStaticSecurityHeaders(res, "404");
+  });
+
+  await check("OPTIONS /health → 204 carries static security headers", async () => {
+    const res = await fetch(`${BASE}/health`, { method: "OPTIONS" });
+    expectStatus(res, 204);
+    expectStaticSecurityHeaders(res, "OPTIONS");
+  });
+
+  await check("CORS preflight → 204 carries static security headers", async () => {
+    const res = await fetch(`${BASE}/health`, {
+      method: "OPTIONS",
+      headers: { origin: "http://example.com", "access-control-request-method": "GET" },
+    });
+    expectStatus(res, 204);
+    expectStaticSecurityHeaders(res, "CORS preflight");
+    // The native/JS preflight still echoes the allowed origin on top.
+    expectHeader(res, "access-control-allow-origin", "http://example.com");
+  });
+
+  await check(
+    "raw Response passthrough (/files/sample.txt) carries static security headers",
+    async () => {
+      const res = await fetch(`${BASE}/files/sample.txt`);
+      expectStatus(res, 200);
+      expectStaticSecurityHeaders(res, "raw response");
+    },
+  );
 
   await check(
     "global middleware: x-request-id (plugin) + x-ignex-middleware (lifecycle)",
