@@ -1,6 +1,6 @@
 {
   "name": "@ignex/native",
-  "version": "0.1.35",
+  "version": "0.2.0",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
