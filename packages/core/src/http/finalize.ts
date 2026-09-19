@@ -10,10 +10,10 @@
  * serializer-aware status dispatch.
  */
 
-import { textByteLength } from "./body/size";
+import { textByteLength } from './body/size'
 
-const CTL_TEST = /[\r\n\0]/;
-const CTL_STRIP = /[\r\n\0]/g;
+const CTL_TEST = /[\r\n\0]/
+const CTL_STRIP = /[\r\n\0]/g
 
 /**
  * Strip CR/LF/NUL from a header value before it is written to the wire.
@@ -32,12 +32,12 @@ const CTL_STRIP = /[\r\n\0]/g;
  * this one; keeping the helper here avoids an import cycle.
  */
 export const sanitizeHeaderValue = (value: string): string =>
-  CTL_TEST.test(value) ? value.replace(CTL_STRIP, "") : value;
+  CTL_TEST.test(value) ? value.replace(CTL_STRIP, '') : value
 
 /** A per-status serializer map (`"200"`, `"201"`, …, plus `default`). */
 export interface StatusSerializerMap {
-  readonly [status: string]: ((value: unknown) => unknown) | undefined;
-  readonly default?: (value: unknown) => unknown;
+  readonly [status: string]: ((value: unknown) => unknown) | undefined
+  readonly default?: (value: unknown) => unknown
 }
 
 /**
@@ -50,11 +50,10 @@ export interface StatusSerializerMap {
  * post-hoc mutation costs, and it is exact — a response built anywhere else
  * (a raw `Response` passthrough) is correctly NOT skipped.
  */
-const decoratedResponses = new WeakSet<Response>();
+const decoratedResponses = new WeakSet<Response>()
 
 /** Whether `response` already carries the app's static response defaults. */
-export const isDecoratedResponse = (response: Response): boolean =>
-  decoratedResponses.has(response);
+export const isDecoratedResponse = (response: Response): boolean => decoratedResponses.has(response)
 
 /**
  * Register a response as already carrying the app's static response defaults.
@@ -65,8 +64,8 @@ export const isDecoratedResponse = (response: Response): boolean =>
  * decorating plugin's skip check is uniform.
  */
 export const markDecoratedResponse = (response: Response): void => {
-  decoratedResponses.add(response);
-};
+  decoratedResponses.add(response)
+}
 
 /**
  * Build a `Response` from pre-encoded bytes with an exact `content-length`.
@@ -94,29 +93,29 @@ export const markDecoratedResponse = (response: Response): void => {
  * dependency one-way instead of creating a cycle.
  */
 export const applyInitHeaders = (target: Headers, init: unknown): void => {
-  if (!init) return;
+  if (!init) return
 
   if (
     init instanceof Headers ||
-    (typeof (init as { forEach?: unknown }).forEach === "function" && !Array.isArray(init))
+    (typeof (init as { forEach?: unknown }).forEach === 'function' && !Array.isArray(init))
   ) {
-    (init as Headers).forEach((value, key) => {
-      target.set(key, value);
-    });
-    return;
+    ;(init as Headers).forEach((value, key) => {
+      target.set(key, value)
+    })
+    return
   }
 
   if (Array.isArray(init)) {
     for (const [k, v] of init as Array<[string, string | undefined]>) {
-      if (v !== undefined) target.set(k, v);
+      if (v !== undefined) target.set(k, v)
     }
-    return;
+    return
   }
 
   for (const [k, v] of Object.entries(init as Record<string, string | undefined>)) {
-    if (v != null) target.set(k, String(v));
+    if (v != null) target.set(k, String(v))
   }
-};
+}
 
 /**
  * Apply the request's accumulated `ctx.set.headers` onto a `Headers`, one
@@ -136,13 +135,13 @@ export const applyInitHeaders = (target: Headers, init: unknown): void => {
  */
 const applySetHeaderRecord = (target: Headers, record: Record<string, string>): void => {
   for (const k in record) {
-    if (!Object.hasOwn(record, k)) continue;
-    const v = record[k] as string | string[] | undefined | null;
-    if (v == null || Array.isArray(v)) continue;
+    if (!Object.hasOwn(record, k)) continue
+    const v = record[k] as string | string[] | undefined | null
+    if (v == null || Array.isArray(v)) continue
 
-    target.set(k, sanitizeHeaderValue(String(v)));
+    target.set(k, sanitizeHeaderValue(String(v)))
   }
-};
+}
 
 /**
  * Per-(defaults record → content-type → base `Headers`) memo.
@@ -156,25 +155,25 @@ const applySetHeaderRecord = (target: Headers, record: Record<string, string>): 
  * every concurrent request. Measured ~2.1× faster than the former 2-key record
  * + per-header `Headers.set` loop for the 8-header security set.
  */
-const baseHeadersCache = new WeakMap<Record<string, string>, Map<string, Headers>>();
+const baseHeadersCache = new WeakMap<Record<string, string>, Map<string, Headers>>()
 
 const baseHeadersFor = (defaults: Record<string, string>, type: string): Headers => {
-  let byType = baseHeadersCache.get(defaults);
+  let byType = baseHeadersCache.get(defaults)
   if (byType === undefined) {
-    byType = new Map();
-    baseHeadersCache.set(defaults, byType);
+    byType = new Map()
+    baseHeadersCache.set(defaults, byType)
   }
-  let base = byType.get(type);
+  let base = byType.get(type)
   if (base === undefined) {
-    base = new Headers({ "content-type": type, ...defaults });
-    byType.set(type, base);
+    base = new Headers({ 'content-type': type, ...defaults })
+    byType.set(type, base)
   }
-  return base;
-};
+  return base
+}
 
 /** UTF-8 byte length of a string body, or the byte length of pre-encoded bytes. */
 const contentLengthOf = (payload: Uint8Array | string): string =>
-  String(typeof payload === "string" ? textByteLength(payload) : payload.byteLength);
+  String(typeof payload === 'string' ? textByteLength(payload) : payload.byteLength)
 
 /**
  * Static-defaults response path.
@@ -200,45 +199,37 @@ const withStaticBase = (
   defaults: Record<string, string>,
   setHeaders: Record<string, string> | null | undefined,
 ): Response => {
-  const body = payload as BodyInit;
-  const base = baseHeadersFor(defaults, type);
-  const ih = init?.headers;
-  let response: Response;
+  const body = payload as BodyInit
+  const base = baseHeadersFor(defaults, type)
+  const ih = init?.headers
+  let response: Response
 
   if (setHeaders || ih) {
     // Per-request headers differ from the app-invariant base: clone it once and
     // add the dynamic content-length plus the request's own headers. Re-applying
     // the static defaults here (the old general path) cost a native set each.
-    const hh = new Headers(base);
-    if (payload !== null) hh.set("content-length", contentLengthOf(payload));
-    if (setHeaders) applySetHeaderRecord(hh, setHeaders);
-    applyInitHeaders(hh, ih);
+    const hh = new Headers(base)
+    if (payload !== null) hh.set('content-length', contentLengthOf(payload))
+    if (setHeaders) applySetHeaderRecord(hh, setHeaders)
+    applyInitHeaders(hh, ih)
     response =
       init === undefined
         ? new Response(body, { headers: hh })
-        : new Response(body, {
-            status: init.status,
-            statusText: init.statusText,
-            headers: hh,
-          });
+        : new Response(body, { ...init, headers: hh })
   } else {
     if (init === undefined) {
-      response = new Response(body, { headers: base });
+      response = new Response(body, { headers: base })
     } else {
-      response = new Response(body, {
-        status: init.status,
-        statusText: init.statusText,
-        headers: base,
-      });
+      response = new Response(body, { ...init, headers: base })
     }
     if (payload !== null) {
-      response.headers.set("content-length", contentLengthOf(payload));
+      response.headers.set('content-length', contentLengthOf(payload))
     }
   }
 
-  decoratedResponses.add(response);
-  return response;
-};
+  decoratedResponses.add(response)
+  return response
+}
 
 /**
  * General path (no defaults, or explicit init headers): build the small base
@@ -255,36 +246,28 @@ const withGeneralBody = (
   init: ResponseInit | undefined,
   setHeaders: Record<string, string> | null | undefined,
 ): Response => {
-  const ih = init?.headers;
-  const body = payload as BodyInit;
-  const h: Record<string, string> = { "content-type": type };
-  if (payload !== null) h["content-length"] = contentLengthOf(payload);
-  let response: Response;
+  const ih = init?.headers
+  const body = payload as BodyInit
+  const h: Record<string, string> = { 'content-type': type }
+  if (payload !== null) h['content-length'] = contentLengthOf(payload)
+  let response: Response
 
   if (!ih) {
     if (init === undefined) {
-      response = new Response(body, { headers: h });
+      response = new Response(body, { headers: h })
     } else {
-      response = new Response(body, {
-        status: init.status,
-        statusText: init.statusText,
-        headers: h,
-      });
+      response = new Response(body, { ...init, headers: h })
     }
-    if (setHeaders) applySetHeaderRecord(response.headers, setHeaders);
+    if (setHeaders) applySetHeaderRecord(response.headers, setHeaders)
   } else {
-    const hh = new Headers(h);
-    if (setHeaders) applySetHeaderRecord(hh, setHeaders);
-    applyInitHeaders(hh, ih);
-    response = new Response(body, {
-      status: init.status,
-      statusText: init.statusText,
-      headers: hh,
-    });
+    const hh = new Headers(h)
+    if (setHeaders) applySetHeaderRecord(hh, setHeaders)
+    applyInitHeaders(hh, ih)
+    response = new Response(body, { ...init, headers: hh })
   }
 
-  return response;
-};
+  return response
+}
 
 /**
  * Build a `Response` with an exact `content-length`.
@@ -327,25 +310,25 @@ export const withBody = (
   setHeaders?: Record<string, string> | null,
 ): Response => {
   if (defaults) {
-    return withStaticBase(payload, type, init, defaults, setHeaders);
+    return withStaticBase(payload, type, init, defaults, setHeaders)
   }
-  return withGeneralBody(payload, type, init, setHeaders);
-};
+  return withGeneralBody(payload, type, init, setHeaders)
+}
 
 /** Encode `data` as a JSON response (one `Buffer.byteLength` pass, exact length). */
 export const jsonReply = (data: unknown, init?: ResponseInit): Response => {
-  const s = JSON.stringify(data);
-  if (s === undefined) return withBody(null, "application/json; charset=utf-8", init);
-  return withBody(s, "application/json; charset=utf-8", init);
-};
+  const s = JSON.stringify(data)
+  if (s === undefined) return withBody(null, 'application/json; charset=utf-8', init)
+  return withBody(s, 'application/json; charset=utf-8', init)
+}
 
 /** Encode `data` as a text/plain response. */
 export const textReply = (data: unknown, init?: ResponseInit): Response =>
-  withBody(String(data), "text/plain; charset=utf-8", init);
+  withBody(String(data), 'text/plain; charset=utf-8', init)
 
 /** Encode `data` as a text/html response. */
 export const htmlReply = (data: unknown, init?: ResponseInit): Response =>
-  withBody(String(data), "text/html; charset=utf-8", init);
+  withBody(String(data), 'text/html; charset=utf-8', init)
 
 /**
  * Finalize a route-handler result into a `Response`.
@@ -364,29 +347,29 @@ export const finalizeResponse = (
   serializers?: StatusSerializerMap,
   reply: (body: unknown, init?: ResponseInit) => Response = jsonReply,
 ): Response => {
-  const set = ctx?.set;
-  if (result instanceof Response) return result;
+  const set = ctx?.set
+  if (result instanceof Response) return result
   if (result === undefined || result === null) {
-    return new Response(null, { status: set?.status ?? 204 });
+    return new Response(null, { status: set?.status ?? 204 })
   }
-  let status = set?.status;
-  let body: unknown = result;
+  let status = set?.status
+  let body: unknown = result
   if (
-    typeof result === "object" &&
+    typeof result === 'object' &&
     result !== null &&
-    "status" in result &&
-    "body" in result &&
+    'status' in result &&
+    'body' in result &&
     Number.isInteger((result as { status: unknown }).status)
   ) {
-    status = status ?? (result as { status: number }).status;
-    body = (result as { body: unknown }).body;
+    status = status ?? (result as { status: number }).status
+    body = (result as { body: unknown }).body
   }
-  status = status ?? 200;
-  const ser = serializers?.[String(status)] ?? serializers?.["200"] ?? serializers?.default;
+  status = status ?? 200
+  const ser = serializers?.[String(status)] ?? serializers?.['200'] ?? serializers?.default
   if (ser) {
-    return withBody(String(ser(body)), "application/json; charset=utf-8", {
+    return withBody(String(ser(body)), 'application/json; charset=utf-8', {
       status,
-    });
+    })
   }
-  return reply(body, status === 200 ? undefined : { status });
-};
+  return reply(body, status === 200 ? undefined : { status })
+}
