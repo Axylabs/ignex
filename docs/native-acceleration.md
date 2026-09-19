@@ -127,6 +127,30 @@ fallback** built on the existing `@ignex/native` wrappers — byte-identical
 results, no offload. `isNativeTaskRuntime(runtime)` (or `stats().threads > 0`)
 tells you which one you got; importing the module never throws.
 
+### Opt-in async consumers (`verifyAsync` / `compression({ offload: true })`)
+
+Apps should not each hand-manage a runtime. `@ignex/native` exposes convenience
+async wrappers over a **process-wide shared** runtime (created once, reused per
+call site):
+
+- `verifyPasswordAsync(password, phc, options?)` — argon2id offloaded;
+  `$scrypt$` hashes and native-off fall back to the synchronous
+  `passwordVerify`, so the boolean result is identical on every backend.
+- `gzipCompressAsync(bytes, options?)` — large-body gzip offload.
+
+`@ignex/core` surfaces them where the work lives — opt-in, with unchanged sync
+signatures:
+
+- `createPasswordHasher().verifyAsync(password, phc)` — the reference app's
+  login path (`packages/app/src/lib/auth.ts`) uses it, so an argon2id verify no
+  longer stalls the event loop.
+- `compression({ offload: true })` — known-length gzip bodies above 64 KiB
+  compress on the task pool; brotli (no off-thread brotli-compress op) and small
+  bodies stay synchronous. Served bytes decompress identically.
+
+Both paths route through the shared runtime and are covered by
+`IGNEX_NATIVE=off` smoke parity.
+
 A C-ABI binding rule this run surfaced (see the `AcceptNegotiator` fix): **match
 the Rust signature exactly.** `cstring` ARGs are NUL-terminated, so any byte
 input (validators, `castrum_accept_negotiator_negotiate`) crosses as a

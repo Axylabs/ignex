@@ -39,6 +39,11 @@ bun run build        # AOT-compile -> packages/app/dist/__server.js (+ routes.d.
 bun run compile      # ALSO emit a standalone executable -> packages/app/dist/ignex-server (minify + bytecode)
 bun run smoke        # boot the generated server + assert routes (root scripts/smoke.ts)
 bun run dev          # build + watch-run the generated server
+
+# Multi-process scaling: N replicas of the SAME artifact on ONE port via
+# SO_REUSEPORT (measured +66–78% RPS at 2 processes). The app config leaves
+# `server.reusePort` unset so IGNEX_REUSE_PORT stays authoritative.
+bun run serve:reuseport -- packages/app/dist/__server.js 2 packages/app
 ```
 
 `builder.ts` drives `@ignex/compiler` with `optimizationLevel: 3`, minify,

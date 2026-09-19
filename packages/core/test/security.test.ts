@@ -171,6 +171,15 @@ describe("crypto", () => {
     expect(hasher.verify("hunter2", phc)).toBe(true);
     expect(hasher.verify("wrong", phc)).toBe(false);
   });
+
+  it("password hasher async verify matches the sync result", async () => {
+    const hasher = createPasswordHasher();
+    const phc = await hasher.hash("hunter2");
+    await expect(hasher.verifyAsync("hunter2", phc)).resolves.toBe(hasher.verify("hunter2", phc));
+    await expect(hasher.verifyAsync("wrong", phc)).resolves.toBe(hasher.verify("wrong", phc));
+    await expect(hasher.verifyAsync("hunter2", phc)).resolves.toBe(true);
+    await expect(hasher.verifyAsync("wrong", phc)).resolves.toBe(false);
+  });
 });
 
 describe("auth hooks", () => {

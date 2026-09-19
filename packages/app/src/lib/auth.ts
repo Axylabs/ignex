@@ -50,7 +50,12 @@ export const userStore = {
   async verify(username: string, password: string) {
     const entry = await userStore.find(username);
     if (!entry) return null;
-    return hasher.verify(password, entry.passwordHash) ? { username, roles: entry.roles } : null;
+    // `verifyAsync` offloads argon2id to the native task pool when available,
+    // so a login does not stall the event loop; it falls back to the sync
+    // verify (scrypt / native-off) with an identical result.
+    return (await hasher.verifyAsync(password, entry.passwordHash))
+      ? { username, roles: entry.roles }
+      : null;
   },
 };
 

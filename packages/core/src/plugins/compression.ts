@@ -7,7 +7,7 @@
  * (deflate, or native unavailable / compression failure).
  */
 
-import { brotliCompress, gzipCompress, isNativeAvailable } from "@ignex/native";
+import { brotliCompress, gzipCompress, gzipCompressAsync, isNativeAvailable } from "@ignex/native";
 import { etagWithEncoding, isCompressible, negotiateEncoding } from "../data/content-encoding";
 import type { IgnexContext } from "../http/context";
 import { appendVary } from "../http/headers";
@@ -19,7 +19,21 @@ export interface CompressionOptions {
   filter?: (contentType: string) => boolean;
   /** Use the Rust gzip path for buffered bodies (default `true`). */
   native?: boolean;
+  /**
+   * Offload gzip compression of LARGE buffered bodies to the native task pool
+   * (default `false`) so a multi-hundred-ms compression does not stall the JS
+   * event loop. Ignored when `native` is `false`, for brotli (no off-thread
+   * brotli-compress op exists), and below {@link OFFLOAD_MIN_BYTES}. The served
+   * bytes decompress identically to the synchronous path.
+   */
+  offload?: boolean;
 }
+
+/**
+ * Bodies below this size compress too fast to amortize a task-pool round trip,
+ * so {@link CompressionOptions.offload} only engages above it.
+ */
+const OFFLOAD_MIN_BYTES = 64 * 1024;
 
 let supportsBrotli = false;
 
@@ -42,7 +56,7 @@ try {
  * @returns The compression plugin.
  */
 export const compression = (options: CompressionOptions = {}): IgnexPlugin => {
-  const { threshold = 1024, filter = isCompressible, native = true } = options;
+  const { threshold = 1024, filter = isCompressible, native = true, offload = false } = options;
 
   // Negotiation order is fixed per process — hoist both variants out of the
   // request path (the previous per-request literal allocated on every
@@ -60,7 +74,7 @@ export const compression = (options: CompressionOptions = {}): IgnexPlugin => {
       // actual Promises).
       const encoding = planEncoding(ctx, response, threshold, filter, supported);
       if (!encoding) return response;
-      return compressResponse(response, encoding, threshold, native);
+      return compressResponse(response, encoding, threshold, native, offload);
     },
   };
 };
@@ -127,6 +141,7 @@ async function compressResponse(
   encoding: string,
   threshold: number,
   native: boolean,
+  offload: boolean,
 ): Promise<Response> {
   const headers = new Headers(response.headers);
   headers.set("content-encoding", encoding);
@@ -169,7 +184,7 @@ async function compressResponse(
   // If compression fails we serve the same bytes uncompressed.
   if (native && isNativeAvailable()) {
     if (encoding === "gzip") {
-      return compressNativeGzip({ response, headers, body, encoding }, serveUncompressed);
+      return compressNativeGzip({ response, headers, body, encoding }, serveUncompressed, offload);
     }
     if (encoding === "br") {
       try {
@@ -197,17 +212,24 @@ async function compressResponse(
 }
 
 /** Rust gzip fast path; serves the bytes uncompressed if compression fails. */
-function compressNativeGzip(
+async function compressNativeGzip(
   plan: CompressPlan,
   serveUncompressed: (
     body: Uint8Array<ArrayBuffer>,
     response: Response,
     headers: Headers,
   ) => Response,
-): Response {
+  offload: boolean,
+): Promise<Response> {
   const { body, response, headers } = plan;
   try {
-    const compressed = gzipCompress(body) as unknown as BodyInit;
+    // Large bodies can be handed to the native task pool so the JS event loop
+    // stays free; everything else stays on the synchronous Rust path (a pool
+    // round trip is not worth it for a sub-millisecond compression).
+    const compressed: BodyInit =
+      offload && body.byteLength >= OFFLOAD_MIN_BYTES
+        ? ((await gzipCompressAsync(body)) as unknown as BodyInit)
+        : (gzipCompress(body) as unknown as BodyInit);
     if (compressed instanceof Uint8Array) {
       headers.set("content-length", String(compressed.byteLength));
     }

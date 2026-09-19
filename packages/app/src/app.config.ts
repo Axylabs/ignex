@@ -114,6 +114,13 @@ export const lifecycle = {
 // at the TLS-terminating proxy) and provides the OK-path CORS wildcard (native
 // castrum CORS owns preflight; `Access-Control-Allow-Origin: *` is equivalent
 // to the origin echo for non-credentialed requests).
+// Multi-process scaling (`reusePort`) is deliberately NOT baked here: the
+// generated server resolves `server.reusePort ?? IGNEX_REUSE_PORT === '1'` at
+// RUNTIME, and setting `reusePort: true` in this file would pin it on and make
+// the env a no-op (a single process gains nothing from SO_REUSEPORT anyway).
+// Start N replicas on one port with `IGNEX_REUSE_PORT=1` or
+// `bun run serve:reuseport -- packages/app/dist/__server.js 2`
+// (see docs/deployment.md §3 "Same port, N processes").
 export const server = {
   port: env.PORT,
   // HTTPS by default (TLS). In dev, ignex auto-generates a local certificate

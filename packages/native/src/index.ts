@@ -278,12 +278,14 @@ export {
 } from "./selection";
 export {
   createTaskRuntime,
+  gzipCompressAsync,
   isNativeTaskRuntime,
   type Pbkdf2RunOptions,
   type TaskRunOptions,
   type TaskRuntime,
   type TaskRuntimeOptions,
   type TaskStats,
+  verifyPasswordAsync,
 } from "./tasks";
 export {
   type DegradationEvent,

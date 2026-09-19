@@ -76,6 +76,7 @@ export {
   validateIpv6,
   validateUuid,
   verifyCookieBatch,
+  verifyPasswordAsync,
 } from "@ignex/native";
 // ── FP toolkit (shared) ─────────────────────────────────────────
 export {

@@ -45,6 +45,24 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   (one owner per topic) and `RULES.md` §6 now forbids plan/log docs and
   dangling references.
 
+### Added
+
+- **Opt-in off-thread async consumers for password verify and gzip.**
+  `@ignex/native` now exposes `verifyPasswordAsync` and `gzipCompressAsync` over
+  a process-wide SHARED task runtime (`createTaskRuntime`, created once and
+  reused per call site); `@ignex/core` surfaces them where the work lives as
+  `createPasswordHasher().verifyAsync(...)` and `compression({ offload: true })`.
+  Both prefer the castrum task pool and fall back to the existing synchronous
+  implementation otherwise — identical results, unchanged sync signatures,
+  `IGNEX_NATIVE=off` parity. The reference app's login path uses `verifyAsync`;
+  `compression` only offloads known-length gzip bodies above 64 KiB (brotli has
+  no off-thread compress op).
+- **`bun run serve:reuseport`** (`scripts/serve-reuseport.ts`) — spawns and
+  supervises N replicas of one built artifact on a single port with
+  `IGNEX_REUSE_PORT=1` (SO_REUSEPORT), forwarding SIGINT/SIGTERM. The reference
+  app config and `docs/deployment.md` §3 document the lever; the app leaves
+  `server.reusePort` unset so the runtime env stays authoritative.
+
 ### Changed
 
 - **AOT reply path clones the memoized header base only when per-request

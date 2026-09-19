@@ -20,7 +20,9 @@ import {
   passwordVerify,
   randomToken,
   signCookie,
+  type TaskRunOptions,
   verifyCookie,
+  verifyPasswordAsync,
 } from "@ignex/native";
 
 export type {
@@ -272,6 +274,19 @@ export interface PasswordHasher {
   hash(password: string): Promise<string>;
   /** Verify a password against a PHC string. */
   verify(password: string, phc: string): boolean;
+  /**
+   * Verify a password OFF the JS event loop when the native task pool is
+   * available (argon2id is 10–200 ms of CPU that otherwise stalls the loop).
+   * Falls back to {@link PasswordHasher.verify} for `$scrypt$` hashes and when
+   * the native task runtime is unavailable, so the boolean result is identical
+   * on every backend (`IGNEX_NATIVE=off` included).
+   *
+   * @param password - Cleartext password.
+   * @param phc - Stored PHC hash (`$argon2id$…` or `$scrypt$…`).
+   * @param options - Optional abort signal.
+   * @returns `true` when the password matches the hash.
+   */
+  verifyAsync(password: string, phc: string, options?: TaskRunOptions): Promise<boolean>;
 }
 
 /** Create a password hasher (argon2id native / scrypt fallback). */
@@ -285,6 +300,7 @@ export const createPasswordHasher = (options?: PasswordHashOptions): PasswordHas
     return passwordHash(password, salt, options);
   },
   verify: (password, phc) => passwordVerify(password, phc),
+  verifyAsync: (password, phc, runOptions) => verifyPasswordAsync(password, phc, runOptions),
 });
 
 /** A reusable AEAD cipher from {@link createAead}. */

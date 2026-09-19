@@ -7,7 +7,17 @@
  */
 import { pbkdf2Sync } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
-import { backend, createTaskRuntime, isNativeTaskRuntime, type TaskRuntime } from "../src/index";
+import {
+  backend,
+  createTaskRuntime,
+  gzipCompressAsync,
+  gzipDecompress,
+  isNativeTaskRuntime,
+  passwordHash,
+  passwordVerify,
+  type TaskRuntime,
+  verifyPasswordAsync,
+} from "../src/index";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -78,5 +88,26 @@ describe("task runtime bridge", () => {
   it("reports the backend consistently", async () => {
     const rt = await runtimePromise;
     expect(isNativeTaskRuntime(rt)).toBe(rt.stats().threads > 0);
+  });
+});
+
+describe("async task helpers", () => {
+  it("gzipCompressAsync round-trips and is byte-decodable like gzipCompress", async () => {
+    const payload = enc.encode("async gzip payload ".repeat(5000));
+    const compressed = await gzipCompressAsync(payload);
+    expect(dec.decode(gzipDecompress(compressed))).toBe(dec.decode(payload));
+  });
+
+  it("verifyPasswordAsync agrees with passwordVerify for argon2 and scrypt PHCs", async () => {
+    const salt = new Uint8Array(16).fill(7);
+    const phc = passwordHash("hunter2", salt);
+    expect(await verifyPasswordAsync("hunter2", phc)).toBe(passwordVerify("hunter2", phc));
+    expect(await verifyPasswordAsync("wrong", phc)).toBe(passwordVerify("wrong", phc));
+    expect(await verifyPasswordAsync("hunter2", phc)).toBe(true);
+    expect(await verifyPasswordAsync("wrong", phc)).toBe(false);
+  });
+
+  it("verifyPasswordAsync rejects a malformed PHC without throwing", async () => {
+    await expect(verifyPasswordAsync("pw", "not-a-phc")).resolves.toBe(false);
   });
 });

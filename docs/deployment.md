@@ -97,7 +97,15 @@ ceiling.
 
 ```sh
 # N processes, one port. Either of these works:
-IGNEX_REUSE_PORT=1 PORT=3000 ./ignex-server &   # env
+
+# 1. Helper — spawns + supervises N replicas, forwards SIGINT/SIGTERM, forces
+#    IGNEX_REUSE_PORT=1 on each (default entry packages/app/dist/__server.js).
+#    The 3rd arg is the child cwd; the reference app needs packages/app so its
+#    relative views resolve (`IGNEX_SERVE_CWD` sets it too):
+bun run serve:reuseport -- packages/app/dist/__server.js 2 packages/app
+
+# 2. By hand, or under your own supervisor (systemd template, orchestrator):
+IGNEX_REUSE_PORT=1 PORT=3000 ./ignex-server &
 IGNEX_REUSE_PORT=1 PORT=3000 ./ignex-server &
 ```
 
@@ -111,6 +119,11 @@ export const server = {
   reusePort: true,   // SO_REUSEPORT; requires N processes to matter
 };
 ```
+
+Baking `reusePort: true` into the app config (or the compiler option) makes it
+unconditional: `IGNEX_REUSE_PORT` can then no longer disable it. The reference
+app (`packages/app/src/app.config.ts`) leaves the field unset so the runtime env
+stays authoritative.
 
 Precedence, highest first:
 

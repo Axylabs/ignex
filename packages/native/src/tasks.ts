@@ -22,7 +22,7 @@ import { passwordVerify } from "./crypto";
 import { loadCastrumModule } from "./loader";
 import { brotliDecompress, gzipCompress, gzipDecompress } from "./payload";
 import { reportDegradation } from "./telemetry";
-import { decoder } from "./util";
+import { decoder, encoder } from "./util";
 
 /** Per-call options for an offloaded task. */
 export interface TaskRunOptions {
@@ -193,5 +193,75 @@ export const isNativeTaskRuntime = (runtime: TaskRuntime): boolean => {
     return runtime.stats().threads > 0;
   } catch {
     return false;
+  }
+};
+
+let sharedRuntimePromise: Promise<TaskRuntime> | null = null;
+
+/**
+ * Resolve the process-wide shared off-thread runtime, created on first use and
+ * reused by every async helper below. The Rust task pool / doorbell is thus not
+ * duplicated per call site.
+ *
+ * @param options - Pool sizing; honored only on the FIRST call (the runtime is
+ *   a singleton for the process lifetime).
+ * @returns The shared {@link TaskRuntime}.
+ */
+const getSharedRuntime = (options?: TaskRuntimeOptions): Promise<TaskRuntime> => {
+  if (!sharedRuntimePromise) sharedRuntimePromise = createTaskRuntime(options);
+  return sharedRuntimePromise;
+};
+
+/**
+ * gzip-compress `data` off the JS event loop when the native task pool is
+ * available. The output is a valid gzip stream that decompresses to the same
+ * payload as the synchronous `gzipCompress`; on the pure-TS fallback it runs
+ * synchronously (no pool exists) and therefore blocks exactly like
+ * `gzipCompress`.
+ *
+ * @param data - Bytes to compress.
+ * @param options - Deflate `level` (0–9) and an optional abort signal.
+ * @returns The gzip bytes.
+ */
+export const gzipCompressAsync = async (
+  data: Uint8Array,
+  options?: TaskRunOptions,
+): Promise<Uint8Array> => (await getSharedRuntime()).gzipCompress(data, options);
+
+/**
+ * Verify a password against a PHC string off the JS event loop (argon2id is
+ * 10–200 ms of CPU that would otherwise stall the loop).
+ *
+ * Only argon2id hashes offload; `$scrypt$` hashes, a missing task runtime and
+ * `IGNEX_NATIVE=off` fall back to the synchronous {@link passwordVerify}, so
+ * the boolean result is identical whichever path runs.
+ *
+ * @param password - Cleartext password.
+ * @param phc - Stored PHC hash (`$argon2id$…` or `$scrypt$…`).
+ * @param options - Optional abort signal.
+ * @returns `true` when the password matches the hash.
+ */
+export const verifyPasswordAsync = async (
+  password: string,
+  phc: string,
+  options?: TaskRunOptions,
+): Promise<boolean> => {
+  throwIfAborted(options?.signal);
+  if (!phc.startsWith("$argon2")) {
+    // scrypt (and any foreign PHC) stays on the synchronous dispatcher.
+    return passwordVerify(password, phc);
+  }
+  try {
+    const runtime = await getSharedRuntime();
+    return await runtime.argon2Verify(encoder.encode(password), encoder.encode(phc), options);
+  } catch (err) {
+    // Never let an offload failure turn a valid credential into a 500: report
+    // and run the same verification synchronously.
+    reportDegradation(
+      "call-failed",
+      "verifyPasswordAsync",
+      err instanceof Error ? err.message : String(err),
+    );
+    return passwordVerify(password, phc);
   }
 };

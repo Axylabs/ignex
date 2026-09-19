@@ -138,6 +138,28 @@ describe("compression plugin negotiation", () => {
     );
     expect(res.headers.get("content-encoding")).toBeNull();
   });
+
+  it("offloads a large gzip body to the task runtime and decodes identically", async () => {
+    const payload = "offloaded ".repeat(20_000); // ~180 KiB — above OFFLOAD_MIN_BYTES
+    const app = createApp({
+      plugins: [compression({ offload: true, threshold: 1024 })],
+      handler: () =>
+        new Response(payload, {
+          headers: {
+            "content-type": "text/plain",
+            "content-length": String(payload.length),
+          },
+        }),
+    });
+    const res = await app.handler(req("/", { headers: { "accept-encoding": "gzip" } }));
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    const gz = await res.arrayBuffer();
+    const text = await new Response(
+      new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip")),
+    ).text();
+    expect(text).toBe(payload);
+    expect(Number(res.headers.get("content-length"))).toBe(gz.byteLength);
+  });
 });
 
 describe("negotiateEncoding property", () => {
