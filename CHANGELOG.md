@@ -57,14 +57,80 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `IGNEX_NATIVE=off` parity. The reference app's login path uses `verifyAsync`;
   `compression` only offloads known-length gzip bodies above 64 KiB (brotli has
   no off-thread compress op).
+- **Bounded WebSocket processing (A4):** `createWSHandler` now accepts
+  dispatch/transport limits (`maxInflightMessages` default 256,
+  `maxPayloadLength`, `backpressureLimit`, `closeOnBackpressureLimit`,
+  `idleTimeout`). At the in-flight cap the socket is closed with **1013**
+  ("Too many in-flight messages") instead of queueing unbounded pending work;
+  transport fields are spread onto the returned Bun handler. The compiled
+  server merges per-route WS limits strictest-wins (`mergeWSLimits`) into
+  Bun's single `websocket` handler (a tighter sibling's ceiling is never
+  widened), carries app-config/default ceilings underneath, and **terminates
+  connections on shutdown** (`stop(true)`) when the app has WS routes — Bun
+  cannot selectively drain sockets, so WS apps no longer wedge the 10s drain
+  deadline. `COMPILER_CACHE_VERSION` bumped.
 - **`bun run serve:reuseport`** (`scripts/serve-reuseport.ts`) — spawns and
   supervises N replicas of one built artifact on a single port with
   `IGNEX_REUSE_PORT=1` (SO_REUSEPORT), forwarding SIGINT/SIGTERM. The reference
   app config and `docs/deployment.md` §3 document the lever; the app leaves
   `server.reusePort` unset so the runtime env stays authoritative.
 
+### Performance
+
+- **Length-sweep SIMD hardening in the castrum addon (upstream, castrum
+  `26f60cf`).** Re-swept every length-sensitive native core at
+  64B → 1MB (interleaved medians + per-call input rotation) and fixed the
+  three size-scaling pathologies found — all byte-identical, all pinned by
+  regression tests at both size regimes (see `docs/native-acceleration.md`):
+  hex encode now routes through `faster-hex` SIMD (4.3–18.9× over Buffer),
+  hex decode gets a single-pass AVX2 kernel (1.4–6.7×), and regexEscape is a
+  256-entry LUT + run memcpy (5.9–6.8×). No ignex surface changes; the
+  un-adopted ops stay un-adopted (no hot-path consumer), but their
+  perf-position is now WIN-at-every-size rather than loss-at-large-payload.
+- **AOT: static promotion extended to constant `new Response(...)` literals.**
+  A route whose handler returns `new Response(body, init)` with statically-known
+  arguments (`() => new Response("ok")`,
+  `() => new Response("ready", { status: 201, headers: { "x-ready": "1" } })`)
+  now hoists to a pre-built `Response` bound directly into Bun's native routes
+  table — the same zero-JS, native-auto-HEAD path the constant-JSON arm already
+  used. Only primitive bodies and a `status`/`statusText`/`headers` init are
+  accepted; computed arguments, unknown init keys, non-string header values and
+  non-`Response` constructors fall back to the per-request path, as does any
+  route with plugins/hooks/guards/validation/wrapped handlers or dev heat
+  capture. `COMPILER_CACHE_VERSION` bumped to 0.9.23.
+- **Measured: SSE frame encode stays on JS (castrum SIMD not adopted).**
+  castrum 0.9.10's SIMD `sseEncode` core wins only for line-dense payloads
+  (avg line ≤ ~80B — 2.0× at 16KB over 384 short lines); for the
+  few-line/single-line frames the `sse()` consumer produces, the JS fallback
+  wins 2–20× (7.4× on a single-line payload). A byte-size gate would misroute
+  those big frames to the slower implementation, and counting lines to gate
+  costs as much as the win, so `sseEncode` stays pinned to JS. Full table in
+  `docs/native-acceleration.md`.
+
 ### Changed
 
+- **Castrum scalar-op re-measurement (Task 7): the base64 large-payload
+  pathology is dead; verdict stays "adopt none".** The upstream fix — castrum
+  `rust/crypto/base64.rs` now runs its base64 cores on base64 0.23's
+  runtime-dispatched `Simd` engine (AVX2/NEON Muła kernels; scalar below the
+  64 B decode / 128 B encode thresholds; byte-identical `PAD`/`NO_PAD`
+  contract; applies to the C-ABI cores, `base64url*`, batch and
+  `Base64Codec`) — was re-measured through the dlopen harness
+  (`/tmp/opencode/bench-scalars.ts`, median of 7 interleaved trials, 3 runs):
+  base64 decode now wins at 64 B / 1 KB / 16 KB (3.05× / 2.45× / 1.54× vs
+  2.29× / 0.61× / 0.23× before), encode wins at 64 B / 1 KB (1.73× / 1.70× vs
+  2.29× / 0.67×) with 16 KB at 0.82× (was 0.24×; ~3.5× faster than the old
+  scalar core). No op gains a hot-path consumer in `@ignex/core`, so
+  `docs/native-acceleration.md` and the castrum-adoption plan keep **adopt
+  none** — the blocker is now consumer-side, not performance.
+- **`session`/`compression`/`openapi` join the declarable plugin layer.** The
+  internal audit (`INTERNAL_PLUGIN_USAGE`) now declares the per-request `ctx`
+  members each of those plugins' hooks read — `session` (`req`, `cookie`,
+  `state`), `compression` (`headers`), `openapi` (`url`) — so apps whose entire
+  plugin set is framework plugins keep every route on the usage-specialized
+  tier instead of falling to the full context. `nativePreflight` stays
+  undeclared: its `ctx.ip` read is conditional, and an eager declaration would
+  materialise the socket-IP resolve on every request.
 - **AOT reply path clones the memoized header base only when per-request
   headers differ.** `withBody` / `__withBody` keep one boot-memoized base
   `Headers` per content-type (`content-type` + plugin `responseDefaults` +
@@ -272,6 +338,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `verify:aot:rbac` and `check:native:surface`.
 
 ### Fixed
+
+- **Specialized-context routes now emit the plugin layer's declared members.**
+  A route on the usage-specialized tier used to emit only the members its own
+  handler referenced; a declarable plugin layer (`cors`/`security`) ran its
+  fused hooks against that context, so a lean route reading only `ctx.json`
+  handed `cors.onRequest` `ctx.headers === undefined` — `TypeError` → 500 on
+  every request to an otherwise-lean app. The emitted ctx is now the
+  ROUTE ∪ PLUGIN-LAYER usage union (`mergeContextUsage` in codegen), pinned by
+  the `plugin-specialized-members` tests and the always-Bun
+  `verify:aot:plugin-specialized` gate. `COMPILER_CACHE_VERSION` bumped to 0.9.22.
 
 - **App static response headers now reach every passthrough path.** `server.headers`
   plus plugin `responseDefaults` were baked only into `__withBody`-constructed

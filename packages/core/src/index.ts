@@ -311,9 +311,16 @@ export {
 export {
   createWSConnections,
   createWSHandler,
+  DEFAULT_MAX_INFLIGHT_MESSAGES,
   IgnexWS,
+  mergeWSLimits,
   upgradeWS,
+  WS_INFLIGHT_LIMIT_CODE,
+  WS_INFLIGHT_LIMIT_REASON,
   type WSConnections,
+  type WSHandlerOptions,
+  type WSLimits,
+  type WSLocalHook,
   type WSUpgradeOptions,
 } from "./http/ws";
 export { buildFusedChains, runFusedPost, runFusedPre } from "./lifecycle/fused";

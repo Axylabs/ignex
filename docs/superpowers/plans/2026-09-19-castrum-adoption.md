@@ -180,13 +180,16 @@ in-flight cap, and the compiled server never drains sockets on stop.
 - Test: `packages/core/test/ws-limits.test.ts` (new)
 
 **Interfaces (produces):**
-- `WSUpgradeOptions` gains `maxPayloadLength?`, `backpressureLimit?`, `closeOnBackpressureLimit?`, `idleTimeout?`, `maxInflightMessages?` (default 256).
+- `createWSHandler` options (interface deviation, flagged to user): gains
+  `maxPayloadLength?`, `backpressureLimit?`, `closeOnBackpressureLimit?`,
+  `idleTimeout?`, `maxInflightMessages?` (default 256) — NOT `WSUpgradeOptions`,
+  which stays as-is.
 - Message dispatch: increment an in-flight counter; at cap, close(1013, 'Too many in-flight messages'); decrement on settle; wrap each handler in try/catch.
 
-- [ ] Step 1: TDD — a handler that never resolves + 257 messages ⇒ connection closes 1013; a throwing handler does not crash; `maxPayloadLength` reaches `Bun.serve`.
-- [ ] Step 2: implement; merge options strictest-wins across routes.
-- [ ] Step 3: `bun run test:core`, `bun run test:compiler`, `bun run check:cache-versions`, `bun run smoke`.
-- [ ] Step 4: docs (`docs/router.md`/`docs/architecture.md`) + commit.
+- [x] Step 1: TDD — a handler that never resolves + 257 messages ⇒ connection closes 1013; a throwing handler does not crash; `maxPayloadLength` reaches `Bun.serve`.
+- [x] Step 2: implement; merge options strictest-wins across routes.
+- [x] Step 3: `bun run test:core`, `bun run test:compiler`, `bun run check:cache-versions`, `bun run smoke` — 1519 core+compiler tests green, smoke + smoke:fallback 56/56, `verify:quick` green, `COMPILER_CACHE_VERSION` 0.9.21.
+- [x] Step 4: docs (`docs/router.md`/`docs/architecture.md` updated) + CHANGELOG. Commit PENDING user approval.
 
 **Acceptance:** payload/backpressure limits reach Bun; in-flight cap closes at 256; handler errors are isolated; tests green.
 
@@ -211,6 +214,73 @@ Bind the un-adopted fast ops (`xxh3`, `base64*`, `urlEncode/Decode`,
 **only where measured faster**, each with a byte-compatible fallback + `SELECTION`
 row + parity test. Per `docs/native-acceleration.md`, several native ops already
 lose to JS/Bun — measure per op, do not assume.
+
+**Verdict (2026-09-19, idle machine, median of 7 interleaved trials — `/tmp/opencode/bench-scalars.ts`): ADOPT NONE.**
+
+| candidate | 64B | 1KB | 16KB | hot-path consumer? | adopt? |
+| --- | --- | --- | --- | --- | --- |
+| xxh3 | 1.13× win | 0.72× | 0.50× | none (fallback `Bun.hash.xxHash3` is native AND faster) | no |
+| base64 decode | 3.05× win | 2.45× win | **1.54× win** | JWT *fallback* only | no |
+| urlDecode | 2.0× win | 2.2× win | 1.9× win | none | no |
+| httpDate | 3.2× win | — | — | cold (`toUTCString` in files/cookies) | no |
+| base64 encode | 1.73× win | 1.70× win | 0.82× | none | no |
+| urlEncode | 2.5–2.9× win | 2.9× win | 2.9× win | none | no |
+| parseHttpDate | 0.08× | — | — | cold | no |
+| mimeFromExtension | 0.035× | — | — | none | no |
+| regexEscape | 3.0× win | 2.0× win | 1.9× win | none | no |
+
+No candidate clears BOTH gates (measured ≥1.05× median AND a hot-path
+consumer); the consumer gate is the durable blocker. Full numbers in the
+2026-09-19 table of `docs/native-acceleration.md`. The runnable harness is
+kept at `/tmp/opencode/bench-scalars.ts`.
+
+**Re-measured post-castrum fix (same day, supersedes the first-pass rows
+above):** the first pass showed a large-payload base64 pathology (decode 16KB
+0.20×, encode 16KB 0.24×). Root cause was castrum-side: its hot base64 cores
+used base64 0.23's scalar `GeneralPurpose` engine while the crate ships a
+compiled-but-unused runtime-dispatch `Simd` engine (AVX2/NEON). Switched
+`rust/crypto/base64.rs` to `Simd` (`engine::simd::Simd::standard/url_safe`,
+`PAD`/`NO_PAD` configs, byte-identical contract; scalar fallback below the
+64 B decode / 128 B encode thresholds and on non-x86_64/aarch64; applies to
+the C-ABI cores, napi fns, `base64url*`, batch, and `Base64Codec`). Castrum
+gates green: 20 base64 unit tests (incl. 4 new SIMD parity/roundtrip/rejection
+tests), 76 C-ABI tests, `cargo clippy --all-targets -- -D warnings`. On the
+rebuilt addon, base64 decode now wins at **every** size (3.05×/2.45×/1.54× vs
+2.29×/0.61×/0.23× median before) and encode wins at 64B/1KB (1.73×/1.70× vs
+2.29×/0.67×) with 16KB at 0.82× (was 0.24× — ~3.5× faster than the old scalar
+core, within ~18% of Bun's AVX2 encode). Verdict unchanged (still no
+consumer), but the adoption blocker is now consumer-only, not performance. The
+non-base64 rows above are the re-created harness's idiomatic-JS baselines
+(`encodeURIComponent`, `String.replace`, `Date.parse`, …) — those native cores
+were not touched by the fix.
+
+**Bonus discovered and landed while closing this task — the lean plugin tier was
+unsafe:** the usage-specialized context emitted only the members the ROUTE
+handler referenced, so a declarable plugin layer's hooks (`cors`/`security`)
+received `ctx.headers === undefined` on a lean route reading only `ctx.json` —
+`TypeError` → 500 on every request. Fixed by emitting the
+ROUTE ∪ PLUGIN-LAYER usage union (`mergeContextUsage`, `COMPILER_CACHE_VERSION`
+0.9.22), pinned by `plugin-specialized-members.test.ts` +
+`verify:aot:plugin-specialized.ts`. With the merge in place, the audited
+`session`/`compression`/`openapi` declarations now extend the lean tier to real
+apps (their measured app-level win is the ~1.17× bun figure reported for the
+already-lean bench app; see Task 5 re-measurement).
+
+**Follow-up same day — length-sweep showdown, remaining castrum pathologies
+fixed (lands in castrum `26f60cf`, ignex stays un-adopted).** Re-swept all 12
+length-sensitive C-ABI/napi cores at 64B/1KB/16KB/256KB/1MB (interleaved
+medians + per-call input rotation, `/tmp/opencode/bench-sweep.ts` →
+`bench-verify.ts`); three castrum-core pathologies surfaced and were fixed
+upstream: hex encode (was 0.30× ≥1KB per-byte table loop → `faster-hex` SIMD,
+now 4.3–18.9×), hex decode (was 0.15× ≥16KB — `faster-hex` decode is two-pass
+~5GB/s → new single-pass AVX2 kernel, now 1.4–6.7× at every size), regexEscape
+(was O(n·14) `contains` scan ~160MB/s → 256-LUT + run memcpy, now 5.9–6.8×).
+All byte-identical + exhaustively pinned (65,536 hex pair matrix, chunk-boundary
+sweeps, 2MiB roundtrips, 256KiB regex edge payloads, xxh3 240/241 spec locks).
+xxh3 deliberately NOT changed (scalar core flat ~30GB/s — the Bun gap is AVX2
+width, not size scaling) and b64enc ≥16KB stays parity-scale (memory-bound).
+Castrum gates green: 649 lib tests, clippy `-D warnings`. ignex verdict remains
+ADOPT NONE per the consumer gate — full table in `docs/native-acceleration.md`.
 
 ---
 

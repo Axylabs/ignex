@@ -129,7 +129,17 @@ export const sseEncode = (
   id?: string | null,
   retry?: number | null,
 ): string => {
-  // Selection: js — native FFI marshal loses for typical frames (x0.28) — see selection.ts.
+  // Selection: js — re-verified 2026-09-19 against the castrum 0.9.10 SIMD
+  // core on this host (interleaved medians, GC-isolated, fair wrapper path
+  // incl. toBytes + toStr). The native core is shape-sensitive: it only wins
+  // for LINE-DENSE payloads (avg line ≤ ~80B, ~≥12 lines/KB — e.g. log-stream
+  // frames), where it is 2-3x faster; for typical SSE events (single-line JSON
+  // blobs, chat deltas — the `sse()` hot path feeds one event per frame) the
+  // JS fallback wins 2-20x, because its cost is ~44ns per LINE while native
+  // pays ~0.5ns/B + a fixed crossing. A byte-size gate alone cannot express
+  // the winning shape (it would misroute big few-line frames to the slower
+  // impl), and counting lines to gate costs as much as the win. So the op
+  // stays pinned to js.
   return sseEncodeFallback(event, data, id ?? null, retry ?? null);
 };
 

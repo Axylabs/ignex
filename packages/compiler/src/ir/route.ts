@@ -25,6 +25,7 @@ import type {
   RouteSerializers,
   RouteValidators,
 } from "../types";
+import type { ConstantResponseSpec } from "../utils/ast";
 
 /**
  * Source facts lowered from the route filename + the module's retained AST.
@@ -63,6 +64,12 @@ export interface RouteIRAnalysis {
   readonly localHooks: boolean;
   readonly isConstantResponse: boolean;
   readonly constantResponse?: string;
+  /**
+   * Response-literal arm of constant hoisting: a pre-rendered
+   * `new Response(body, init)` spec (see `extractConstantResponse`). Mutually
+   * exclusive with `constantResponse` — the JSON arm is tried first.
+   */
+  readonly constantResponseLit?: ConstantResponseSpec;
   readonly usage: ContextUsage;
   readonly config?: Record<string, unknown>;
   readonly cache?: RouteCacheConfig;

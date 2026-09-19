@@ -25,6 +25,91 @@ import { extractHandlerNodeAST } from "./handler";
 export type ConstResult = { ok: true; value: unknown } | { ok: false };
 export const constFail: ConstResult = { ok: false };
 
+/**
+ * A hoistable `new Response(body, init)` literal, pre-rendered for codegen.
+ *
+ * Produced only from statically-evaluable primitive arguments, so codegen can
+ * re-run the SAME construction once at module load: the wire body and the
+ * Response defaults are byte-identical to a per-request `new Response(...)`.
+ */
+export interface ConstantResponseSpec {
+  /** JS source for the body argument (a primitive literal or `undefined`). */
+  readonly bodyLit: string;
+  /** JS source for the init object literal (`""` when the argument was omitted). */
+  readonly initLit: string;
+  /** Parsed status (200 when unspecified) — used for the native auto-HEAD fn. */
+  readonly status: number;
+}
+
+/** The only `ResponseInit` keys we re-emit; anything else refuses the hoist. */
+const RESPONSE_INIT_KEYS = new Set(["status", "statusText", "headers"]);
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/**
+ * Render a primitive body value as a JS literal whose `String()` coercion (the
+ * `Response` body conversion) is exact. Objects/arrays are refused — their
+ * coercion (`[object Object]`, array joining) is ambiguous and allocating.
+ */
+const bodyLiteral = (value: unknown): string | null => {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "number") return isFiniteNumber(value) ? String(value) : null;
+  return null;
+};
+
+/**
+ * Render an evaluated `ResponseInit` value as an object literal (or `null`
+ * when it cannot be hoisted exactly). Unknown keys are REFUSED — re-emitting
+ * only the known ones would silently drop whatever the runtime would have
+ * honored. `headers` must be a plain string→string object so the emitted
+ * literal carries the identical header values.
+ */
+const initLiteral = (value: unknown): { lit: string; status: number } | null => {
+  if (value === undefined) return { lit: "", status: 200 };
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+
+  const obj = value as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!RESPONSE_INIT_KEYS.has(key)) return null;
+  }
+
+  const parts: string[] = [];
+  let status = 200;
+
+  if (obj.status !== undefined) {
+    if (
+      !isFiniteNumber(obj.status) ||
+      !Number.isInteger(obj.status) ||
+      obj.status < 200 ||
+      obj.status > 599
+    ) {
+      return null;
+    }
+    status = obj.status;
+    parts.push(`status: ${obj.status}`);
+  }
+
+  if (obj.statusText !== undefined) {
+    if (typeof obj.statusText !== "string") return null;
+    parts.push(`statusText: ${JSON.stringify(obj.statusText)}`);
+  }
+
+  if (obj.headers !== undefined) {
+    const headers = obj.headers;
+    if (typeof headers !== "object" || headers === null || Array.isArray(headers)) return null;
+    for (const headerValue of Object.values(headers)) {
+      if (typeof headerValue !== "string") return null;
+    }
+    parts.push(`headers: ${JSON.stringify(headers)}`);
+  }
+
+  return { lit: parts.length > 0 ? `{ ${parts.join(", ")} }` : "", status };
+};
+
 const isBigIntValue = (value: unknown): boolean => typeof value === "bigint";
 
 /** Evaluate a unary expression against a constant argument. */
@@ -157,4 +242,86 @@ export function extractConstantReturn(ast: Node): ConstResult {
 
   if (!first.argument) return { ok: true, value: undefined };
   return evaluateConstantNode(first.argument);
+}
+
+/**
+ * Resolve the single expression a handler returns — an expression-bodied arrow
+ * body, or the sole `return` argument of a one-statement block. Shared by the
+ * constant-return and response-literal extractors so both stay equally strict.
+ */
+const extractSingleReturnExpression = (ast: Node): Node | undefined => {
+  const fn =
+    ast?.type === "Program"
+      ? extractHandlerNodeAST(ast)
+      : ast?.type === "ArrowFunctionExpression" || ast?.type === "FunctionExpression"
+        ? ast
+        : undefined;
+
+  if (!fn) return undefined;
+
+  const body = fn.body;
+  if (!body) return undefined;
+
+  if (body.type !== "BlockStatement") return body;
+
+  const statements = body.body ?? [];
+  if (statements.length !== 1) return undefined;
+
+  const first = statements[0];
+  if (first?.type !== "ReturnStatement" || !first.argument) return undefined;
+  return first.argument;
+};
+
+/** Parse a `new Response(...)` argument list into a hoistable spec (or `null`). */
+const parseResponseSpec = (args: readonly Node[]): ConstantResponseSpec | null => {
+  if (args.length > 2) return null;
+
+  let bodyLit = "undefined";
+  const bodyArg = args[0];
+  if (bodyArg) {
+    const evaluated = evaluateConstantNode(bodyArg);
+    if (!evaluated.ok) return null;
+    const lit = bodyLiteral(evaluated.value);
+    if (lit === null) return null;
+    bodyLit = lit;
+  }
+
+  let initLit = "";
+  let status = 200;
+  const initArg = args[1];
+  if (initArg) {
+    const evaluated = evaluateConstantNode(initArg);
+    if (!evaluated.ok) return null;
+    const parsed = initLiteral(evaluated.value);
+    if (parsed === null) return null;
+    initLit = parsed.lit;
+    status = parsed.status;
+  }
+
+  return { bodyLit, initLit, status };
+};
+
+/**
+ * Extract a hoistable `new Response(body, init)` literal from a handler with
+ * the same strict single-constant-return shape as {@link extractConstantReturn}
+ * (expression-bodied arrow, or a block with exactly one `return`).
+ *
+ * This is the `Response`-literal arm of constant-response hoisting: the JSON
+ * arm covers handlers that RETURN a serializable value, while this covers
+ * handlers that return a pre-built `Response` with statically-known arguments.
+ * Only primitive bodies and a `status`/`statusText`/`headers` init are
+ * accepted, so codegen can re-run the identical construction once at module
+ * load (identical wire bytes and Response defaults). Anything with a computed
+ * argument (identifier, call, spread) is refused.
+ *
+ * @returns The rendered spec, or `null` when not hoistable.
+ */
+export function extractConstantResponse(ast: Node): ConstantResponseSpec | null {
+  const returned = extractSingleReturnExpression(ast);
+  if (returned?.type !== "NewExpression") return null;
+
+  const callee = returned.callee;
+  if (callee?.type !== "Identifier" || callee.name !== "Response") return null;
+
+  return parseResponseSpec(returned.arguments ?? []);
 }

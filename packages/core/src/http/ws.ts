@@ -121,6 +121,84 @@ export interface WSUpgradeOptions<Context> {
 }
 
 /**
+ * WebSocket transport limits, mirroring Bun's `WebSocketHandler` tuning fields.
+ *
+ * Each field carries through to the returned handler object, so a single-route
+ * server passes them to `Bun.serve` untouched; the compiled server merges them
+ * strictest-wins across routes via {@link mergeWSLimits} when multiple WS
+ * routes share Bun's single `websocket` handler.
+ */
+export interface WSLimits {
+  /** Max message payload bytes per frame (Bun default far exceeds typical needs). */
+  maxPayloadLength?: number;
+  /** Backlog (bytes) at which Bun applies socket backpressure via `drain`. */
+  backpressureLimit?: number;
+  /** Close the connection instead of buffering when `backpressureLimit` hits. */
+  closeOnBackpressureLimit?: boolean;
+  /** Idle timeout (seconds) after which an idle socket is closed. */
+  idleTimeout?: number;
+}
+
+/**
+ * Dispatch-level options for {@link createWSHandler}.
+ *
+ * `maxInflightMessages` bounds concurrent unsettled message handlers per
+ * handler: at the cap the socket is closed with 1013 ("Too many in-flight
+ * messages") instead of queueing unbounded promise work — a slow or wedged
+ * handler can no longer pin unbounded event-loop/memory per socket.
+ */
+export interface WSHandlerOptions extends WSLimits {
+  /** Max concurrent in-flight message handlers (default {@link DEFAULT_MAX_INFLIGHT_MESSAGES}). */
+  maxInflightMessages?: number;
+}
+
+/** Default in-flight message cap — matches Elysia's 256-message ceiling. */
+export const DEFAULT_MAX_INFLIGHT_MESSAGES = 256;
+
+/** Close code for exceeding the in-flight cap (RFC 6455 "too big data", reused). */
+export const WS_INFLIGHT_LIMIT_CODE = 1013;
+
+/** Reason attached to the 1013 close when the in-flight cap is exceeded. */
+export const WS_INFLIGHT_LIMIT_REASON = "Too many in-flight messages";
+
+/**
+ * Merge per-route WS transport limits strictest-wins: the smallest
+ * `maxPayloadLength`/`backpressureLimit`/`idleTimeout`, and
+ * `closeOnBackpressureLimit: true` when ANY route opts in. Fields no handler
+ * sets stay omitted so Bun's defaults are never clobbered by the spread.
+ *
+ * Used by the compiled server when multiple WS routes must share Bun's single
+ * `websocket` handler (each route's own `wsHandler` can only reach the wire
+ * through that one handler).
+ *
+ * @param handlers - Per-route limit objects (typically each route's `wsHandler`).
+ * @returns The strictest merged limits, omitting unset fields.
+ */
+export const mergeWSLimits = (handlers: readonly WSLimits[]): WSLimits => {
+  const out: WSLimits = {};
+  for (const h of handlers) {
+    if (h.maxPayloadLength !== undefined) {
+      out.maxPayloadLength =
+        out.maxPayloadLength === undefined
+          ? h.maxPayloadLength
+          : Math.min(out.maxPayloadLength, h.maxPayloadLength);
+    }
+    if (h.backpressureLimit !== undefined) {
+      out.backpressureLimit =
+        out.backpressureLimit === undefined
+          ? h.backpressureLimit
+          : Math.min(out.backpressureLimit, h.backpressureLimit);
+    }
+    if (h.closeOnBackpressureLimit === true) out.closeOnBackpressureLimit = true;
+    if (h.idleTimeout !== undefined) {
+      out.idleTimeout =
+        out.idleTimeout === undefined ? h.idleTimeout : Math.min(out.idleTimeout, h.idleTimeout);
+    }
+  }
+  return out;
+};
+
+/**
  * Upgrade a request to a WebSocket, resolving the socket `data` from
  * `hook.upgrade` (a function result wins; a static object merges over
  * `options.data`). Returns `false` when the runtime has no upgrade path
@@ -205,14 +283,19 @@ export const createWSConnections = <Context, Body, Response>(): WSConnections<
  * Wraps each raw socket in a single persistent {@link IgnexWS} so hooks can
  * stash per-socket state on it. When `connections` is provided, sockets are
  * added on open and removed on close (so `broadcast` never hits dead sockets).
+ * When `options` are provided, transport limits are spread onto the returned
+ * handler (reaching `Bun.serve` for a single-route server) and the in-flight
+ * message cap applies (default 256 — see {@link WSHandlerOptions}).
  *
  * @param hook - The user-facing event hooks.
  * @param connections - Optional live-socket registry to maintain.
+ * @param options - Optional dispatch/transport limits (see {@link WSHandlerOptions}).
  * @returns A handler ready for Bun's `upgrade`/websocket server config.
  */
 export const createWSHandler = <Context, Body, Response>(
   hook: WSLocalHook<Context, Body, Response>,
   connections?: WSConnections<Context, Body, Response>,
+  options?: WSHandlerOptions,
 ): WebSocketHandler<Context> => {
   // One IgnexWS wrapper per raw socket so the SAME instance is delivered to
   // every event (open/message/close). That identity is required for the
@@ -234,19 +317,41 @@ export const createWSHandler = <Context, Body, Response>(
    * or take down the connection registry bookkeeping. Async rejections are
    * surfaced (unhandled) rather than silently swallowed; sync throws are
    * caught and reported so the event loop stays healthy.
+   *
+   * Returns the (settled) promise for async hooks so callers can observe
+   * completion (the in-flight cap decrements once a handler settles); sync
+   * hooks return `undefined`.
    */
-  const invoke = (fn: () => unknown): void => {
+  const invoke = (fn: () => unknown): Promise<void> | undefined => {
     try {
       const result = fn();
       if (result instanceof Promise) {
-        void result.catch((err) => console.error("[ignex] websocket hook error:", err));
+        return result
+          .catch((err) => console.error("[ignex] websocket hook error:", err))
+          .then(() => undefined);
       }
     } catch (err) {
       console.error("[ignex] websocket hook error:", err);
     }
+    return undefined;
   };
 
+  const cap = options?.maxInflightMessages ?? DEFAULT_MAX_INFLIGHT_MESSAGES;
+  let inFlight = 0;
+
+  // Transport limits reach Bun's single websocket handler only when spread
+  // here (a plain handler object has no other path to `Bun.serve`).
+  const transport: WSLimits = {};
+  if (options?.maxPayloadLength !== undefined)
+    transport.maxPayloadLength = options.maxPayloadLength;
+  if (options?.backpressureLimit !== undefined)
+    transport.backpressureLimit = options.backpressureLimit;
+  if (options?.closeOnBackpressureLimit === true) transport.closeOnBackpressureLimit = true;
+  if (options?.idleTimeout !== undefined) transport.idleTimeout = options.idleTimeout;
+
   return {
+    ...transport,
+
     open(ws) {
       const wrapped = wrap(ws);
       connections?.add(wrapped);
@@ -264,7 +369,22 @@ export const createWSHandler = <Context, Body, Response>(
         }
       }
 
-      invoke(() => hook.message?.(wrap(ws), parsed as Body));
+      // In-flight cap: a handler that never settles must not let the socket
+      // (and the event loop) accumulate unbounded pending work. At the cap the
+      // connection is closed with 1013 instead of queuing another dispatch.
+      if (inFlight >= cap) {
+        ws.close(WS_INFLIGHT_LIMIT_CODE, WS_INFLIGHT_LIMIT_REASON);
+        return;
+      }
+      inFlight++;
+      const pending = invoke(() => hook.message?.(wrap(ws), parsed as Body));
+      if (pending) {
+        void pending.finally(() => {
+          inFlight--;
+        });
+      } else {
+        inFlight--;
+      }
     },
 
     drain(ws) {

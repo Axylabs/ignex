@@ -33,6 +33,7 @@
     "verify:native:route": "bun scripts/verify-native-route.ts",
     "verify:native:ffi": "bun scripts/verify-native-ffi.ts",
     "verify:aot:rbac": "bun scripts/verify-aot-rbac.ts",
+    "verify:aot:plugin-specialized": "bun scripts/verify-aot-plugin-specialized.ts",
     "verify:cli:resource": "bun scripts/verify-cli-resource.ts",
     "check:cache-versions": "bun scripts/check-cache-versions.ts",
     "check:native:surface": "bun scripts/check-native-surface.ts",

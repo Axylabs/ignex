@@ -24,6 +24,7 @@ const STRUCTURAL_CORE = [
   "DEFAULT_WS_MAX_PAYLOAD_LENGTH",
   "EMPTY_LIFECYCLE",
   "installProcessGuards",
+  "mergeWSLimits",
   "resolveServeTls",
 ] as const;
 
@@ -98,31 +99,37 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   functions.push(`if (__serveTls.tls) __serveOptions.tls = __serveTls.tls;
 if ((__serverCfg.http2 ?? __serverCfg.h2) && __serveTls.tls) __serveOptions.http2 = true;`);
 
-  // WS handler wiring: inject the core default frame ceiling when the app
-  // config didn't set `maxPayloadLength` (spread AFTER so an explicit value
-  // always wins). Copied — `__serverCfg` is never mutated.
+  // WS handler wiring. Transport limits merge strictest-wins:
+  // - `__wsBase` carries the app config's `websocket` tune fields plus the
+  //   core default frame ceiling (an explicit app value beats the default).
+  // - A single WS route: the route's OWN `wsHandler` (its events AND limit
+  //   fields) rides on top of `__wsBase` — route-layer is authoritative, the
+  //   app config is the fallback, and the default ceiling survives when
+  //   neither sets it.
+  // - Multiple WS routes: `Bun.serve` has exactly ONE `websocket` handler, so
+  //   each socket is routed to ITS route's `wsHandler` via the path recorded
+  //   in the upgrade `data` (see codegen/routes/ws.ts); `mergeWSLimits`
+  //   combines the routes' limits strictest-wins so no route can widen a
+  //   tighter sibling's ceiling, and unknown/untagged sockets fall back to
+  //   the first handler so bookkeeping never leaks.
   functions.push(
-    `if (__serverCfg.websocket) __serveOptions.websocket = { maxPayloadLength: DEFAULT_WS_MAX_PAYLOAD_LENGTH, ...__serverCfg.websocket };`,
+    `const __wsBase = { maxPayloadLength: DEFAULT_WS_MAX_PAYLOAD_LENGTH, ...(__serverCfg.websocket ?? {}) };`,
   );
   if (state.wsHandlers.length === 1) {
-    // A single WS route: its `wsHandler` is the server websocket handler
-    // directly (the common case — no dispatch overhead).
     const only = state.wsHandlers[0];
     if (only) {
-      functions.push(`__serveOptions.websocket ??= ${only.handler};`);
+      functions.push(`__serveOptions.websocket = { ...__wsBase, ...${only.handler} };`);
     }
   } else if (state.wsHandlers.length > 1) {
-    // Multiple WS routes: `Bun.serve` has exactly ONE `websocket` handler, so
-    // route each socket to ITS route's `wsHandler` via the path recorded in
-    // the upgrade `data` (see codegen/routes/ws.ts). Unknown/untagged sockets
-    // fall back to the first handler so bookkeeping never leaks.
     const first = state.wsHandlers[0];
     if (first) {
       const map = state.wsHandlers
         .map(({ path, handler }) => `${JSON.stringify(path)}: ${handler}`)
         .join(", ");
+      const list = state.wsHandlers.map(({ handler }) => handler).join(", ");
       functions.push(`const __wsHandlers = { ${map} };
-__serveOptions.websocket ??= {
+const __wsLimits = mergeWSLimits([${list}]);
+__serveOptions.websocket = { ...__wsBase, ...__wsLimits,
   open(ws) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).open?.(ws); },
   message(ws, msg) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).message?.(ws, msg); },
   drain(ws) { (__wsHandlers[ws.data?.__route] ?? ${first.handler}).drain?.(ws); },
@@ -155,11 +162,15 @@ __serveOptions.websocket ??= {
   // `stop(true)` would FORCE-close in-flight requests) — for EVERY app, with
   // or without an app config. The old config-less path exited immediately,
   // killing in-flight requests on every rolling deploy/Ctrl-C.
+  // WebSocket caveat: Bun cannot selectively drain sockets — `stop(false)`
+  // waits for connections that never close, wedging shutdown until the 10s
+  // hard deadline. WS apps therefore `stop(true)` (terminate sockets +
+  // in-flight requests immediately); non-WS apps keep the graceful drain.
   // With plugins: close plugin resources (DB connections, stores), then exit
   // as soon as closing finishes. Without: rely on Bun's natural process exit
   // once the drained event loop empties (no lingering handles), with a 10s
   // hard deadline (unref'd, so it only fires when something is wedged — a
-  // stuck keep-alive/WS connection must never hang a container stop forever).
+  // stuck keep-alive connection must never hang a container stop forever).
   {
     const drainBody = state.hasAppConfig
       ? `  Promise.resolve()
@@ -167,12 +178,13 @@ __serveOptions.websocket ??= {
     .catch((__err) => console.error("[ignex] plugin close error:", __err))
     .finally(() => process.exit(0));`
       : `  // No plugin resources to close — let the drained event loop exit naturally.`;
+    const stopArg = state.wsHandlers.length > 0 ? "true" : "false";
     functions.push(`let __shuttingDown = false;
 const __shutdown = (__signal) => {
   if (__shuttingDown) return;
   __shuttingDown = true;
   console.log("[ignex] received " + __signal + " — draining connections");
-  try { __server.stop(false); } catch (__err) { console.error("[ignex] stop error:", __err); }
+  try { __server.stop(${stopArg}); } catch (__err) { console.error("[ignex] stop error:", __err); }
 ${drainBody}
   setTimeout(() => process.exit(0), 10000).unref?.();
 };

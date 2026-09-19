@@ -8,6 +8,7 @@
  */
 
 import type { RouteIR } from "../../types";
+import type { ConstantResponseSpec } from "../../utils/ast";
 import type { CodegenConfig } from "./config";
 
 /** `HttpResponseCache` construction options (route `cache` config → options). */
@@ -18,13 +19,25 @@ export interface CacheOptions {
 }
 
 /**
- * When the route's body is a compile-time constant, return the JSON to hoist
- * (or `null` to fall through to the normal path). Hoisting to a frozen
- * Response bypasses the whole lifecycle (plugins, hooks, ctx.set, error
- * handling) — only allowed when we can prove there is nothing to bypass.
+ * A hoistable constant response: either the JSON arm (a serialized value the
+ * route returned) or the response-literal arm (a pre-rendered
+ * `new Response(body, init)` spec). The two are mutually exclusive per route.
  */
-export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): string | null => {
-  if (!route.analysis.isConstantResponse || !route.analysis.constantResponse) return null;
+export type ConstantHoist =
+  | { readonly kind: "json"; readonly body: string }
+  | { readonly kind: "response"; readonly spec: ConstantResponseSpec };
+
+/**
+ * When the route's body is a compile-time constant, return the hoist
+ * descriptor (or `null` to fall through to the normal path). Hoisting to a
+ * pre-built Response bypasses the whole lifecycle (plugins, hooks, ctx.set,
+ * error handling) — only allowed when we can prove there is nothing to bypass.
+ */
+export const tryNormalizeConstant = (
+  route: RouteIR,
+  hasGlobalHooks: boolean,
+): ConstantHoist | null => {
+  if (!route.analysis.isConstantResponse) return null;
   if (hasGlobalHooks) return null;
   if (route.analysis.hooks.length > 0) return null;
   // RBAC guards MUST run — never hoist a guarded route to a frozen body.
@@ -42,7 +55,13 @@ export const tryNormalizeConstant = (route: RouteIR, hasGlobalHooks: boolean): s
 
   // `constantResponse` was produced by a JSON.stringify round-trip during
   // analysis, so it is already valid JSON — no re-parse required.
-  return route.analysis.constantResponse;
+  if (route.analysis.constantResponse) {
+    return { kind: "json", body: route.analysis.constantResponse };
+  }
+  if (route.analysis.constantResponseLit) {
+    return { kind: "response", spec: route.analysis.constantResponseLit };
+  }
+  return null;
 };
 
 /** Route `cache` config → {@link CacheOptions} (or `undefined`). */

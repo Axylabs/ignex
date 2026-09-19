@@ -69,8 +69,22 @@ import { projectPath } from "./utils/path";
  * previously only `__withBody`-built replies baked them, so those paths missed
  * `server.headers` on Bun 1.4.2 (which ignores `Bun.serve({ headers })`).
  * Generated output shape changed.
+ * 0.9.21 — WebSocket limits (A4): the generated `websocket` option now merges
+ * per-route transport limits strictest-wins (`mergeWSLimits`) over an app/base
+ * `__wsBase`, and apps with WS routes terminate connections on shutdown
+ * (`__server.stop(true)`) instead of wedging the drain deadline. Generated
+ * output shape changed.
+ * 0.9.22 — plugin-member merge on the specialized tier: the emitted ctx is now
+ * the ROUTE ∪ PLUGIN-LAYER usage union, so a plugin's declared members
+ * (`headers`/`req`/`method`, and any future `session`/`compression`/`openapi`
+ * declarations) are always present on lean routes — a plugin hook reading
+ * them used to get `undefined` and TypeError. Generated output shape changed.
+ * 0.9.23 — response-literal static promotion: a route whose handler returns a
+ * constant `new Response(body, init)` (primitive body + static
+ * `status`/`statusText`/`headers`) is now hoisted to a pre-built table-bound
+ * Response exactly like a constant JSON return. Generated output shape changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.20";
+export const COMPILER_CACHE_VERSION = "0.9.23";
 
 const CACHE_FILE = ".ignex-cache.json";
 

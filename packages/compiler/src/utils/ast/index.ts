@@ -21,7 +21,12 @@
  */
 
 export { extractRouteConfigAST } from "./config";
-export { evaluateConstantNode, extractConstantReturn } from "./constant";
+export {
+  type ConstantResponseSpec,
+  evaluateConstantNode,
+  extractConstantResponse,
+  extractConstantReturn,
+} from "./constant";
 export {
   extractHandlerExport,
   extractHandlerExportName,

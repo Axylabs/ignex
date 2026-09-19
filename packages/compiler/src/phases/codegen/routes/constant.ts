@@ -3,6 +3,8 @@
  */
 
 import type { RouteIR } from "../../../types";
+import type { ConstantResponseSpec } from "../../../utils/ast";
+import type { ConstantHoist } from "../decisions";
 import { heatCountStmt } from "../heat";
 import {
   constantBodyVar,
@@ -13,12 +15,23 @@ import {
 } from "../identifiers";
 import type { CodegenState } from "../state";
 
+/** Render the shared `new Response(...)` expression for a response-literal spec. */
+const responseExpr = (spec: ConstantResponseSpec): string =>
+  `new Response(${spec.bodyLit}${spec.initLit ? `, ${spec.initLit}` : ""})`;
+
 /**
  * Hoist a constant response to a PRE-BUILT, frozen `Response` bound directly
  * into Bun's native routes table: Bun serves it entirely in Rust — zero
  * per-request JS (no wrapper call, no `new Response`, no header merge) — with
  * native auto-HEAD (body stripped, status/headers preserved) and free
  * conditional-GET handling when a route ever carries an ETag.
+ *
+ * Two arms share this path (see {@link ConstantHoist}): the JSON arm (the
+ * handler returned a serializable value) and the response-literal arm (the
+ * handler returned a `new Response(body, init)` with statically-known
+ * arguments). Both construct their Response ONCE at module load from the exact
+ * same body/init values a per-request construction would use, so the wire
+ * bytes are identical.
  *
  * Safety: this path only fires when the app has NO lifecycle hooks/plugins
  * (`tryNormalizeConstant(route, hasGlobalLifecycle)` refuses otherwise), so no
@@ -33,9 +46,31 @@ import type { CodegenState } from "../state";
 export const emitConstantRoute = (
   state: CodegenState,
   route: RouteIR,
-  constantJson: string,
+  hoist: ConstantHoist,
 ): void => {
   const ref = route.codegen.handlerRef;
+  const resVar = staticResponseName(ref);
+
+  if (hoist.kind === "response") {
+    // Response-literal arm. The spec is a complete, self-contained
+    // `new Response(...)` expression, so there is no separate body/init pair
+    // to emit. One shared instance is built at module load — Bun snapshots
+    // buffered bodies for table-bound values, so sharing is safe (same
+    // contract as the JSON arm below).
+    //
+    // Heat capture is deliberately NOT supported here: its per-request handler
+    // would need a matching HEAD construction, and re-deriving the spec's
+    // implicit content-type for HEAD is not worth it for a dev-only aid.
+    // `generate.ts` keeps heat builds off this arm (normal route path instead).
+    state.functions.push(`const ${resVar} = ${responseExpr(hoist.spec)};`);
+    state.staticResponses.set(methodHandlerName(route), resVar);
+    if (route.source.method === "GET") {
+      state.constantGets.add(ref);
+    }
+    return;
+  }
+
+  const constantJson = hoist.body;
   const bodyVar = constantBodyVar(route);
   const initVar = constantInitVar(route);
 
@@ -76,7 +111,6 @@ export const emitConstantRoute = (
   // for strings/objects would serialize differently ("Hello World" vs
   // "\"Hello World\"", or `[object Object]`). `JSON.stringify(constantJson)`
   // embeds it as a safely-escaped JS string literal.
-  const resVar = staticResponseName(ref);
   state.functions.push(
     `const ${resVar} = new Response(${JSON.stringify(constantJson)}, ${initVar});`,
   );

@@ -125,6 +125,32 @@ its own work. The behavior is pinned by `packages/core/test/abort-port.test.ts`
 (interpreted), `packages/compiler/test/abort-port.test.ts` (compiled), and the
 plain-Bun `scripts/verify-aot-abort.ts` (build → boot → invoke).
 
+## Constant-response promotion
+
+A route whose handler provably returns the SAME response for every request is
+hoisted to a **pre-built `Response` bound directly into Bun's native routes
+table** — Bun serves it in Rust with zero per-request JS, and native auto-HEAD
+strips the body while preserving status/headers. Two arms are recognized:
+
+- **JSON arm** — the handler returns a JSON-serializable constant
+  (`() => ({ pong: true })`), emitted as `new Response("<json>", { … })`.
+- **Response-literal arm** — the handler returns `new Response(body, init)`
+  with statically-known arguments (`() => new Response("ok")`,
+  `() => new Response("ready", { status: 201, headers: { "x-ready": "1" } })`),
+  emitted as the same construction evaluated ONCE at module load. Only
+  primitive bodies and a `status`/`statusText`/`headers` init are accepted;
+  computed arguments, unknown init keys, non-string header values, and
+  non-`Response` constructors fall back to the normal per-request path.
+
+The literal is re-constructed from the exact values the handler wrote, so the
+wire bytes and `Response` defaults are identical to a per-request construction.
+Hoisting is refused whenever anything could mutate the response: app-level
+plugins/lifecycle, route hooks, RBAC guards, route-local `before`/`after`,
+validation, a wrapped handler, or trace/access logging. Dev heat capture also
+keeps response literals on the normal path.
+`packages/compiler/test/compile.test.ts` pins the emitted shape and the
+lifecycle refusal.
+
 ## 404 / 405 / OPTIONS / HEAD
 
 - **Unmatched path** → `404 { error, status, code }` (same envelope as the

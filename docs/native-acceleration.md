@@ -74,6 +74,106 @@ lean JS with memoized `Headers` (the memoized-base path in `withBody` /
 `__withBody`). Source: the castrum `native-bottleneck` + `wire-v6` reports and
 the removal of the ignex route-wire bridge.
 
+## Measured: un-adopted scalar ops — base64 length pathology fixed (2026-09-19, re-measured)
+
+A5 measured the un-adopted C-ABI scalar ops with the dlopen harness
+(`/tmp/opencode/bench-scalars.ts`, idle machine, median of 7 interleaved
+trials, parity-checked per op). Adoption requires BOTH a measured win
+(≥1.05× median per `docs/perf-methodology.md`) AND a hot-path consumer in
+`@ignex/core`.
+
+The large-payload base64 pathology from the first pass is **fixed upstream in
+castrum**: `rust/crypto/base64.rs` switched its hot cores from the scalar
+`GeneralPurpose` engine to base64 0.23's runtime-dispatched `Simd` engine
+(AVX2/NEON Muła kernels; scalar fallback below the 64 B decode / 128 B encode
+thresholds and on non-x86_64/aarch64; identical `PAD`/`NO_PAD` config, so
+output stays byte-identical). 20 base64 unit tests + 76 C-ABI tests +
+`cargo clippy -D warnings` green; the `base64url`/`Base64Codec`/batch paths
+share the same engine. Re-measured on the rebuilt addon (median of 3 runs):
+
+| op | 64B | 1KB | 16KB | hot-path consumer | adopt? |
+| --- | --- | --- | --- | --- | --- |
+| `base64Decode` | **3.05×** (was 1.71–1.82×) | **2.45×** (was ≈0.6×) | **1.54×** (was 0.20×) | JWT *fallback* paths only | no |
+| `base64Encode` | **1.73×** (was 0.29–0.70×) | **1.70×** (was ≈0.67×) | 0.82× (was 0.24×) | none | no |
+| `xxh3` | 1.13× | 0.72× | 0.50× | none — fallback `Bun.hash.xxHash3` is native AND faster | no |
+| `urlDecode` | 2.0× | 2.2× | 1.9× | none | no |
+| `urlEncode` | 2.5–2.9× | 2.9× | 2.9× | none | no |
+| `httpDate` | 3.2× | — | — | cold (`toUTCString`, files/cookies) | no |
+| `parseHttpDate` | 0.08× | — | — | cold | no |
+| `mimeFromExtension` | 0.035× | — | — | none | no |
+| `regexEscape` | 3.0× | 2.0× | 1.9× | none | no |
+
+The non-base64 native cores are unchanged by the fix (url codec, http date,
+mime, regex escape were not touched — the baseline and fixed addons differ
+only in `rust/crypto/base64.rs` + a comment). Row shifts vs the first pass for
+those ops reflect the re-created harness's idiomatic JS baselines
+(`encodeURIComponent`/`decodeURIComponent`, `String.replace` with a global
+regex, `Date.parse`, `new Date().toUTCString()`, object lookup), not the
+native cores.
+
+**Verdict: still adopt none.** `base64Decode` now clears the performance gate
+at every size, but no candidate has a hot-path consumer in `@ignex/core` — the
+consumer gate is the durable blocker, not the measurement. `base64Encode` 16KB
+stays 0.82× (native ~18% behind Bun's AVX2 encode — no longer pathological:
+~3.5× faster than the old scalar core). `xxh3` is the one op where the
+fallback beats castrum outright: `Bun.hash.xxHash3` is native and ~2× faster
+than castrum's scalar xxh3 at 1KB/16KB, so there is no adoption scenario. If a
+hot consumer for large base64 payloads appears (JWT verify on hot routes, WS
+frame payloads), re-propose with the binding + `SELECTION` row + parity test.
+The harness is re-runnable at `/tmp/opencode/bench-scalars.ts`.
+
+**Length-sweep showdown — the remaining castrum-side pathologies fixed
+upstream (2026-09-19, later same day; supersedes the 64B/1KB/16KB rows above
+for the touched ops).** castrum re-swept **all** its length-sensitive cores at
+64B / 1KB / 16KB / 256KB / 1MB (interleaved medians + per-call input rotation
+to defeat JIT constant-folding; `/tmp/opencode/bench-sweep.ts` →
+`bench-verify.ts`) and fixed every size-scaling pathology found (castrum
+commit `26f60cf`):
+
+| op | 64B | 1KB | 16KB | 256KB | 1MB | was (pre-fix) | adopt? |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `hexDecode` | 6.5× | 6.7× | 1.6× | 1.5× | 1.4× | 0.15× at ≥16KB | no (no consumer) |
+| `hexEncode` | 5.3× | 18.9× | 5.7× | 4.3× | 4.7× | 0.30× at ≥1KB | no (no consumer) |
+| `regexEscape` | 5.7× | 6.8× | 6.5× | 5.9× | 6.4× | ~1.9×, 160 MB/s abs | no (no consumer) |
+| `base64Decode` | 3.6× | 6.0× | 1.5× | 1.5× | 1.4× | fixed in prior pass | no (JWT fallback only) |
+| `base64Encode` | 1.8× | 2.3× | 1.07× | 0.88× | 0.95× | 0.82× at 16KB | no |
+| `urlEncode` | 2.8× | 3.2× | 2.8× | 2.8× | 3.0× | unchanged | no |
+| `xxh3` | 1.1× | 0.73× | 0.53× | 0.50× | 0.47× | unchanged | no (Bun wins, width) |
+
+What changed upstream: hex **encode** → the `faster-hex` SIMD engine (was a
+per-byte table loop); hex **decode** → a new hand-written single-pass AVX2
+kernel in castrum (`faster-hex` decode is two-pass, ~5 GB/s cap — the kernel
+does validity + value in one vector pass, 64 chars/iter, with <64-char tails
+handing off to the validated engine); **regexEscape** → 256-entry LUT + bulk
+`memcpy` of safe runs (was an O(n·14) `contains` scan, ~160 MB/s). All three
+are byte-identical to the old scalar semantics and pinned by an exhaustive
+regression net: 65,536 hex pair matrix, encode/decode length sweeps across the
+64-char chunk boundary, 2 MiB roundtrips, large-input invalid rejection, regex
+reference-parity at every length plus 256 KiB all-meta/all-safe/dense
+payloads, and xxh3 spec-lock vectors across the engine's 240-byte regime
+(649 castrum lib tests, clippy `-D warnings` clean).
+
+`xxh3` was investigated and deliberately **not** changed: castrum's scalar
+core is FLAT ~30 GB/s at every size (545 ns/16KB → 34 µs/1MB) — the ~2× Bun
+gap at ≥1KB is Bun's AVX2 width, not a size pathology, so consumers keep
+`Bun.hash.xxHash3` under Bun and the castrum export stays the Node/non-Bun
+fast path. `base64Encode` ≥16KB is parity-scale (0.88–1.07×): both engines are
+AVX2 and memory-bound on the 4/3× output write; it never collapses anymore.
+
+**Verdict: still ADOPT NONE** (no candidate has a hot-path consumer in
+`@ignex/core`), but the native surface's perf-position is materially
+stronger: every op with a consumer-adjacent use (hex token/CSRF/cookie ops,
+base64url JWT fallback) now wins at ALL sizes with the parity tests in place —
+the blocker is purely the consumer gate. Re-run at `/tmp/opencode/bench-verify.ts`.
+
+Also measured this pass: the benchmark app (`ignus-aot-app`, cors+security
+plugin layer, both declared in `INTERNAL_PLUGIN_USAGE`) sits at **27.87 µs/req
+= 1.171× Bun** (was 1.428× on 09-14) — the WS2 declarations paying off. To
+extend the same lean tier to real apps, `session` (`{req, cookie, state}`),
+`compression` (`{headers}`) and `openapi` (`{url}`) now declare their audited
+`contextUsage` too; `nativePreflight` correctly stays undeclared (conditional
+`ctx.ip` — an eager declaration would incur the socket-IP resolve per request).
+
 ## JS reply-path hoisting — the durable wire-v4/v5/v6 lessons (2026-09-19)
 
 The native response lane was abandoned, but the experiments produced five
@@ -187,6 +287,33 @@ Measured 2026-08-24 (Bun 1.4.1-canary + castrum C-ABI):
 
 Gates are performance-only: results are byte-identical on both sides of every
 threshold (asserted in `packages/native/test/size-gates.test.ts`).
+
+### Measured, deliberately NOT gated: SSE frame encode (`sseEncode`)
+
+castrum 0.9.10 added a SIMD line-finder to the SSE encoder core (`acc32c7`); its
+changelog reports 1.76–3.56× vs JS for its stress shapes. Re-measured on this
+host against the live addon (fair wrapper path `toBytes` + `sseEncodeEvent` +
+`toStr`; interleaved medians with per-trial `Bun.gc`), the win is
+**shape-dependent, not size-dependent** — and a byte-size gate (the
+`jsonValid`/`queryPairs` mechanism) cannot express it:
+
+| payload @16KB | native | JS | winner |
+| --- | --- | --- | --- |
+| 384 short lines (~42B each) | 9.0 µs | 17.7 µs | native 2.0× |
+| 64 long lines (~256B each) | 10.0 µs | 4.4 µs | JS 2.3× |
+| single line | 8.9 µs | 1.2 µs | JS 7.4× |
+
+The native core is stable (≈0.5 ns/B + a fixed crossing); the JS fallback's cost
+is ≈44 ns **per line** (substring + `data: ` prefix + join element). So native
+wins only for LINE-DENSE payloads (~≥12 lines/KB, average line ≤ ~80B — e.g.
+log-stream frames). Real SSE events — and the `sse()` hot path feeds one event
+per frame (a JSON blob, a chat delta, a status line) — are few-line or
+single-line, where JS wins 2–20×. A byte gate would route those big frames to
+the slower impl, and counting lines to gate costs as much as the win.
+
+**Decision: `sseEncode` stays pinned to JS** (castrum's own baked `opImpl`
+agrees). Recorded on the wrapper (`packages/native/src/payload.ts`). Re-propose
+only together with a density-probe measurement if a line-dense consumer appears.
 
 ## 2026-08-14 — C-ABI transport, batch stability, task-group
 

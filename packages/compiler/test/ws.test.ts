@@ -60,8 +60,14 @@ describe("compile (WS route)", () => {
     expect(result.code).toContain("server.upgrade(req");
     expect(result.code).toContain('{ data: { __route: "/ws" } }');
 
-    // The server's websocket option is wired from the route's wsHandler.
-    expect(result.code).toContain("__serveOptions.websocket ??= wsHandler__h0;");
+    // The server's websocket option is wired from the route's wsHandler, with
+    // the app/default transport base (`__wsBase`) underneath so the route's
+    // limits ride on top and the core frame ceiling survives when unset.
+    expect(result.code).toContain("__serveOptions.websocket = { ...__wsBase, ...wsHandler__h0 };");
+
+    // WS apps terminate connections on shutdown instead of hanging the 10s
+    // drain deadline (Bun cannot selectively drain WebSockets).
+    expect(result.code).toContain("__server.stop(true);");
 
     // It must NOT be lowered as a plain GET response route.
     expect(result.code).not.toMatch(/GET__h0/);
@@ -94,7 +100,44 @@ describe("compile (WS route)", () => {
     );
     expect(result.code).toContain("__wsHandlers[ws.data?.__route]");
 
+    // Each route's transport limits merge strictest-wins into the shared
+    // handler, so a tighter sibling's ceiling is never widened.
+    expect(result.code).toContain(
+      "const __wsLimits = mergeWSLimits([wsHandler__h0, wsHandler__h1]);",
+    );
+    expect(result.code).toContain("...__wsBase, ...__wsLimits");
+
     // Not just the first handler (the pre-fix behavior).
     expect(result.code).not.toContain("__serveOptions.websocket ??= wsHandler__h0;");
+  });
+
+  it("terminates connections on shutdown when the app has websocket routes", async () => {
+    const layout = materializeFixture("ws");
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      generateTypes: false,
+      generateOpenAPI: false,
+      generateClient: false,
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.code).toContain("__server.stop(true);");
+  });
+
+  it("keeps the graceful drain for apps without websocket routes", async () => {
+    const layout = materializeFixture("basic");
+    const result = await buildAsync({
+      routesDir: layout.routesDir,
+      outDir: layout.outDir,
+      outFile: "server.js",
+      generateTypes: false,
+      generateOpenAPI: false,
+      generateClient: false,
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.code).toContain("__server.stop(false);");
   });
 });

@@ -312,6 +312,29 @@ export const wsHandler = createWSHandler({
 });
 ```
 
+`createWSHandler` accepts optional dispatch/transport limits as a third
+argument — an in-flight message cap (default 256; the socket is closed with
+**1013** when the cap is hit instead of queueing unbounded pending work) plus
+the Bun-level tuning fields:
+
+```ts
+export const wsHandler = createWSHandler(hooks, undefined, {
+  maxInflightMessages: 64,      // concurrent unsettled handlers (default 256)
+  maxPayloadLength: 1024 * 1024, // per-frame bytes
+  backpressureLimit: 64 * 1024, // bytes backlog before `drain` fires
+  closeOnBackpressureLimit: true,
+  idleTimeout: 60,              // seconds
+});
+```
+
+With multiple WS routes the compiled server merges each route's limits
+**strictest-wins** (smallest payload/backpressure/idle, `true` if any route
+opts into `closeOnBackpressureLimit`) into Bun's single `websocket` handler,
+under the app config's `websocket` tune fields and the core 4 MiB frame
+ceiling. Apps with WS routes terminate connections on shutdown (`stop(true)`)
+— Bun cannot selectively drain sockets, so this avoids hanging the 10s drain
+deadline on every deploy.
+
 ## Typed realtime events (@ignex/nova)
 
 For typed pub/sub over WebSockets — rooms, groups, per-user delivery, NATS

@@ -342,6 +342,34 @@ describe("compile (end-to-end)", () => {
     expect(result.code).toContain("const INIT_");
   });
 
+  it("hoists a constant new Response(...) literal to a pre-built static Response", async () => {
+    const layout = materializeFixture("constant-only");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // The response-literal arm emits the SAME shared-instance shape as the JSON
+    // arm — one `new Response(body, init)` evaluated at module load and bound
+    // into the routes table (no per-request constructor, no handler fn).
+    expect(result.code).toContain('new Response("ok")');
+    expect(result.code).toContain(
+      'new Response("ready", { status: 200, headers: {"x-ready":"1"} })',
+    );
+    expect(result.code).toMatch(/const STATIC_RES_\w+ = new Response\("ok"\);/);
+  });
+
+  it("does not hoist a Response literal when an app lifecycle is present", async () => {
+    const layout = materializeFixture("constant-only");
+    const result = await buildAsync({
+      ...baseOptions(layout),
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+
+    // Same gate as the JSON arm: any global plugin/hook could mutate the
+    // response, so the literal must take the normal (per-request) path.
+    expect(result.code).not.toContain('new Response("ok")');
+    expect(result.code).not.toContain('new Response("ready"');
+  });
+
   it("specializes + hoists when an app config has no plugins/lifecycle (server-only)", async () => {
     const layout = materializeFixture("basic");
     const result = await buildAsync({

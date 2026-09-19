@@ -58,6 +58,41 @@ export const INTERNAL_PLUGIN_USAGE: Readonly<Record<string, Readonly<ContextUsag
      * expressible, so the declaration is sound.
      */
     cors: Object.freeze({ ...EMPTY_USAGE, headers: true, method: true }),
+
+    /**
+     * `compression()` — the plugin's only hook is `onResponse(ctx, response)`,
+     * whose body reads a single member: `ctx.headers.get("accept-encoding")`
+     * (via `negotiateEncoding`). No other `ctx` member is touched — neither the
+     * response (mutated in place through `etagWithEncoding`) nor the request
+     * body. `headers` is emitted by the specialized context, so the declaration
+     * is expressible.
+     */
+    compression: Object.freeze({ ...EMPTY_USAGE, headers: true }),
+
+    /**
+     * `session()` — wraps `createSessionManager(...).middleware()`. The
+     * per-request hook path reads exactly three members:
+     *   - `ctx.req.headers.get("cookie")` (the raw Cookie header for the
+     *     single-cookie lookup that deliberately skips the lazy jar) and
+     *     `ctx.req.url.startsWith("https:")` (the `secure` cookie default) —
+     *     both through `req`,
+     *   - `ctx.cookie[cookieName]?.remove(...)` — the lazy cookie jar used to
+     *     clear tampered/expired/store-orphaned cookies, and
+     *   - `ctx.setState(...)` (attach/persist) — plus `getSession()`'s
+     *     `ctx.getState` / `ctx.state` reads when a handler uses the session.
+     * `getSession`/`save`/`rotate`/`destroy` run from HANDLER code (not hooks);
+     * naming them keeps the same members emitted for handler-driven session
+     * use. All three are emitted by the specialized context.
+     */
+    session: Object.freeze({ ...EMPTY_USAGE, req: true, cookie: true, state: true }),
+
+    /**
+     * `openapi()` — in AOT mode (no router) its `onRequest` reads exactly one
+     * member: `ctx.url` (the `pathname` used to match the spec/UI endpoints).
+     * Interpreted mode registers real routes and returns `ctx` untouched.
+     * `url` is emitted by the specialized context.
+     */
+    openapi: Object.freeze({ ...EMPTY_USAGE, url: true }),
   });
 
 /** The merged context requirement of an app's whole plugin layer. */

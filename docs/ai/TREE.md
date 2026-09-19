@@ -4,12 +4,12 @@
 > Do not edit by hand — regenerate after structural changes. The
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
-- monorepo: `ignex` v0.1.32 (private, workspaces: packages/*)
-- root scripts (77): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
+- monorepo: `ignex` v0.1.35 (private, workspaces: packages/*)
+- root scripts (84): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
 
 ## packages/ (workspace)
 
-### `@ignex/app` v0.1.32 · test: `vitest run`
+### `@ignex/app` v0.1.35 · test: `vitest run`
 
 ```
 packages/app/
@@ -144,7 +144,7 @@ packages/app/
 └─ vitest.config.ts
 ```
 
-### `@ignex/cli` v0.1.32 · test: `vitest run`
+### `@ignex/cli` v0.1.35 · test: `vitest run`
 
 ```
 packages/cli/
@@ -279,7 +279,7 @@ packages/cli/
 └─ vitest.config.ts
 ```
 
-### `@ignex/compiler` v0.1.32 · test: `vitest run`
+### `@ignex/compiler` v0.1.35 · test: `vitest run`
 
 ```
 packages/compiler/
@@ -385,9 +385,12 @@ packages/compiler/
 │  └─ validate.ts
 ├─ test/
 │  ├─ fixtures/
+│  │  ├─ abort/
+│  │  │  └─ ping.get.ts
 │  │  ├─ basic/
 │  │  │  ├─ about.get.ts
 │  │  │  ├─ app.config.ts
+│  │  │  ├─ defaults.config.ts
 │  │  │  ├─ echo.post.ts
 │  │  │  ├─ empty.config.ts
 │  │  │  ├─ health.get.ts
@@ -459,6 +462,7 @@ packages/compiler/
 │  │  └─ ws-multi/
 │  │     ├─ chat.ws.ts
 │  │     └─ echo.ws.ts
+│  ├─ abort-port.test.ts
 │  ├─ ast.test.ts
 │  ├─ cache-routes.test.ts
 │  ├─ cache.test.ts
@@ -487,12 +491,15 @@ packages/compiler/
 │  ├─ options.test.ts
 │  ├─ pattern-middleware.test.ts
 │  ├─ persist.test.ts
+│  ├─ plugin-specialized-members.test.ts
 │  ├─ redirect-port.test.ts
+│  ├─ reuseport.test.ts
 │  ├─ sdk-flatbuffers.test.ts
 │  ├─ sdk-realtime.test.ts
 │  ├─ sdk.test.ts
 │  ├─ stability-security.test.ts
 │  ├─ standard-schema.test.ts
+│  ├─ static-defaults-passthrough.test.ts
 │  ├─ typed-artifacts.test.ts
 │  ├─ usage-soundness.test.ts
 │  ├─ validate-prelude.test.ts
@@ -503,7 +510,7 @@ packages/compiler/
 └─ vitest.config.ts
 ```
 
-### `@ignex/core` v0.1.32 · test: `vitest run`
+### `@ignex/core` v0.1.35 · test: `vitest run`
 
 ```
 packages/core/
@@ -541,6 +548,40 @@ packages/core/
 │  ├─ styles.css
 │  ├─ theme.ts
 │  └─ toast.tsx
+├─ .gen-debug-ui-Ps36ji/
+│  ├─ components/
+│  │  ├─ detail-parts.js
+│  │  ├─ keyed.ts
+│  │  └─ widgets.js
+│  ├─ views/
+│  │  ├─ ai.js
+│  │  ├─ clients.js
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.js
+│  │  ├─ events.js
+│  │  ├─ history.js
+│  │  ├─ jobs.js
+│  │  ├─ kt.js
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.js
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.js
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.js
 ├─ .gen-debug-ui-RQcBjc/
 │  ├─ components/
 │  │  ├─ detail-parts.tsx
@@ -644,6 +685,40 @@ packages/core/
 │  ├─ theme.ts
 │  └─ toast.js
 ├─ .gen-debug-ui-vSE0WS/
+│  ├─ components/
+│  │  ├─ detail-parts.tsx
+│  │  ├─ keyed.ts
+│  │  └─ widgets.tsx
+│  ├─ views/
+│  │  ├─ ai.tsx
+│  │  ├─ clients.tsx
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.tsx
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.tsx
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.tsx
+├─ .gen-debug-ui-zvyJqW/
 │  ├─ components/
 │  │  ├─ detail-parts.tsx
 │  │  ├─ keyed.ts
@@ -788,6 +863,7 @@ packages/core/
 │  │  │  ├─ limits.ts
 │  │  │  ├─ size.ts
 │  │  │  └─ types.ts
+│  │  ├─ abort.ts
 │  │  ├─ conditional.ts
 │  │  ├─ context.ts
 │  │  ├─ cookies.ts
@@ -878,6 +954,7 @@ packages/core/
 │  ├─ helpers/
 │  │  └─ inject.ts
 │  ├─ abort-port.test.ts
+│  ├─ abort.test.ts
 │  ├─ auth-module.test.ts
 │  ├─ body.test.ts
 │  ├─ cache-depth.test.ts
@@ -940,6 +1017,7 @@ packages/core/
 │  ├─ regression-port.test.ts
 │  ├─ request-handling.test.ts
 │  ├─ request.test.ts
+│  ├─ response-memo.test.ts
 │  ├─ response-port.test.ts
 │  ├─ router-perf.test.ts
 │  ├─ router-utils.test.ts
@@ -956,6 +1034,7 @@ packages/core/
 │  ├─ session-store.test.ts
 │  ├─ stability-hardening.test.ts
 │  ├─ static-app.test.ts
+│  ├─ static-defaults-passthrough.test.ts
 │  ├─ status-port.test.ts
 │  ├─ store-driver-integration.test.ts
 │  ├─ store.test.ts
@@ -965,6 +1044,7 @@ packages/core/
 │  ├─ uploads.test.ts
 │  ├─ validator-port.test.ts
 │  ├─ validator-typebox-parity.test.ts
+│  ├─ ws-limits.test.ts
 │  ├─ ws-port.test.ts
 │  └─ ws.test.ts
 ├─ .gitignore
@@ -973,7 +1053,7 @@ packages/core/
 └─ vitest.config.ts
 ```
 
-### `create-ignex` v0.1.32 · test: `vitest run`
+### `create-ignex` v0.1.35 · test: `vitest run`
 
 ```
 packages/create/
@@ -986,7 +1066,7 @@ packages/create/
 └─ vitest.config.ts
 ```
 
-### `@ignex/mcp` v0.1.32 · test: `vitest run`
+### `@ignex/mcp` v0.1.35 · test: `vitest run`
 
 ```
 packages/mcp/
@@ -1006,7 +1086,7 @@ packages/mcp/
 └─ vitest.config.ts
 ```
 
-### `@ignex/native` v0.1.32 · test: `vitest run`
+### `@ignex/native` v0.1.35 · test: `vitest run`
 
 ```
 packages/native/
@@ -1039,6 +1119,7 @@ packages/native/
 │  ├─ ingress.ts
 │  ├─ json.ts
 │  ├─ loader.ts
+│  ├─ memory.ts
 │  ├─ metrics.ts
 │  ├─ native-handler.ts
 │  ├─ packed.ts
@@ -1062,6 +1143,7 @@ packages/native/
 │  ├─ http-property.test.ts
 │  ├─ ingress-binding.test.ts
 │  ├─ ingress-stages.test.ts
+│  ├─ memory.test.ts
 │  ├─ metrics.test.ts
 │  ├─ native-handler.test.ts
 │  ├─ native.test.ts
@@ -1077,7 +1159,7 @@ packages/native/
 └─ vitest.config.ts
 ```
 
-### `@ignex/shared` v0.1.32 · test: `vitest run`
+### `@ignex/shared` v0.1.35 · test: `vitest run`
 
 ```
 packages/shared/
@@ -1118,8 +1200,12 @@ packages/test-utils/
 
 ```
 scripts/
+├─ lib/
+│  ├─ compare-gate.ts
+│  └─ server-bench-compare.ts
 ├─ vendor/
 │  └─ babel-preset-solid.d.ts
+├─ bench-allocations.ts
 ├─ bench-batch.ts
 ├─ bench-bun-internals.ts
 ├─ bench-ffi-boundary.ts
@@ -1138,6 +1224,7 @@ scripts/
 ├─ check-compare-gate.ts
 ├─ check-jsdoc.ts
 ├─ check-native-surface.ts
+├─ check-rss-stability.ts
 ├─ check-server-bench.ts
 ├─ fuzz-malformed-input.ts
 ├─ gen-ai-map.ts
@@ -1149,7 +1236,10 @@ scripts/
 ├─ release.ts
 ├─ scan-secrets.ts
 ├─ select-native.ts
+├─ serve-reuseport.ts
 ├─ smoke.ts
+├─ verify-aot-abort.ts
+├─ verify-aot-plugin-specialized.ts
 ├─ verify-aot-rbac.ts
 ├─ verify-cli-resource.ts
 ├─ verify-drizzle-resource.ts
@@ -1166,11 +1256,9 @@ docs/
 │  ├─ LOCAL_DEV.md
 │  └─ TREE.md
 ├─ superpowers/
-│  ├─ plans/
-│  │  ├─ 2026-09-18-perf-levers.execution.md
-│  │  └─ 2026-09-18-perf-levers.md
-│  └─ specs/
-│     └─ 2026-09-18-perf-levers-design.md
+│  └─ plans/
+│     ├─ 2026-09-18-perf-levers.execution.md
+│     └─ 2026-09-19-castrum-adoption.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md
@@ -1235,7 +1323,59 @@ bench/
 │  │  │  ├─ 03-stress.bench.html
 │  │  │  ├─ 03-stress.bench.json
 │  │  │  ├─ 03-stress.bench.md
-│  │  │  └─ 03-stress.failures.ndjson
+│  │  │  ├─ 03-stress.failures.ndjson
+│  │  │  ├─ 04-spike.bench.html
+│  │  │  ├─ 04-spike.bench.json
+│  │  │  ├─ 04-spike.bench.md
+│  │  │  ├─ 04-spike.failures.ndjson
+│  │  │  ├─ 06-edge-cases.bench.html
+│  │  │  ├─ 06-edge-cases.bench.json
+│  │  │  ├─ 06-edge-cases.bench.md
+│  │  │  ├─ 06-edge-cases.failures.ndjson
+│  │  │  ├─ 07-cors-preflight.bench.html
+│  │  │  ├─ 07-cors-preflight.bench.json
+│  │  │  ├─ 07-cors-preflight.bench.md
+│  │  │  ├─ 07-cors-preflight.failures.ndjson
+│  │  │  ├─ 09-large-payload.bench.html
+│  │  │  ├─ 09-large-payload.bench.json
+│  │  │  ├─ 09-large-payload.bench.md
+│  │  │  ├─ 09-large-payload.failures.ndjson
+│  │  │  ├─ 10-mixed-realistic.bench.html
+│  │  │  ├─ 10-mixed-realistic.bench.json
+│  │  │  ├─ 10-mixed-realistic.bench.md
+│  │  │  ├─ 10-mixed-realistic.failures.ndjson
+│  │  │  ├─ 11-concurrent-burst.bench.html
+│  │  │  ├─ 11-concurrent-burst.bench.json
+│  │  │  ├─ 11-concurrent-burst.bench.md
+│  │  │  ├─ 11-concurrent-burst.failures.ndjson
+│  │  │  ├─ 13-heavy-json-nested.bench.html
+│  │  │  ├─ 13-heavy-json-nested.bench.json
+│  │  │  ├─ 13-heavy-json-nested.bench.md
+│  │  │  ├─ 13-heavy-json-nested.failures.ndjson
+│  │  │  ├─ 14-heavy-json-arrays.bench.html
+│  │  │  ├─ 14-heavy-json-arrays.bench.json
+│  │  │  ├─ 14-heavy-json-arrays.bench.md
+│  │  │  ├─ 14-heavy-json-arrays.failures.ndjson
+│  │  │  ├─ 15-heavy-json-wide.bench.html
+│  │  │  ├─ 15-heavy-json-wide.bench.json
+│  │  │  ├─ 15-heavy-json-wide.bench.md
+│  │  │  ├─ 15-heavy-json-wide.failures.ndjson
+│  │  │  ├─ 16-crud-validation-mix.bench.html
+│  │  │  ├─ 16-crud-validation-mix.bench.json
+│  │  │  ├─ 16-crud-validation-mix.bench.md
+│  │  │  ├─ 16-crud-validation-mix.failures.ndjson
+│  │  │  ├─ 17-json-validation-spike.bench.html
+│  │  │  ├─ 17-json-validation-spike.bench.json
+│  │  │  ├─ 17-json-validation-spike.bench.md
+│  │  │  ├─ 17-json-validation-spike.failures.ndjson
+│  │  │  ├─ 19-large-body-boundary.bench.html
+│  │  │  ├─ 19-large-body-boundary.bench.json
+│  │  │  ├─ 19-large-body-boundary.bench.md
+│  │  │  ├─ 19-large-body-boundary.failures.ndjson
+│  │  │  ├─ 20-validation-storm.bench.html
+│  │  │  ├─ 20-validation-storm.bench.json
+│  │  │  ├─ 20-validation-storm.bench.md
+│  │  │  └─ 20-validation-storm.failures.ndjson
 │  │  ├─ elysia/
 │  │  │  ├─ 01-smoke.bench.html
 │  │  │  ├─ 01-smoke.bench.json
@@ -1248,7 +1388,59 @@ bench/
 │  │  │  ├─ 03-stress.bench.html
 │  │  │  ├─ 03-stress.bench.json
 │  │  │  ├─ 03-stress.bench.md
-│  │  │  └─ 03-stress.failures.ndjson
+│  │  │  ├─ 03-stress.failures.ndjson
+│  │  │  ├─ 04-spike.bench.html
+│  │  │  ├─ 04-spike.bench.json
+│  │  │  ├─ 04-spike.bench.md
+│  │  │  ├─ 04-spike.failures.ndjson
+│  │  │  ├─ 06-edge-cases.bench.html
+│  │  │  ├─ 06-edge-cases.bench.json
+│  │  │  ├─ 06-edge-cases.bench.md
+│  │  │  ├─ 06-edge-cases.failures.ndjson
+│  │  │  ├─ 07-cors-preflight.bench.html
+│  │  │  ├─ 07-cors-preflight.bench.json
+│  │  │  ├─ 07-cors-preflight.bench.md
+│  │  │  ├─ 07-cors-preflight.failures.ndjson
+│  │  │  ├─ 09-large-payload.bench.html
+│  │  │  ├─ 09-large-payload.bench.json
+│  │  │  ├─ 09-large-payload.bench.md
+│  │  │  ├─ 09-large-payload.failures.ndjson
+│  │  │  ├─ 10-mixed-realistic.bench.html
+│  │  │  ├─ 10-mixed-realistic.bench.json
+│  │  │  ├─ 10-mixed-realistic.bench.md
+│  │  │  ├─ 10-mixed-realistic.failures.ndjson
+│  │  │  ├─ 11-concurrent-burst.bench.html
+│  │  │  ├─ 11-concurrent-burst.bench.json
+│  │  │  ├─ 11-concurrent-burst.bench.md
+│  │  │  ├─ 11-concurrent-burst.failures.ndjson
+│  │  │  ├─ 13-heavy-json-nested.bench.html
+│  │  │  ├─ 13-heavy-json-nested.bench.json
+│  │  │  ├─ 13-heavy-json-nested.bench.md
+│  │  │  ├─ 13-heavy-json-nested.failures.ndjson
+│  │  │  ├─ 14-heavy-json-arrays.bench.html
+│  │  │  ├─ 14-heavy-json-arrays.bench.json
+│  │  │  ├─ 14-heavy-json-arrays.bench.md
+│  │  │  ├─ 14-heavy-json-arrays.failures.ndjson
+│  │  │  ├─ 15-heavy-json-wide.bench.html
+│  │  │  ├─ 15-heavy-json-wide.bench.json
+│  │  │  ├─ 15-heavy-json-wide.bench.md
+│  │  │  ├─ 15-heavy-json-wide.failures.ndjson
+│  │  │  ├─ 16-crud-validation-mix.bench.html
+│  │  │  ├─ 16-crud-validation-mix.bench.json
+│  │  │  ├─ 16-crud-validation-mix.bench.md
+│  │  │  ├─ 16-crud-validation-mix.failures.ndjson
+│  │  │  ├─ 17-json-validation-spike.bench.html
+│  │  │  ├─ 17-json-validation-spike.bench.json
+│  │  │  ├─ 17-json-validation-spike.bench.md
+│  │  │  ├─ 17-json-validation-spike.failures.ndjson
+│  │  │  ├─ 19-large-body-boundary.bench.html
+│  │  │  ├─ 19-large-body-boundary.bench.json
+│  │  │  ├─ 19-large-body-boundary.bench.md
+│  │  │  ├─ 19-large-body-boundary.failures.ndjson
+│  │  │  ├─ 20-validation-storm.bench.html
+│  │  │  ├─ 20-validation-storm.bench.json
+│  │  │  ├─ 20-validation-storm.bench.md
+│  │  │  └─ 20-validation-storm.failures.ndjson
 │  │  ├─ ignus/
 │  │  │  ├─ 01-smoke.bench.html
 │  │  │  ├─ 01-smoke.bench.json
@@ -1261,7 +1453,59 @@ bench/
 │  │  │  ├─ 03-stress.bench.html
 │  │  │  ├─ 03-stress.bench.json
 │  │  │  ├─ 03-stress.bench.md
-│  │  │  └─ 03-stress.failures.ndjson
+│  │  │  ├─ 03-stress.failures.ndjson
+│  │  │  ├─ 04-spike.bench.html
+│  │  │  ├─ 04-spike.bench.json
+│  │  │  ├─ 04-spike.bench.md
+│  │  │  ├─ 04-spike.failures.ndjson
+│  │  │  ├─ 06-edge-cases.bench.html
+│  │  │  ├─ 06-edge-cases.bench.json
+│  │  │  ├─ 06-edge-cases.bench.md
+│  │  │  ├─ 06-edge-cases.failures.ndjson
+│  │  │  ├─ 07-cors-preflight.bench.html
+│  │  │  ├─ 07-cors-preflight.bench.json
+│  │  │  ├─ 07-cors-preflight.bench.md
+│  │  │  ├─ 07-cors-preflight.failures.ndjson
+│  │  │  ├─ 09-large-payload.bench.html
+│  │  │  ├─ 09-large-payload.bench.json
+│  │  │  ├─ 09-large-payload.bench.md
+│  │  │  ├─ 09-large-payload.failures.ndjson
+│  │  │  ├─ 10-mixed-realistic.bench.html
+│  │  │  ├─ 10-mixed-realistic.bench.json
+│  │  │  ├─ 10-mixed-realistic.bench.md
+│  │  │  ├─ 10-mixed-realistic.failures.ndjson
+│  │  │  ├─ 11-concurrent-burst.bench.html
+│  │  │  ├─ 11-concurrent-burst.bench.json
+│  │  │  ├─ 11-concurrent-burst.bench.md
+│  │  │  ├─ 11-concurrent-burst.failures.ndjson
+│  │  │  ├─ 13-heavy-json-nested.bench.html
+│  │  │  ├─ 13-heavy-json-nested.bench.json
+│  │  │  ├─ 13-heavy-json-nested.bench.md
+│  │  │  ├─ 13-heavy-json-nested.failures.ndjson
+│  │  │  ├─ 14-heavy-json-arrays.bench.html
+│  │  │  ├─ 14-heavy-json-arrays.bench.json
+│  │  │  ├─ 14-heavy-json-arrays.bench.md
+│  │  │  ├─ 14-heavy-json-arrays.failures.ndjson
+│  │  │  ├─ 15-heavy-json-wide.bench.html
+│  │  │  ├─ 15-heavy-json-wide.bench.json
+│  │  │  ├─ 15-heavy-json-wide.bench.md
+│  │  │  ├─ 15-heavy-json-wide.failures.ndjson
+│  │  │  ├─ 16-crud-validation-mix.bench.html
+│  │  │  ├─ 16-crud-validation-mix.bench.json
+│  │  │  ├─ 16-crud-validation-mix.bench.md
+│  │  │  ├─ 16-crud-validation-mix.failures.ndjson
+│  │  │  ├─ 17-json-validation-spike.bench.html
+│  │  │  ├─ 17-json-validation-spike.bench.json
+│  │  │  ├─ 17-json-validation-spike.bench.md
+│  │  │  ├─ 17-json-validation-spike.failures.ndjson
+│  │  │  ├─ 19-large-body-boundary.bench.html
+│  │  │  ├─ 19-large-body-boundary.bench.json
+│  │  │  ├─ 19-large-body-boundary.bench.md
+│  │  │  ├─ 19-large-body-boundary.failures.ndjson
+│  │  │  ├─ 20-validation-storm.bench.html
+│  │  │  ├─ 20-validation-storm.bench.json
+│  │  │  ├─ 20-validation-storm.bench.md
+│  │  │  └─ 20-validation-storm.failures.ndjson
 │  │  ├─ ignus-aot/
 │  │  │  ├─ 01-smoke.bench.html
 │  │  │  ├─ 01-smoke.bench.json
@@ -1274,7 +1518,59 @@ bench/
 │  │  │  ├─ 03-stress.bench.html
 │  │  │  ├─ 03-stress.bench.json
 │  │  │  ├─ 03-stress.bench.md
-│  │  │  └─ 03-stress.failures.ndjson
+│  │  │  ├─ 03-stress.failures.ndjson
+│  │  │  ├─ 04-spike.bench.html
+│  │  │  ├─ 04-spike.bench.json
+│  │  │  ├─ 04-spike.bench.md
+│  │  │  ├─ 04-spike.failures.ndjson
+│  │  │  ├─ 06-edge-cases.bench.html
+│  │  │  ├─ 06-edge-cases.bench.json
+│  │  │  ├─ 06-edge-cases.bench.md
+│  │  │  ├─ 06-edge-cases.failures.ndjson
+│  │  │  ├─ 07-cors-preflight.bench.html
+│  │  │  ├─ 07-cors-preflight.bench.json
+│  │  │  ├─ 07-cors-preflight.bench.md
+│  │  │  ├─ 07-cors-preflight.failures.ndjson
+│  │  │  ├─ 09-large-payload.bench.html
+│  │  │  ├─ 09-large-payload.bench.json
+│  │  │  ├─ 09-large-payload.bench.md
+│  │  │  ├─ 09-large-payload.failures.ndjson
+│  │  │  ├─ 10-mixed-realistic.bench.html
+│  │  │  ├─ 10-mixed-realistic.bench.json
+│  │  │  ├─ 10-mixed-realistic.bench.md
+│  │  │  ├─ 10-mixed-realistic.failures.ndjson
+│  │  │  ├─ 11-concurrent-burst.bench.html
+│  │  │  ├─ 11-concurrent-burst.bench.json
+│  │  │  ├─ 11-concurrent-burst.bench.md
+│  │  │  ├─ 11-concurrent-burst.failures.ndjson
+│  │  │  ├─ 13-heavy-json-nested.bench.html
+│  │  │  ├─ 13-heavy-json-nested.bench.json
+│  │  │  ├─ 13-heavy-json-nested.bench.md
+│  │  │  ├─ 13-heavy-json-nested.failures.ndjson
+│  │  │  ├─ 14-heavy-json-arrays.bench.html
+│  │  │  ├─ 14-heavy-json-arrays.bench.json
+│  │  │  ├─ 14-heavy-json-arrays.bench.md
+│  │  │  ├─ 14-heavy-json-arrays.failures.ndjson
+│  │  │  ├─ 15-heavy-json-wide.bench.html
+│  │  │  ├─ 15-heavy-json-wide.bench.json
+│  │  │  ├─ 15-heavy-json-wide.bench.md
+│  │  │  ├─ 15-heavy-json-wide.failures.ndjson
+│  │  │  ├─ 16-crud-validation-mix.bench.html
+│  │  │  ├─ 16-crud-validation-mix.bench.json
+│  │  │  ├─ 16-crud-validation-mix.bench.md
+│  │  │  ├─ 16-crud-validation-mix.failures.ndjson
+│  │  │  ├─ 17-json-validation-spike.bench.html
+│  │  │  ├─ 17-json-validation-spike.bench.json
+│  │  │  ├─ 17-json-validation-spike.bench.md
+│  │  │  ├─ 17-json-validation-spike.failures.ndjson
+│  │  │  ├─ 19-large-body-boundary.bench.html
+│  │  │  ├─ 19-large-body-boundary.bench.json
+│  │  │  ├─ 19-large-body-boundary.bench.md
+│  │  │  ├─ 19-large-body-boundary.failures.ndjson
+│  │  │  ├─ 20-validation-storm.bench.html
+│  │  │  ├─ 20-validation-storm.bench.json
+│  │  │  ├─ 20-validation-storm.bench.md
+│  │  │  └─ 20-validation-storm.failures.ndjson
 │  │  ├─ ignus-native/
 │  │  │  ├─ 01-smoke.bench.html
 │  │  │  ├─ 01-smoke.bench.json
@@ -1287,7 +1583,59 @@ bench/
 │  │  │  ├─ 03-stress.bench.html
 │  │  │  ├─ 03-stress.bench.json
 │  │  │  ├─ 03-stress.bench.md
-│  │  │  └─ 03-stress.failures.ndjson
+│  │  │  ├─ 03-stress.failures.ndjson
+│  │  │  ├─ 04-spike.bench.html
+│  │  │  ├─ 04-spike.bench.json
+│  │  │  ├─ 04-spike.bench.md
+│  │  │  ├─ 04-spike.failures.ndjson
+│  │  │  ├─ 06-edge-cases.bench.html
+│  │  │  ├─ 06-edge-cases.bench.json
+│  │  │  ├─ 06-edge-cases.bench.md
+│  │  │  ├─ 06-edge-cases.failures.ndjson
+│  │  │  ├─ 07-cors-preflight.bench.html
+│  │  │  ├─ 07-cors-preflight.bench.json
+│  │  │  ├─ 07-cors-preflight.bench.md
+│  │  │  ├─ 07-cors-preflight.failures.ndjson
+│  │  │  ├─ 09-large-payload.bench.html
+│  │  │  ├─ 09-large-payload.bench.json
+│  │  │  ├─ 09-large-payload.bench.md
+│  │  │  ├─ 09-large-payload.failures.ndjson
+│  │  │  ├─ 10-mixed-realistic.bench.html
+│  │  │  ├─ 10-mixed-realistic.bench.json
+│  │  │  ├─ 10-mixed-realistic.bench.md
+│  │  │  ├─ 10-mixed-realistic.failures.ndjson
+│  │  │  ├─ 11-concurrent-burst.bench.html
+│  │  │  ├─ 11-concurrent-burst.bench.json
+│  │  │  ├─ 11-concurrent-burst.bench.md
+│  │  │  ├─ 11-concurrent-burst.failures.ndjson
+│  │  │  ├─ 13-heavy-json-nested.bench.html
+│  │  │  ├─ 13-heavy-json-nested.bench.json
+│  │  │  ├─ 13-heavy-json-nested.bench.md
+│  │  │  ├─ 13-heavy-json-nested.failures.ndjson
+│  │  │  ├─ 14-heavy-json-arrays.bench.html
+│  │  │  ├─ 14-heavy-json-arrays.bench.json
+│  │  │  ├─ 14-heavy-json-arrays.bench.md
+│  │  │  ├─ 14-heavy-json-arrays.failures.ndjson
+│  │  │  ├─ 15-heavy-json-wide.bench.html
+│  │  │  ├─ 15-heavy-json-wide.bench.json
+│  │  │  ├─ 15-heavy-json-wide.bench.md
+│  │  │  ├─ 15-heavy-json-wide.failures.ndjson
+│  │  │  ├─ 16-crud-validation-mix.bench.html
+│  │  │  ├─ 16-crud-validation-mix.bench.json
+│  │  │  ├─ 16-crud-validation-mix.bench.md
+│  │  │  ├─ 16-crud-validation-mix.failures.ndjson
+│  │  │  ├─ 17-json-validation-spike.bench.html
+│  │  │  ├─ 17-json-validation-spike.bench.json
+│  │  │  ├─ 17-json-validation-spike.bench.md
+│  │  │  ├─ 17-json-validation-spike.failures.ndjson
+│  │  │  ├─ 19-large-body-boundary.bench.html
+│  │  │  ├─ 19-large-body-boundary.bench.json
+│  │  │  ├─ 19-large-body-boundary.bench.md
+│  │  │  ├─ 19-large-body-boundary.failures.ndjson
+│  │  │  ├─ 20-validation-storm.bench.html
+│  │  │  ├─ 20-validation-storm.bench.json
+│  │  │  ├─ 20-validation-storm.bench.md
+│  │  │  └─ 20-validation-storm.failures.ndjson
 │  │  ├─ cpu.json
 │  │  └─ cpu.md
 │  ├─ server/
@@ -1345,6 +1693,11 @@ bench/
 │  │  ├─ 2026-09-17T22-32-53-810Z.json
 │  │  ├─ 2026-09-17T22-33-14-979Z.json
 │  │  ├─ 2026-09-18T13-08-23-832Z.json
+│  │  ├─ 2026-09-18T20-54-25-259Z.json
+│  │  ├─ 2026-09-18T20-55-25-521Z.json
+│  │  ├─ 2026-09-19T10-45-24-601Z.json
+│  │  ├─ 2026-09-19T11-19-19-289Z.json
+│  │  ├─ baseline.json
 │  │  └─ latest.json
 │  ├─ batch-selection.json
 │  ├─ bun-internals.json

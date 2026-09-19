@@ -179,6 +179,54 @@ describe("lowerRoute (source → RouteIR)", () => {
     expect(ir.analysis.constantResponse).toBe(JSON.stringify({ pong: true }));
   });
 
+  it("detects a constant new Response(...) literal during lowering", () => {
+    const sm = new SourceManager();
+    const source = makeSource(
+      sm,
+      "livez.get.ts",
+      `export default () => new Response("ok", { status: 201, headers: { "x-app": "live" } });`,
+    );
+
+    const ir = lowerRoute("livez.get.ts", mustParse("livez.get.ts"), source, 0, 0);
+    expect(ir.analysis.isConstantResponse).toBe(true);
+    // Mutually exclusive arms: the JSON arm stays empty for a Response literal.
+    expect(ir.analysis.constantResponse).toBeUndefined();
+    expect(ir.analysis.constantResponseLit).toEqual({
+      bodyLit: '"ok"',
+      initLit: '{ status: 201, headers: {"x-app":"live"} }',
+      status: 201,
+    });
+  });
+
+  it("refuses to hoist computed or ambiguous Response literals", () => {
+    const cases = [
+      // Non-constant body / init values.
+      `export default () => new Response(body);`,
+      `export default () => new Response("ok", { status: code });`,
+      // Unknown init key would be dropped by a re-emit → refuse.
+      `export default () => new Response("ok", { unknown: 1 });`,
+      // Non-string header value (coercion-ambiguous) → refuse.
+      `export default () => new Response("ok", { headers: { n: 1 } });`,
+      // Not a constructor: Response.json(...) is a call.
+      `export default () => Response.json({ ok: true });`,
+      // Impure constructor.
+      `export default () => new Date();`,
+      // Conditional body → not a single constant return.
+      `export default (ctx) => (ctx.query.x ? new Response("a") : new Response("b"));`,
+      // Block with a side effect before the return.
+      `export default () => { doThing(); return new Response("ok"); };`,
+    ];
+
+    for (const [i, src] of cases.entries()) {
+      const sm = new SourceManager();
+      const file = `nope${i}.get.ts`;
+      const source = makeSource(sm, file, src);
+      const ir = lowerRoute(file, mustParse(file), source, 0, 0);
+      expect(ir.analysis.isConstantResponse, src).toBe(false);
+      expect(ir.analysis.constantResponseLit, src).toBeUndefined();
+    }
+  });
+
   it("carries route config and named handler export into the IR", () => {
     const sm = new SourceManager();
     const source = makeSource(

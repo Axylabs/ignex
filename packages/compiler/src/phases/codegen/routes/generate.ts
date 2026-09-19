@@ -7,6 +7,7 @@
  * the shared `CodegenState`.
  */
 
+import type { ContextUsage } from "@ignex/shared";
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { getCacheConfig, tryNormalizeConstant } from "../decisions";
 import { heatCountStmt } from "../heat";
@@ -22,7 +23,12 @@ import {
 import type { CodegenState } from "../state";
 import { emitCacheWrapper } from "./cache";
 import { emitConstantRoute } from "./constant";
-import { buildFullContextPrelude, buildSpecializedContext, isUsageEmittable } from "./context";
+import {
+  buildFullContextPrelude,
+  buildSpecializedContext,
+  isUsageEmittable,
+  mergeContextUsage,
+} from "./context";
 import { assembleCoreFn } from "./handler";
 import { emitNativeRouteVar, emitNativeValidationPrelude, nativeRouteEligible } from "./native";
 import {
@@ -54,6 +60,19 @@ import { emitWsRoute } from "./ws";
 const pluginLayerNeedsFullContext = (state: CodegenState): boolean =>
   state.appConfigActivePlugins &&
   (state.appConfigPluginUsage === null || !isUsageEmittable(state.appConfigPluginUsage));
+
+/**
+ * The usage the specialized context must emit for a route: the union of the
+ * route's own members and the plugin layer's DECLARED members. The fused hooks
+ * run against that context, so a member a hook reads but codegen never emitted
+ * was `undefined` — cors/security TypeError'd on otherwise-lean apps. Only
+ * reached on the specialized branch, where the gate above proved the plugin
+ * usage is non-null and emittable.
+ */
+const effectiveRouteUsage = (state: CodegenState, route: RouteIR): ContextUsage =>
+  state.appConfigPluginUsage
+    ? mergeContextUsage(route.analysis.usage, state.appConfigPluginUsage)
+    : route.analysis.usage;
 
 export const generateRouteCode = (
   state: CodegenState,
@@ -88,20 +107,26 @@ export const generateRouteCode = (
 
   // The `needsFull` decision can be finer-grained than the hoisting gate above,
   // because the plugin layer is declarable — see `pluginLayerNeedsFullContext`.
-  const constantJson = tryNormalizeConstant(route, hasGlobalLifecycle);
+  const constantHoist = tryNormalizeConstant(route, hasGlobalLifecycle);
 
   // Constant responses are hoisted to zero-cost frozen bodies — unless the
   // app has a lifecycle/plugins (hooks would be bypassed), trace headers or
   // access logging are enabled (need a per-request context), or constant
   // hoisting is disabled by the optimization level. In those cases the route
   // falls through to the normal (full or specialized) path.
+  //
+  // Response-literal hoists are additionally skipped under dev heat capture:
+  // the per-request heat handler would need a matching HEAD construction, and
+  // re-deriving the spec's implicit content-type for HEAD is not worth it for
+  // a dev-only aid (the route still serves correctly on the normal path).
   if (
     cfg.hoistConstants &&
-    constantJson !== null &&
+    constantHoist !== null &&
+    !(cfg.heatCapture && constantHoist.kind === "response") &&
     !cfg.enableTraceHeaders &&
     !cfg.enableAccessLog
   ) {
-    emitConstantRoute(state, route, constantJson);
+    emitConstantRoute(state, route, constantHoist);
     return;
   }
 
@@ -234,12 +259,16 @@ export const generateRouteCode = (
     // call below.
     callExpr = `${handlerImportName(route)}(ctx)`;
   } else {
+    // The specialized ctx must carry the union of the route's own members and
+    // the plugin layer's DECLARED members — see `effectiveRouteUsage`.
+    const effectiveUsage = effectiveRouteUsage(state, route);
     const specialized = buildSpecializedContext(
       route,
       usedCore,
       routeIsSync,
       resumeName,
       appConfigActivePlugins,
+      effectiveUsage,
     );
     pre.push(...specialized.pre);
     callExpr = specialized.callExpr;

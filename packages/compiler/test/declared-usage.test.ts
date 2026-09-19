@@ -141,6 +141,23 @@ describe("resolveGlobalPluginUsage (extended)", () => {
     expect(usage?.req).toBe(true);
   });
 
+  it("resolves the audited session/compression/openapi declarations", () => {
+    // Each declaration is a correctness claim against the plugin's hook body —
+    // the merge in `routes/context.ts` emits these exact members on every
+    // specialized route, so a wrong audit hands the hook `undefined`.
+    const session = resolveGlobalPluginUsage([{ name: "session", source: "@ignex/core" }], true);
+    expect(session.usage).toMatchObject({ req: true, cookie: true, state: true });
+
+    const compression = resolveGlobalPluginUsage(
+      [{ name: "compression", source: "@ignex/core" }],
+      true,
+    );
+    expect(compression.usage).toMatchObject({ headers: true });
+
+    const openapi = resolveGlobalPluginUsage([{ name: "openapi", source: "@ignex/core" }], true);
+    expect(openapi.usage).toMatchObject({ url: true });
+  });
+
   it("treats a user plugin as opaque when no reader context is available", () => {
     const { usage } = resolveGlobalPluginUsage(
       [{ name: "plugin", source: "./declared-plugin" }],

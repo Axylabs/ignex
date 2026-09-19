@@ -15,7 +15,13 @@ import { basename, dirname, extname, join } from "node:path";
 import type { SourceFile } from "../frontend/source-file";
 import type { HttpMethod, ModuleInfo, RouteCacheConfig, SymbolInfo } from "../types";
 import { FULL_CONTEXT_USAGE, normalizeHttpMethod } from "../types";
-import { extractConstantReturn, inferResponseTypeAST, isPureBodyAST } from "../utils/ast";
+import {
+  type ConstantResponseSpec,
+  extractConstantResponse,
+  extractConstantReturn,
+  inferResponseTypeAST,
+  isPureBodyAST,
+} from "../utils/ast";
 import type { RouteIR, RouteIRSource } from "./route";
 
 // ── Filename → route source ───────────────────────────────────────
@@ -152,14 +158,21 @@ const evaluateConstantBodyAST = (ast: any): string | null => {
  *
  * Uses the AST + handler retained on the `SourceFile` (no re-parse). When the
  * body is pure and its return value is statically evaluable, returns the
- * JSON-serialized constant so codegen can hoist it.
+ * JSON-serialized constant so codegen can hoist it. Failing that, a handler
+ * returning a `new Response(body, init)` literal with statically-known
+ * arguments is reported through `constantResponseLit` (same pure/single-return
+ * strictness) — the response-literal arm of hoisting.
  *
  * @param mod - The parsed route module.
- * @returns Whether the response is constant and its serialized value.
+ * @returns Whether the response is constant and its serialized value/spec.
  */
 export const detectConstantResponse = (
   mod: SourceFile,
-): { isConstant: boolean; constantResponse?: string } => {
+): {
+  isConstant: boolean;
+  constantResponse?: string;
+  constantResponseLit?: ConstantResponseSpec;
+} => {
   // Uses the AST + handler retained on the SourceFile from discovery — no re-parse.
   const handler = mod.handler;
 
@@ -173,14 +186,23 @@ export const detectConstantResponse = (
 
   const json = evaluateConstantBodyAST(mod.ast);
 
-  if (!json) {
-    return { isConstant: false };
+  if (json) {
+    return {
+      isConstant: true,
+      constantResponse: json,
+    };
   }
 
-  return {
-    isConstant: true,
-    constantResponse: json,
-  };
+  const responseLit = extractConstantResponse(mod.ast);
+
+  if (responseLit) {
+    return {
+      isConstant: true,
+      constantResponseLit: responseLit,
+    };
+  }
+
+  return { isConstant: false };
 };
 
 // ── Lowering ─────────────────────────────────────────────────────
@@ -208,7 +230,7 @@ export const lowerRoute = (
     ? mod.config.hooks.filter((x: unknown): x is string => typeof x === "string")
     : [];
 
-  const { isConstant, constantResponse } = detectConstantResponse(mod);
+  const { isConstant, constantResponse, constantResponseLit } = detectConstantResponse(mod);
   const inferredResponseType = inferResponseTypeAST(mod.ast);
 
   const responseType = usage.json
@@ -242,6 +264,7 @@ export const lowerRoute = (
       usage,
 
       ...(constantResponse !== undefined ? { constantResponse } : {}),
+      ...(constantResponseLit !== undefined ? { constantResponseLit } : {}),
       ...(cache !== undefined ? { cache } : {}),
       configExport: mod.configExport ?? false,
       wrappedHandler: mod.wrappedHandler ?? false,

@@ -70,6 +70,30 @@ export const isUsageEmittable = (usage: ContextUsage): boolean => {
   return true;
 };
 
+/** A `ContextUsage` with every field writable, for accumulation. */
+type MutableUsage = { -readonly [K in keyof ContextUsage]: boolean };
+
+/**
+ * Merge a plugin layer's declared usage into a route's usage.
+ *
+ * The specialized object literal only emitted the members the ROUTE's handler
+ * read — so a hook whose plugin declared `headers`/`req` read `undefined` on a
+ * route that read only `ctx.json` (a runtime TypeError from `cors`/`security`
+ * on otherwise-lean apps). The emitted context is the UNION of both usages:
+ * every member a route OR its plugin layer touches must exist on the ctx the
+ * hooks run against.
+ */
+export const mergeContextUsage = (
+  routeUsage: ContextUsage,
+  pluginUsage: Readonly<ContextUsage>,
+): ContextUsage => {
+  const merged: MutableUsage = { ...routeUsage };
+  for (const key of Object.keys(pluginUsage) as (keyof ContextUsage)[]) {
+    if (pluginUsage[key]) merged[key] = true;
+  }
+  return merged;
+};
+
 /**
  * Emit the members derived directly from the `Request`.
  *
@@ -135,11 +159,17 @@ const pushRequestMembers = (
  *
  * @param route - Route IR supplying the usage bitmap and validator presence.
  * @param usedCore - Set the function adds core import names to as it emits.
+ * @param usage - The usage to emit members for (defaults to the route's own).
+ *   Callers pass the ROUTE ∪ PLUGIN-LAYER merge so hooks never read members the
+ *   route itself did not reference.
  * @returns The generated property sources, in object-literal order.
  */
-export const buildContextProps = (route: RouteIR, usedCore: Set<string>): string[] => {
+export const buildContextProps = (
+  route: RouteIR,
+  usedCore: Set<string>,
+  usage: ContextUsage = route.analysis.usage,
+): string[] => {
   const props: string[] = [];
-  const usage = route.analysis.usage;
   const hasParamsValidator = !!route.decisions.validators?.params;
   const hasQueryValidator = !!route.decisions.validators?.query;
   const hasHeadersValidator = !!route.decisions.validators?.headers;
@@ -267,6 +297,7 @@ export const buildSpecializedContext = (
   sync = false,
   resumeName = "",
   mayMutateSet = false,
+  usage: ContextUsage = route.analysis.usage,
 ): { pre: string[]; callExpr: string } => {
   const { hasParamsValidator, hasQueryValidator, hasHeadersValidator, hasBodyValidator } =
     validationFlags(route);
@@ -279,13 +310,13 @@ export const buildSpecializedContext = (
     pre.push(emitValidatorThrow(validatorImportName(route, "params"), "params", "__params"));
   }
 
-  const needUrl = route.analysis.usage.url || (route.analysis.usage.query && !hasQueryValidator);
+  const needUrl = usage.url || (usage.query && !hasQueryValidator);
 
   if (needUrl) {
     pre.push(`const url = new URL(req.url);`);
   }
 
-  if (route.analysis.usage.query || hasQueryValidator) {
+  if (usage.query || hasQueryValidator) {
     if (hasQueryValidator) {
       usedCore.add("parseQueryFromURL");
       pre.push(`const query = parseQueryFromURL(req.url);`);
@@ -295,7 +326,7 @@ export const buildSpecializedContext = (
     }
   }
 
-  if (route.analysis.usage.headers || hasHeadersValidator) {
+  if (usage.headers || hasHeadersValidator) {
     if (hasHeadersValidator) {
       usedCore.add("headersToRecord");
       pre.push(`const __headers = headersToRecord(req.headers);`);
@@ -303,7 +334,7 @@ export const buildSpecializedContext = (
     }
   }
 
-  if (route.analysis.usage.body || hasBodyValidator) {
+  if (usage.body || hasBodyValidator) {
     usedCore.add("createLazyBody");
 
     pre.push(`let body = createLazyBody(req, BODY_LIMITS);`);
@@ -315,7 +346,7 @@ export const buildSpecializedContext = (
     }
   }
 
-  if (route.analysis.usage.state) {
+  if (usage.state) {
     pre.push(`const state = new Map();`);
   }
 
@@ -323,13 +354,13 @@ export const buildSpecializedContext = (
   // neither the handler nor any route hook reads it. `__EMPTY_SET` is a FROZEN
   // empty record, so handing it to a hook would throw on the write instead of
   // being applied — and the compact path would drop the mutation anyway.
-  if (route.analysis.usage.set || route.analysis.usage.cookie || mayMutateSet) {
+  if (usage.set || usage.cookie || mayMutateSet) {
     pre.push(`const __set = { headers: Object.create(null), cookie: Object.create(null) };`);
   } else {
     pre.push(`const __set = __EMPTY_SET;`);
   }
 
-  if (route.analysis.usage.cookie) {
+  if (usage.cookie) {
     // Lazy jar: the Cookie header is parsed on first read (cached), so a
     // handler reading a single cookie does not pay for eagerly parsing the
     // full header up front (the old `createCookieJar(__set, {}, …)` path also
@@ -338,7 +369,7 @@ export const buildSpecializedContext = (
     pre.push(`const __cookieJar = createLazyCookieJar(__set, () => req.headers.get("cookie"));`);
   }
 
-  const props = buildContextProps(route, usedCore);
+  const props = buildContextProps(route, usedCore, usage);
 
   // Materialize the specialized context as a `ctx` VARIABLE instead of an
   // inline object literal. The tier is reachable with plugins registered now,
