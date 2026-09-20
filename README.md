@@ -784,18 +784,13 @@ teams.
 
 ## Learn More
 
+The full documentation map (every doc, its audience and maturity) lives in
+[docs/README.md](docs/README.md) — start there.
+
 - [docs/getting-started.md](docs/getting-started.md) — the full walkthrough.
-- [docs/cookbook.md](docs/cookbook.md) — copy-paste recipes (sessions, jobs,
-  i18n, SSE, WebSockets, templates, caching, rate limiting, proxies, …).
-- [docs/architecture.md](docs/architecture.md) — how the compiler and packages fit together.
-- [docs/router.md](docs/router.md) — the interpreted `createRouter` path.
-- [docs/deployment.md](docs/deployment.md) — multi-instance production.
-- [docs/sdk.md](docs/sdk.md) — generating + distributing the app SDK.
-- [docs/debugbar.md](docs/debugbar.md) — the developer dashboard.
-- [docs/drivers.md](docs/drivers.md) — the store driver layer (memory/sqlite/file/redis).
-- [docs/compatibility.md](docs/compatibility.md) — contracts with `@ignex/ninox`, `@ignex/nova`, `castrum`.
-- [docs/adding-a-feature.md](docs/adding-a-feature.md) — plugins, hooks, compiler passes.
-- [docs/release-process.md](docs/release-process.md) — cache versions, tagging, publishing.
+- [docs/cookbook.md](docs/cookbook.md) — copy-paste recipes.
+- [docs/debugbar.md](docs/debugbar.md) — the developer dashboard (and its
+  built-in Docs panel).
 - [Example app](packages/app/README.md) — the reference app exercising the
   full feature set.
 

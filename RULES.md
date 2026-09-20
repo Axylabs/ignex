@@ -96,8 +96,9 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 
 - Docs must match code. Never document behavior you did not verify in the
   source; if a doc and the code disagree, fix the doc.
-- **One doc per topic.** The authoritative list is the "Doc index" table in
-  `AGENTS.md` — add a row there, do not add a second doc on a covered topic.
+- **One doc per topic.** The authoritative list is the doc map in
+  `docs/README.md` — add a row there, do not add a second doc on a covered
+  topic (`bun run check:maintainability` enforces it).
 - **No plan, log or session docs.** A completed plan is deleted, with its
   still-live conclusion folded into the owning doc (or `CHANGELOG.md`). Dated
   measurement logs get their durable numbers and ruled-out hypotheses folded
