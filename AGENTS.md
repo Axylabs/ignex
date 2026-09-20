@@ -6,6 +6,9 @@ editing code. Human-facing docs: `README.md` (pitch + compiler + status) and
 getting-started, cookbook, …). Agent skills: `.agents/skills/*/SKILL.md`.
 Cross-repo local development: `docs/ai/LOCAL_DEV.md`.
 
+**New here?** Start with `docs/ai/first-day.md` — run it, the three-layer mental
+model, three exercises, and where each package lives.
+
 **AI scaffolding index** (this repo):
 - `RULES.md` — the non-negotiable coding rules (bun-first, rust-core-first via
   `@ignex/native`, functional composition, vitest discipline, docs discipline).

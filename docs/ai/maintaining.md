@@ -22,6 +22,12 @@ of truth.
 | SIGILL v3 guard trip | `packages/native/src/loader/` (v3 CPU-detect in `paths.ts`) | `scripts/check-native-surface.ts` |
 | Cache serving stale output | `packages/compiler/src/cache.ts` | `scripts/check-cache-versions.ts` + cache self-heal tests |
 | Debugbar blank / missing panels | `packages/core/src/debug/*` | `check:debug-ui`, `gen:debug-ui --check` |
+| 404/405/`OPTIONS` oddities on an interpreted route | `packages/core/src/http/router.ts` | `packages/core/test/router.test.ts` + `router-utils.test.ts` |
+| Session cookie missing / `HttpOnly` off / visits not persisting | `packages/core/src/security/session.ts` | `packages/core/test/session-fusion.test.ts` + `session-store.test.ts` (fail-closed + expiry) |
+| JWT/cookie port mismatch (interpreted vs AOT) | `packages/core/src/security/` ↔ `packages/native/src/crypto/` | `packages/core/test/cookie-port.test.ts`, `packages/core/test/auth-module.test.ts`, `packages/native/test/` crypto suites |
+| Generated server artifact wrong / stale / won't boot | `packages/compiler/src/phases/*` + `emitter.ts` | `bun run smoke` (+ `smoke:fallback`), `packages/compiler/test/cache.test.ts` (cache-version self-heal) |
+| SDK client emits wrong types / dead surface | `packages/compiler/src/sdk/*` | `packages/compiler/test/sdk.test.ts` (+ `sdk-flatbuffers` / `sdk-realtime`) |
+| Scaffolded project broken (create/templates) | `packages/cli/src/commands/create.ts`, `templates/*` | `packages/cli/test/create.test.ts` + template suites; `bun run smoke` |
 
 ## The three-layer mental model
 

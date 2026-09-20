@@ -347,7 +347,10 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     `scripts/check-maintainability.ts` now enforces a 400-line cap (shrink-only
     `knownOver` allowlist), zero `TODO`/`FIXME`/`HACK`/`XXX` debt markers, no
     orphan `.gen-debug-ui-*` dirs, no exact-duplicate src files, `@fileoverview`
-    on cap-size files, and no dangling `docs/decisions/*.md` Verification paths
+    on cap-size files, and no dangling doc path refs (rule 6 → `doc-ref:dangling`:
+    backticked repo-path tokens in `docs/decisions/*.md` Verification lines,
+    `.agents/skills/**/SKILL.md`, and `docs/ai/*.md` except generated `TREE.md`;
+    whitespace-normalized, intentional globs like `packages/*` skipped) —
     (`bun run check:maintainability`; `--report` reconciles counts, `--self-test`
     runs the fixture suite). Phase 1 closed out the three Tier-0 files:
     `core/src/debug/types.ts` (778 → `debug/types/{trace,api,knowledge,
@@ -357,10 +360,18 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     aead,session,index}.ts`) — each move-only, gated by package suite +
     `check:native:surface` + `smoke:fallback` + `check:dead` + `check:maintainability`.
     `docs/decisions/` (ADR-lite registry, 12 seed entries) and
-    `docs/ai/maintaining.md` (issue→origin playbook) pin the decisions the splits
-    rely on. The allowlist now holds the remaining **33** >400-line files
-    (3 Tier A · 6 Tier B · 6 Tier C · 11 Tier D · 7 Tier E), highest-value next:
-    `native/src/ffi/bind.ts` / `loader.ts` / `route-wire.ts` (Tier A),
-    `core/src/http/router.ts`, `core/src/index.ts` barrel, then `compiler/src/sdk/*`
-    and the debug Tier-C files. Each split stays move-only: identical behaviour,
-    barrel re-exports, package suite + `verify:quick` + `check:dead`.
+    `docs/ai/maintaining.md` (issue→origin playbook, now 19 rows incl. router,
+    session, JWT/cookie port, compiler emission, SDK, CLI scaffolding) pin the
+    decisions the splits rely on. **Phase 2 (same day) retired the Tier-A
+    allowlist entirely**: `native/src/ffi/bind.ts` (→ `ffi/bind/{types,dlopen,
+    surface,access,index}.ts`), `native/src/loader.ts` (→ `loader/{types,paths,
+    require,native,init,index}.ts`), `native/src/route-wire.ts` (→ `route-wire/
+    {constants,stages,plan,frame,result,index}.ts`), and the `core/src/index.ts`
+    barrel (→ `src/publ/*`, 13 domain sub-barrels + a slim `export *` entry) —
+    each move-only, gated the same way. The allowlist now holds the remaining
+    **29** >400-line files (5 Tier B · 6 Tier C · 11 Tier D · 7 Tier E);
+    highest-value next: `core/src/http/router.ts`, `compiler/src/sdk/*` and the
+    debug Tier-C files. `docs/ai/first-day.md` onboards a first-day contributor
+    (run → mental model → three exercises → package map). Each split stays
+    move-only: identical behaviour, barrel re-exports, package suite +
+    `verify:quick` + `check:dead`.

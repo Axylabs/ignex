@@ -707,6 +707,20 @@ packages/core/
 │  │  ├─ rbac.ts
 │  │  ├─ security.ts
 │  │  └─ session.ts
+│  ├─ publ/
+│  │  ├─ client.ts
+│  │  ├─ content.ts
+│  │  ├─ data.ts
+│  │  ├─ debug.ts
+│  │  ├─ http.ts
+│  │  ├─ lifecycle.ts
+│  │  ├─ native.ts
+│  │  ├─ platform.ts
+│  │  ├─ plugins.ts
+│  │  ├─ realtime.ts
+│  │  ├─ security.ts
+│  │  ├─ shared.ts
+│  │  └─ types.ts
 │  ├─ rpc/
 │  │  └─ kit.ts
 │  ├─ security/
@@ -883,7 +897,12 @@ packages/native/
 │  │  ├─ session.ts
 │  │  └─ token.ts
 │  ├─ ffi/
-│  │  ├─ bind.ts
+│  │  ├─ bind/
+│  │  │  ├─ access.ts
+│  │  │  ├─ dlopen.ts
+│  │  │  ├─ index.ts
+│  │  │  ├─ surface.ts
+│  │  │  └─ types.ts
 │  │  ├─ helpers.ts
 │  │  ├─ index.ts
 │  │  ├─ ingress.ts
@@ -914,6 +933,13 @@ packages/native/
 │  │  ├─ router.ts
 │  │  ├─ terminal.ts
 │  │  └─ verdict.ts
+│  ├─ loader/
+│  │  ├─ index.ts
+│  │  ├─ init.ts
+│  │  ├─ native.ts
+│  │  ├─ paths.ts
+│  │  ├─ require.ts
+│  │  └─ types.ts
 │  ├─ metrics/
 │  │  ├─ decode.ts
 │  │  ├─ index.ts
@@ -921,6 +947,13 @@ packages/native/
 │  │  ├─ registry-native.ts
 │  │  ├─ shared.ts
 │  │  └─ types.ts
+│  ├─ route-wire/
+│  │  ├─ constants.ts
+│  │  ├─ frame.ts
+│  │  ├─ index.ts
+│  │  ├─ plan.ts
+│  │  ├─ result.ts
+│  │  └─ stages.ts
 │  ├─ vendor/
 │  │  └─ castrum.d.ts
 │  ├─ batch.ts
@@ -933,14 +966,12 @@ packages/native/
 │  ├─ index.ts
 │  ├─ ingress-binding.ts
 │  ├─ json.ts
-│  ├─ loader.ts
 │  ├─ memory.ts
 │  ├─ native-handler.ts
 │  ├─ packed.ts
 │  ├─ payload.ts
 │  ├─ pipeline.ts
 │  ├─ ratelimit.ts
-│  ├─ route-wire.ts
 │  ├─ route.ts
 │  ├─ runtime.ts
 │  ├─ scratch.ts
@@ -1068,6 +1099,7 @@ scripts/
 ```
 docs/
 ├─ ai/
+│  ├─ first-day.md
 │  ├─ LOCAL_DEV.md
 │  ├─ maintaining.md
 │  └─ TREE.md
@@ -1090,6 +1122,7 @@ docs/
 │  │  ├─ 2026-09-18-perf-levers.execution.md
 │  │  ├─ 2026-09-19-castrum-adoption.md
 │  │  ├─ 2026-09-20-maintainability-phase1.md
+│  │  ├─ 2026-09-20-maintainability-phase2.md
 │  │  └─ 2026-09-20-offthread-task-consumer.md
 │  └─ specs/
 │     └─ 2026-09-20-maintainability-design.md
