@@ -2,7 +2,9 @@
  * @fileoverview Events view — the unified event buffer. Interleaves NATS
  * pub/sub rows (NatsEventTracker) and nova typed-realtime / WS trace rows so
  * you can see, side by side, what the app SENT (out) and RECEIVED (in), filter
- * by source/text, publish NATS probe events and clear the whole buffer.
+ * by source/text, publish NATS probe events and clear the whole buffer. Built
+ * from the page primitives: `PageHeader` → per-source `StatRow` → composer
+ * `Card`s (`Field`/`SearchInput`/`Button`) → `Toolbar` → `DataTable` → states.
  */
 
 import {
@@ -17,54 +19,69 @@ import {
 
 import type { DebugEventRow, DebugEventsPayload } from "../../types";
 import { clearEvents, emitNovaEvent, getEvents, publishEvent } from "../api";
-import { Chip, DirPill, EmptyState, Panel, StatCard, StatRow } from "../components/widgets";
+import { Badge, Chip, DirPill } from "../components/badge";
+import { Button } from "../components/button";
+import { Card } from "../components/card";
+import { Field, SearchInput } from "../components/fields";
+import { Icon } from "../components/icon";
+import { PageHeader, Toolbar } from "../components/page";
+import { EmptyState, ErrorState, LoadingState } from "../components/states";
+import { Stat, StatRow, type StatTone } from "../components/stats";
+import { DataTable } from "../components/table";
 import { fmtNum, timeAgo, timeHM } from "../format";
 import { baselineFrom, currentPulse, domainMoved, lastRevision } from "../live";
 import { toast } from "../toast";
 
 type SourceFilter = "all" | "nats" | "nova";
 
-/** One stat card descriptor rendered under the panel header. */
-interface Card {
+/** Table column labels, in `DataTable` render order. */
+const HEADERS = ["When", "Dir", "Source", "Event", "Size", "Payload", "Error"];
+
+/** Token-styled multiline box for JSON payloads (no `Textarea` primitive yet). */
+const TEXTAREA_BOX =
+  "min-h-16 w-full rounded-md border border-line bg-surface-3 px-2.5 py-2 font-mono text-md text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25";
+
+/** One stat descriptor rendered in the per-source `StatRow`. */
+interface StatDescriptor {
   key: string;
   value: number;
   label: string;
   sub?: string;
-  tone?: string;
+  tone?: StatTone;
 }
 
-/** One row of the unified buffer (source chip + in/out pill + detail). */
-const Row = (props: { ev: DebugEventRow }): JSX.Element => (
-  <tr
-    title={`${props.ev.source} · ${props.ev.kind} · ${props.ev.direction} · ${timeHM(props.ev.ts)}`}
-  >
-    <td class="text-muted">{timeAgo(props.ev.ts)}</td>
-    <td>
-      <DirPill direction={props.ev.direction} />
-    </td>
-    <td>
-      <Chip class="mono">{props.ev.source === "nova" ? "NOVA" : "NATS"}</Chip>
-    </td>
-    <td class="font-mono">
-      {props.ev.name}
-      <Show when={props.ev.key !== undefined && props.ev.key !== ""}>
-        <span class="text-muted"> → {props.ev.key}</span>
-      </Show>
-    </td>
-    <td class="font-mono text-muted">{`${String(props.ev.size)} B`}</td>
-    <td class="font-mono text-muted" title={props.ev.payload}>
-      {props.ev.payload !== "" ? props.ev.payload : "—"}
-    </td>
-    <td class="text-muted">
-      {props.ev.error !== null ? (
-        <span class="pill status err" title={props.ev.error}>
-          err
-        </span>
-      ) : (
-        "—"
-      )}
-    </td>
-  </tr>
+/** Composer result tone — drives the inline status icon. */
+type ResultTone = "ok" | "err" | "info";
+
+/** A composer result line, replacing the old success/failure glyph prefix. */
+interface ComposerResult {
+  tone: ResultTone;
+  text: string;
+}
+
+/** Inline composer status: icon + message, or nothing while idle. */
+const ResultLine = (props: { result: ComposerResult | null }): JSX.Element => (
+  <Show when={props.result !== null}>
+    <span class="inline-flex items-center gap-1 text-xs text-muted" role="status">
+      <Icon
+        name={
+          props.result?.tone === "ok"
+            ? "check"
+            : props.result?.tone === "err"
+              ? "x-circle"
+              : "clock"
+        }
+        class={
+          props.result?.tone === "ok"
+            ? "text-ok"
+            : props.result?.tone === "err"
+              ? "text-err"
+              : "text-faint"
+        }
+      />
+      {props.result?.text}
+    </span>
+  </Show>
 );
 
 /** Manual realtime (nova) event composer — fires via `POST /nova/events/emit`. */
@@ -72,12 +89,12 @@ const NovaEmitPanel = (props: { onEmitted: () => void }): JSX.Element => {
   const [name, setName] = createSignal("");
   const [target, setTarget] = createSignal("");
   const [body, setBody] = createSignal('{"ok":true}');
-  const [result, setResult] = createSignal("");
+  const [result, setResult] = createSignal<ComposerResult | null>(null);
 
   const emit = (): void => {
     const evName = name().trim();
     if (evName === "") {
-      setResult("event name required");
+      setResult({ tone: "err", text: "event name required" });
       return;
     }
     let parsed: unknown = {};
@@ -86,59 +103,65 @@ const NovaEmitPanel = (props: { onEmitted: () => void }): JSX.Element => {
       try {
         parsed = JSON.parse(raw);
       } catch {
-        setResult("payload is not valid JSON");
+        setResult({ tone: "err", text: "payload is not valid JSON" });
         return;
       }
     }
-    setResult("emitting…");
+    setResult({ tone: "info", text: "emitting…" });
     void emitNovaEvent(evName, parsed, target().trim())
       .then((res): void => {
-        setResult(res.ok ? `✔ ${res.note ?? "emitted"}` : `✖ ${res.error ?? "failed"}`);
+        setResult(
+          res.ok
+            ? { tone: "ok", text: res.note ?? "emitted" }
+            : { tone: "err", text: res.error ?? "failed" },
+        );
         props.onEmitted();
       })
       .catch((err: Error): void => {
-        setResult(`✖ ${err.message}`);
+        setResult({ tone: "err", text: err.message });
       });
   };
 
   return (
-    <Panel title="Emit realtime event (nova)">
-      <div class="publish-composer">
-        <input
-          class="search font-mono"
-          type="text"
-          placeholder="event, e.g. recive-fe.created"
-          spellcheck={false}
-          value={name()}
-          onInput={(ev): void => {
-            setName((ev.target as HTMLInputElement).value);
-          }}
-        />
-        <input
-          class="search font-mono"
-          type="text"
-          placeholder="target — user:u-42 · group:premium · topic:room · client:c-1 (blank = broadcast)"
-          spellcheck={false}
-          value={target()}
-          onInput={(ev): void => {
-            setTarget((ev.target as HTMLInputElement).value);
-          }}
-        />
-        <textarea
-          class="search font-mono"
-          rows={3}
-          placeholder='payload JSON, e.g. {"ok":true} — or leave empty'
-          value={body()}
-          onInput={(ev): void => {
-            setBody((ev.target as HTMLTextAreaElement).value);
-          }}
-        />
-        <button type="button" class="primary mini" onClick={emit}>
-          ▶ emit
-        </button>
-        <span class="muted hint">{result()}</span>
+    <Card title="Emit realtime event (nova)">
+      <div class="flex flex-col gap-3">
+        <Field label="Event">
+          <SearchInput
+            mono
+            placeholder="event, e.g. recive-fe.created"
+            value={name()}
+            onInput={(value): void => {
+              setName(value);
+            }}
+          />
+        </Field>
+        <Field label="Target">
+          <SearchInput
+            mono
+            placeholder="target — user:u-42 · group:premium · topic:room · client:c-1 (blank = broadcast)"
+            value={target()}
+            onInput={(value): void => {
+              setTarget(value);
+            }}
+          />
+        </Field>
+        <Field label="Payload">
+          <textarea
+            class={TEXTAREA_BOX}
+            rows={3}
+            placeholder='payload JSON, e.g. {"ok":true} — or leave empty'
+            value={body()}
+            onInput={(ev): void => {
+              setBody((ev.target as HTMLTextAreaElement).value);
+            }}
+          />
+        </Field>
+        <div class="flex items-center gap-2">
+          <Button variant="primary" label="Emit" onClick={emit} />
+          <ResultLine result={result()} />
+        </div>
       </div>
-    </Panel>
+    </Card>
   );
 };
 
@@ -150,7 +173,7 @@ export const EventsView: Component = () => {
   const [source, setSource] = createSignal<SourceFilter>("all");
   const [subject, setSubject] = createSignal("");
   const [composer, setComposer] = createSignal('{"orderId":"ord_1"}');
-  const [publishResult, setPublishResult] = createSignal("");
+  const [publishResult, setPublishResult] = createSignal<ComposerResult | null>(null);
 
   const load = (): void => {
     void getEvents(500)
@@ -181,8 +204,8 @@ export const EventsView: Component = () => {
   const nats = createMemo(() => data()?.sources.nats ?? null);
   const nova = createMemo(() => data()?.sources.nova ?? null);
 
-  const cards = createMemo((): Card[] => {
-    const list: Card[] = [];
+  const cards = createMemo((): StatDescriptor[] => {
+    const list: StatDescriptor[] = [];
     const n = nats();
     if (n !== null) {
       const connected = n.connected === true;
@@ -221,7 +244,7 @@ export const EventsView: Component = () => {
   const publish = (): void => {
     const subj = subject().trim();
     if (subj === "") {
-      setPublishResult("subject required");
+      setPublishResult({ tone: "err", text: "subject required" });
       return;
     }
     let parsed: unknown = {};
@@ -230,18 +253,20 @@ export const EventsView: Component = () => {
       try {
         parsed = JSON.parse(raw);
       } catch {
-        setPublishResult("payload is not valid JSON");
+        setPublishResult({ tone: "err", text: "payload is not valid JSON" });
         return;
       }
     }
-    setPublishResult("publishing…");
+    setPublishResult({ tone: "info", text: "publishing…" });
     void publishEvent(subj, parsed)
       .then((res): void => {
-        setPublishResult(res.ok ? "✔ published" : `✖ ${res.error ?? "failed"}`);
+        setPublishResult(
+          res.ok ? { tone: "ok", text: "published" } : { tone: "err", text: res.error ?? "failed" },
+        );
         load();
       })
       .catch((err: Error): void => {
-        setPublishResult(`✖ ${err.message}`);
+        setPublishResult({ tone: "err", text: err.message });
       });
   };
 
@@ -279,140 +304,158 @@ export const EventsView: Component = () => {
   const captureHint =
     "payload previews off — enable novaPlugin({ trace: { capturePayloadChars: 400 } })";
 
+  /**
+   * One `DataTable` row, one node per column (the primitive wraps each in a
+   * `<td>`); the direction keeps its in/out pill and the error cell truncates
+   * via a `title`.
+   */
+  const rowCells = (ev: DebugEventRow): JSX.Element[] => [
+    <span class="text-muted" title={timeHM(ev.ts)}>
+      {timeAgo(ev.ts)}
+    </span>,
+    <DirPill direction={ev.direction} />,
+    <Chip>{ev.source === "nova" ? "NOVA" : "NATS"}</Chip>,
+    <span class="font-mono">
+      {ev.name}
+      <Show when={ev.key !== undefined && ev.key !== ""}>
+        <span class="text-muted"> → {ev.key}</span>
+      </Show>
+    </span>,
+    <span class="font-mono text-muted">{`${String(ev.size)} B`}</span>,
+    <span class="font-mono text-muted" title={ev.payload}>
+      {ev.payload !== "" ? ev.payload : "—"}
+    </span>,
+    <Show when={ev.error !== null} fallback={<span class="text-muted">—</span>}>
+      <span title={ev.error ?? undefined}>
+        <Badge tone="err">err</Badge>
+      </span>
+    </Show>,
+  ];
+
   return (
-    <div>
-      <Panel
-        title="Event buffer"
-        hint={
-          nova() !== null && nova()?.captures === false ? (
-            <span class="muted hint">{captureHint}</span>
-          ) : undefined
+    <div class="flex flex-col gap-4">
+      <PageHeader
+        title="Events"
+        description="Unified NATS + nova realtime buffer — what the app sent (out) and received (in)"
+        actions={
+          <>
+            <Button icon="refresh" label="Refresh" onClick={load} />
+            <Button variant="danger" icon="trash" label="Clear buffer" onClick={clear} />
+          </>
         }
-      >
-        <StatRow>
-          <For each={cards()}>
-            {(c): JSX.Element => (
-              <StatCard value={fmtNum(c.value)} label={c.label} sub={c.sub} tone={c.tone} />
-            )}
-          </For>
-        </StatRow>
-      </Panel>
+      />
+
+      <StatRow>
+        <For each={cards()}>
+          {(c): JSX.Element => (
+            <Stat value={fmtNum(c.value)} label={c.label} sub={c.sub} tone={c.tone} />
+          )}
+        </For>
+      </StatRow>
+
+      <Show when={nova() !== null && nova()?.captures === false}>
+        <p class="text-xs text-faint">{captureHint}</p>
+      </Show>
 
       <Show when={nats() !== null}>
-        <Panel title="Publish NATS probe event">
-          <div class="publish-composer">
-            <input
-              class="search font-mono"
-              type="text"
-              placeholder="subject, e.g. orders.created"
-              spellcheck={false}
-              value={subject()}
-              onInput={(ev): void => {
-                setSubject((ev.target as HTMLInputElement).value);
-              }}
-            />
-            <textarea
-              class="search font-mono"
-              rows={3}
-              placeholder='payload JSON, e.g. {"orderId":"ord_1"} — or leave empty'
-              value={composer()}
-              onInput={(ev): void => {
-                setComposer((ev.target as HTMLTextAreaElement).value);
-              }}
-            />
-            <button type="button" class="primary mini" onClick={publish}>
-              ▶ publish
-            </button>
-            <span class="muted hint">{publishResult()}</span>
+        <Card title="Publish NATS probe event">
+          <div class="flex flex-col gap-3">
+            <Field label="Subject">
+              <SearchInput
+                mono
+                placeholder="subject, e.g. orders.created"
+                value={subject()}
+                onInput={(value): void => {
+                  setSubject(value);
+                }}
+              />
+            </Field>
+            <Field label="Payload">
+              <textarea
+                class={TEXTAREA_BOX}
+                rows={3}
+                placeholder='payload JSON, e.g. {"orderId":"ord_1"} — or leave empty'
+                value={composer()}
+                onInput={(ev): void => {
+                  setComposer((ev.target as HTMLTextAreaElement).value);
+                }}
+              />
+            </Field>
+            <div class="flex items-center gap-2">
+              <Button variant="primary" label="Publish" onClick={publish} />
+              <ResultLine result={publishResult()} />
+            </div>
           </div>
-        </Panel>
+        </Card>
       </Show>
 
       <Show when={nova() !== null}>
         <NovaEmitPanel onEmitted={load} />
       </Show>
 
-      <Panel>
-        <div class="toolbar">
-          <input
-            class="search"
-            id="search"
-            type="text"
-            placeholder="filter event / subject / target…"
-            value={q()}
-            onInput={(ev): void => {
-              setQ((ev.target as HTMLInputElement).value);
-            }}
-          />
-          <button
-            type="button"
-            class={source() === "all" ? "mini primary" : "mini ghost"}
-            onClick={(): void => pick("all")}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            class={source() === "nats" ? "mini primary" : "mini ghost"}
-            onClick={(): void => pick("nats")}
-          >
-            NATS
-          </button>
-          <button
-            type="button"
-            class={source() === "nova" ? "mini primary" : "mini ghost"}
-            onClick={(): void => pick("nova")}
-          >
-            Nova
-          </button>
-          <span class="grow" />
-          <button type="button" class="ghost mini" onClick={load}>
-            ↻ refresh
-          </button>
-          <button type="button" class="ghost mini" onClick={clear}>
-            ✕ clear buffer
-          </button>
-        </div>
-      </Panel>
+      <Toolbar>
+        <SearchInput
+          id="search"
+          placeholder="filter event / subject / target…"
+          value={q()}
+          onInput={(value): void => {
+            setQ(value);
+          }}
+        />
+        <Button
+          size="sm"
+          ariaPressed={source() === "all"}
+          label="All"
+          onClick={(): void => pick("all")}
+        />
+        <Button
+          size="sm"
+          ariaPressed={source() === "nats"}
+          label="NATS"
+          onClick={(): void => pick("nats")}
+        />
+        <Button
+          size="sm"
+          ariaPressed={source() === "nova"}
+          label="Nova"
+          onClick={(): void => pick("nova")}
+        />
+      </Toolbar>
 
-      <Panel>
-        <Show when={loadError() !== ""}>
-          <EmptyState glyph="⚠️" message="could not load events" hint={loadError()} />
+      <Show when={loadError() !== ""}>
+        <ErrorState message="Could not load events" hint={loadError()} onRetry={load} />
+      </Show>
+      <Show when={loadError() === ""}>
+        <Show when={data() === null}>
+          <Card>
+            <LoadingState rows={5} />
+          </Card>
         </Show>
-        <Show when={loadError() === ""} fallback={null}>
-          <Show when={data() === null}>
-            <EmptyState glyph="…" message="loading events…" />
-          </Show>
-          <Show when={data() !== null && data()?.enabled === false}>
-            <EmptyState glyph="🔌" message="No event source wired." hint={data()?.hint} />
-          </Show>
-          <Show when={data() !== null && data()?.enabled === true}>
-            <Show when={visible().length === 0}>
-              <EmptyState
-                glyph="🔍"
-                message="No events match the current filter."
-                hint="Try widening the search or the source filter."
-              />
-            </Show>
-            <Show when={visible().length > 0}>
-              <table>
-                <thead>
-                  <tr>
-                    {["When", "Dir", "Source", "Event", "Size", "Payload", "Error"].map(
-                      (l): JSX.Element => (
-                        <th>{l}</th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={visible()}>{(ev): JSX.Element => <Row ev={ev} />}</For>
-                </tbody>
-              </table>
-            </Show>
-          </Show>
+        <Show when={data() !== null && data()?.enabled === false}>
+          <Card>
+            <EmptyState icon="radio" message="No event source wired." hint={data()?.hint} />
+          </Card>
         </Show>
-      </Panel>
+        <Show when={data() !== null && data()?.enabled === true}>
+          <Card pad={false}>
+            <DataTable
+              label="Events"
+              columns={HEADERS}
+              rows={visible()}
+              rowKey={(ev): string => ev.id}
+              render={rowCells}
+              align={[4]}
+              empty={
+                <EmptyState
+                  icon="filter"
+                  message="No events match the current filter."
+                  hint="Try widening the search or the source filter."
+                />
+              }
+            />
+          </Card>
+        </Show>
+      </Show>
     </div>
   );
 };
