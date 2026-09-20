@@ -3,6 +3,11 @@
  * analysis, time breakdown, the database queries table (sent/result
  * expandables), body panels and the nested span tree. Shared by the detail
  * view; kept pure: data in, JSX out.
+ *
+ * Data logic is untouched from the pre-redesign components: the union-of-
+ * intervals gap math and the waterfall row computation are verbatim. Only the
+ * presentation moved onto `Card` / `DataTable` / token `pre` classes; the
+ * waterfall/breakdown/tree geometry lives in `styles.css`.
  */
 
 import { createMemo, For, type JSX, Show } from "solid-js";
@@ -10,7 +15,13 @@ import { createMemo, For, type JSX, Show } from "solid-js";
 import { durClass, fmtMs, kindColor, looksLikeJson, prettyJson } from "../format";
 import { copyAttr } from "../views/copy-attr";
 import type { SpanLike } from "../views/detail-types";
-import { EmptyState, KindPill, Kvs, type KvsRow, Panel } from "./widgets";
+import { Badge, KindBadge } from "./badge";
+import { Button } from "./button";
+import { Card } from "./card";
+import { Icon } from "./icon";
+import { Kvs, type KvsRow } from "./kvs";
+import { EmptyState } from "./states";
+import { DataTable } from "./table";
 
 const pctOf = (ms: number, total: number): number => Math.max((ms / total) * 100, 0.3);
 
@@ -54,19 +65,22 @@ export function TimeBreakdown(props: { spans: SpanLike[]; durationMs: number }):
   });
 
   return (
-    <Panel
+    <Card
       title="Time breakdown"
-      hint={<span class="hint">{`where the ${fmtMs(total)} went`}</span>}
+      hint={<span class="font-mono text-xs text-faint">{`where the ${fmtMs(total)} went`}</span>}
     >
-      <div class="stack">
+      <div class="mb-2.5 flex h-3.5 overflow-hidden rounded-sm bg-surface-3">
         <For each={data().keys}>
           {(kind): JSX.Element => {
             const st = data().by.get(kind);
             if (st === undefined) return null;
             return (
               <span
-                class="seg"
-                style={{ width: `${pctOf(st.ms, total).toFixed(2)}%`, background: kindColor(kind) }}
+                class="h-full min-w-px"
+                style={{
+                  width: `${pctOf(st.ms, total).toFixed(2)}%`,
+                  background: kindColor(kind),
+                }}
                 title={`${kind} ${st.ms.toFixed(2)} ms`}
               />
             );
@@ -74,7 +88,7 @@ export function TimeBreakdown(props: { spans: SpanLike[]; durationMs: number }):
         </For>
         <Show when={data().unaccounted > 0.05}>
           <span
-            class="seg unacc"
+            class="seg-gap h-full min-w-px"
             style={{ width: `${pctOf(data().unaccounted, total).toFixed(2)}%` }}
             title={`unaccounted ${data().unaccounted.toFixed(2)} ms`}
           />
@@ -85,21 +99,25 @@ export function TimeBreakdown(props: { spans: SpanLike[]; durationMs: number }):
           {(row): JSX.Element => (
             <div class="bd-row">
               <span
-                class="dot"
+                class="size-2.5 shrink-0 rounded-sm"
                 style={{
                   background:
                     row.name === "unaccounted" ? "var(--text-faint)" : kindColor(row.name),
                 }}
               />
-              <span class="name">{row.name}</span>
-              <span class="count">{row.count > 0 ? `${row.count}×` : "gap"}</span>
-              <span class={`ms ${durClass(row.ms)}`}>{fmtMs(row.ms)}</span>
-              <span class="pct">{((row.ms / total) * 100).toFixed(1)}%</span>
+              <span class="bd-name">{row.name}</span>
+              <span class="w-8 shrink-0 text-right text-faint">
+                {row.count > 0 ? `${row.count}×` : "gap"}
+              </span>
+              <span class={`shrink-0 ${durClass(row.ms)}`}>{fmtMs(row.ms)}</span>
+              <span class="w-12 shrink-0 text-right text-faint">
+                {((row.ms / total) * 100).toFixed(1)}%
+              </span>
             </div>
           )}
         </For>
       </div>
-    </Panel>
+    </Card>
   );
 }
 
@@ -147,7 +165,11 @@ const spanKvRows = (s: SpanLike): KvsRow[] => {
     rows.push({
       k: "origin",
       v: (
-        <span class="copyable" title="click to copy origin" {...copyAttr(s.origin)}>
+        <span
+          class="cursor-copy hover:text-ink"
+          title="click to copy origin"
+          {...copyAttr(s.origin)}
+        >
           {s.origin}
         </span>
       ),
@@ -177,7 +199,13 @@ const WfSpanRow = (props: { span: SpanLike; left: number; width: number }): JSX.
     <details class="wf-item">
       <summary class="wf-row" title={hint}>
         <div class="wf-label">
-          <KindPill kind={s.kind} /> {`${s.open === true ? "⏳ " : s.error ? "✕ " : ""}${s.name}`}
+          <KindBadge kind={s.kind} />{" "}
+          {s.open === true ? (
+            <Icon name="clock" size={12} class="inline align-text-bottom text-warn" />
+          ) : s.error ? (
+            <Icon name="x-circle" size={12} class="inline align-text-bottom text-err" />
+          ) : null}
+          {` ${s.name}`}
         </div>
         <div class="wf-track">
           <div
@@ -229,11 +257,14 @@ export function Waterfall(props: { spans: SpanLike[]; total: number }): JSX.Elem
   });
 
   return (
-    <Panel title="Waterfall">
+    <Card title="Waterfall">
       <div class="wf-legend">
         {WF_KINDS.map((kind) => (
           <span>
-            <i class="dot" style={{ background: kindColor(kind) }} />
+            <i
+              class="inline-block size-2.5 shrink-0 rounded-sm"
+              style={{ background: kindColor(kind) }}
+            />
             {kind}
           </span>
         ))}
@@ -243,7 +274,7 @@ export function Waterfall(props: { spans: SpanLike[]; total: number }): JSX.Elem
         <span>{Math.round(props.total / 2)} ms</span>
         <span>{Math.round(props.total)} ms</span>
       </div>
-      <div class="wf">
+      <div>
         <For each={rows()}>
           {(entry): JSX.Element =>
             entry.type === "gap" ? (
@@ -267,92 +298,74 @@ export function Waterfall(props: { spans: SpanLike[]; total: number }): JSX.Elem
           }
         </For>
       </div>
-    </Panel>
+    </Card>
   );
 }
 
 /* ── database queries table ─────────────────────────────────────────────── */
 
-/** One query row: sent params + result preview expandables. */
-const QueryRow = (props: { q: SpanLike; index: number; nested: boolean }): JSX.Element => {
-  const attrs = (props.q.attrs ?? {}) as Record<string, unknown>;
+/** Sent-params cell: an inline expandable when params/sent exist. */
+const sentCell = (q: SpanLike): JSX.Element => {
+  const attrs = (q.attrs ?? {}) as Record<string, unknown>;
   const sentRaw = attrs.params !== undefined ? attrs.params : attrs.sent;
-
-  const sentCell = (): JSX.Element => {
-    if (sentRaw === undefined || sentRaw === null) {
-      return <span class="text-muted">—</span>;
-    }
-    const full = typeof sentRaw === "string" ? sentRaw : JSON.stringify(sentRaw);
-    return (
-      <details class="q-sent">
-        <summary class="font-mono text-muted">{shorten(full, 60)}</summary>
-        <pre class="mini">{prettyJsonStr(full)}</pre>
-      </details>
-    );
-  };
-
-  const resultCell = createMemo((): JSX.Element => {
-    const q = props.q;
-    if (q.error) {
-      return <span class="pill status err">{q.error}</span>;
-    }
-    const bits: string[] = [];
-    if (attrs.rowCount !== undefined) bits.push(`${String(attrs.rowCount)} rows`);
-    if (attrs.changes !== undefined) bits.push(`${String(attrs.changes)} changed`);
-    if (attrs.reply !== undefined && attrs.rowCount === undefined && attrs.changes === undefined)
-      bits.push("reply");
-    if (bits.length === 0 && (attrs.preview !== undefined || attrs.reply !== undefined))
-      bits.push("ok");
-    const previewText =
-      attrs.preview !== undefined
-        ? String(attrs.preview)
-        : attrs.reply !== undefined
-          ? String(attrs.reply)
-          : undefined;
-    return (
-      <>
-        <span class="font-mono text-ok">{bits.join(" · ")}</span>
-        {previewText !== undefined ? (
-          <details class="q-sent">
-            <summary class="font-mono text-muted">{shorten(previewText, 60)}</summary>
-            <pre class="mini">{prettyJsonStr(previewText)}</pre>
-          </details>
-        ) : null}
-      </>
-    );
-  });
-
+  if (sentRaw === undefined || sentRaw === null) {
+    return <span class="text-muted">—</span>;
+  }
+  const full = typeof sentRaw === "string" ? sentRaw : JSON.stringify(sentRaw);
   return (
-    <tr>
-      <td class="text-right font-mono">{String(props.index + 1)}</td>
-      <td class={`font-mono ${durClass(props.q.durationMs)}`}>{fmtMs(props.q.durationMs)}</td>
-      <td class="font-mono wrap" style={props.nested ? { "padding-left": "22px" } : undefined}>
-        {props.nested ? <span class="text-faint">↳ </span> : null}
-        {props.q.name}
-      </td>
-      <td class="wrap">
-        <div class="q-json">{sentCell()}</div>
-      </td>
-      <td class="wrap">
-        <div class="q-json">{resultCell()}</div>
-      </td>
-      <td class="wrap text-muted">
-        {props.q.origin ? (
-          <details class="q-sent">
-            <summary
-              class="font-mono text-muted"
-              title="click to copy origin"
-              {...copyAttr(props.q.origin)}
-            >
-              {firstLine(props.q.origin)}
-            </summary>
-            <pre class="mini">{props.q.origin}</pre>
-          </details>
-        ) : (
-          ""
-        )}
-      </td>
-    </tr>
+    <details>
+      <summary class="cursor-pointer font-mono text-muted">{shorten(full, 60)}</summary>
+      <pre class="mini max-h-[140px]">{prettyJsonStr(full)}</pre>
+    </details>
+  );
+};
+
+/** Result cell: rows/changed/reply summary + optional preview expandable. */
+const resultCell = (q: SpanLike): JSX.Element => {
+  const attrs = (q.attrs ?? {}) as Record<string, unknown>;
+  if (q.error) {
+    return <Badge tone="err">{q.error}</Badge>;
+  }
+  const bits: string[] = [];
+  if (attrs.rowCount !== undefined) bits.push(`${String(attrs.rowCount)} rows`);
+  if (attrs.changes !== undefined) bits.push(`${String(attrs.changes)} changed`);
+  if (attrs.reply !== undefined && attrs.rowCount === undefined && attrs.changes === undefined)
+    bits.push("reply");
+  if (bits.length === 0 && (attrs.preview !== undefined || attrs.reply !== undefined))
+    bits.push("ok");
+  const previewText =
+    attrs.preview !== undefined
+      ? String(attrs.preview)
+      : attrs.reply !== undefined
+        ? String(attrs.reply)
+        : undefined;
+  return (
+    <>
+      <span class="font-mono text-ok">{bits.join(" · ")}</span>
+      {previewText !== undefined ? (
+        <details>
+          <summary class="cursor-pointer font-mono text-muted">{shorten(previewText, 60)}</summary>
+          <pre class="mini max-h-[140px]">{prettyJsonStr(previewText)}</pre>
+        </details>
+      ) : null}
+    </>
+  );
+};
+
+/** Origin cell: first line as a copyable summary, full chain expanded. */
+const originCell = (q: SpanLike): JSX.Element => {
+  if (!q.origin) return <span class="text-muted" />;
+  return (
+    <details>
+      <summary
+        class="cursor-copy font-mono text-muted"
+        title="click to copy origin"
+        {...copyAttr(q.origin)}
+      >
+        {firstLine(q.origin)}
+      </summary>
+      <pre class="mini max-h-[140px]">{q.origin}</pre>
+    </details>
   );
 };
 
@@ -361,56 +374,70 @@ export function QueriesTable(props: { spans: SpanLike[] }): JSX.Element {
   const queries = props.spans.filter((s) => s.kind === "db");
   if (queries.length === 0) {
     return (
-      <Panel>
+      <Card>
         <EmptyState
-          glyph="🗄"
+          icon="database"
           message="No database queries recorded."
           hint="Wrap DB calls in ctx.debug.query(sql, params, fn) or debugQuery() — timing, params and results are captured automatically."
         />
-      </Panel>
+      </Card>
     );
   }
   const totalMs = queries.reduce((acc, q) => acc + q.durationMs, 0);
   const byId = new Map<number, SpanLike>();
   for (const sp of props.spans) byId.set(sp.id, sp);
 
+  const rows = queries.map((q, index) => ({ q, index }));
+
+  /**
+   * One `DataTable` row, one node per column (the primitive wraps each in a
+   * `<td>`). Nested db spans keep the data-typographic `↳` marker and an
+   * indent so the wire round-trip reads as a child of the op above it.
+   */
+  const queryCells = (row: { q: SpanLike; index: number }): JSX.Element[] => {
+    const { q, index } = row;
+    const parent =
+      q.parentId !== null && q.parentId !== undefined ? byId.get(q.parentId) : undefined;
+    const nested = parent !== undefined && parent.kind === "db";
+    return [
+      <span class="font-mono">{String(index + 1)}</span>,
+      <span class={`font-mono ${durClass(q.durationMs)}`}>{fmtMs(q.durationMs)}</span>,
+      <span class="font-mono break-all" style={nested ? { "padding-left": "22px" } : undefined}>
+        {nested ? <span class="text-faint">↳ </span> : null}
+        {q.name}
+      </span>,
+      <span class="block max-w-[360px] break-words">{sentCell(q)}</span>,
+      <span class="block max-w-[360px] break-words">{resultCell(q)}</span>,
+      <span class="text-muted">{originCell(q)}</span>,
+    ];
+  };
+
   return (
-    <Panel
+    <Card
+      pad={false}
       title={`Database (${queries.length} · ${fmtMs(totalMs)})`}
       hint={
-        <span class="hint">
+        <span class="font-mono text-xs text-faint">
           sent = what went to the db · result = what came back · ↳ = wire round-trip inside the op
           above
         </span>
       }
     >
-      <table>
-        <thead>
-          <tr>
-            {["#", "Duration", "Query", "Sent", "Result", "Origin"].map((label) => (
-              <th>{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <For each={queries}>
-            {(q, i): JSX.Element => {
-              const parent =
-                q.parentId !== null && q.parentId !== undefined ? byId.get(q.parentId) : undefined;
-              return (
-                <QueryRow q={q} index={i()} nested={parent !== undefined && parent.kind === "db"} />
-              );
-            }}
-          </For>
-        </tbody>
-      </table>
-    </Panel>
+      <DataTable
+        label="Database queries"
+        columns={["#", "Duration", "Query", "Sent", "Result", "Origin"]}
+        rows={rows}
+        rowKey={(row): string => String(row.q.id)}
+        render={queryCells}
+        align={[0, 1]}
+      />
+    </Card>
   );
 }
 
 /* ── body viewer ────────────────────────────────────────────────────────── */
 
-/** Body viewer panel (pretty JSON when applicable + copy button). */
+/** Body viewer card (pretty JSON when applicable + copy button). */
 export function BodyPanel(props: {
   title: string;
   bodyText: string | null;
@@ -421,24 +448,24 @@ export function BodyPanel(props: {
   const isJson =
     (props.contentType ?? "").toLowerCase().includes("json") || looksLikeJson(props.bodyText);
   return (
-    <div class="panel">
-      <div class="panel-head">
-        <h2>{props.title}</h2>
-        <span class="hint font-mono">
+    <Card
+      title={props.title}
+      hint={
+        <span class="font-mono text-xs text-faint">
           {`${props.contentType ?? "content-type unknown"}${
             props.bodyText ? ` · ${fmtBytes(byteSize(props.bodyText))}` : ""
           } · ${props.meta}`}
         </span>
-        <span class="grow" />
-        {props.bodyText ? (
-          <button type="button" class="ghost mini" {...copyAttr(props.bodyText)}>
-            copy
-          </button>
-        ) : null}
-      </div>
+      }
+      actions={
+        props.bodyText ? (
+          <Button size="sm" icon="copy" label="Copy" dataCopy={props.bodyText} />
+        ) : undefined
+      }
+    >
       {props.bodyText === null || props.bodyText === "" ? (
         <EmptyState
-          glyph="📄"
+          icon="file-text"
           message={`${props.title} was not captured.`}
           hint="Bodies capture when debugbar({ captureBody: true }) — the default in debug mode. Streams (SSE), binary and >1 MiB responses are skipped by design."
         />
@@ -446,12 +473,13 @@ export function BodyPanel(props: {
         <>
           <pre class={`body${isJson ? " json" : ""}`}>{prettyJson(props.bodyText)}</pre>
           {props.truncated ? (
-            <div class="muted hint px-3 py-1.5">
-              ⚠ truncated at the capture cap — the full payload reached the client.
+            <div class="mt-2 flex items-center gap-1.5 text-xs text-muted">
+              <Icon name="alert" size={14} class="shrink-0 text-warn" />
+              <span>truncated at the capture cap — the full payload reached the client.</span>
             </div>
           ) : null}
         </>
       )}
-    </div>
+    </Card>
   );
 }
