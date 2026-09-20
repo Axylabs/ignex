@@ -30,8 +30,8 @@ generator), `jobs.ts`.
 
 ## The `ctx.set` contract
 
-The context is the spine of every request. Read `packages/core/src/http/
-context.ts` before touching anything that reads/writes request state — many
+The context is the spine of every request. Read `packages/core/src/http/context/`
+before touching anything that reads/writes request state — many
 helpers rely on the exact `ctx.set` semantics (headers, cache, session,
 requestId, locals).
 

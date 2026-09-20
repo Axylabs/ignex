@@ -13,8 +13,12 @@
  *   4. duplicates — no exact-duplicate src files (normalized).
  *   5. fileoverview— files over `fileoverviewMinLines` start with a
  *                    `@fileoverview` JSDoc block.
- *   6. decision-refs — paths cited in `docs/decisions/*.md` `Verification:`
- *                    lines must exist (doc-rot guard).
+ *   6. doc-refs — backticked repo paths cited in `docs/decisions/*.md`
+ *                    Verification: lines, the skills runbooks (`SKILL.md`
+ *                    under `.agents/skills/`), and `docs/ai/*.md` (except the
+ *                    generated `TREE.md`) must exist (doc-rot guard). Glob
+ *                    tokens (`packages/*`, `docs/*.md`) and cross-repo
+ *                    references are skipped.
  *
  * Usage:
  *   bun scripts/check-maintainability.ts            # gate (exit 1 on violation)
@@ -110,28 +114,101 @@ const normalize = (src: string): string =>
 
 const posix = (p: string): string => p.replace(/\\/g, "/");
 
-/** Rule 6 — every `Verification:` path cited by a decision file must exist. */
-const checkDecisionRefs = (root: string, diags: Diag[]): void => {
-  const decisionsDir = join(root, "docs", "decisions");
-  if (!existsSync(decisionsDir)) return;
-  for (const f of readdirSync(decisionsDir).filter((f) => f.endsWith(".md"))) {
-    const src = readFileSync(join(decisionsDir, f), "utf8");
+/** Backticked tokens in a line that look like repo paths (whitespace-normalized; globs skipped). */
+const docPathTokens = (line: string): string[] => {
+  const out: string[] = [];
+  for (const m of line.matchAll(/`([^`]+)`/g)) {
+    const token = (m[1] ?? "").replace(/\s+/g, "");
+    if (!token) continue;
+    if (/[*?]/.test(token)) continue; // intentional glob (packages/*/test), not a path
+    if (
+      !/^(?:packages|scripts|docs|\.agents)\//.test(token) &&
+      !["RULES.md", "AGENTS.md", "maintainability.json"].includes(token)
+    )
+      continue;
+    out.push(token);
+  }
+  return out;
+};
+
+/** Check one doc file's backticked repo-path citations against the filesystem. */
+const checkDocFileRefs = (
+  src: string,
+  verificationOnly: boolean,
+  root: string,
+  relPath: string,
+  diags: Diag[],
+): void => {
+  const missing = (token: string): void => {
+    diags.push({
+      path: relPath,
+      rule: "doc-ref:dangling",
+      detail: `cites missing path \`${token}\``,
+    });
+  };
+  if (verificationOnly) {
     for (const line of src.split("\n")) {
       const body = line.trim().replace(/^-\s+/, "");
       if (!body.startsWith("Verification:")) continue;
-      for (const m of body.matchAll(/`([^`]+)`/g)) {
-        const token = m[1];
-        if (!token) continue;
-        if (!/^(?:packages|scripts|docs|RULES)\//.test(token) && token !== "RULES.md") continue;
-        if (!existsSync(join(root, token))) {
-          diags.push({
-            path: `docs/decisions/${f}`,
-            rule: "decision-ref:dangling",
-            detail: `Verification cites missing path \`${token}\``,
-          });
-        }
+      for (const token of docPathTokens(line)) {
+        if (!existsSync(join(root, token))) missing(token);
       }
     }
+    return;
+  }
+  // Whole-file scan so a backticked path wrapped across two lines is still
+  // captured (docPathTokens normalizes whitespace).
+  for (const token of docPathTokens(src)) {
+    if (!existsSync(join(root, token))) missing(token);
+  }
+};
+
+/** Rule 6 — every repo path cited by decisions / skills / docs-ai must exist. */
+const checkDocPathRefs = (root: string, diags: Diag[]): void => {
+  const scopes: Array<{
+    dir: string;
+    relPrefix: string;
+    filter: (name: string) => boolean;
+    verificationOnly: boolean;
+  }> = [
+    // docs/decisions/*.md — Verification: lines only (established contract).
+    {
+      dir: join(root, "docs", "decisions"),
+      relPrefix: "docs/decisions",
+      filter: (n) => n.endsWith(".md"),
+      verificationOnly: true,
+    },
+    // Skills runbooks (SKILL.md under .agents/skills/) — all lines.
+    {
+      dir: join(root, ".agents", "skills"),
+      relPrefix: ".agents/skills",
+      filter: (n) => n === "SKILL.md",
+      verificationOnly: false,
+    },
+    // docs/ai/*.md — all lines, except the generated TREE.md (guaranteed current).
+    {
+      dir: join(root, "docs", "ai"),
+      relPrefix: "docs/ai",
+      filter: (n) => n.endsWith(".md") && n !== "TREE.md",
+      verificationOnly: false,
+    },
+  ];
+
+  for (const scope of scopes) {
+    if (!existsSync(scope.dir)) continue;
+    const walk = (dir: string, rel: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          if ([".git", "node_modules", "dist"].includes(entry.name)) continue;
+          walk(p, relPath);
+        } else if (scope.filter(entry.name)) {
+          checkDocFileRefs(readFileSync(p, "utf8"), scope.verificationOnly, root, relPath, diags);
+        }
+      }
+    };
+    walk(scope.dir, scope.relPrefix);
   }
 };
 
@@ -214,7 +291,7 @@ const runRules = (root: string): Diag[] => {
   const diags: Diag[] = [];
   const rel = (p: string): string => posix(p.slice(root.length + 1));
 
-  checkDecisionRefs(root, diags);
+  checkDocPathRefs(root, diags);
   checkOrphanDirs(root, diags);
 
   const files = collectSrcFiles(root, cfg);
@@ -297,6 +374,13 @@ const runSelfTest = (): void => {
     join(dirty, "docs/decisions/001-x.md"),
     "- Verification: `packages/a/src/nope.ts`\n",
   );
+  // Rule 6 expanded scopes — a skill cite, a docs/ai cite, and a wrapped
+  // (whitespace-normalized) cite all must fire doc-ref:dangling.
+  writeFixture(join(dirty, ".agents/skills/z/SKILL.md"), "- Requires: `packages/a/src/nope.ts`\n");
+  writeFixture(join(dirty, "docs/ai/scratch.md"), "- Uses: `scripts/nope.ts`\n");
+  writeFixture(join(dirty, "docs/ai/wrapped.md"), "path `packages/a/src/\nwrap.ts` missing\n");
+  // Glob tokens are skipped by design (they are not paths).
+  writeFixture(join(dirty, "docs/ai/globs.md"), "covers `packages/*/test` and `docs/*.md`\n");
 
   const dirtyDiags = runRules(dirty);
   const got = new Set(dirtyDiags.map((d) => d.rule));
@@ -308,8 +392,14 @@ const runSelfTest = (): void => {
     "duplicate-file",
     "missing-fileoverview",
     "orphan-gen-dir",
-    "decision-ref:dangling",
+    "doc-ref:dangling",
   ]);
+  const danglingCount = dirtyDiags.filter((d) => d.rule === "doc-ref:dangling").length;
+  if (danglingCount < 4) {
+    console.error(`self-test FAIL — expected ≥4 doc-ref:dangling, got ${danglingCount}`);
+    rmSync(base, { recursive: true, force: true });
+    process.exit(1);
+  }
   const missing = [...want].filter((w) => !got.has(w));
   if (missing.length > 0) {
     console.error(`self-test FAIL — dirty tree did not fire: ${missing.join(", ")}`);
@@ -330,6 +420,11 @@ const runSelfTest = (): void => {
     "/** @fileoverview clean big fixture. */\n".concat(pad(417, "export const bigOk = 1;\n")),
   );
   writeFixture(join(clean, "docs/decisions/001-x.md"), "- Verification: `packages/a/src/ok.ts`\n");
+  writeFixture(join(clean, ".agents/skills/z/SKILL.md"), "- Uses: `packages/a/src/ok.ts`\n");
+  writeFixture(
+    join(clean, "docs/ai/ok.md"),
+    "- Uses: `packages/a/src/ok.ts`\ncovers `packages/*/test` and `docs/*.md`\npath `packages/a/src/\nok.ts`\n",
+  );
 
   const cleanDiags = runRules(clean);
   if (cleanDiags.length > 0) {
