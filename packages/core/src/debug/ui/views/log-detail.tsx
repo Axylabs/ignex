@@ -1,14 +1,21 @@
 /**
- * @fileoverview Log detail view — one full record with request correlation.
+ * @fileoverview Log detail view — `PageHeader` (back + `LevelBadge` + request
+ * correlation action) over Record / Message / Structured-fields cards. The
+ * record fetch and the not-found path are unchanged; only the presentation
+ * moved onto the page primitives.
  */
 
 import { type Component, createSignal, type JSX, Match, Switch } from "solid-js";
 
 import { getLogDetail } from "../api";
-import { EmptyState, Kvs, LevelPill, Panel } from "../components/widgets";
-import { kindColor, timeHM } from "../format";
+import { LevelBadge } from "../components/badge";
+import { Button } from "../components/button";
+import { Card } from "../components/card";
+import { Kvs } from "../components/kvs";
+import { PageHeader } from "../components/page";
+import { EmptyState, ErrorState, LoadingState } from "../components/states";
+import { timeHM } from "../format";
 import { currentRoute, navigate } from "../router";
-import { copyAttr } from "./copy-attr";
 
 /** The log-detail surface for the id in the current route. */
 export const LogDetailView: Component = () => {
@@ -39,27 +46,24 @@ export const LogDetailView: Component = () => {
     <Switch>
       <Match when={record()} keyed>
         {(r): JSX.Element => (
-          <>
-            <div class="summary">
-              <button type="button" class="ghost mini" onClick={(): void => navigate("logs")}>
-                ← back to logs
-              </button>
-              <LevelPill level={r.level} />
-              <span class="pill kind" style={{ "--kc": kindColor("lifecycle") }}>
-                {r.source}
-              </span>
-              <span class="meta">{`#${String(r.id)} · ${timeHM(r.ts)}`}</span>
-              {r.traceId !== null ? (
-                <button
-                  type="button"
-                  class="primary mini"
-                  onClick={(): void => navigate("detail", r.traceId ?? "", "waterfall")}
-                >
-                  open request ↗
-                </button>
-              ) : null}
-            </div>
-            <Panel title="Record">
+          <div class="flex flex-col gap-4">
+            <PageHeader
+              back={(): void => navigate("logs")}
+              title={`Log #${String(r.id)}`}
+              badge={<LevelBadge level={r.level} />}
+              description={`${r.source} · ${timeHM(r.ts)}`}
+              actions={
+                r.traceId !== null ? (
+                  <Button
+                    variant="primary"
+                    icon="arrow-right"
+                    label="Open request"
+                    onClick={(): void => navigate("detail", r.traceId ?? "", "waterfall")}
+                  />
+                ) : undefined
+              }
+            />
+            <Card title="Record">
               <Kvs
                 rows={(
                   [
@@ -73,59 +77,48 @@ export const LogDetailView: Component = () => {
                   ] as Array<[string, string]>
                 ).map(([key, value]) => ({ k: key, v: value }))}
               />
-            </Panel>
-            <Panel title="Message">
-              <pre class="stack whitespace-pre-wrap">{r.message}</pre>
-            </Panel>
+            </Card>
+            <Card title="Message">
+              <pre class="body">{r.message}</pre>
+            </Card>
             {r.attrs !== null && r.attrs !== undefined && Object.keys(r.attrs).length > 0 ? (
-              <Panel
+              <Card
                 title="Structured fields"
-                headExtra={
-                  <button
-                    type="button"
-                    class="ghost mini"
-                    {...copyAttr(JSON.stringify(r.attrs, null, 2))}
-                  >
-                    copy
-                  </button>
+                actions={
+                  <Button
+                    size="sm"
+                    icon="copy"
+                    label="Copy"
+                    dataCopy={JSON.stringify(r.attrs, null, 2)}
+                  />
                 }
               >
-                <pre class="stack">{JSON.stringify(r.attrs, null, 2)}</pre>
-              </Panel>
+                <pre class="mini">{JSON.stringify(r.attrs, null, 2)}</pre>
+              </Card>
             ) : null}
             {r.traceId === null ? (
-              <Panel>
+              <Card>
                 <EmptyState
-                  glyph="🔗"
+                  icon="external-link"
                   message="No request correlation."
                   hint="The line was emitted outside any traced request — only records written inside a request carry its trace id."
                 />
-              </Panel>
+              </Card>
             ) : null}
-          </>
+          </div>
         )}
       </Match>
       <Match when={loadError()} keyed>
         {(msg): JSX.Element => (
-          <>
-            <div class="summary">
-              <button type="button" class="ghost mini" onClick={(): void => navigate("logs")}>
-                ← back to logs
-              </button>
-            </div>
-            <Panel>
-              <EmptyState
-                glyph="🗒"
-                message={msg}
-                hint="Live-ring records rotate out as new lines arrive."
-              />
-            </Panel>
-          </>
+          <div class="flex flex-col gap-4">
+            <PageHeader back={(): void => navigate("logs")} title="Log record" />
+            <ErrorState message={msg} hint="Live-ring records rotate out as new lines arrive." />
+          </div>
         )}
       </Match>
       {/* Loading: record + error both still pending. */}
       <Match when={true}>
-        <div class="panel skeleton h-[120px]" />
+        <LoadingState rows={4} />
       </Match>
     </Switch>
   );
