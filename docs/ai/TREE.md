@@ -1121,11 +1121,6 @@ docs/
 │  ├─ 010-compose-over-classes.md
 │  ├─ 011-castrum-bridge-only.md
 │  └─ 012-offthread-consumers.md
-├─ superpowers/
-│  ├─ plans/
-│  │  └─ 2026-09-20-docs-hub-debugger-docs.md
-│  └─ specs/
-│     └─ 2026-09-20-docs-hub-debugger-docs-design.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md
