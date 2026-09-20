@@ -808,7 +808,7 @@ git commit -m "refactor(debug-ui): migrate <View> to primitives"
 
 **Files:** Modify `packages/core/test/debugbar-dashboard-runtime.test.ts`.
 
-- [ ] **Step 1:** After the existing view-shortcut loop, navigate to each of the 15 views and assert `document.querySelector("main h1")` text is non-empty; assert `document.body.textContent` contains no character from the old emoji set (`/[⚡◐⏸▶↻✕⚠✔✖🗄📄📚📈🗺📦⚙🧘🔌🔍🔗🗒]/u`).
+- [ ] **Step 1:** After the existing view-shortcut loop, navigate to each of the 15 views (INCLUDING `routes` and `clients`, whose registry `key` is `""` and which the digit loop never mounts) and assert `document.querySelector("main h1")` text is non-empty; assert `document.body.textContent` contains no character from the old emoji set (`/[⚡◐⏸▶↻✕⚠✔✖🗄📄📚📈🗺📦⚙🧘🔌🔍🔗🗒]/u`). Also change the `apiPayload` stubs for `/api/jobs` and `/api/events` from `{ enabled: false }` to enabled payloads containing one sample row (and give `/api/clients` one sample client) so the migrated `StatRow`/`DataTable`/composer bodies actually execute. This closes the coverage gap recorded for T11–13 (Routes) and T14–16 (Jobs/Events/Clients).
 - [ ] **Step 2:** Add a source-scan test to `packages/core/test/debug-ui-tokens.test.ts`: walk `src/debug/ui` recursively (`readdirSync(dir, { recursive: true })` from `node:fs`) and assert no `.ts`/`.tsx` matches `/text-\[/` (arbitrary typography) or `/\[#[0-9a-fA-F]{3,8}\]/` (arbitrary color). Arbitrary layout dimensions (grid templates, max-widths, fixed chart heights) stay allowed.
 - [ ] **Step 3:** Run `bunx vitest run packages/core/test/debugbar-dashboard-runtime.test.ts packages/core/test/debug-ui-tokens.test.ts` — PASS.
 - [ ] **Step 4:** Commit.
