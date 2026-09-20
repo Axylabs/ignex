@@ -25,6 +25,7 @@ exists, extend it — never start a parallel doc.
 | `docs/compatibility.md` | Compatibility with nova / ninox / castrum | Users, Contributors | stable |
 | `docs/sdk.md` | SDK generation and distribution | Users, Contributors | stable |
 | `docs/debugbar.md` | Debugbar + observatory (dashboard, driver protocol, Docs panel) | Users, Contributors | evolving |
+| `docs/debugbar-ui.md` | Debugbar UI design system & style guide (tokens, components, a11y) | Contributors | evolving |
 | `docs/drivers.md` | DB drivers (sqlite / mongo / drizzle) | Users | stable |
 | `docs/deployment.md` | Deployment (Bun binary, Docker, proxies) | Users | stable |
 | `docs/getting-started.md` | First-run tutorial | Users | stable |
