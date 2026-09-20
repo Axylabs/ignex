@@ -2,39 +2,23 @@
  * @fileoverview Command-palette pure-logic tests.
  *
  * The view registry is a Solid `.tsx` module that cannot be transformed under
- * the repo's `jsx: "preserve"` test config, so it is stubbed here with the 15
- * real view ids/labels so `buildCommands` can be exercised.
+ * the repo's `jsx: "preserve"` test config, so it is stubbed from the parsed
+ * registry source (see `helpers/debug-ui-registry.ts`).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildCommands, type Command, filterCommands, fuzzyScore } from "../src/debug/ui/palette";
 
-vi.mock("../src/debug/ui/views/registry", () => {
-  const view = (id: string, label: string) => ({
-    id,
-    label,
-    key: "",
-    domain: null,
-    component: () => null,
-  });
+vi.mock("../src/debug/ui/views/registry", async () => {
+  const { registryViews } = await import("./helpers/debug-ui-registry");
   return {
-    VIEWS: [
-      view("requests", "Requests"),
-      view("errors", "Errors"),
-      view("logs", "Logs"),
-      view("history", "History"),
-      view("metrics", "Metrics"),
-      view("diagnostics", "Diagnostics"),
-      view("system", "System"),
-      view("state", "State"),
-      view("jobs", "Jobs"),
-      view("events", "Events"),
-      view("routes", "Routes"),
-      view("clients", "Clients"),
-      view("ai", "AI"),
-      view("kt", "KT"),
-      view("docs", "Docs"),
-    ],
+    VIEWS: registryViews().map(({ id, label }) => ({
+      id,
+      label,
+      key: "",
+      domain: null,
+      component: () => null,
+    })),
   };
 });
 
@@ -107,15 +91,23 @@ describe("buildCommands", () => {
 
   it("builds 15 view commands in sidebar order", () => {
     const views = buildCommands(deps()).filter((cmd) => cmd.group === "Views");
-    expect(views).toHaveLength(15);
-    expect(views.slice(0, 5).map((cmd) => cmd.label)).toEqual([
+    expect(views.map((cmd) => cmd.label)).toEqual([
       "Requests",
       "Errors",
       "Logs",
       "History",
       "Routes",
+      "Metrics",
+      "System",
+      "Diagnostics",
+      "State",
+      "Jobs",
+      "Events",
+      "Clients",
+      "KT",
+      "Docs",
+      "AI",
     ]);
-    expect(views.at(-1)?.label).toBe("AI");
   });
 
   it("builds the action and go-to groups", () => {

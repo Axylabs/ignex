@@ -1,9 +1,18 @@
 /**
  * @fileoverview Theme resolution — stored choice wins, else OS preference.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { resolveInitialTheme } from "../src/debug/ui/theme";
+
+// Node exposes an experimental `localStorage` getter that warns on first
+// access; replace it with a quiet stub before `theme.ts` seeds its signal.
+vi.hoisted(() => {
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  });
+});
 
 describe("resolveInitialTheme", () => {
   it("honours a stored choice over the OS", () => {

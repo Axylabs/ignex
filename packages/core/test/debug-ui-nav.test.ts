@@ -8,33 +8,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { iconForView, NAV_GROUPS, navGroups } from "../src/debug/ui/nav";
+import { buildCommands } from "../src/debug/ui/palette";
+import { registryViews } from "./helpers/debug-ui-registry";
 
-vi.mock("../src/debug/ui/views/registry", () => {
-  const view = (id: string, label: string) => ({
-    id,
-    label,
-    key: "",
-    domain: null,
-    component: () => null,
-  });
+vi.mock("../src/debug/ui/views/registry", async () => {
+  const { registryViews: parse } = await import("./helpers/debug-ui-registry");
   return {
-    VIEWS: [
-      view("requests", "Requests"),
-      view("errors", "Errors"),
-      view("logs", "Logs"),
-      view("history", "History"),
-      view("metrics", "Metrics"),
-      view("diagnostics", "Diagnostics"),
-      view("system", "System"),
-      view("state", "State"),
-      view("jobs", "Jobs"),
-      view("events", "Events"),
-      view("routes", "Routes"),
-      view("clients", "Clients"),
-      view("ai", "AI"),
-      view("kt", "KT"),
-      view("docs", "Docs"),
-    ],
+    VIEWS: parse().map(({ id, label }) => ({
+      id,
+      label,
+      key: "",
+      domain: null,
+      component: () => null,
+    })),
   };
 });
 
@@ -153,5 +139,26 @@ describe("iconForView", () => {
 
   it("falls back for an unknown view id", () => {
     expect(iconForView("nope")).toBe("list");
+  });
+});
+
+describe("registry drift guard", () => {
+  it("covers exactly the registry's views and matches buildCommands order", () => {
+    const registryIds = registryViews().map((view) => view.id);
+
+    const navIds = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
+    expect(navIds).toHaveLength(registryIds.length);
+    expect(new Set(navIds)).toEqual(new Set(registryIds));
+
+    const deps = {
+      navigate: () => {},
+      toggleTheme: () => {},
+      refresh: () => {},
+      togglePause: () => {},
+    };
+    const viewCommands = buildCommands(deps)
+      .filter((cmd) => cmd.group === "Views")
+      .map((cmd) => cmd.id);
+    expect(viewCommands).toEqual(navIds.map((id) => `view:${id}`));
   });
 });
