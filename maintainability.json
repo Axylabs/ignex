@@ -70,10 +70,6 @@
       "lines": 510,
       "rationale": "CLI event command — Tier E"
     },
-    "packages/native/src/ffi/bind.ts": {
-      "lines": 482,
-      "rationale": "ffi bind layer — Tier A loose end from ffi split"
-    },
     "packages/compiler/src/utils/ast/handler.ts": {
       "lines": 480,
       "rationale": "AST handler utils — Tier D"
