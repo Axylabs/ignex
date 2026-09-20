@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readDoc } from "../src/debug/docs";
 import { listAllDocs, scanDocsInventory } from "../src/debug/kt";
 
 let dir: string;
@@ -51,5 +52,25 @@ describe("docs inventory", () => {
       { path: "docs/a.md", title: "a.md" },
       { path: "docs/b.md", title: "b.md" },
     ]);
+  });
+});
+
+describe("readDoc — one doc, confined to the inventory", () => {
+  it("reads a listed doc with title, markdown and sanitized-or-null html", async () => {
+    const doc = await readDoc(dir, ["docs"], "docs/a.md");
+    expect(doc).not.toBeNull();
+    expect(doc?.path).toBe("docs/a.md");
+    expect(doc?.title).toBe("a.md");
+    expect(doc?.markdown).toBe("# a.md\n");
+    // No Bun global in vitest → server render unavailable → client fallback.
+    expect(doc?.html).toBeNull();
+  });
+
+  it("returns null for traversal and unlisted paths (never reads outside)", async () => {
+    expect(await readDoc(dir, ["docs"], "docs/nope.md")).toBeNull();
+    expect(await readDoc(dir, ["docs"], "../secret.md")).toBeNull();
+    expect(await readDoc(dir, ["docs"], "docs/../a.md")).toBeNull();
+    expect(await readDoc(dir, ["docs"], "/etc/passwd")).toBeNull();
+    expect(await readDoc(dir, ["docs"], "C:\\Windows\\x.md")).toBeNull();
   });
 });

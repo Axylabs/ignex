@@ -88,6 +88,15 @@ export interface KnowledgeDoc {
   readonly title: string;
 }
 
+/** One doc served by the Debugbar Docs panel (`GET /api/docs?path=`). */
+export interface DocPayload {
+  readonly path: string;
+  readonly title: string;
+  readonly markdown: string;
+  /** Sanitized server-rendered HTML; null when the renderer is unavailable. */
+  readonly html: string | null;
+}
+
 /** Aggregated DB activity for one normalized SQL pattern. */
 export interface KnowledgeDbAction {
   /** Leading SQL keyword uppercased (`SELECT`, `INSERT`, …). */
