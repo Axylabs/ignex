@@ -42,6 +42,12 @@ interface DataTableProps<T> {
   align?: number[] | undefined;
   /** Row key of the selected row; emits `data-selected="true"` on its `<tr>`. */
   selectedKey?: string | undefined;
+  /**
+   * Optional per-row class hook; the returned value is appended to the row's
+   * class list (e.g. `"row-fresh"` for a newly arrived row). Called once per
+   * rendered row, so it may record the row in a seen-set.
+   */
+  rowClass?: ((row: T) => string | undefined) | undefined;
   /** Accessible name for the table. */
   label: string;
 }
@@ -62,6 +68,10 @@ export const DataTable = <T,>(props: DataTableProps<T>): JSX.Element => {
     `border-b border-line/60 focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2${
       props.onRowClick !== undefined ? " cursor-pointer hover:bg-surface-2" : ""
     } data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]`;
+  const rowClassFor = (row: T): string => {
+    const extra = props.rowClass?.(row);
+    return extra !== undefined && extra !== "" ? `${rowClass()} ${extra}` : rowClass();
+  };
   return (
     <div class="overflow-auto">
       <table class="w-full border-collapse text-sm" aria-label={props.label}>
@@ -107,7 +117,7 @@ export const DataTable = <T,>(props: DataTableProps<T>): JSX.Element => {
                       : undefined
                   }
                   tabindex={props.onRowClick !== undefined ? 0 : undefined}
-                  class={rowClass()}
+                  class={rowClassFor(row)}
                   onClick={
                     props.onRowClick !== undefined ? () => props.onRowClick?.(row) : undefined
                   }

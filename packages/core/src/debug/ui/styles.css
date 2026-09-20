@@ -117,3 +117,32 @@ html[data-theme="light"] {
   --cat-7: #64707e;
   --cat-8: #c9271b;
 }
+
+/*
+ * Fresh-row flash — a newly arrived trace row highlights once so the live tail
+ * is visible. Kept as irreducible custom CSS (one keyframe set + one helper
+ * class); the `prefers-reduced-motion` guard below suppresses it.
+ */
+@keyframes row-in {
+  from {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.row-fresh {
+  animation: row-in 1.6s ease-out;
+}
+
+/* Honor the OS reduced-motion preference: no transitions or animations run. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  :before,
+  :after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

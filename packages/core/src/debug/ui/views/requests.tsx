@@ -180,9 +180,8 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
   const rowCells = (row: TraceSummary): JSX.Element[] => {
     const barColor =
       row.status >= 500 ? "var(--err)" : row.status >= 400 ? "var(--warn)" : undefined;
-    const fresh = isFresh(row.id);
     return [
-      <span class={`text-muted${fresh ? " fresh" : ""}`} title={timeHM(row.ts)}>
+      <span class="text-muted" title={timeHM(row.ts)}>
         {timeAgo(row.ts)}
       </span>,
       <MethodBadge method={row.method} />,
@@ -307,6 +306,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
           rows={rowsList()}
           rowKey={(row): string => row.id}
           render={rowCells}
+          rowClass={(row): string | undefined => (isFresh(row.id) ? "row-fresh" : undefined)}
           align={[4, 5, 6]}
           onRowClick={(row): void => navigate("detail", row.id)}
           loading={!loaded() && rowsList().length === 0}
