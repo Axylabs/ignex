@@ -171,7 +171,9 @@ breadcrumb) · `Toolbar` · `Card` + `Panel` · `Stat` / `StatRow` · `DataTable
 `Markdown` · `Icon`.
 
 **Normative rule (the style guide's core):** utilities for layout only;
-components for appearance; tokens for color; zero arbitrary `[px]` values.
+components for appearance; tokens for color; arbitrary values only for layout
+dimensions (grid templates, max-widths, fixed chart heights), never for
+typography or color.
 
 Deleted one-offs (folded into primitives): `.client-card`, `.verdict`,
 `.summary`, `.kt-area`, `.kt-row`, `.prom-url`, `.f-head`, `.f-title`,
