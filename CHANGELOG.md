@@ -58,6 +58,11 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `GET /api/docs`: the repository's docs rendered inside the debugbar via the
   KT docs scan (reads confined to the inventory, sanitized HTML). The
   reference app scans the framework docs (`docsPaths`).
+- **`bun run dev:debug`** — runs the reference app in the debug-shaped build
+  (`packages/app/builder.ts --debug` → `packages/app/dist-dev/`, with
+  `production: false` and `DEBUG=true`) so the debugbar mounts; the production
+  `dev`/`build` scripts are unchanged and still eliminate it. `docs/debugbar.md`
+  now points at this script instead of the misleading `DEBUG=true bun run dev`.
 - **Opt-in off-thread async consumers for password verify and gzip.**
   `@ignex/native` now exposes `verifyPasswordAsync` and `gzipCompressAsync` over
   a process-wide SHARED task runtime (`createTaskRuntime`, created once and
