@@ -16,7 +16,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
    wrong `IGNEX_NATIVE_PATH`, `IGNEX_NATIVE=off`, or failed bind-time self-test
    all degrade to `null` and pure-TS fallbacks. The ONLY deliberate exception:
    `IGNEX_FFI_MODE=ffi` (forced) throws on bind/self-test failure — that is
-   intentional "fail loudly", documented in `packages/native/src/ffi.ts`. Do not
+   intentional "fail loudly", documented in `packages/native/src/ffi/`. Do not
    add other import-time throws.
 2. **The compiler cache self-heals.** Corrupt, truncated, version-mismatched or
    tampered cache files are detected and treated as a cache miss (full rebuild)
@@ -41,7 +41,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 
 ### 🔴 Native FFI: Rust panic across the `bun:ffi` C-ABI boundary = process abort
 
-- **Where:** `packages/native/src/ffi.ts` (all C-ABI surfaces — scalar ops,
+- **Where:** `packages/native/src/ffi/` (all C-ABI surfaces — scalar ops,
   `getFfiRoute`/`getFfiInstances`/`getFfiIngress`).
 - **Why:** A Rust panic unwinding across a raw C boundary is undefined behavior
   → SIGABRT host crash. JS `try/catch` cannot see it. The NAPI path is protected
@@ -335,11 +335,14 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     three largest `@ignex/core` files — `lifecycle.ts` (→ barrel + `app-factory.ts`
     / `serve.ts`), `http/context.ts` (→ `http/context/{api,helpers,impl,types}.ts`),
     `lifecycle/plugin.ts` (→ `lifecycle/plugin/{composition,lifecycle-bridge,
-    registry,types}.ts`) — as move-only changes with barrel re-exports. The rest
-    of the >400-line set is still to be worked through, highest-value first:
-    `native/src/ffi.ts` (1268) and `native/src/ingress.ts` (1074) — split by
-    C-ABI surface vs. loader/self-test, gated by `check:native:surface` and
-    `smoke:fallback` — then `native/src/metrics.ts` / `crypto.ts`,
+    registry,types}.ts`) — as move-only changes with barrel re-exports. The two
+    largest `@ignex/native` files followed the same treatment: `native/src/ffi.ts`
+    (1268 → `ffi/{types,helpers,self-test,bind,routes,instances,metrics,ingress,
+    index}.ts`) and `native/src/ingress.ts` (1074 → `ingress/{layout,constants,
+    errors,headers,verdict,terminal,factory,router,index}.ts`), each move-only,
+    gated by `check:native:surface` + `smoke:fallback`. The rest of the
+    >400-line set is still to be worked through, highest-value first:
+    `native/src/metrics.ts` / `crypto.ts`,
     `core/src/debug/types.ts`, `core/src/http/router.ts`, `compiler/src/sdk/*`,
     and the `core/src/index.ts` barrel. Each split stays move-only: identical
     behaviour, barrel re-exports, package suite + `verify:quick` + `check:dead`.

@@ -226,12 +226,12 @@ Verified against Bun 1.4.2 (`bun:ffi` docs), measured where measurable:
 
 ## 6. Where things live
 
-* **ignex FFI layer**: `packages/native/src/ffi.ts` (bindings), `ffi-read.ts`
+* **ignex FFI layer**: `packages/native/src/ffi/` (bindings), `ffi-read.ts`
   (fast reads), `packed.ts` (wire decode), `scratch.ts` (buffer pool),
   `route-wire.ts` + `route.ts` (route v3 wire), `selection.ts` (**single source
   of truth** for which impl wins; `MEASURED_JS_WINS` holds the measured
   overrides) + `runtime.ts` `FFI_WINS` (**C-ABI-only** overrides — the second
-  place a decision can live), `ingress.ts` + `pipeline.ts` (pre-flight),
+  place a decision can live), `ingress/` + `pipeline.ts` (pre-flight),
   `telemetry.ts` (degradation reasons — check it before assuming "no addon").
 * **castrum Rust**: `rust/ingress/native_route.rs` (route wire v3),
   `rust/ffi/route.rs` (`castrum_route_*` C-ABI), `rust/ingress/{packed,api}.rs`,

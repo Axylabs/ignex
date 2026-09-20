@@ -516,6 +516,40 @@ packages/compiler/
 
 ```
 packages/core/
+├─ .gen-debug-ui-6jW2MD/
+│  ├─ components/
+│  │  ├─ detail-parts.js
+│  │  ├─ keyed.ts
+│  │  └─ widgets.js
+│  ├─ views/
+│  │  ├─ ai.tsx
+│  │  ├─ clients.tsx
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.js
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.js
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.tsx
 ├─ .gen-debug-ui-6WvBhF/
 │  ├─ components/
 │  │  ├─ detail-parts.tsx
@@ -1207,6 +1241,16 @@ packages/mcp/
 ```
 packages/native/
 ├─ src/
+│  ├─ ffi/
+│  │  ├─ bind.ts
+│  │  ├─ helpers.ts
+│  │  ├─ index.ts
+│  │  ├─ ingress.ts
+│  │  ├─ instances.ts
+│  │  ├─ metrics.ts
+│  │  ├─ routes.ts
+│  │  ├─ self-test.ts
+│  │  └─ types.ts
 │  ├─ http/
 │  │  ├─ conditional.ts
 │  │  ├─ cookie.ts
@@ -1219,6 +1263,16 @@ packages/native/
 │  │  ├─ pairs.ts
 │  │  ├─ query.ts
 │  │  └─ types.ts
+│  ├─ ingress/
+│  │  ├─ constants.ts
+│  │  ├─ errors.ts
+│  │  ├─ factory.ts
+│  │  ├─ headers.ts
+│  │  ├─ index.ts
+│  │  ├─ layout.ts
+│  │  ├─ router.ts
+│  │  ├─ terminal.ts
+│  │  └─ verdict.ts
 │  ├─ vendor/
 │  │  └─ castrum.d.ts
 │  ├─ batch.ts
@@ -1228,11 +1282,9 @@ packages/native/
 │  ├─ ed25519.ts
 │  ├─ execution.ts
 │  ├─ ffi-read.ts
-│  ├─ ffi.ts
 │  ├─ hash.ts
 │  ├─ index.ts
 │  ├─ ingress-binding.ts
-│  ├─ ingress.ts
 │  ├─ json.ts
 │  ├─ loader.ts
 │  ├─ memory.ts
