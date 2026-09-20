@@ -7,4 +7,4 @@
   lane.
 - Consequences: Layout drift between addon and JS is caught by the parity
   checks instead of surfacing in production.
-- Verification: `scripts/verify-native-ffi.ts`, `packages/native/src/route-wire.ts`
+- Verification: `scripts/verify-native-ffi.ts`, `packages/native/src/route-wire/`

@@ -91,10 +91,6 @@
       "lines": 450,
       "rationale": "linker phase — Tier D"
     },
-    "packages/native/src/route-wire.ts": {
-      "lines": 445,
-      "rationale": "route wire layouts (layout ownership D-004) — Tier A"
-    },
     "packages/core/src/lifecycle/run.ts": {
       "lines": 435,
       "rationale": "lifecycle run (wave-1 split byproduct) — Tier B"
