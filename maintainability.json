@@ -42,10 +42,6 @@
       "lines": 613,
       "rationale": "debug knowledge-tree engine — Tier C"
     },
-    "packages/core/src/index.ts": {
-      "lines": 607,
-      "rationale": "core barrel — split needs tree-shaking care — Tier B"
-    },
     "packages/mcp/src/server.ts": { "lines": 605, "rationale": "MCP server — Tier E" },
     "packages/core/src/plugins/debugbar.ts": {
       "lines": 584,

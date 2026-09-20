@@ -29,6 +29,7 @@ export const ROUTE_STAGE_TAG: Record<NativeRouteStage, number> = {
   validateBody: 4,
   requireJsonBody: 5,
 };
+/** Wire tag→stage map (indexed by wire tag; used by the descriptor codec). */
 const TAG_STAGE: readonly (NativeRouteStage | undefined)[] = [
   "parseQuery",
   "parseCookies",
@@ -38,5 +39,4 @@ const TAG_STAGE: readonly (NativeRouteStage | undefined)[] = [
   "requireJsonBody",
 ];
 
-/** Wire tag→stage map (shared by the descriptor codec). */
 export { TAG_STAGE };
