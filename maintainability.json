@@ -27,7 +27,7 @@
       "rationale": "CLI create command — Tier E"
     },
     "packages/core/src/debug/server/handlers/app-panels.ts": {
-      "lines": 637,
+      "lines": 658,
       "rationale": "debug server app-panels handler — Tier C"
     },
     "packages/core/src/debug/persist.ts": {
@@ -39,7 +39,7 @@
       "rationale": "CLI routes templates — Tier E"
     },
     "packages/core/src/debug/kt.ts": {
-      "lines": 613,
+      "lines": 619,
       "rationale": "debug knowledge-tree engine — Tier C"
     },
     "packages/mcp/src/server.ts": { "lines": 605, "rationale": "MCP server — Tier E" },

@@ -19,6 +19,9 @@
  *                    generated `TREE.md`) must exist (doc-rot guard). Glob
  *                    tokens (`packages/*`, `docs/*.md`) and cross-repo
  *                    references are skipped.
+ *   7. doc-hub  — every `docs/*.md` and `docs/ai/*.md` (except the hub
+ *                    `docs/README.md` and the generated `docs/ai/TREE.md`)
+ *                    must be listed in the `docs/README.md` doc map.
  *
  * Usage:
  *   bun scripts/check-maintainability.ts            # gate (exit 1 on violation)
@@ -212,6 +215,45 @@ const checkDocPathRefs = (root: string, diags: Diag[]): void => {
   }
 };
 
+/**
+ * Rule 7 (doc hub) — every `docs/*.md` and `docs/ai/*.md` (except the hub
+ * itself and the generated `TREE.md`) must be listed in the `docs/README.md`
+ * doc map (backticked path tokens). The map is the single source of truth; a
+ * doc nobody can find is a doc that rots.
+ */
+const checkDocsHub = (root: string, diags: Diag[]): void => {
+  const hubPath = join(root, "docs", "README.md");
+  let hub = "";
+  try {
+    hub = readFileSync(hubPath, "utf8");
+  } catch {
+    hub = ""; // no hub at all → every doc is missing
+  }
+  const listed = new Set<string>();
+  for (const token of docPathTokens(hub)) {
+    if (token.startsWith("docs/") && token.endsWith(".md")) listed.add(token);
+  }
+  const scopes: Array<{ dir: string; prefix: string }> = [
+    { dir: join(root, "docs"), prefix: "docs" },
+    { dir: join(root, "docs", "ai"), prefix: "docs/ai" },
+  ];
+  for (const scope of scopes) {
+    if (!existsSync(scope.dir)) continue;
+    for (const name of readdirSync(scope.dir)) {
+      if (!name.endsWith(".md")) continue;
+      const rel = `${scope.prefix}/${name}`;
+      if (rel === "docs/README.md" || rel === "docs/ai/TREE.md") continue;
+      if (!listed.has(rel)) {
+        diags.push({
+          path: rel,
+          rule: "doc-hub:missing",
+          detail: "not listed in docs/README.md doc map",
+        });
+      }
+    }
+  }
+};
+
 /** Rule 3 — no `.gen-debug-ui-*` build leftovers under `packages`. */
 const checkOrphanDirs = (root: string, diags: Diag[]): void => {
   const rel = (d: string): string => posix(d.slice(root.length + 1));
@@ -284,7 +326,7 @@ const checkFileRules = (
 
 /**
  * Run every rule against `root`; returns diagnostics (empty = pass).
- * Rules 6/3 run at the tree level; 1/2/5 per file; 4 across all files.
+ * Rules 6/7/3 run at the tree level; 1/2/5 per file; 4 across all files.
  */
 const runRules = (root: string): Diag[] => {
   const cfg = loadConfig(root);
@@ -292,6 +334,7 @@ const runRules = (root: string): Diag[] => {
   const rel = (p: string): string => posix(p.slice(root.length + 1));
 
   checkDocPathRefs(root, diags);
+  checkDocsHub(root, diags);
   checkOrphanDirs(root, diags);
 
   const files = collectSrcFiles(root, cfg);
@@ -381,6 +424,9 @@ const runSelfTest = (): void => {
   writeFixture(join(dirty, "docs/ai/wrapped.md"), "path `packages/a/src/\nwrap.ts` missing\n");
   // Glob tokens are skipped by design (they are not paths).
   writeFixture(join(dirty, "docs/ai/globs.md"), "covers `packages/*/test` and `docs/*.md`\n");
+  // Doc-hub rule — a hub that lists no docs means every doc is missing from
+  // the map (scratch/wrapped/globs must all fire doc-hub:missing).
+  writeFixture(join(dirty, "docs/README.md"), "# hub\n\n| Path | Topic |\n| --- | --- |\n");
 
   const dirtyDiags = runRules(dirty);
   const got = new Set(dirtyDiags.map((d) => d.rule));
@@ -393,6 +439,7 @@ const runSelfTest = (): void => {
     "missing-fileoverview",
     "orphan-gen-dir",
     "doc-ref:dangling",
+    "doc-hub:missing",
   ]);
   const danglingCount = dirtyDiags.filter((d) => d.rule === "doc-ref:dangling").length;
   if (danglingCount < 4) {
@@ -425,6 +472,11 @@ const runSelfTest = (): void => {
     join(clean, "docs/ai/ok.md"),
     "- Uses: `packages/a/src/ok.ts`\ncovers `packages/*/test` and `docs/*.md`\npath `packages/a/src/\nok.ts`\n",
   );
+  // The clean hub lists every clean doc — the doc-hub rule must stay quiet.
+  writeFixture(
+    join(clean, "docs/README.md"),
+    "# hub\n\n| Path | Topic |\n| --- | --- |\n| `docs/ai/ok.md` | ok |\n",
+  );
 
   const cleanDiags = runRules(clean);
   if (cleanDiags.length > 0) {
@@ -436,7 +488,7 @@ const runSelfTest = (): void => {
 
   rmSync(base, { recursive: true, force: true });
   console.log(
-    "check:maintainability self-test: PASS (all 8 rules fire on fixtures; clean tree is clean)",
+    "check:maintainability self-test: PASS (all 9 rules fire on fixtures; clean tree is clean)",
   );
 };
 
