@@ -19,7 +19,7 @@ of truth.
 | 304/412 conditional oddities | `packages/native/src/http/conditional.ts` ↔ `packages/core/src/http/conditional.ts` | `packages/native/test/http-property.test.ts` conditional suite |
 | C-ABI garbage value in a header match | D-003 `(ptr,len)` gotcha | `scripts/verify-native-ffi.ts` + `packages/native/test/wire-hardening.test.ts` |
 | `IGNEX_NATIVE=off` behavior mismatch | any native surface | `smoke:fallback`, `packages/native/test/selection.test.ts` |
-| SIGILL v3 guard trip | `packages/native/src/loader.ts` | `scripts/check-native-surface.ts` |
+| SIGILL v3 guard trip | `packages/native/src/loader/` (v3 CPU-detect in `paths.ts`) | `scripts/check-native-surface.ts` |
 | Cache serving stale output | `packages/compiler/src/cache.ts` | `scripts/check-cache-versions.ts` + cache self-heal tests |
 | Debugbar blank / missing panels | `packages/core/src/debug/*` | `check:debug-ui`, `gen:debug-ui --check` |
 

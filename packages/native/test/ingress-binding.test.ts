@@ -59,7 +59,7 @@ describe("shared castrum ingress binding", () => {
         "-e",
         `
       const { getFfiIngress } = await import('./packages/native/src/ffi/index.ts');
-      const { loadCastrumModule } = await import('./packages/native/src/loader.ts');
+      const { loadCastrumModule } = await import('./packages/native/src/loader/index.ts');
       const mod = await loadCastrumModule();
       const shared = mod.getIngressBinding();
       const actual = getFfiIngress();

@@ -15,7 +15,7 @@
  *   IGNEX_NATIVE_PATH=/path/to/castrum.*.node bun scripts/check-native-surface.ts
  */
 import { readFileSync } from "node:fs";
-import { getNative, loadCastrumModule } from "../packages/native/src/loader.ts";
+import { getNative, loadCastrumModule } from "../packages/native/src/loader";
 
 /**
  * Extract runtime-relevant exported names (functions/classes) from the stub.

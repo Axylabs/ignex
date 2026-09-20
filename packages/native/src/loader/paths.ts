@@ -1,55 +1,21 @@
 /**
- * @fileoverview Native addon loader — FIRST-CLASS Rust support.
+ * @fileoverview castrum package-location probing — the resolution ladder that
+ * finds the castrum package dir and its addon binary (override → own `file:`
+ * target → own node_modules symlink → workspace packages → upward
+ * `node_modules` walk → bun's global link store), plus the x86-64-v3 SIMD
+ * CPU-detect that picks the addon variant.
  *
- * Loads the castrum NAPI addon (.node binary) once, lazily, and NEVER throws:
- * when the addon is missing (or fails to load) we fall back to the pure-TS
- * implementations, so ignex works everywhere and native is purely an
- * acceleration layer.
- *
- * Why not `import("castrum")`? The bare specifier is mapped by the root
- * tsconfig `paths` to `./vendor/castrum.d.ts` (a type-only stub), and Bun
- * honors tsconfig `paths` at runtime — so a bare import would resolve to an
- * empty module. Instead we locate the castrum package directory via
- * `@ignex/native`'s own `node_modules` symlink (or the `file:` target from our
- * package.json) and load the addon BINARY directly. Node-API modules must be
- * loaded with `require`/`process.dlopen`, not ESM `import`.
- *
- * Resolution order:
- *   1. `IGNEX_NATIVE_PATH` — explicit override (.node path or module specifier).
- *   2. The castrum package's `*.node` binary (scanned in the package root,
- *      then `dist/`).
- *   3. The castrum package entry (index.ts under Bun / dist/index.js) via an
- *      absolute path, normalized as `default ?? rust ?? module` — covers
- *      setups where only the TS entry is present.
+ * Extracted from the pre-split `loader.ts` (move-only); `findCastrumDir`,
+ * `findAddonPath` and `resolveCastrumEntryPath` are the public entry points
+ * for the loader and the TS-integration fallback.
  */
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { reportDegradation } from "./telemetry";
-import type * as Castrum from "./vendor/castrum";
+import { fileURLToPath } from "node:url";
 
-/** The typed surface of the loaded addon. */
-export type NativeAddon = typeof Castrum;
-
-let native: NativeAddon | null = null;
-
-/** True when a module exposes the expected native function surface. */
-const isNativeSurface = (mod: unknown): mod is NativeAddon => {
-  const m = mod as Record<string, unknown>;
-  return (
-    typeof m === "object" &&
-    m !== null &&
-    typeof m.fnv1a64 === "function" &&
-    typeof m.crc32 === "function" &&
-    typeof m.jwtSign === "function"
-  );
-};
-
-// ── castrum package location ────────────────────────────────────
-
-const srcDir = dirname(fileURLToPath(import.meta.url)); // .../packages/native/src
-const pkgDir = dirname(srcDir); // .../packages/native
+const srcDir = dirname(fileURLToPath(import.meta.url)); // .../packages/native/src/loader
+const pkgDir = dirname(dirname(srcDir)); // .../packages/native
 
 /** Read our own package.json's castrum `file:` optionalDependency target. */
 const castrumFromOwnPackage = (): string | null => {
@@ -171,7 +137,7 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
  * 5. bun's global link store (`~/.bun/install/global/node_modules/castrum`)
  *    directly, for projects outside a linked tree.
  */
-const findCastrumDir = (): string | null =>
+export const findCastrumDir = (): string | null =>
   // When IGNEX_NATIVE_PATH points at a `.node` built from a local castrum
   // checkout, resolve that SAME checkout's package dir first — the TS
   // integration layer (createPipeline / MetricsRegistry …) must match the
@@ -208,7 +174,7 @@ const supportsX8664V3 = (): boolean => {
 };
 
 /** Find the addon binary (`*.node`) inside a castrum package directory. */
-const findAddonPath = (dir: string): string | null => {
+export const findAddonPath = (dir: string): string | null => {
   const scan = (d: string): string | null => {
     try {
       const files = readdirSync(d).filter((e) => e.endsWith(".node"));
@@ -228,7 +194,7 @@ const findAddonPath = (dir: string): string | null => {
 };
 
 /** Resolve the castrum package entry (index.ts / dist/index.js) by absolute path. */
-const resolveCastrumEntryPath = (dir: string): string | null => {
+export const resolveCastrumEntryPath = (dir: string): string | null => {
   try {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
       exports?: Record<string, unknown>;
@@ -267,179 +233,4 @@ const castrumFromOverride = (): string | null => {
     dir = parent;
   }
   return null;
-};
-
-/** Load a Node-API `.node` binary via require (required for napi modules). */
-const requireAddon = (nodePath: string): unknown => {
-  const require = createRequire(import.meta.url);
-  const mod = require(nodePath) as { default?: unknown };
-  return mod.default ?? mod;
-};
-
-/** Normalize an entry module into the flat native surface. */
-const normalize = (mod: unknown): unknown =>
-  (mod as { default?: unknown }).default ?? (mod as { rust?: unknown }).rust ?? mod;
-
-/**
- * One-time load-failure report. ALWAYS routed through the telemetry sink
- * (previously debug-gated — a broken addon install degraded every op to JS
- * with zero signal in production); `IGNEX_NATIVE=debug` additionally logs the
- * raw error detail.
- */
-let reportedLoadFailure = false;
-const reportLoadFailure = (err: unknown): void => {
-  if (reportedLoadFailure) return;
-  reportedLoadFailure = true;
-  reportDegradation(
-    "surface-missing",
-    "addon.load",
-    `castrum addon failed to load — all ops pinned to their pure-TS fallbacks${
-      process.env.IGNEX_NATIVE === "debug"
-        ? `: ${err instanceof Error ? err.message : String(err)}`
-        : ""
-    }`,
-  );
-  if (process.env.IGNEX_NATIVE === "debug") {
-    console.info("[ignex-native] failed to load addon:", err);
-  }
-};
-
-/** Resolved castrum `.node` binary path (or `null`). Cached for FFI/dlopen reuse. */
-let addonPath: string | null | undefined;
-
-/** Resolve + cache the `.node` binary path (or `null` when no binary exists). */
-const resolveAddonPathOnce = (): string | null => {
-  if (addonPath !== undefined) return addonPath;
-  const override = process.env.IGNEX_NATIVE_PATH;
-  if (override?.endsWith(".node")) {
-    addonPath = override;
-    return addonPath;
-  }
-  const dir = findCastrumDir();
-  addonPath = dir ? findAddonPath(dir) : null;
-  return addonPath;
-};
-
-const init = (async (): Promise<void> => {
-  // Master switch: `IGNEX_NATIVE=off` disables the addon even when installed
-  // (e.g. for parity debugging). Anything else (auto/unset) uses it when present.
-  if (process.env.IGNEX_NATIVE === "off") return;
-
-  try {
-    const override = process.env.IGNEX_NATIVE_PATH;
-
-    if (override) {
-      const mod = override.endsWith(".node") ? requireAddon(override) : await import(override);
-      native = isNativeSurface(normalize(mod)) ? (normalize(mod) as NativeAddon) : null;
-      return;
-    }
-
-    const nodePath = resolveAddonPathOnce();
-
-    if (nodePath) {
-      const mod = requireAddon(nodePath);
-      native = isNativeSurface(normalize(mod)) ? (normalize(mod) as NativeAddon) : null;
-    } else {
-      // No binary found — fall back to the castrum TS entry (absolute path).
-      const dir = findCastrumDir();
-      const entry = dir ? resolveCastrumEntryPath(dir) : null;
-      if (entry) {
-        const mod = await import(pathToFileURL(entry).href);
-        native = isNativeSurface(normalize(mod)) ? (normalize(mod) as NativeAddon) : null;
-      }
-    }
-  } catch (err) {
-    native = null;
-    reportLoadFailure(err);
-  }
-})();
-
-await init;
-
-/** The loaded addon (or `null` when unavailable). */
-export const getNative = (): NativeAddon | null => native;
-
-/**
- * The resolved castrum `.node` binary path (or `null` when unavailable).
- *
- * Shared with the C-ABI (`bun:ffi`) transport so it `dlopen`s the SAME addon
- * the NAPI loader `require`s — identical Rust cores, byte-identical contracts.
- */
-export const getAddonPath = (): string | null => resolveAddonPathOnce();
-
-/** True when the Rust addon is present and usable. */
-export const isNativeAvailable = (): boolean => native != null;
-
-/** Options for {@link initNative}. */
-export interface NativeInitOptions {
-  /**
-   * Rayon worker-pool size. Only honored before the pool's first use (castrum
-   * initializes on first batch op). Defaults to `max(1, cpus - 1)`.
-   */
-  threads?: number;
-}
-
-/** Result of {@link initNative}. */
-export interface NativeInitResult {
-  /** Whether the Rust addon is present and usable. */
-  readonly available: boolean;
-  /** Current rayon worker count after init (0 when unavailable / not yet used). */
-  readonly rayonThreads: number;
-}
-
-let nativeInitialized = false;
-
-/** Default rayon pool size: `max(1, hardwareConcurrency - 1)`. */
-const defaultThreads = (): number => {
-  const cpus =
-    typeof navigator !== "undefined" && "hardwareConcurrency" in navigator
-      ? navigator.hardwareConcurrency
-      : 0;
-  return Math.max(1, (cpus || 4) - 1);
-};
-
-/**
- * Eagerly initialize the Rust addon at boot — idempotent and NEVER throws.
- *
- * Pre-warms the rayon worker pool and forces the addon's initialization work
- * to happen during startup (load time) instead of lazily on the first request
- * (runtime). This is the explicit "sacrifice load time for runtime
- * performance" hook. Without the addon this is a harmless no-op.
- */
-export const initNative = (options: NativeInitOptions = {}): NativeInitResult => {
-  if (!native) return { available: false, rayonThreads: 0 };
-  try {
-    if (!nativeInitialized) {
-      nativeInitialized = true;
-      const initPool = native.initThreadPool;
-      if (typeof initPool === "function") {
-        initPool(options.threads ?? defaultThreads());
-      }
-    }
-    const count = native.rayonNumThreads;
-    return { available: true, rayonThreads: typeof count === "function" ? count() : 0 };
-  } catch {
-    return { available: false, rayonThreads: 0 };
-  }
-};
-
-/**
- * Load the full castrum module (TS entry) — needed for features that only
- * exist in the TS integration layer (e.g. `createPipeline`, the ingress
- * route-manager adapter). Resolved by absolute path to bypass the tsconfig
- * `paths` stub. Returns `null` when unavailable.
- */
-export const loadCastrumModule = async (): Promise<Record<string, unknown> | null> => {
-  const dir = findCastrumDir();
-  const entry = dir ? resolveCastrumEntryPath(dir) : null;
-  if (!entry) return null;
-  try {
-    const mod = await import(pathToFileURL(entry).href);
-    return (
-      (mod as { default?: Record<string, unknown> }).default ?? (mod as Record<string, unknown>)
-    );
-  } catch (err) {
-    reportLoadFailure(err);
-    return null;
-  }
 };
