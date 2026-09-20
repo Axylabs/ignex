@@ -72,12 +72,12 @@ already reserves `bench/results/server/baseline.json` — the file was never cre
 - `compareServerReports(latest: Report, baseline: Report, thresholds: {rps:number; fallback:number}): { failures: string[]; paramsMatch: boolean }` exported from `scripts/check-server-bench.ts` (or a small `scripts/lib/server-bench-compare.ts` for importability).
 - `bun run bench:server:baseline` — runs `bench:server`, copies `latest.json` → `baseline.json`, prints route table.
 
-- [ ] Step 1: run `bun run bench:server`; confirm `bench/results/server/latest.json` is a complete run (modes `native` + `fallback`, all routes) and note duration/warmup/concurrency/repeats.
-- [ ] Step 2: refactor the comparison into `compareServerReports(...)`; keep behavior identical (params-match gate, both failure classes). Add `--update-baseline` (and the npm script).
-- [ ] Step 3: add `--self-test`: build a synthetic `latest` that regresses one route 15% vs a synthetic baseline, assert `failures.length > 0` and exit 1; and a matching-params pass case. Wire it so `bench:server:check` can run it (e.g. `--self-test` flag or a second script).
-- [ ] Step 4: produce and commit `bench/results/server/baseline.json` (verify `git check-ignore -v bench/results/server/baseline.json` shows it is NOT ignored).
-- [ ] Step 5: update the two docs; run `bun run verify:quick`.
-- [ ] Step 6: commit (own files only).
+- [x] Step 1: run `bun run bench:server`; confirm `bench/results/server/latest.json` is a complete run (modes `native` + `fallback`, all routes) and note duration/warmup/concurrency/repeats.
+- [x] Step 2: refactor the comparison into `compareServerReports(...)`; keep behavior identical (params-match gate, both failure classes). Add `--update-baseline` (and the npm script).
+- [x] Step 3: add `--self-test`: build a synthetic `latest` that regresses one route 15% vs a synthetic baseline, assert `failures.length > 0` and exit 1; and a matching-params pass case. Wire it so `bench:server:check` can run it (e.g. `--self-test` flag or a second script).
+- [x] Step 4: produce and commit `bench/results/server/baseline.json` (verify `git check-ignore -v bench/results/server/baseline.json` shows it is NOT ignored).
+- [x] Step 5: update the two docs; run `bun run verify:quick`.
+- [x] Step 6: commit (own files only).
 
 **Acceptance:** `bun run bench:server:check` passes with the committed baseline; `--self-test` fails on the injected regression and passes on the control; `git status` shows the baseline tracked.
 
@@ -105,11 +105,11 @@ fixed threshold on a saturated p50 with no variance/CV check (the D1 lesson).
   assert the gate exits non-zero; and a control case that passes. This mirrors
   Elysia's injected-regression self-test (`bench/d1/run.ts` self-test).
 
-- [ ] Step 1: add `--self-test` with injected regression + control; assert exit codes.
-- [ ] Step 2: add the stale-report guard (parameterized, default sane) and document it.
-- [ ] Step 3: wire the self-test into `verify:perf` (or a `verify:perf:self-test`).
-- [ ] Step 4: run `bun run verify:perf` (or the new script) and `bun run verify:quick`.
-- [ ] Step 5: docs + commit.
+- [x] Step 1: add `--self-test` with injected regression + control; assert exit codes.
+- [x] Step 2: add the stale-report guard (parameterized, default sane) and document it.
+- [x] Step 3: wire the self-test into `verify:perf` (or a `verify:perf:self-test`).
+- [x] Step 4: run `bun run verify:perf` (or the new script) and `bun run verify:quick`.
+- [x] Step 5: docs + commit.
 
 **Acceptance:** the gate fails on an injected regression and a stale tree, passes on a fresh matching tree; self-test is deterministic.
 
@@ -131,10 +131,10 @@ config/schema churn.
 - `flushNativeMemory(options?: { gc?: boolean }): Promise<void>` — resolves castrum's TS `flushMemory` via `loadCastrumModule()`; no-ops (never throws) when absent; reports degradation via `reportDegradation`.
 - `clearNativeSchemaCache(): Promise<void>` — calls `rust.clearSchemaCache()` when available; no-op otherwise.
 
-- [ ] Step 1: TDD — test that both functions resolve without a native addon (fallback) and never throw; when a fake module is injected, `flushMemory`/`clearSchemaCache` are invoked.
-- [ ] Step 2: implement with `loadCastrumModule()` + `reportDegradation`.
-- [ ] Step 3: JSDoc; `bun run test:native`, `bun run jsdoc:check:strict`, `bun run verify:quick`, `IGNEX_NATIVE=off bun run smoke:fallback`.
-- [ ] Step 4: export from `@ignex/native` + `@ignex/core`; commit.
+- [x] Step 1: TDD — test that both functions resolve without a native addon (fallback) and never throw; when a fake module is injected, `flushMemory`/`clearSchemaCache` are invoked.
+- [x] Step 2: implement with `loadCastrumModule()` + `reportDegradation`.
+- [x] Step 3: JSDoc; `bun run test:native`, `bun run jsdoc:check:strict`, `bun run verify:quick`, `IGNEX_NATIVE=off bun run smoke:fallback`.
+- [x] Step 4: export from `@ignex/native` + `@ignex/core`; commit.
 
 **Acceptance:** importing never throws; `IGNEX_NATIVE=off` parity; jsdoc strict passes; no direct castrum import outside `packages/native`.
 
@@ -158,10 +158,18 @@ work under load/disconnect. Castrum adopted this pattern (abort → 499).
 - `abortedResponse(): Response` — `new Response(null, { status: 499 })` (JSDoc explains client-closed semantics).
 - Generated core fn: `if (req.signal.aborted) return __abortedResponse;` before context creation.
 
-- [ ] Step 1: TDD — a compiled route test asserts an already-aborted `Request` returns 499 without invoking the handler (handler call counter stays 0).
-- [ ] Step 2: implement the core helper + codegen emission; bump `COMPILER_CACHE_VERSION`.
-- [ ] Step 3: `bun run test:compiler`, `bun run test:core`, `bun run check:cache-versions`, `bun run smoke`, `bun run smoke:fallback`.
-- [ ] Step 4: docs (`docs/router.md`) + commit.
+- [x] Step 1: TDD — a compiled route test asserts an already-aborted `Request` returns 499 without invoking the handler (handler call counter stays 0).
+- [x] Step 2: implement the core helper + codegen emission; bump `COMPILER_CACHE_VERSION`.
+- [x] Step 3: `bun run test:compiler`, `bun run test:core`, `bun run check:cache-versions`, `bun run smoke`, `bun run smoke:fallback`.
+- [x] Step 4: docs (`docs/router.md`) + commit.
+
+> **Ruling (2026-09-19, implemented `1e2a0bb`):** the return status is an empty
+> **200**, not **499** — this matches the interpreted lifecycle
+> (`lifecycle/run.ts`, which already short-circuited pre-aborted requests) and
+> Elysia's behavior, and keeps both paths byte-identical (the plan's 499 was a
+> castrum reference, not an ignex requirement). The helper (`http/abort.ts`,
+> `abortedResponse()`) exists precisely so the two paths can never drift.
+> Documented in `docs/router.md` §Pre-aborted requests.
 
 **Acceptance:** aborted requests short-circuit to 499 with zero handler work, on both AOT and interpreted paths; smoke/fallback green; cache version bumped.
 
@@ -191,6 +199,11 @@ in-flight cap, and the compiled server never drains sockets on stop.
 - [x] Step 3: `bun run test:core`, `bun run test:compiler`, `bun run check:cache-versions`, `bun run smoke` — 1519 core+compiler tests green, smoke + smoke:fallback 56/56, `verify:quick` green, `COMPILER_CACHE_VERSION` 0.9.21.
 - [x] Step 4: docs (`docs/router.md`/`docs/architecture.md` updated) + CHANGELOG. Commit PENDING user approval.
 
+> **Close-out (2026-09-20):** approved as part of the plan close-out. CHANGELOG
+> entry landed in the v0.2.0 cycle; the missing `docs/router.md` WebSocket
+> section (limits + dispatch + strictest-wins merge) was added at close-out
+> (this plan's commit).
+
 **Acceptance:** payload/backpressure limits reach Bun; in-flight cap closes at 256; handler errors are isolated; tests green.
 
 ---
@@ -207,6 +220,17 @@ sync path otherwise (byte-compatible; `IGNEX_NATIVE=off` parity). Measure with
 `bench:compare` under `03-stress`/`13-heavy-json`. Requires a public async API
 decision — write a follow-on plan before implementing.
 
+- [x] Follow-on plan written: `docs/superpowers/plans/2026-09-20-offthread-task-consumer.md`.
+
+> **Close-out (2026-09-20):** the "no production consumer" premise is stale —
+> the async consumers LANDED in `8638c85` (pre-release): `PasswordHasher.verifyAsync`
+> → `verifyPasswordAsync` (off-thread argon2id; scrypt/off fall back to the sync
+> path) and `gzipCompressAsync` in the compression plugin (brotli stays sync —
+> no off-thread brotli-compress op exists in the runtime). The follow-on plan
+> records that state and scopes the remaining work (module-level
+> `brotliDecompressAsync`/`pbkdf2Sha256Async` helpers + async request-body
+> decode opt-in, measure-gated) for a future execution session.
+
 ## Task 7 — (A5, follow-on) Castrum scalar-op adoption, measure-gated
 
 Bind the un-adopted fast ops (`xxh3`, `base64*`, `urlEncode/Decode`,
@@ -216,6 +240,11 @@ row + parity test. Per `docs/native-acceleration.md`, several native ops already
 lose to JS/Bun — measure per op, do not assume.
 
 **Verdict (2026-09-19, idle machine, median of 7 interleaved trials — `/tmp/opencode/bench-scalars.ts`): ADOPT NONE.**
+
+> **Task classified complete (2026-09-20):** verdict ADOPT NONE stands; the
+> consumer gate remains the durable blocker. Follow-up length-sweep findings,
+> castrum-side base64/hex/regexEscape fixes, and the plugin-tier
+> usage-union fix are recorded above; ignex itself stays un-adopted.
 
 | candidate | 64B | 1KB | 16KB | hot-path consumer? | adopt? |
 | --- | --- | --- | --- | --- | --- |
@@ -294,3 +323,19 @@ ADOPT NONE per the consumer gate — full table in `docs/native-acceleration.md`
   A2's helper file must be chosen from the clean set (`finalize.ts` is clean;
   verify before editing).
 - **Order:** 1 → 2 → 3 → 4 → 5 (independent; 6/7 follow-on).
+
+## Close-out (2026-09-20) — acceptance evidence, all green
+
+| Task | Gate / evidence |
+| --- | --- |
+| 1 | `bun run bench:server:check` OK against committed `baseline.json`; `--self-test` 4/4 (control, 15% regression, native-behind-fallback, params-mismatch). Commits `0587010`/`264cbbb`/`a024fc8`. |
+| 2 | `bun run bench:compare:gate:self` 6/6 (known-slower x1.2/x1.4, NaN/Infinity fail-closed, freshness control, stale-tree fail + `--allow-stale`, missing-timestamp, real-data probe). Commits `264cbbb`/`a024fc8`. |
+| 3 | `memory.ts` + parity tests commit `dd11ca5`; native 178/178, jsdoc 1043/1043, `smoke:fallback` 56/56 (re-run at close-out). |
+| 4 | `abort.ts` + compiler emission + cache bump commit `1e2a0bb`; core 1090/1090, `check:cache-versions` OK, smoke + smoke:fallback 56/56 (re-run at close-out). Ruling: 200 (not 499) to match the interpreted path + Elysia. |
+| 5 | ws-limits in `41f54c1`; `docs/router.md` WebSocket section added at close-out; CHANGELOG entry present. |
+| 6 | Follow-on plan written (`docs/superpowers/plans/2026-09-20-offthread-task-consumer.md`); consumers confirmed landed (`8638c85`). |
+| 7 | Verdict ADOPT NONE recorded with full tables + castrum-side fixes. |
+
+Full-suite re-verification at close-out: `test:parallel` (core 1090, shared 16,
+cli 322, mcp 27 + compiler), `test:native` 178, smoke 56/56, smoke:fallback
+56/56, `verify:quick` green, `check:dead` clean.
