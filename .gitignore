@@ -42,6 +42,8 @@ project.txt
 node_modules/
 dist/
 packages/*/dist
+# Debug-shaped build for `bun run dev:debug` (packages/app/builder.ts --debug).
+packages/*/dist-dev
 
 # A/B build variants produced by the bench harness (dist-a, dist-abl, ...)
 # are build artifacts, not sources — they must never be linted or committed.

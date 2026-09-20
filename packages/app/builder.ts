@@ -8,20 +8,27 @@ const compile = args.includes("--compile");
 const binaryOutfileArg = args.indexOf("--binary-outfile");
 const binaryOutfile = binaryOutfileArg >= 0 ? args[binaryOutfileArg + 1] : undefined;
 
+// `--debug` builds the dashboard-enabled shape into `dist-dev/` so
+// `packages/app`'s `dev` script can run the debugbar locally. It also requires
+// `DEBUG=true` while building: `src/app.config.ts` only registers the
+// `debugbar()` plugin when `env.DEBUG` is set.
+const debug = args.includes("--debug");
+
 await buildAsync({
   routesDir: join(import.meta.dir, "src/routes"),
   hooksDir: join(import.meta.dir, "src/hooks"),
-  outDir: join(import.meta.dir, "dist"),
+  outDir: join(import.meta.dir, debug ? "dist-dev" : "dist"),
   outFile: "__server.js",
   target: "bun",
 
   optimizationLevel: 3,
-  minify: true,
+  minify: !debug,
   sourceMap: false,
 
   // Production shape: eliminates the devbar/tracing instrumentation and bakes
-  // `__IGNEX_PROD_BUILD` regardless of this process's NODE_ENV.
-  production: true,
+  // `__IGNEX_PROD_BUILD` regardless of this process's NODE_ENV. `--debug`
+  // keeps the instrumentation and the debugbar plugins for local development.
+  production: !debug,
 
   enableAccessLog: false,
 

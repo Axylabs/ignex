@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "DEBUG=true bun builder.ts --debug && DEBUG=true bun --watch dist-dev/__server.js",
     "build": "bun builder.ts",
     "compile": "bun builder.ts --compile",
     "smoke": "bun dist/__server.js",

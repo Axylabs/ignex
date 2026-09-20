@@ -40,6 +40,7 @@ live in `@ignex/core` (functional composition, no classes). Tests use
 | Lint / fix | `bun run lint` (oxlint + biome) / `bun run lint:fix` |
 | Dead-code scan | `bun run check:dead` (knip — unused files/exports/deps; config in `knip.json`; part of `verify`) |
 | Build + run app | `bun run build` → `bun run dev` / `bun run start` |
+| App dev server with debugbar | `bun run dev:debug` (debug-shaped build in `packages/app/dist-dev/`; production `dev`/`build` eliminate the debugbar) |
 | Smoke gates | `bun run smoke` (native) + `bun run smoke:fallback` (`IGNEX_NATIVE=off`) |
 | SDK generation | `bun run sdk` / `sdk:push` / `sdk:publish` / `sdk:release` |
 | Benchmarks | `bun run bench`, `bench:native`, `bench:ffi`, `bench:jwt*`, `bench:server*`, `bench:compare` |

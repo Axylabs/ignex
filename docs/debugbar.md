@@ -135,12 +135,17 @@ If the actual serving URL differs from the boot hint (custom hostname,
 `port: 0`, `https: false`), the exact URL is logged again on the first traced
 request.
 
-The example app opts in via its own `DEBUG` flag
-(`DEBUG=true` in the shell or `packages/app/.env`) for dev runs:
+The example app opts in via its own `DEBUG` flag. The production `dev`/`build`
+scripts build the production shape (the debugbar is eliminated by construction),
+so use the debug-shaped script instead — it builds the plugin-enabled bundle
+into `packages/app/dist-dev/` and runs it:
 
 ```sh
-DEBUG=true bun run dev     # example app → open /__debugbar
+bun run dev:debug           # example app → open /__debugbar
 ```
+
+(The script sets `DEBUG=true` for both the build and the server; that env value
+is what makes `src/app.config.ts` register the `debugbar()` plugin.)
 
 > **In production** (`NODE_ENV=production`) the plugin cannot boot unless you
 > explicitly set `IGNEX_DEBUG=1` in the process — an explicit
