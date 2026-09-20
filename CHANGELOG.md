@@ -47,6 +47,18 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Debugbar dashboard UI redesign** — the debugbar SPA
+  (`packages/core/src/debug/ui/`) now sits on a documented design system: a
+  token-first Tailwind stylesheet (`styles.css` — tokens + `@theme` only, built
+  with a scoped `source(none)` scan), shared primitives under `ui/components/`
+  and `ui/layout/`, an inline-SVG icon set (no emoji chrome), a grouped
+  collapsible sidebar, a `Cmd/Ctrl-K` command palette, a `PageHeader` on every
+  view, and an accessibility pass (contrast-checked tokens, ARIA tabs with
+  keyboard navigation, `role="img"` charts, landmarks and a skip link). The
+  contract is the new **`docs/debugbar-ui.md`** style guide, guarded by
+  `packages/core/test/debug-ui-tokens.test.ts`; the executed-bundle smoke now
+  mounts all 15 views and asserts a header and emoji-free chrome. Debug-shaped
+  only — no production behaviour or wire change.
 - **Docs hub** — `docs/README.md` is now the single entry point: a doc map
   with audience + maturity per document, reading paths per persona, artifact
   rules and the "adding a doc" governance; `check:maintainability` enforces
