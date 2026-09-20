@@ -1,6 +1,25 @@
 # Plan — Maintainability system Phase 1 (intern-maintainable ignex)
 
-Date: 2026-09-20 · Status: **proposed** · Spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved)
+Date: 2026-09-20 · Status: **approved** · Spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved)
+
+> **Execution amendments** (2026-09-20, recorded as T1–T3 landed):
+> 1. **Rule 5 threshold = 400, not 120** — user-approved. A measured gate at 120
+>    failed on 61 files (the codebase never adopted `@fileoverview` broadly), so
+>    `fileoverviewMinLines` == `maxLines` and only cap-size files require the
+>    tag. T1 tags the **11** cap-size files that lacked it (8 tag-prefixes on
+>    existing JSDoc blocks, 3 new top-of-file blocks).
+> 2. **Allowlist = 36 entries, not 35** — the gate counts lines as
+>    `split("\n").length`, so `core/src/http/ws.ts` (400 by `wc -l`, 401 by gate
+>    count) is the extra entry. Recorded counts use the gate's counter
+>    (reconciled via `--report`: all 36 match exactly).
+> 3. **T2 cleanup runs inside `buildArtifact`, immediately before its own
+>    `mkdtemp`** — same effect as a startup hook, with less indirection.
+> 4. **T3 swap is net-zero** — the emitted `// TODO:` line becomes a single
+>    guidance line, so the file's line count does not move (`templates/event.ts`
+>    is 292 lines, under cap anyway; `commands/event.ts` at 510 is untouched).
+> 5. **`docs/decisions/` Verification parsing bullets** — the gate's rule 6
+>    strips a leading `- ` bullet, matching the seed entries' `- Verification:`
+>    format (found by the self-test fixture).
 
 Implements Phase 1 of the approved maintainability design: the mechanical gate,
 the gen-debug-ui hygiene fix, the single TODO removal, the decisions registry +
