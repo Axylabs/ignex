@@ -1,5 +1,5 @@
 /**
- * Ignex MCP server — registers the agent-facing tools on an `McpServer`.
+ * @fileoverview Ignex MCP server — registers the agent-facing tools on an `McpServer`.
  */
 
 import { readFileSync } from "node:fs";

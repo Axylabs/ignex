@@ -1,5 +1,5 @@
 /**
- * Cryptography primitives for backend auth & security, backed by the Rust
+ * @fileoverview Cryptography primitives for backend auth & security, backed by the Rust
  * addon when available and falling back to byte-compatible pure-TS
  * implementations (Node `crypto` built-ins).
  *

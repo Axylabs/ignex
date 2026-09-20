@@ -1,5 +1,5 @@
 /**
- * Metrics registry — native-accelerated where available.
+ * @fileoverview Metrics registry — native-accelerated where available.
  *
  * Backed by castrum's sharded `MetricsRegistry` (counters / cumulative-bucket
  * histograms + a deterministic Prometheus render): every update crosses as

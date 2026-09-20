@@ -1,5 +1,5 @@
 /**
- * Native addon loader — FIRST-CLASS Rust support.
+ * @fileoverview Native addon loader — FIRST-CLASS Rust support.
  *
  * Loads the castrum NAPI addon (.node binary) once, lazily, and NEVER throws:
  * when the addon is missing (or fails to load) we fall back to the pure-TS

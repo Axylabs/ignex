@@ -1,5 +1,5 @@
 /**
- * Session management — signed-cookie (stateless) and store-backed sessions.
+ * @fileoverview Session management — signed-cookie (stateless) and store-backed sessions.
  *
  * `createSessionManager` returns a reusable manager; `manager.middleware()`
  * turns it into a request hook that exposes the current session through

@@ -1,5 +1,5 @@
 /**
- * Ignex Compiler Type System
+ * @fileoverview Ignex Compiler Type System — shared type contracts for the AOT phases.
  *
  * AOT upgrade:
  * - unified ContextUsage from shared

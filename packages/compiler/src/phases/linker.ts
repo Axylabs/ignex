@@ -1,5 +1,5 @@
 /**
- * Phase 5: LINKER — Bun 1.4 edition.
+ * @fileoverview Phase 5: LINKER — Bun 1.4 edition.
  *
  * Important:
  * - The temporary Bun.build entry MUST live in opts.outDir.
