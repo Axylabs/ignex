@@ -8,28 +8,28 @@ a typed client. No router config, no decorators, no magic — the filename *is*
 the route.
 
 - 🚀 **Compiled, not interpreted** — routes are compiled ahead of time into an
-  optimized native server (precompiled validators, serializers, zero-cost
-  constant responses).
+optimized native server (precompiled validators, serializers, zero-cost
+constant responses).
 - 📁 **The filename is the route** — `hello.get.ts` → `GET /hello`. That's the
-  whole mental model.
+whole mental model.
 - 🧰 **Everything's built in** — validation, auth, sessions, jobs, SSE,
-  WebSockets, i18n, templates, caching, rate limiting, CORS, security headers,
-  and a debug dashboard.
+WebSockets, i18n, templates, caching, rate limiting, CORS, security headers,
+and a debug dashboard.
 - 🧬 **Type-safe end to end** — schemas type your `ctx`, your responses, your
-  generated client, and your OpenAPI document.
+generated client, and your OpenAPI document.
 - ⚡ **Rust-accelerated (optional)** — hot paths run through the native
-  `castrum` addon with byte-compatible pure-TS fallbacks. No native build? No
-  problem.
-
-[Quick Start](#quick-start) · [Your First App](#your-first-app) ·
-[Core Concepts](#core-concepts) · [Guides](#guides) ·
-[CLI Reference](#cli-reference) · [Learn More](#learn-more)
+`castrum` addon with byte-compatible pure-TS fallbacks. No native build? No
+problem.
 
 ---
 
 ## Quick Start
 
 You only need [Bun ≥ 1.4](https://bun.sh) — nothing else is installed globally.
+
+### Quick Start
+
+**Get started in 3 minutes:**
 
 ```sh
 # 1. Scaffold a project
@@ -295,6 +295,9 @@ export default post(async (ctx) => {
   return ctx.json({ name: body.name });
 });
 ```
+
+`ctx.body` is **lazy** — the request body is only parsed when you read it.
+`.json()`, `.formData()`, and `.text()` all work.
 
 ### Validation & OpenAPI
 
@@ -602,20 +605,24 @@ export default get(async (ctx) => {
 });
 ```
 
+Also `createTemplateRegistry`, `createTemplate`, `renderTemplate`.
+
 ### Caching
 
 ```ts
+import { get } from "@ignex/core/http";
 import { withBrowserCache } from "@ignex/core";
 
-export default get((ctx) => withBrowserCache(ctx.json({ cached: true }), { maxAge: 60 }));
+export default get(() => withBrowserCache(ctx.json({ cached: true }), { maxAge: 60 }));
 ```
 
-Plus lower-level `cacheControl`, ETag / conditional requests, and an
-`HttpResponseCache` with stale-while-revalidate.
+Lower-level: `cacheControl`, `parseCacheControl`, `HttpResponseCache`
+(stale-while-revalidate), `etagWithEncoding`, and conditional requests.
 
 ### Static files & uploads
 
 ```ts
+import { get } from "@ignex/core/http";
 import { sendFile } from "@ignex/core";
 
 // GET /files/:name — range requests + traversal guard built in
@@ -628,10 +635,13 @@ lists and size caps.
 ### Proxying
 
 ```ts
+import { get } from "@ignex/core/http";
 import { proxyRequest } from "@ignex/core";
 
 export default get(() => proxyRequest("https://api.example.com"));
 ```
+
+Also `forwardRequest` for pass-through proxying.
 
 ### Testing
 
@@ -647,7 +657,7 @@ bun run test
 **Build for production:**
 
 ```sh
-bun run build    # AOT-compile → .ignex/server.js + typed artifacts
+bun run build    # AOT-compile → .ignex/server.js + routes.d.ts, client.ts, openapi.json, manifest.json
 bun run start    # run the compiled server
 ```
 
@@ -659,7 +669,7 @@ ignex build --compile --binary-outfile my-server
 ./my-server
 ```
 
-**HTTPS** — on by default. Dev auto-generates a local cert (mkcert);
+**HTTPS** — on by default. Dev auto-generates a local cert (mkcert;
 production expects `server.tls: { certFile, keyFile }` or a TLS-terminating
 proxy (Caddy / nginx / Cloudflare). Opt into HTTP/2 with `server.h2: true`.
 
@@ -692,7 +702,7 @@ const app = createApp({
 });
 ```
 
-See [docs/router.md](docs/router.md) for the full lifecycle.
+See [docs/router.md](router.md) for the full lifecycle.
 
 ### The debug dashboard
 
@@ -745,8 +755,13 @@ validation, and template rendering.
   native is pure acceleration, never a requirement.
 - Check status with `isNativeAvailable()`; force the fallback with
   `IGNEX_NATIVE=off` (a supported parity mode).
-- `ignex dev` / `ignex build` print a `Native:` line so you always know which
-  path is active.
+- `ignex dev` / `ignex build` print a `Native:` line reporting whether the
+  Rust addon is active:
+
+```
+ℹ Native: native (castrum)     # accelerated
+ℹ Native: off (pure-TS fallback)  # still fully functional
+```
 
 ## FAQ
 
@@ -772,7 +787,7 @@ teams.
 - [docs/getting-started.md](docs/getting-started.md) — the full walkthrough.
 - [docs/cookbook.md](docs/cookbook.md) — copy-paste recipes (sessions, jobs,
   i18n, SSE, WebSockets, templates, caching, rate limiting, proxies, …).
-- [docs/architecture.md](docs/architecture.md) — how the compiler + packages fit together.
+- [docs/architecture.md](docs/architecture.md) — how the compiler and packages fit together.
 - [docs/router.md](docs/router.md) — the interpreted `createRouter` path.
 - [docs/deployment.md](docs/deployment.md) — multi-instance production.
 - [docs/sdk.md](docs/sdk.md) — generating + distributing the app SDK.
@@ -781,7 +796,8 @@ teams.
 - [docs/compatibility.md](docs/compatibility.md) — contracts with `@ignex/ninox`, `@ignex/nova`, `castrum`.
 - [docs/adding-a-feature.md](docs/adding-a-feature.md) — plugins, hooks, compiler passes.
 - [docs/release-process.md](docs/release-process.md) — cache versions, tagging, publishing.
-- [Example app](packages/app/README.md) — the reference app exercising everything.
+- [Example app](packages/app/README.md) — the reference app exercising the
+  full feature set.
 
 ---
 
@@ -794,7 +810,7 @@ MCP server, and the debug dashboard.
 
 **Roadmap:** publishing `@ignex/native` + `castrum` binaries for all major
 platforms → OAuth2 providers (authorization-code, PKCE, token refresh) →
-deeper Standard-Schema vendor coverage → i18n catalog hot-reload.
+deep Standard-Schema vendor coverage → i18n catalog hot-reload.
 
 **Current limitations:**
 
@@ -815,7 +831,7 @@ This repository is the **ignex monorepo**. The workspace packages:
 - `@ignex/shared` — FP toolkit + the compiler↔runtime contract
 - `@ignex/native` — Rust-accelerated primitives with pure-TS fallbacks
 - `@ignex/mcp` — the Model Context Protocol server
-- `@ignex/test-utils` — shared test helpers
+- `@ignex/test-utils` — shared vitest arbitraries + matchers
 - `packages/app` — the reference example app
 
 Common commands:

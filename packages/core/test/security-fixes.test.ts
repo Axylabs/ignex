@@ -12,7 +12,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { HttpResponseCache } from "../src/data/cache/http-cache.js";
 import { isCompressible } from "../src/data/content-encoding.js";
-import { createContext } from "../src/http/context.js";
+import { createContext } from "../src/http/context/index.js";
 import { createCookieJar } from "../src/http/cookies.js";
 import { createApp } from "../src/lifecycle/lifecycle.js";
 import { runLifecycle } from "../src/lifecycle/run.js";

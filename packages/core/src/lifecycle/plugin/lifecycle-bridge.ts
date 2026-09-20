@@ -1,243 +1,18 @@
 /**
- * @fileoverview Plugin Architecture v3.1
- * Lifecycle hooks, extensibility, composable plugins.
- */
-
-import type { ContextUsage } from "@ignex/shared";
-import type { IgnexContext } from "../http/context";
-import { sanitizeHeaderValue } from "../http/finalize";
-import type { IgnexRouter } from "../http/router";
-import type { HookContainer, LifeCycleStore } from "../types";
-import type { HookFn } from "./hooks";
-
-// ============================================================================
-// Plugin Interface
-// ============================================================================
-
-/**
- * A composable plugin: lifecycle hooks plus optional init/close lifecycle.
+ * @fileoverview Plugin → Lifecycle Bridge.
  *
- * `onRequest`/`onResponse`/`onError` run in onion order around the handler.
- * `init`/`close` manage resources (stores, timers) at app boot/shutdown.
- *
- * Global middleware can be scoped to a route PATTERN: set `pattern` and the
- * plugin's `onRequest`/`onResponse` only run for matching request pathnames —
- * every other request skips the plugin entirely (zero hook cost beyond the
- * matcher check). Patterns are compiled once at plugin-conversion time.
+ * Converts the plugin world into the lifecycle stage world the router and the
+ * compiled server consume: hook containers (`pluginsToLifeCycle`,
+ * `pluginContextToLifecycle`), app-invariant merges (`collectResponseDefaults`,
+ * `collectContextOptions`), and the single-hook adapter (`hookToPlugin`).
  */
-export interface IgnexPlugin {
-  readonly name: string;
-  readonly version?: string;
 
-  /**
-   * Route-pattern scope for the plugin's global middleware:
-   *  - `string` — a path pattern (`"/api/admin/*"` prefix wildcard, `"/health"`
-   *    exact). `"*"` matches everything (the default when unset).
-   *  - `RegExp` — tested against the request pathname.
-   *  - `(pathname) => boolean` — a custom predicate.
-   *
-   * Only `onRequest`/`onResponse` are scoped; `onError` and lifecycle hooks
-   * are unscoped (errors have no meaningful path contract).
-   */
-  readonly pattern?: string | RegExp | ((pathname: string) => boolean);
-
-  /**
-   * Dev-only plugin marker: when `true` (the plugin factory determined it is
-   * disabled at runtime — e.g. `debugbar()` outside debug mode), the compiled
-   * server filters the plugin out of the lifecycle at boot, so a disabled dev
-   * tool contributes zero per-request hooks to production artifacts.
-   */
-  readonly __ignexDevOnly?: boolean;
-
-  /**
-   * App-invariant response headers this plugin guarantees on every response.
-   *
-   * Declaring them lets the framework bake the values into the header record
-   * at response CONSTRUCTION instead of the plugin mutating each finished
-   * `Response` — replacing ~N native `Headers.set` round-trips per request
-   * with one object build. The plugin's `onResponse` still runs for responses
-   * the framework did not build (raw `Response` passthroughs) and for any
-   * request-conditional headers it owns.
-   */
-  readonly responseDefaults?: Readonly<Record<string, string>>;
-
-  /**
-   * App-invariant context options this plugin requires.
-   *
-   * Declaring them lets ONE setting serve BOTH execution paths: the interpreted
-   * `createApp` merges them into its context options at boot, and the compiled
-   * server folds the same declaration into its frozen context-options literal.
-   * Without this a plugin had no way to reach `ContextOptions` at all — which
-   * is how `trustProxy` came to work in interpreted apps and be silently inert
-   * in compiled ones: `ctx.ip` skipped the forwarded-header branch and every
-   * client resolved to the socket address, i.e. the proxy's, behind a proxy.
-   */
-  readonly contextOptions?: { readonly trustProxy?: boolean };
-
-  /**
-   * The `ctx` members this plugin's hooks read or write.
-   *
-   * Declaring them lets the COMPILED server run the plugin layer on the
-   * usage-specialized context (see `packages/compiler/.../routes/context.ts`)
-   * instead of forcing every route to the full context — the declaration is
-   * the missing "plugin-API" piece of that optimization.
-   *
-   * The compiler cannot execute plugin factories, so for compiled builds the
-   * same declaration is read STATICALLY from the plugin module (a module-level
-   * `export const contextUsage = { ... }`). The module export is the audited,
-   * machine-readable form and wins when both exist; this field is the
-   * runtime-visible API surface (introspection, interpreted tooling).
-   *
-   * Optional and opt-in. An UNDECLARED plugin keeps today's behavior: the
-   * compiler treats the plugin layer as opaque and every route uses the full
-   * context. A declared member the specialized context cannot emit also forces
-   * the full context (fail-safe — never a silent `undefined` on the lean
-   * tier). Only `true` values are meaningful; a `false`/`undefined` value
-   * reads as "not used".
-   */
-  readonly contextUsage?: Readonly<Partial<ContextUsage>>;
-
-  // Lifecycle
-  init?(): MaybePromise<void>;
-  close?(): MaybePromise<void>;
-
-  /**
-   * Register plugin routes onto the interpreted router. Called by `createApp`
-   * once, before `router.bind(...)`, only when the app uses a router. Never
-   * invoked for compiled (AOT) apps — plugins there contribute lifecycle
-   * hooks only (see {@link IgnexPlugin.onRequest} for the compiled fallback).
-   */
-  routes?(router: IgnexRouter): void;
-
-  // Request lifecycle
-  onRequest?(ctx: IgnexContext): MaybePromise<IgnexContext | Response>;
-  onResponse?(ctx: IgnexContext, response: Response): MaybePromise<Response>;
-  onError?(error: Error, ctx: IgnexContext): MaybePromise<Response | undefined>;
-}
-
-type MaybePromise<T> = T | Promise<T>;
-
-// ============================================================================
-// Plugin Registry
-// ============================================================================
-
-/**
- * The plugin registry: tracks registered plugins and named hooks, and drives
- * the init/close lifecycle. Underpins `createApp`'s plugin handling.
- */
-export interface PluginContext {
-  plugins: IgnexPlugin[];
-  hooks: Map<string, HookFn[]>;
-  addHook(name: string, hook: HookFn): void;
-  getHooks(name: string): readonly HookFn[];
-  register(plugin: IgnexPlugin): void;
-  initAll(): Promise<void>;
-  closeAll(): Promise<void>;
-}
-
-/**
- * Create an empty {@link PluginContext}.
- *
- * `initAll`/`closeAll` run every plugin's lifecycle with `allSettled`, so a
- * single plugin's failure never skips the rest (`closeAll` runs in reverse
- * registration order — onion cleanup).
- */
-export const createPluginContext = (): PluginContext => {
-  const hooks = new Map<string, HookFn[]>();
-  const plugins: IgnexPlugin[] = [];
-
-  return {
-    plugins,
-    hooks,
-    addHook(name, hook) {
-      const existing = hooks.get(name) ?? [];
-      existing.push(hook);
-      hooks.set(name, existing);
-    },
-    getHooks(name) {
-      return hooks.get(name) ?? [];
-    },
-    register(plugin) {
-      plugins.push(plugin);
-    },
-    async initAll() {
-      // Run every plugin's init even if one fails; report failures but don't
-      // leave later plugins un-initialized. If any init failed, rethrow so
-      // callers can fail CLOSED (`createApp({ strictInit: true })` never binds
-      // the listener) — `Promise.allSettled` guarantees later plugins still
-      // ran regardless.
-      const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
-      const failures: unknown[] = [];
-      for (const r of results) {
-        if (r.status === "rejected") {
-          console.error("[ignex] plugin init failed:", r.reason);
-          failures.push(r.reason);
-        }
-      }
-      if (failures.length > 0) {
-        throw failures.length === 1
-          ? failures[0]
-          : new AggregateError(failures, `${failures.length} plugin(s) failed to initialize`);
-      }
-    },
-    async closeAll() {
-      // Reverse (onion) order: last registered closes first. allSettled ensures
-      // one plugin's close failure never skips the remaining plugins' cleanup.
-      const results = await Promise.allSettled([...plugins].reverse().map((p) => p.close?.()));
-      for (const r of results) {
-        if (r.status === "rejected") console.error("[ignex] plugin close failed:", r.reason);
-      }
-    },
-  };
-};
-
-// ============================================================================
-// Plugin Composition
-// ============================================================================
-
-/**
- * Compose multiple plugins into one, running their stages in onion order.
- *
- * `init` runs in registration order; `close`/`onResponse` in reverse.
- */
-export const composePlugins = (...plugins: IgnexPlugin[]): IgnexPlugin => ({
-  name: plugins.map((p) => p.name).join("+"),
-  routes(router) {
-    for (const p of plugins) p.routes?.(router);
-  },
-  async init() {
-    for (const p of plugins) await p.init?.();
-  },
-  async close() {
-    for (const p of [...plugins].reverse()) await p.close?.();
-  },
-  async onRequest(ctx) {
-    let current = ctx;
-    for (const p of plugins) {
-      const result = await p.onRequest?.(current);
-      if (result instanceof Response) return result;
-      if (result) current = result;
-    }
-    return current;
-  },
-  async onResponse(ctx, response) {
-    let current = response;
-    for (const p of [...plugins].reverse()) {
-      current = (await p.onResponse?.(ctx, current)) ?? current;
-    }
-    return current;
-  },
-  async onError(error, ctx) {
-    for (const p of plugins) {
-      const result = await p.onError?.(error, ctx);
-      if (result instanceof Response) return result;
-    }
-  },
-});
-
-// ============================================================================
-// Plugin -> Lifecycle Bridge
-// ============================================================================
+import type { IgnexContext } from "../../http/context";
+import { sanitizeHeaderValue } from "../../http/finalize";
+import type { HookContainer, LifeCycleStore } from "../../types";
+import type { HookFn } from "../hooks";
+import { createPatternMatcher } from "./composition";
+import type { IgnexPlugin, PatternedPlugin, PluginContext } from "./types";
 
 function isIgnexPlugin(value: unknown): value is IgnexPlugin {
   return typeof value === "object" && value !== null && "name" in value;
@@ -264,19 +39,6 @@ const LIFECYCLE_STAGES = [
   "error",
   "stop",
 ] as const;
-
-interface PatternedPlugin {
-  readonly plugin: IgnexPlugin;
-  readonly match: (pathname: string) => boolean;
-  /**
-   * Boot-time constant: whether this plugin declared a `pattern` scope.
-   *
-   * Without it, the caller had to evaluate `ctx.url.pathname` BEFORE calling
-   * `match` — forcing a full `new URL(req.url)` parse on every request purely
-   * to feed an identity matcher that ignores its argument.
-   */
-  readonly hasPattern: boolean;
-}
 
 /**
  * Run the onion "way out" phase: every pattern-scoped `onResponse` plugin,
@@ -326,47 +88,6 @@ const runOnResponseChain = (
     }
     return { response: current };
   };
-};
-
-/**
- * A route-pattern scope for global middleware (see {@link IgnexPlugin.pattern}).
- */
-export type RoutePattern = string | RegExp | ((pathname: string) => boolean);
-
-const escapeRegExpChars = (src: string): string => src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Compile a route pattern into a pathname matcher, ONCE per plugin:
- *  - `string` — exact (`"/health"`), prefix-wildcard (`"/api/admin/*"`, which
- *    also matches `/api/admin` itself), or internal wildcard (`"/files/*.ts"`).
- *    `"*"` matches every pathname.
- *  - `RegExp` — tested against the pathname (`lastIndex` reset so global/sticky
- *    flags never corrupt repeated tests).
- *  - `(pathname) => boolean` — a custom predicate.
- */
-export const createPatternMatcher = (pattern?: RoutePattern): ((pathname: string) => boolean) => {
-  if (pattern === undefined) return () => true;
-  if (typeof pattern === "function") return pattern;
-  if (pattern instanceof RegExp) {
-    const re = pattern;
-    return (pathname: string) => {
-      re.lastIndex = 0;
-      return re.test(pathname);
-    };
-  }
-  if (pattern === "*") return () => true;
-  if (!pattern.includes("*")) return (pathname: string) => pathname === pattern;
-
-  const body = pattern.replace(/\/\*$/, "");
-  if (body !== pattern) {
-    // Trailing `/*` (or `*`) — prefix scope: the base path AND everything
-    // below it match (`/api/admin`, `/api/admin/x`, `/api/admin/x/y`).
-    const re = new RegExp(`^${escapeRegExpChars(body)}(?:/.*)?$`);
-    return (pathname: string) => re.test(pathname);
-  }
-  // Internal wildcards: each `*` matches any run of non-slash chars.
-  const re = new RegExp(`^${pattern.split("*").map(escapeRegExpChars).join("[^/]*")}$`);
-  return (pathname: string) => re.test(pathname);
 };
 
 /**

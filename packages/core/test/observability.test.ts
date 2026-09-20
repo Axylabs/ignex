@@ -20,7 +20,7 @@ import {
 } from "../src/debug/index.js";
 import { beginTrace, enterTraceContext, setTracingEnabled } from "../src/debug/tracer.js";
 import type { RequestTrace, SystemSample } from "../src/debug/types.js";
-import { createContext } from "../src/http/context.js";
+import { createContext } from "../src/http/context/index.js";
 
 /* ── factories ────────────────────────────────────────────────── */
 

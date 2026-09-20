@@ -331,3 +331,15 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     runner >10% slower will false-fail the baseline-relative check; refresh it
     on the CI runner class (`bun run bench:server:baseline`) before treating
     failures as authoritative.
+12. **Remaining large-file splits** — the 2026-09-20 core break-up covered the
+    three largest `@ignex/core` files — `lifecycle.ts` (→ barrel + `app-factory.ts`
+    / `serve.ts`), `http/context.ts` (→ `http/context/{api,helpers,impl,types}.ts`),
+    `lifecycle/plugin.ts` (→ `lifecycle/plugin/{composition,lifecycle-bridge,
+    registry,types}.ts`) — as move-only changes with barrel re-exports. The rest
+    of the >400-line set is still to be worked through, highest-value first:
+    `native/src/ffi.ts` (1268) and `native/src/ingress.ts` (1074) — split by
+    C-ABI surface vs. loader/self-test, gated by `check:native:surface` and
+    `smoke:fallback` — then `native/src/metrics.ts` / `crypto.ts`,
+    `core/src/debug/types.ts`, `core/src/http/router.ts`, `compiler/src/sdk/*`,
+    and the `core/src/index.ts` barrel. Each split stays move-only: identical
+    behaviour, barrel re-exports, package suite + `verify:quick` + `check:dead`.

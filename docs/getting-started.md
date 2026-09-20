@@ -84,7 +84,7 @@ ignex listening on https://localhost:3000
 
 ## 3. Your first route
 
-Routes are files under `src/routes/`; the path and method come from the
+Routes are files under `src/routes/`; the path + method come from the
 filename. Handlers export a **named** binding (`httpGet`) or a **default**
 binding — both compile to the same native route table:
 
@@ -132,8 +132,8 @@ bun run typecheck # strict TS check
 bun run test      # vitest
 ```
 
-`ignex build --compile [--binary-outfile NAME]` is the same as `bun run
-compile`: the linker emits a self-contained binary (embeds the Bun runtime,
+`ignex build --compile` (or `bun run compile`) is the same as `ignex build` +
+`bun run compile`: the linker emits a self-contained binary (embeds the Bun runtime,
 bytecode-compiled, `NODE_ENV=production`) that runs without installing Bun.
 `ignex build` is production-shaped by default — dev-only tooling (the
 debugbar dashboard and per-request tracing) is eliminated from the artifact
@@ -170,13 +170,13 @@ Each build emits, next to the server:
 | --------------- | ------------------------------------------------ |
 | `routes.d.ts`   | Typed route context (params/query/body/responses) |
 | `client.ts`     | Typed HTTP client backed by `createClient`        |
-| `openapi.json`  | OpenAPI spec derived from your real schemas        |
+| `openapi.json` | OpenAPI spec derived from your real schemas        |
 | `manifest.json` | Build metadata for tooling                         |
 
 ## 6. Where to go next
 
-- [Cookbook](cookbook.md) — recipes for sessions, jobs, i18n, SSE, WebSockets,
-  templates, rate limiting, caching, and more.
+- [Cookbook](cookbook.md) — recipes for sessions, jobs,
+  i18n, SSE, WebSockets, templates, rate limiting, caching, and more.
 - [CLI reference](../packages/cli/README.md) — every command and scaffold flag.
 - [Example app](../packages/app/README.md) — the reference app exercising the
   full feature set.

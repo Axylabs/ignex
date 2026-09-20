@@ -55,7 +55,8 @@ Hooks run in one of the named stages in `LifeCycleStore`
    factory like `requireAuth` in `core/src/security/auth.ts`.
 2. If you need a **new stage**: add it to `LifeCycleStore` in
    `core/src/types/` (lifecycle types), extend `PRE_HANDLER_STAGES` /
-   `POST_HANDLER_STAGES` in `core/src/lifecycle/lifecycle.ts`, update
+   `POST_HANDLER_STAGES` in `core/src/lifecycle/run.ts` (re-exported by the
+   `lifecycle.ts` barrel), update
    `EMPTY_LIFECYCLE`, and **bump
    `COMPILER_CACHE_VERSION`** (codegen embeds the lifecycle stages).
 3. Halting semantics: a hook that returns a `Response` halts the chain
@@ -93,8 +94,9 @@ bound.
 This is the one that crosses the compiler boundary — follow it precisely.
 
 1. **shared**: add the flag to `ContextUsage` in `packages/shared/src/context-usage.ts`
-   (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).2. **core**: add the member to `IgnexContext` in `core/src/http/context.ts` and
-   implement it in `createContext`.
+   (and to `EMPTY_USAGE` / `FULL_USAGE` if it is universally available).2. **core**: add the member to `IgnexContext` in
+   `core/src/http/context/types.ts` and implement it in
+   `core/src/http/context/impl.ts` (`createContext` lives in `context/api.ts`).
 3. **compiler**: add the member name to `USAGE_FLAGS` in
    `utils/ast/usage.ts`; gate the context emission in `phases/codegen/` (the
    `routes.ts` emitter) on the flag. If the member forces the "full context"

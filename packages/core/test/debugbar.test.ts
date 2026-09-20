@@ -21,7 +21,7 @@ import {
   setTracingEnabled,
   TraceStore,
 } from "../src/debug/index.js";
-import { createContext } from "../src/http/context.js";
+import { createContext } from "../src/http/context/index.js";
 import { createRouter } from "../src/http/router.js";
 import { createApp } from "../src/index.js";
 import { debugbar } from "../src/plugins/debugbar.js";

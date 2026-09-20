@@ -4,12 +4,12 @@
 > Do not edit by hand — regenerate after structural changes. The
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
-- monorepo: `ignex` v0.1.35 (private, workspaces: packages/*)
+- monorepo: `ignex` v0.2.0 (private, workspaces: packages/*)
 - root scripts (84): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
 
 ## packages/ (workspace)
 
-### `@ignex/app` v0.1.35 · test: `vitest run`
+### `@ignex/app` v0.2.0 · test: `vitest run`
 
 ```
 packages/app/
@@ -144,7 +144,7 @@ packages/app/
 └─ vitest.config.ts
 ```
 
-### `@ignex/cli` v0.1.35 · test: `vitest run`
+### `@ignex/cli` v0.2.0 · test: `vitest run`
 
 ```
 packages/cli/
@@ -279,7 +279,7 @@ packages/cli/
 └─ vitest.config.ts
 ```
 
-### `@ignex/compiler` v0.1.35 · test: `vitest run`
+### `@ignex/compiler` v0.2.0 · test: `vitest run`
 
 ```
 packages/compiler/
@@ -404,7 +404,9 @@ packages/compiler/
 │  │  │  └─ routes.d.ts
 │  │  ├─ constant-only/
 │  │  │  ├─ index.get.ts
-│  │  │  └─ ping.get.ts
+│  │  │  ├─ livez.get.ts
+│  │  │  ├─ ping.get.ts
+│  │  │  └─ readyz.get.ts
 │  │  ├─ debugbar/
 │  │  │  ├─ app.config.ts
 │  │  │  └─ hello.get.ts
@@ -510,10 +512,78 @@ packages/compiler/
 └─ vitest.config.ts
 ```
 
-### `@ignex/core` v0.1.35 · test: `vitest run`
+### `@ignex/core` v0.2.0 · test: `vitest run`
 
 ```
 packages/core/
+├─ .gen-debug-ui-6WvBhF/
+│  ├─ components/
+│  │  ├─ detail-parts.tsx
+│  │  ├─ keyed.ts
+│  │  └─ widgets.tsx
+│  ├─ views/
+│  │  ├─ ai.tsx
+│  │  ├─ clients.tsx
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.tsx
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.tsx
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.tsx
+├─ .gen-debug-ui-ihOzzr/
+│  ├─ components/
+│  │  ├─ detail-parts.tsx
+│  │  ├─ keyed.ts
+│  │  └─ widgets.tsx
+│  ├─ views/
+│  │  ├─ ai.tsx
+│  │  ├─ clients.tsx
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.tsx
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.tsx
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.tsx
 ├─ .gen-debug-ui-oOfWck/
 │  ├─ components/
 │  │  ├─ detail-parts.js
@@ -718,6 +788,40 @@ packages/core/
 │  ├─ styles.css
 │  ├─ theme.ts
 │  └─ toast.tsx
+├─ .gen-debug-ui-XqD2Oa/
+│  ├─ components/
+│  │  ├─ detail-parts.tsx
+│  │  ├─ keyed.ts
+│  │  └─ widgets.tsx
+│  ├─ views/
+│  │  ├─ ai.tsx
+│  │  ├─ clients.tsx
+│  │  ├─ copy-attr.ts
+│  │  ├─ detail-types.ts
+│  │  ├─ diagnostics.tsx
+│  │  ├─ events.tsx
+│  │  ├─ history.tsx
+│  │  ├─ jobs.tsx
+│  │  ├─ kt.tsx
+│  │  ├─ log-detail.tsx
+│  │  ├─ logs.tsx
+│  │  ├─ metrics.tsx
+│  │  ├─ registry.tsx
+│  │  ├─ request-detail.tsx
+│  │  ├─ requests.tsx
+│  │  ├─ routes.tsx
+│  │  ├─ state.tsx
+│  │  └─ system.tsx
+│  ├─ api.ts
+│  ├─ app.tsx
+│  ├─ clipboard.ts
+│  ├─ format.ts
+│  ├─ index.tsx
+│  ├─ live.ts
+│  ├─ router.ts
+│  ├─ styles.css
+│  ├─ theme.ts
+│  └─ toast.tsx
 ├─ .gen-debug-ui-zvyJqW/
 │  ├─ components/
 │  │  ├─ detail-parts.tsx
@@ -863,9 +967,14 @@ packages/core/
 │  │  │  ├─ limits.ts
 │  │  │  ├─ size.ts
 │  │  │  └─ types.ts
+│  │  ├─ context/
+│  │  │  ├─ api.ts
+│  │  │  ├─ helpers.ts
+│  │  │  ├─ impl.ts
+│  │  │  ├─ index.ts
+│  │  │  └─ types.ts
 │  │  ├─ abort.ts
 │  │  ├─ conditional.ts
-│  │  ├─ context.ts
 │  │  ├─ cookies.ts
 │  │  ├─ encoder.ts
 │  │  ├─ files.ts
@@ -884,11 +993,18 @@ packages/core/
 │  │  ├─ uploads.ts
 │  │  └─ ws.ts
 │  ├─ lifecycle/
+│  │  ├─ plugin/
+│  │  │  ├─ composition.ts
+│  │  │  ├─ index.ts
+│  │  │  ├─ lifecycle-bridge.ts
+│  │  │  ├─ registry.ts
+│  │  │  └─ types.ts
+│  │  ├─ app-factory.ts
 │  │  ├─ fused.ts
 │  │  ├─ hooks.ts
 │  │  ├─ lifecycle.ts
-│  │  ├─ plugin.ts
-│  │  └─ run.ts
+│  │  ├─ run.ts
+│  │  └─ serve.ts
 │  ├─ platform/
 │  │  ├─ coerce.ts
 │  │  ├─ config.ts
@@ -1053,7 +1169,7 @@ packages/core/
 └─ vitest.config.ts
 ```
 
-### `create-ignex` v0.1.35 · test: `vitest run`
+### `create-ignex` v0.2.0 · test: `vitest run`
 
 ```
 packages/create/
@@ -1066,7 +1182,7 @@ packages/create/
 └─ vitest.config.ts
 ```
 
-### `@ignex/mcp` v0.1.35 · test: `vitest run`
+### `@ignex/mcp` v0.2.0 · test: `vitest run`
 
 ```
 packages/mcp/
@@ -1086,7 +1202,7 @@ packages/mcp/
 └─ vitest.config.ts
 ```
 
-### `@ignex/native` v0.1.35 · test: `vitest run`
+### `@ignex/native` v0.2.0 · test: `vitest run`
 
 ```
 packages/native/
@@ -1258,7 +1374,8 @@ docs/
 ├─ superpowers/
 │  └─ plans/
 │     ├─ 2026-09-18-perf-levers.execution.md
-│     └─ 2026-09-19-castrum-adoption.md
+│     ├─ 2026-09-19-castrum-adoption.md
+│     └─ 2026-09-20-offthread-task-consumer.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md
