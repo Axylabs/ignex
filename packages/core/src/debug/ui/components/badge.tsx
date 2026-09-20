@@ -89,6 +89,20 @@ export const Chip = (props: ChipProps): JSX.Element => (
   </span>
 );
 
+/** NATS direction pill (`out` cat-3, `in` cat-2). */
+export const DirPill = (props: { direction: string }): JSX.Element => (
+  <span class={BASE} style={tintStyle(props.direction === "out" ? "var(--cat-3)" : "var(--cat-2)")}>
+    {props.direction === "out" ? "out" : "in"}
+  </span>
+);
+
+/** Neutral count chip — a pill-shaped, tabular-numeric counter. */
+export const CountChip = (props: { n: number | string }): JSX.Element => (
+  <span class={`${BASE} min-w-5 justify-center ${SOFT.neutral} font-mono tabular-nums`}>
+    {String(props.n)}
+  </span>
+);
+
 /** HTTP verb → categorical token (unlisted verbs fall back to cat-7 grey). */
 const METHOD_COLOR: Record<string, string> = {
   get: "var(--cat-2)",

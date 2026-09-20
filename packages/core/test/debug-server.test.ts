@@ -117,7 +117,7 @@ describe("asset server", () => {
     // CSS shares the same content hash.
     expect(assets.css(etag).status).toBe(304);
     const css = await assets.css(null).text();
-    expect(css).toContain("--k-db"); // token system intact
+    expect(css).toContain("--cat-1"); // token system intact
   });
 });
 

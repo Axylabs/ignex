@@ -73,35 +73,8 @@ export {
 /** Small neutral chip (delegates to the primitive `Chip`). */
 export const Chip = PrimitiveChip;
 
-/** Shared pill box classes for the two local categorical pills. */
-const PILL =
-  "inline-flex h-5 items-center gap-1 rounded-sm border px-1.5 text-xs font-medium leading-none";
-
-/** Soft color-mixed tint around one categorical palette color. */
-const tintStyle = (color: string): JSX.CSSProperties => ({
-  color,
-  "background-color": `color-mix(in srgb, ${color} 14%, transparent)`,
-  "border-color": `color-mix(in srgb, ${color} 35%, transparent)`,
-});
-
-/** NATS direction pill (`out` cat-3, `in` cat-2). */
-export const DirPill = (props: { direction: string }): JSX.Element =>
-  props.direction === "out" ? (
-    <span class={PILL} style={tintStyle("var(--cat-3)")}>
-      out
-    </span>
-  ) : (
-    <span class={PILL} style={tintStyle("var(--cat-2)")}>
-      in
-    </span>
-  );
-
-/** Neutral count chip. */
-export const CountChip = (props: { n: number | string }): JSX.Element => (
-  <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-line bg-surface-2 px-1.5 font-mono text-xs tabular-nums text-muted">
-    {String(props.n)}
-  </span>
-);
+/** NATS direction pill and neutral count chip (re-exported from `badge`). */
+export { CountChip, DirPill } from "./badge";
 
 /* ── empty state ───────────────────────────────────────────────────────── */
 
@@ -113,27 +86,33 @@ export { rowKeyHandler } from "./table";
 
 /** Flex row holding a label and a proportion bar. */
 export const BarRow = (props: { children?: JSX.Element }): JSX.Element => (
-  <div class="bar-row">{props.children}</div>
+  <div class="flex items-center gap-2">{props.children}</div>
 );
 
 interface BarTrackProps {
   /** Fill width in percent (0–100). */
   pct: number;
-  /** Optional CSS color override for the fill. */
+  /** Optional CSS color override for the fill (defaults to the accent). */
   color?: string | undefined;
   /** Optional max-width cap for the track. */
   maxWidth?: string | undefined;
   title?: string | undefined;
 }
 
-/** Proportional bar track with a filled segment. */
+/** Proportional bar track with a filled segment (utility-styled; no CSS classes). */
 export const BarTrack = (props: BarTrackProps): JSX.Element => (
   <span
-    class="bar-track"
+    class="h-1.5 min-w-10 flex-1 overflow-hidden rounded-full bg-surface-3"
     title={props.title}
-    style={{ "max-width": props.maxWidth, "--bar-color": props.color }}
+    style={{ "max-width": props.maxWidth }}
   >
-    <span class="bar-fill" style={{ width: `${props.pct}%` }} />
+    <span
+      class="block h-full rounded-full"
+      style={{
+        width: `${props.pct}%`,
+        "background-color": props.color ?? "var(--accent)",
+      }}
+    />
   </span>
 );
 

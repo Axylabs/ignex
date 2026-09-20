@@ -40,6 +40,8 @@ interface DataTableProps<T> {
   loading?: boolean | undefined;
   /** Column indices to right-align and render tabular. */
   align?: number[] | undefined;
+  /** Row key of the selected row; emits `data-selected="true"` on its `<tr>`. */
+  selectedKey?: string | undefined;
   /** Accessible name for the table. */
   label: string;
 }
@@ -99,6 +101,11 @@ export const DataTable = <T,>(props: DataTableProps<T>): JSX.Element => {
               {(row) => (
                 <tr
                   data-key={props.rowKey(row)}
+                  data-selected={
+                    props.selectedKey !== undefined && props.rowKey(row) === props.selectedKey
+                      ? "true"
+                      : undefined
+                  }
                   tabindex={props.onRowClick !== undefined ? 0 : undefined}
                   class={rowClass()}
                   onClick={
