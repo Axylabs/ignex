@@ -6,4 +6,4 @@
 - Decision: Pre-aborted requests respond with 200, not 499. Deviation recorded
   in the plan close-out.
 - Consequences: Matches ecosystem behavior; no custom status-code leak.
-- Verification: `packages/core/src/http/abort.ts`, `docs/superpowers/plans/2026-09-19-castrum-adoption.md`
+- Verification: `packages/core/src/http/abort.ts`, `packages/core/test/abort.test.ts`

@@ -6,4 +6,4 @@
 - Decision: Hot-path async work routes through the shared task-consumer pool;
   the public API shape is tracked in the follow-on plan.
 - Consequences: Pattern is defined; implementation lands with the API decision.
-- Verification: `docs/superpowers/plans/2026-09-20-offthread-task-consumer.md`, `packages/native/src/tasks.ts`
+- Verification: `packages/native/src/tasks.ts`, `packages/native/test/tasks.test.ts`

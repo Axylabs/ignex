@@ -29,14 +29,6 @@ of truth.
 | SDK client emits wrong types / dead surface | `packages/compiler/src/sdk/*` | `packages/compiler/test/sdk.test.ts` (+ `sdk-flatbuffers` / `sdk-realtime`) |
 | Scaffolded project broken (create/templates) | `packages/cli/src/commands/create.ts`, `templates/*` | `packages/cli/test/create.test.ts` + template suites; `bun run smoke` |
 
-## The three-layer mental model
-
-1. **Mechanical** — `scripts/check-maintainability.ts` (rules + self-test) and
-   `maintainability.json`: size cap, debt markers, orphan build dirs,
-   duplicates, `@fileoverview`, decision-ref rot.
-2. **Why** — `docs/decisions/` (D-001 … D-012; see the template).
-3. **Where from** — this table: symptom → module → test → fix.
-
 When a bug report says "it returns a weird 429", start at the Origin column
 (`ingress/terminal.ts`), read D-005/D-008 for the why, and run the pinned
 tests before touching code.
