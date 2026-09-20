@@ -516,11 +516,13 @@ const collectDocsUnderRoot = async (root: string, scanPath: string): Promise<Kno
 
 /**
  * Scan the configured roots for markdown docs and return a deduped inventory
- * (`README.md` first, then alphabetical), capped at 40 entries.
+ * (`README.md` first, then alphabetical), capped at `limit` entries (default 40 —
+ * the KT sidebar cap).
  */
 export const scanDocsInventory = async (
   root: string,
   paths?: readonly string[],
+  limit = 40,
 ): Promise<KnowledgeDoc[]> => {
   const seen = new Set<string>();
   const docs: KnowledgeDoc[] = [];
@@ -536,8 +538,12 @@ export const scanDocsInventory = async (
       const readme = (p: string) => (basename(p).toLowerCase() === "readme.md" ? 0 : 1);
       return readme(a.path) - readme(b.path) || a.path.localeCompare(b.path);
     })
-    .slice(0, 40);
+    .slice(0, limit);
 };
+
+/** Full inventory without the display cap — the Docs panel read gate reads only these. */
+export const listAllDocs = (root: string, paths?: readonly string[]): Promise<KnowledgeDoc[]> =>
+  scanDocsInventory(root, paths, 10_000);
 
 /** File name of a path (works with `/` separators only — paths are normalized). */
 const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
