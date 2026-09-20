@@ -6,7 +6,7 @@ import { type Component, createSignal, type JSX, Match, Switch } from "solid-js"
 
 import { getLogDetail } from "../api";
 import { EmptyState, Kvs, LevelPill, Panel } from "../components/widgets";
-import { timeHM } from "../format";
+import { kindColor, timeHM } from "../format";
 import { currentRoute, navigate } from "../router";
 import { copyAttr } from "./copy-attr";
 
@@ -45,7 +45,7 @@ export const LogDetailView: Component = () => {
                 ← back to logs
               </button>
               <LevelPill level={r.level} />
-              <span class="pill kind" style={{ "--kc": "var(--k-lifecycle)" }}>
+              <span class="pill kind" style={{ "--kc": kindColor("lifecycle") }}>
                 {r.source}
               </span>
               <span class="meta">{`#${String(r.id)} · ${timeHM(r.ts)}`}</span>

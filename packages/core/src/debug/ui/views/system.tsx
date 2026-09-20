@@ -21,7 +21,7 @@ const CHARTS: ChartSpec[] = [
   { key: "cpuPct", color: "var(--err)", label: (v): string => `${v} %` },
   { key: "rssMiB", color: "var(--ok)", label: (v): string => `${v} MiB` },
   { key: "heapMiB", color: "var(--warn)", label: (v): string => `${v} MiB` },
-  { key: "eventLoopDelayMs", color: "var(--accent2)", label: (v): string => `${v} ms` },
+  { key: "eventLoopDelayMs", color: "var(--cat-3)", label: (v): string => `${v} ms` },
 ];
 
 /** Resolve a CSS custom property color to its computed value for canvas. */

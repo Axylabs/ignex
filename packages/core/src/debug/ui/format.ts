@@ -45,16 +45,16 @@ export const statusCls = (status: number): string =>
 /** Span-kind → CSS custom property holding its palette color. */
 export const kindColor = (kind: string): string =>
   ({
-    request: "var(--k-request)",
-    lifecycle: "var(--k-lifecycle)",
-    db: "var(--k-db)",
-    cache: "var(--k-cache)",
-    http: "var(--k-http)",
-    render: "var(--k-render)",
-    auth: "var(--k-auth)",
-    custom: "var(--k-custom)",
-    error: "var(--k-error)",
-  })[kind] ?? "var(--k-custom)";
+    request: "var(--cat-6)",
+    lifecycle: "var(--cat-6)",
+    db: "var(--cat-1)",
+    cache: "var(--cat-2)",
+    http: "var(--cat-3)",
+    render: "var(--cat-4)",
+    auth: "var(--cat-5)",
+    custom: "var(--cat-7)",
+    error: "var(--cat-8)",
+  })[kind] ?? "var(--cat-7)";
 
 /** SQL action → pill class family (select/insert/update/delete/other). */
 export const sqlPillCls = (action: string | null | undefined): string => {

@@ -92,11 +92,11 @@ export const LevelPill = (props: { level: string }): JSX.Element => (
 /** NATS direction pill. */
 export const DirPill = (props: { direction: string }): JSX.Element =>
   props.direction === "out" ? (
-    <span class="pill kind" style={{ "--kc": "var(--k-http)" }}>
+    <span class="pill kind" style={{ "--kc": "var(--cat-3)" }}>
       out
     </span>
   ) : (
-    <span class="pill kind" style={{ "--kc": "var(--k-cache)" }}>
+    <span class="pill kind" style={{ "--kc": "var(--cat-2)" }}>
       in
     </span>
   );

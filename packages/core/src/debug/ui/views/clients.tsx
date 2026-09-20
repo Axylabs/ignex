@@ -7,7 +7,7 @@ import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 
 import { getClients } from "../api";
 import { StatCard, StatRow } from "../components/widgets";
-import { fmtNum } from "../format";
+import { fmtNum, kindColor } from "../format";
 import { copyAttr } from "./copy-attr";
 
 /** One published client card. */
@@ -29,7 +29,7 @@ const ClientCard = (props: {
           <b>{c.name}</b>
           {`@${c.version}`}
         </span>
-        <span class="pill kind" style={{ "--kc": "var(--k-lifecycle)" }}>
+        <span class="pill kind" style={{ "--kc": kindColor("lifecycle") }}>
           {c.platform ?? c.kind}
         </span>
         {c.published === "tagged" ? (

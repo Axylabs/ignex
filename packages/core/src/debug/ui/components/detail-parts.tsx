@@ -87,7 +87,8 @@ export function TimeBreakdown(props: { spans: SpanLike[]; durationMs: number }):
               <span
                 class="dot"
                 style={{
-                  background: row.name === "unaccounted" ? "var(--faint)" : kindColor(row.name),
+                  background:
+                    row.name === "unaccounted" ? "var(--text-faint)" : kindColor(row.name),
                 }}
               />
               <span class="name">{row.name}</span>

@@ -2,7 +2,8 @@
  * @fileoverview Style-guide guard — asserts the token layer honours the
  * documented scale and contrast floor, so the design system cannot drift.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +11,32 @@ const CSS = readFileSync(
   fileURLToPath(new URL("../src/debug/ui/styles.css", import.meta.url)),
   "utf8",
 );
+const UI_DIR = fileURLToPath(new URL("../src/debug/ui", import.meta.url));
 const RAMP = ["11px", "12px", "13px", "15px", "20px", "28px"];
+
+/** Recursively collect `.ts`/`.tsx` sources under a directory. */
+const listSources = (dir: string): string[] => {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listSources(path));
+    else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) out.push(path);
+  }
+  return out;
+};
+
+/** Tokens deleted by Task 1; nothing in `ui/` may reference them again. */
+const REMOVED_TOKENS = [
+  "var(--k-",
+  "var(--m-",
+  "var(--accent2",
+  "var(--accent-dim",
+  "var(--panel",
+  "var(--raised",
+  "var(--panel2",
+  "var(--faint)",
+  "var(--muted)",
+];
 
 /** Extract the declarations of a selector block (first match). */
 const block = (selector: string): string => {
@@ -75,5 +101,16 @@ describe("debugbar design tokens", () => {
     for (const m of theme.matchAll(/--color-[\w-]+:\s*var\((--[\w-]+)\)/g)) {
       expect(defs.has(m[1] as string), `undefined token ${m[1]}`).toBe(true);
     }
+  });
+
+  it("references no removed design token in ui/ sources", () => {
+    const offenders: string[] = [];
+    for (const file of listSources(UI_DIR)) {
+      const src = readFileSync(file, "utf8");
+      for (const token of REMOVED_TOKENS) {
+        if (src.includes(token)) offenders.push(`${file.slice(UI_DIR.length + 1)} → ${token}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

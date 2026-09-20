@@ -35,6 +35,16 @@ const SOLID: Record<BadgeTone, string> = {
   neutral: "bg-surface-3 text-ink border-line",
 };
 
+/** Mono, tabular-numeric label classes for data-typographic badges. */
+const MONO = " font-mono tabular-nums";
+
+/** Soft color-mixed tint around one palette color (kind/method badges). */
+const tintStyle = (color: string): JSX.CSSProperties => ({
+  color,
+  "background-color": `color-mix(in srgb, ${color} 14%, transparent)`,
+  "border-color": `color-mix(in srgb, ${color} 35%, transparent)`,
+});
+
 interface BadgeProps {
   /** Semantic tone. */
   tone: BadgeTone;
@@ -50,7 +60,7 @@ interface BadgeProps {
 export const Badge = (props: BadgeProps): JSX.Element => {
   const cls = (): string =>
     `${BASE} ${props.variant === "solid" ? SOLID[props.tone] : SOFT[props.tone]}${
-      props.mono === true ? " font-mono tabular-nums" : ""
+      props.mono === true ? MONO : ""
     }`;
   return <span class={cls()}>{props.children}</span>;
 };
@@ -79,23 +89,26 @@ export const Chip = (props: ChipProps): JSX.Element => (
   </span>
 );
 
-/** HTTP verb → tone (unlisted verbs fall back to `neutral`). */
-const METHOD_TONE: Record<string, BadgeTone> = {
-  get: "ok",
-  post: "info",
-  put: "warn",
-  patch: "info",
-  delete: "err",
-  head: "neutral",
-  options: "neutral",
+/** HTTP verb → categorical token (unlisted verbs fall back to cat-7 grey). */
+const METHOD_COLOR: Record<string, string> = {
+  get: "var(--cat-2)",
+  post: "var(--cat-1)",
+  put: "var(--cat-4)",
+  patch: "var(--cat-6)",
+  delete: "var(--cat-8)",
+  head: "var(--cat-3)",
+  options: "var(--cat-7)",
 };
 
-/** HTTP-method badge (colored by verb, mono). */
-export const MethodBadge = (props: { method: string }): JSX.Element => (
-  <Badge tone={METHOD_TONE[methodCls(props.method)] ?? "neutral"} mono>
-    {props.method}
-  </Badge>
-);
+/** HTTP-method badge — seven-color categorical identity, mono. */
+export const MethodBadge = (props: { method: string }): JSX.Element => {
+  const color = (): string => METHOD_COLOR[methodCls(props.method)] ?? "var(--cat-7)";
+  return (
+    <span class={`${BASE}${MONO}`} style={tintStyle(color())}>
+      {props.method}
+    </span>
+  );
+};
 
 /** Status-family → text label, so the badge is never color-only. */
 const STATUS_LABEL: Record<string, string> = {
@@ -115,22 +128,12 @@ export const StatusBadge = (props: { status: number }): JSX.Element => {
   );
 };
 
-/** Span-kind badge, colored from the `--k-*` palette via `kindColor`. */
-export const KindBadge = (props: { kind: string }): JSX.Element => {
-  const color = (): string => kindColor(props.kind);
-  return (
-    <span
-      class={BASE}
-      style={{
-        color: color(),
-        "background-color": `color-mix(in srgb, ${color()} 14%, transparent)`,
-        "border-color": `color-mix(in srgb, ${color()} 35%, transparent)`,
-      }}
-    >
-      {props.kind}
-    </span>
-  );
-};
+/** Span-kind badge, colored from the categorical palette via `kindColor`. */
+export const KindBadge = (props: { kind: string }): JSX.Element => (
+  <span class={BASE} style={tintStyle(kindColor(props.kind))}>
+    {props.kind}
+  </span>
+);
 
 /** Log level → tone (unlisted levels fall back to `neutral`). */
 const LEVEL_TONE: Record<string, BadgeTone> = {

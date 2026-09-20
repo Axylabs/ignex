@@ -195,7 +195,7 @@ const Knowledge = (props: { k: AppKnowledge }): JSX.Element => {
               (p): JSX.Element => (
                 <div class="kt-row">
                   <div class="t">
-                    <span class="pill kind" style={{ "--kc": "var(--k-lifecycle)" }}>
+                    <span class="pill kind" style={{ "--kc": kindColor("lifecycle") }}>
                       {p.name}
                     </span>
                   </div>
@@ -230,7 +230,7 @@ const Knowledge = (props: { k: AppKnowledge }): JSX.Element => {
                     <td class="font-mono">
                       {r.path}
                       {r.isConstant ? (
-                        <span class="pill kind" style={{ "--kc": "var(--k-cache)" }}>
+                        <span class="pill kind" style={{ "--kc": kindColor("cache") }}>
                           constant
                         </span>
                       ) : null}
