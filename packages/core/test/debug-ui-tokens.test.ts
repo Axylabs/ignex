@@ -113,4 +113,18 @@ describe("debugbar design tokens", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("uses no arbitrary typography or color values", () => {
+    // The normative rule is "tokens for color; components for appearance".
+    // Arbitrary *layout* dimensions (grid templates, max-widths, fixed chart
+    // heights) are allowed; arbitrary font sizes and literal colors are not.
+    const offenders: string[] = [];
+    for (const file of listSources(UI_DIR)) {
+      const src = readFileSync(file, "utf8");
+      const rel = file.slice(UI_DIR.length + 1);
+      if (/text-\[/.test(src)) offenders.push(`${rel} → arbitrary typography (text-[…])`);
+      if (/\[#[0-9a-fA-F]{3,8}\]/.test(src)) offenders.push(`${rel} → arbitrary color ([#…])`);
+    }
+    expect(offenders).toEqual([]);
+  });
 });

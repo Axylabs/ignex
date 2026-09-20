@@ -178,17 +178,81 @@ const apiPayload = (url: string): unknown => {
       uptimeSec: 1,
       totals: { requests: 0, errors: 0, avgDurationMs: 0, p95DurationMs: 0 },
     };
-  if (url.includes("/api/jobs")) return { enabled: false };
+  // Enabled payloads with one sample row each: the migrated `StatRow`,
+  // `DataTable` and composer bodies (`JobsView`, `EventsView`, `ClientsView`)
+  // only execute on the enabled branch, so the smoke must serve one.
+  if (url.includes("/api/jobs"))
+    return {
+      enabled: true,
+      total: 2,
+      byStatus: { queued: 1, running: 0, completed: 1, failed: 0 },
+      recent: [{ name: "nightly-report", status: "completed", runAt: NOW }],
+    };
   if (url.includes("/api/routes")) return { enabled: false };
   if (url.includes("/api/events"))
     return {
-      enabled: false,
-      hint: "No event source wired.",
-      sources: { nats: null, nova: null },
-      recent: [],
+      enabled: true,
+      sources: {
+        nats: {
+          present: true,
+          label: "NATS bus",
+          connected: true,
+          status: "connected",
+          size: 1,
+          total: 1,
+          in: 0,
+          out: 1,
+          errors: 0,
+          bytes: 42,
+          byName: { "orders.created": 1 },
+        },
+        nova: {
+          present: true,
+          label: "Nova realtime (WS)",
+          size: 0,
+          total: 2,
+          in: 1,
+          out: 1,
+          errors: 0,
+          bytes: 128,
+          byName: {},
+          captures: true,
+        },
+      },
+      recent: [
+        {
+          id: "ev-1",
+          ts: NOW,
+          source: "nats",
+          direction: "out",
+          kind: "publish",
+          name: "orders.created",
+          payload: '{"orderId":"ord_1"}',
+          size: 42,
+          error: null,
+        },
+      ],
     };
   if (url.includes("/api/nova/events")) return { enabled: false };
-  if (url.includes("/api/clients")) return { enabled: true, count: 0, gitError: null, clients: [] };
+  if (url.includes("/api/clients"))
+    return {
+      enabled: true,
+      count: 1,
+      gitError: null,
+      clients: [
+        {
+          kind: "sdk",
+          platform: "typescript",
+          name: "@acme/sdk",
+          version: "1.2.3",
+          location: "/repo/packages/sdk",
+          files: ["dist/index.js"],
+          gitTags: ["v1.2.3"],
+          latestTag: "v1.2.3",
+          published: "tagged",
+        },
+      ],
+    };
   if (url.includes("/api/ai/summary"))
     return {
       service: "t",
@@ -258,6 +322,55 @@ class EventSourceStub {
 
 /* ── the test ────────────────────────────────────────────────────────────── */
 
+/** Every top-level view the shell can route to (all 15 registry entries). */
+const VIEW_IDS = [
+  "requests",
+  "errors",
+  "logs",
+  "history",
+  "metrics",
+  "diagnostics",
+  "system",
+  "state",
+  "jobs",
+  "events",
+  "routes",
+  "clients",
+  "ai",
+  "kt",
+  "docs",
+] as const;
+
+/** Characters the old chrome used as icons (spec §5 #15) — none may return. */
+const EMOJI_CHROME = /[⚡◐⏸▶↻✕⚠✔✖🗄📄📚📈🗺📦⚙🧘🔌🔍🔗🗒]/u;
+
+/**
+ * Hash-mount every top-level view, flush its fetch chain, and report which
+ * views rendered no `PageHeader` `<h1>`, which still showed emoji chrome, and
+ * each view's body text (so sample-payload consumption can be asserted).
+ */
+const mountAllViews = async (): Promise<{
+  headingless: string[];
+  emojiViews: string[];
+  bodyByView: Record<string, string>;
+}> => {
+  const headingless: string[] = [];
+  const emojiViews: string[] = [];
+  const bodyByView: Record<string, string> = {};
+  for (const view of VIEW_IDS) {
+    window.location.hash = `#/${view}`;
+    window.dispatchEvent(new Event("hashchange"));
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    const body = document.body.textContent ?? "";
+    const h1 = document.querySelector("main h1");
+    if (h1 === null || (h1.textContent ?? "").trim() === "") headingless.push(view);
+    const emoji = EMOJI_CHROME.exec(body);
+    if (emoji !== null) emojiViews.push(`${view} → ${emoji[0]}`);
+    bodyByView[view] = body;
+  }
+  return { headingless, emojiViews, bodyByView };
+};
+
 describe("debugbar dashboard SPA bundle (executed)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -293,6 +406,23 @@ describe("debugbar dashboard SPA bundle (executed)", () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key }));
       window.dispatchEvent(new Event("hashchange"));
     }
+    await Promise.resolve();
+
+    // The digit shortcuts only reach the first ten registry entries; `routes`,
+    // `clients`, `ai`, `kt` and `docs` carry `key: ""` and are never mounted by
+    // that loop. Mount all 15 top-level views by hash so every migrated body
+    // executes, and assert each one owns a non-empty `PageHeader` `<h1>`
+    // (spec §9a) and that no view re-introduced the old emoji/glyph chrome
+    // (spec §5 #15).
+    const { headingless, emojiViews, bodyByView } = await mountAllViews();
+    expect(headingless).toEqual([]);
+    expect(emojiViews).toEqual([]);
+
+    // The enabled sample payloads are consumed by the migrated bodies, not
+    // just the disabled/empty branches: the job, client and event rows render.
+    expect(bodyByView.jobs ?? "").toContain("nightly-report");
+    expect(bodyByView.clients ?? "").toContain("@acme/sdk");
+    expect(bodyByView.events ?? "").toContain("orders.created");
 
     // Detail routes (deep links) still mount.
     window.location.hash = "#/requests/t1/waterfall";
