@@ -48,18 +48,31 @@ interface SearchInputProps {
   mono?: boolean | undefined;
   /** Native spellcheck hint (e.g. `false` for identifiers/paths). */
   spellcheck?: boolean | undefined;
+  /** ARIA role; the command palette passes `combobox`. */
+  role?: JSX.InputHTMLAttributes<HTMLInputElement>["role"];
+  /** Id of the popup listbox this input controls (`combobox` only). */
+  ariaControls?: string | undefined;
+  /** Id of the active option in the controlled listbox (`combobox` only). */
+  ariaActivedescendant?: string | undefined;
+  /** Whether the controlled popup is expanded (`combobox` only). */
+  ariaExpanded?: boolean | undefined;
   /** Called with the current value on every input event. */
   onInput?: ((value: string) => void) | undefined;
 }
 
 /** Search text input — token-styled box, value reported as a plain string. */
 export const SearchInput = (props: SearchInputProps): JSX.Element => (
+  // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the command palette passes role="combobox", which supports aria-expanded
   <input
     type="text"
     id={props.id}
     placeholder={props.placeholder}
     value={props.value}
     spellcheck={props.spellcheck}
+    role={props.role}
+    aria-controls={props.ariaControls}
+    aria-activedescendant={props.ariaActivedescendant}
+    aria-expanded={props.ariaExpanded}
     class={`${INPUT_BOX}${props.mono === true ? " font-mono" : ""}`}
     onInput={(ev) => props.onInput?.(ev.currentTarget.value)}
   />

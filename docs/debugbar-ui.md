@@ -139,8 +139,8 @@ contracts:
 | `AppShell` | Composition root: skip link, sidebar, context bar, `<main id="view">`, status bar, palette and toast; owns global shortcuts, delegated `[data-copy]` clicks, the SSE stream and its silent-stream watchdog. |
 | `Sidebar` | The grouped, collapsible nav (`full` / 56px `rail` / off-canvas `drawer`) rendered from `NAV_GROUPS`. |
 | `NavItem` | One sidebar link: icon + label + optional live badge, `aria-current="page"` when active (icon-only + `aria-label`/`title` in rail mode). |
-| `ContextBar` | Sticky `service / View` breadcrumb plus the global live-tail / refresh / theme / palette controls; per-view actions live in the view's `PageHeader`. |
-| `CommandPalette` | `Cmd`/`Ctrl-K` `role="dialog"` fuzzy palette over the 15 views plus quick actions; focus trap, arrow/Enter/Esc, restores focus on close. |
+| `ContextBar` | Sticky `service / View` breadcrumb plus the nav toggle, and the global live-tail / refresh / theme / palette controls; the toggle is disabled when the viewport forces the rail (761–1100px). Per-view actions live in the view's `PageHeader`. |
+| `CommandPalette` | `Cmd`/`Ctrl-K` `role="dialog"` fuzzy palette over the 15 views plus quick actions; a `combobox` search drives a grouped `listbox` (`aria-activedescendant`), background content is `inert`, and focus is trapped and restored on close. |
 
 ### Primitives (`ui/components/`)
 
@@ -190,8 +190,10 @@ the `⌘K` keyboard hint.
 - All token text ≥ 4.5:1; status always carries a label (never color alone).
 - Every interactive control has a visible accent focus treatment — buttons,
   nav links and tabs use `outline-2 outline-accent outline-offset-2`; inputs
-  use an accent border plus `ring-accent/25`. The palette traps Tab and closes
-  on Esc.
+  use an accent border plus `ring-accent/25`; a base `:focus-visible` ring
+  covers anything else. The palette search is a `combobox` with
+  `aria-controls`/`aria-activedescendant` over its `listbox`, traps Tab,
+  marks the background `inert`, and closes on Esc.
 - `aria-pressed` on the live-tail toggle (icon swaps play/pause); charts are
   `role="img"` with a text current/min/max; tables use `<th scope="col">` and
   right-align tabular numerics.

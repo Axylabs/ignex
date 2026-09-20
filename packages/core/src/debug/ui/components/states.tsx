@@ -10,9 +10,7 @@ import { Button } from "./button";
 import { Icon, type IconName } from "./icon";
 
 interface EmptyStateProps {
-  /** Legacy emoji/glyph marker (kept for unmigrated views). */
-  glyph?: string | undefined;
-  /** Inline-SVG marker; preferred over `glyph`. */
+  /** Inline-SVG marker. */
   icon?: IconName | undefined;
   /** Required empty message. */
   message: string;
@@ -23,11 +21,7 @@ interface EmptyStateProps {
 /** Centered empty-state block for a panel or table body. */
 export const EmptyState = (props: EmptyStateProps): JSX.Element => (
   <div class="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted">
-    {props.glyph !== undefined ? (
-      <div class="text-xl text-faint">{props.glyph}</div>
-    ) : props.icon !== undefined ? (
-      <Icon name={props.icon} size={24} class="text-faint" />
-    ) : null}
+    {props.icon !== undefined ? <Icon name={props.icon} size={24} class="text-faint" /> : null}
     <div class="text-ink">{props.message}</div>
     {props.hint !== undefined ? (
       <div class="max-w-[52ch] text-xs text-faint">{props.hint}</div>

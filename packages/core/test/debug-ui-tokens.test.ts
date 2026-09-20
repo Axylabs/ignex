@@ -127,4 +127,35 @@ describe("debugbar design tokens", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("uses no raw palette colors for scrims in ui/ sources", () => {
+    // `--overlay` is the one translucent surface for palette/dialog/drawer
+    // scrims; raw Tailwind palette classes (`bg-black`, `bg-white`) and
+    // arbitrary color literals would bypass it and drift from the token layer.
+    const offenders: string[] = [];
+    for (const file of listSources(UI_DIR)) {
+      const src = readFileSync(file, "utf8");
+      const rel = file.slice(UI_DIR.length + 1);
+      for (const m of src.matchAll(/\b(?:bg-black|bg-white|bg-\[#|text-\[#)/g)) {
+        offenders.push(`${rel} → ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("never pairs text-accent with bg-accent-soft in one source", () => {
+    // `--accent` on `--accent-soft` is ~3.9:1 in the light theme, below the
+    // 4.5:1 text floor. Selected/active surfaces keep the `bg-accent-soft`
+    // tint but must use `text-ink` (see `Button`'s pressed state). A
+    // file-level pairing is the proxy here; `text-accent-fg` is excluded by
+    // the negative lookahead, so only a bare `text-accent` trips it.
+    const offenders: string[] = [];
+    for (const file of listSources(UI_DIR)) {
+      const src = readFileSync(file, "utf8");
+      if (/bg-accent-soft/.test(src) && /\btext-accent(?!-)/.test(src)) {
+        offenders.push(file.slice(UI_DIR.length + 1));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

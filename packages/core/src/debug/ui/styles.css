@@ -128,6 +128,42 @@ html[data-theme="light"] {
 }
 
 /*
+ * Base chrome the rewrite still owes the UI (docs/debugbar.md "UI tour"):
+ * thin scrollbars and one accent `:focus-visible` ring. Kept in the `base`
+ * layer so component utilities always win — e.g. inputs use
+ * `focus:outline-none` + a ring, and `rounded-*` overrides the focus radius.
+ */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--text-faint);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/*
  * Fresh-row flash — a newly arrived trace row highlights once so the live tail
  * is visible. Kept as irreducible custom CSS (one keyframe set + one helper
  * class); the `prefers-reduced-motion` guard below suppresses it.

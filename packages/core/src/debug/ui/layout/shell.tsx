@@ -146,6 +146,7 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
     <div class="min-h-dvh bg-bg text-ink">
       <button
         type="button"
+        inert={paletteOpen() || undefined}
         onClick={(): void => {
           document.getElementById("view")?.focus();
         }}
@@ -156,6 +157,7 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
 
       <div
         class="grid min-h-dvh"
+        inert={paletteOpen() || undefined}
         style={{
           "grid-template-columns":
             nav.mode() === "drawer"
@@ -176,7 +178,7 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
           <button
             type="button"
             aria-label="Close navigation"
-            class="fixed inset-0 z-40 bg-black/40"
+            class="fixed inset-0 z-40 bg-overlay"
             onClick={nav.close}
           />
         </Show>
@@ -185,6 +187,7 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
           <ContextBar
             service={service()}
             viewLabel={viewLabel()}
+            navForced={nav.forced()}
             onToggleNav={nav.toggle}
             onOpenPalette={(): void => {
               setPaletteOpen(true);
@@ -196,7 +199,10 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
         </div>
       </div>
 
-      <footer class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-4 border-t border-line bg-surface-1/95 px-4 py-1.5 pb-[env(safe-area-inset-bottom)] font-mono text-xs text-faint backdrop-blur">
+      <footer
+        inert={paletteOpen() || undefined}
+        class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-4 border-t border-line bg-surface-1/95 px-4 py-1.5 pb-[env(safe-area-inset-bottom)] font-mono text-xs text-faint backdrop-blur"
+      >
         <span>{nativeText()}</span>
         <span>{bufferText()}</span>
         <span class="grow" />

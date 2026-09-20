@@ -55,7 +55,7 @@ export const Toolbar = (props: ToolbarProps): JSX.Element => (
   <div
     class={
       props.sticky === true
-        ? "sticky top-0 z-10 -mx-2 mb-3 flex flex-wrap items-center gap-2 rounded-md bg-bg/85 px-2 py-2 backdrop-blur"
+        ? "sticky top-(--context-h) -mx-2 mb-3 flex flex-wrap items-center gap-2 rounded-md bg-bg/85 px-2 py-2 backdrop-blur"
         : "mb-3 flex flex-wrap items-center gap-2"
     }
   >

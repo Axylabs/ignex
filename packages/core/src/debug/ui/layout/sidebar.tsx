@@ -34,6 +34,12 @@ export interface NavState {
   mode: () => NavMode;
   /** Whether the off-canvas drawer is open (drawer mode only). */
   drawerOpen: () => boolean;
+  /**
+   * Whether the viewport pins the mode (the 761–1100px rail band). When true
+   * there is no full/rail choice to make, so `toggle` is a no-op and the
+   * context-bar control is disabled.
+   */
+  forced: () => boolean;
   /** Toggle rail↔full on desktop, or the drawer on narrow screens. */
   toggle: () => void;
   /** Close the drawer (nav activation / scrim click). */
@@ -80,11 +86,16 @@ export const createNavState = (): NavState => {
     (): NavMode => (width() <= DRAWER_MAX ? "drawer" : width() <= RAIL_MAX ? "rail" : pref()),
   );
 
+  // The 761–1100px band has no full/rail choice: the viewport picks `rail`.
+  // Toggling there would silently rewrite the persisted desktop preference.
+  const forced = createMemo<boolean>((): boolean => width() > DRAWER_MAX && width() <= RAIL_MAX);
+
   const toggle = (): void => {
     if (mode() === "drawer") {
       setDrawerOpen((open) => !open);
       return;
     }
+    if (forced()) return; // viewport-forced rail — nothing to toggle or persist
     const next = pref() === "rail" ? "full" : "rail";
     setPref(next);
     try {
@@ -97,6 +108,7 @@ export const createNavState = (): NavState => {
   return {
     mode,
     drawerOpen,
+    forced,
     toggle,
     close: (): void => {
       setDrawerOpen(false);
@@ -124,7 +136,7 @@ export const NavItem = (props: NavItemProps): JSX.Element => {
       "flex h-8 items-center gap-2.5 rounded-md px-2 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
     const layout = props.rail ? "justify-center" : "";
     const state = props.active
-      ? "bg-accent-soft font-medium text-accent"
+      ? "bg-accent-soft font-medium text-ink"
       : "text-muted hover:bg-surface-2 hover:text-ink";
     return `${base} ${layout} ${state}`;
   };

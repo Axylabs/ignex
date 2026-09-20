@@ -32,6 +32,12 @@ interface CommandGroup {
   items: Command[];
 }
 
+/** Id of the results listbox the search combobox controls. */
+const LISTBOX_ID = "palette-listbox";
+
+/** Stable DOM id for one command option (command ids may contain `:`). */
+const optionId = (id: string): string => `palette-option-${id.replace(/[^\w-]/g, "-")}`;
+
 /** Pick a leading icon from a command's id (views map through `iconForView`). */
 const iconForCommand = (cmd: Command): IconName => {
   if (cmd.id.startsWith("view:")) return iconForView(cmd.id.slice("view:".length));
@@ -77,6 +83,12 @@ export const CommandPalette = (props: CommandPaletteProps): JSX.Element => {
   createEffect((): void => {
     const list = filtered();
     if (!list.some((cmd) => cmd.id === activeId())) setActiveId(list[0]?.id ?? null);
+  });
+
+  // The input's `aria-activedescendant` target (undefined when nothing is active).
+  const activeOptionId = createMemo((): string | undefined => {
+    const id = activeId();
+    return id === null ? undefined : optionId(id);
   });
 
   // On open: reset, remember the trigger, autofocus the search. On close:
@@ -160,7 +172,7 @@ export const CommandPalette = (props: CommandPaletteProps): JSX.Element => {
         <button
           type="button"
           aria-label="Close command palette"
-          class="absolute inset-0 bg-black/40"
+          class="absolute inset-0 bg-overlay"
           onClick={(): void => props.onClose()}
         />
         <div
@@ -178,49 +190,64 @@ export const CommandPalette = (props: CommandPaletteProps): JSX.Element => {
               id="palette-search"
               placeholder="Search commands…"
               value={query()}
+              role="combobox"
+              ariaControls={LISTBOX_ID}
+              ariaActivedescendant={activeOptionId()}
+              ariaExpanded={true}
               onInput={(value): void => {
                 setQuery(value);
               }}
             />
           </div>
-          <div class="max-h-[50vh] overflow-y-auto p-2" role="listbox" aria-label="Commands">
-            <For each={groups()}>
-              {(group): JSX.Element => (
-                <div class="mb-1">
-                  <div class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-faint">
-                    {group.label}
+          <div class="max-h-[50vh] overflow-y-auto p-2">
+            <div id={LISTBOX_ID} role="listbox" aria-label="Commands">
+              <For each={groups()}>
+                {(group): JSX.Element => (
+                  // biome-ignore lint/a11y/useSemanticElements: a labelled option group in the palette listbox, not a form fieldset
+                  <div role="group" aria-label={group.label} class="mb-1">
+                    <div
+                      aria-hidden="true"
+                      class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-faint"
+                    >
+                      {group.label}
+                    </div>
+                    <For each={group.items}>
+                      {(cmd): JSX.Element => {
+                        const active = (): boolean => cmd.id === activeId();
+                        return (
+                          <button
+                            type="button"
+                            id={optionId(cmd.id)}
+                            role="option"
+                            tabindex={-1}
+                            aria-selected={active()}
+                            class={`flex w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm ${
+                              active()
+                                ? "bg-accent-soft text-ink"
+                                : "text-muted hover:bg-surface-2 hover:text-ink"
+                            }`}
+                            onMouseEnter={(): void => {
+                              setActiveId(cmd.id);
+                            }}
+                            onClick={(): void => {
+                              props.onClose();
+                              cmd.run();
+                            }}
+                          >
+                            <Icon
+                              name={iconForCommand(cmd)}
+                              size={14}
+                              class="shrink-0 text-faint"
+                            />
+                            <span class="truncate">{cmd.label}</span>
+                          </button>
+                        );
+                      }}
+                    </For>
                   </div>
-                  <For each={group.items}>
-                    {(cmd): JSX.Element => {
-                      const active = (): boolean => cmd.id === activeId();
-                      return (
-                        <button
-                          type="button"
-                          role="option"
-                          tabindex={-1}
-                          aria-selected={active()}
-                          class={`flex w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm ${
-                            active()
-                              ? "bg-accent-soft text-accent"
-                              : "text-muted hover:bg-surface-2 hover:text-ink"
-                          }`}
-                          onMouseEnter={(): void => {
-                            setActiveId(cmd.id);
-                          }}
-                          onClick={(): void => {
-                            props.onClose();
-                            cmd.run();
-                          }}
-                        >
-                          <Icon name={iconForCommand(cmd)} size={14} class="shrink-0 text-faint" />
-                          <span class="truncate">{cmd.label}</span>
-                        </button>
-                      );
-                    }}
-                  </For>
-                </div>
-              )}
-            </For>
+                )}
+              </For>
+            </div>
             <Show when={filtered().length === 0}>
               <div class="px-3 py-6 text-center text-sm text-muted">No matching commands</div>
             </Show>
