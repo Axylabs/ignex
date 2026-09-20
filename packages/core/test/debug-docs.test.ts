@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { readDoc } from "../src/debug/docs";
 import { listAllDocs, scanDocsInventory } from "../src/debug/kt";
+import { createDocsHandler } from "../src/debug/server/handlers/app-panels";
 
 let dir: string;
 let many: string;
@@ -72,5 +73,42 @@ describe("readDoc — one doc, confined to the inventory", () => {
     expect(await readDoc(dir, ["docs"], "docs/../a.md")).toBeNull();
     expect(await readDoc(dir, ["docs"], "/etc/passwd")).toBeNull();
     expect(await readDoc(dir, ["docs"], "C:\\Windows\\x.md")).toBeNull();
+  });
+});
+
+describe("GET /api/docs endpoint", () => {
+  // Build deps inside each test — `dir` is assigned in beforeAll, which runs
+  // after the describe body executes.
+  const deps = (): never => ({ state: { projectRoot: dir, docsPaths: ["docs"] } }) as never;
+
+  it("lists the inventory", async () => {
+    const handler = createDocsHandler(deps());
+    const res = await handler({ url: new URL("http://x/api/docs") } as never);
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      docs: [
+        { path: "docs/a.md", title: "a.md" },
+        { path: "docs/b.md", title: "b.md" },
+      ],
+    });
+  });
+
+  it("returns one doc for ?path=", async () => {
+    const handler = createDocsHandler(deps());
+    const res = await handler({
+      url: new URL("http://x/api/docs?path=docs%2Fa.md"),
+    } as never);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { path: string; markdown: string };
+    expect(body.path).toBe("docs/a.md");
+    expect(body.markdown).toBe("# a.md\n");
+  });
+
+  it("404s for an unknown or traversal path", async () => {
+    const handler = createDocsHandler(deps());
+    const res = await handler({
+      url: new URL("http://x/api/docs?path=..%2Fsecret.md"),
+    } as never);
+    expect(res.status).toBe(404);
   });
 });

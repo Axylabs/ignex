@@ -18,6 +18,7 @@ import { json, notFound } from "../respond";
 import {
   createAiSummaryHandler,
   createClientsHandler,
+  createDocsHandler,
   createEventPublishHandler,
   createEventsClearHandler,
   createEventsHandler,
@@ -185,6 +186,12 @@ export const createEndpointTable = (
     },
     { methods: ["GET"], pattern: "state", auth: "gate", handle: () => stateHandler() },
     { methods: ["GET"], pattern: "kt", auth: "gate", handle: async () => json(await ktData()) },
+    {
+      methods: ["GET"],
+      pattern: "docs",
+      auth: "gate",
+      handle: (ctx) => createDocsHandler(deps)(ctx),
+    },
     {
       methods: ["GET"],
       pattern: "sdks",
