@@ -14,7 +14,8 @@
 ```
 packages/app/
 ├─ .ignex/
-│  └─ dev-session-secret
+│  ├─ dev-session-secret
+│  └─ observatory.db
 ├─ src/
 │  ├─ config/
 │  │  └─ env.ts
@@ -577,6 +578,7 @@ packages/core/
 │  │  │  │  ├─ copy-attr.ts
 │  │  │  │  ├─ detail-types.ts
 │  │  │  │  ├─ diagnostics.tsx
+│  │  │  │  ├─ docs.tsx
 │  │  │  │  ├─ events.tsx
 │  │  │  │  ├─ history.tsx
 │  │  │  │  ├─ jobs.tsx
@@ -604,6 +606,7 @@ packages/core/
 │  │  ├─ clients.ts
 │  │  ├─ curl.ts
 │  │  ├─ dashboard-client.gen.ts
+│  │  ├─ docs.ts
 │  │  ├─ index.ts
 │  │  ├─ knowledge-markdown.ts
 │  │  ├─ kt.ts
@@ -762,6 +765,7 @@ packages/core/
 │  ├─ cron6.test.ts
 │  ├─ data-integrity-port.test.ts
 │  ├─ dataloader.test.ts
+│  ├─ debug-docs.test.ts
 │  ├─ debug-mongo.test.ts
 │  ├─ debug-server.test.ts
 │  ├─ debug-sourcemaps.test.ts
@@ -1119,13 +1123,9 @@ docs/
 │  └─ 012-offthread-consumers.md
 ├─ superpowers/
 │  ├─ plans/
-│  │  ├─ 2026-09-18-perf-levers.execution.md
-│  │  ├─ 2026-09-19-castrum-adoption.md
-│  │  ├─ 2026-09-20-maintainability-phase1.md
-│  │  ├─ 2026-09-20-maintainability-phase2.md
-│  │  └─ 2026-09-20-offthread-task-consumer.md
+│  │  └─ 2026-09-20-docs-hub-debugger-docs.md
 │  └─ specs/
-│     └─ 2026-09-20-maintainability-design.md
+│     └─ 2026-09-20-docs-hub-debugger-docs-design.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md
@@ -1138,6 +1138,7 @@ docs/
 ├─ getting-started.md
 ├─ native-acceleration.md
 ├─ perf-methodology.md
+├─ README.md
 ├─ release-process.md
 ├─ router.md
 ├─ sdk.md

@@ -47,6 +47,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Docs hub** — `docs/README.md` is now the single entry point: a doc map
+  with audience + maturity per document, reading paths per persona, artifact
+  rules and the "adding a doc" governance; `check:maintainability` enforces
+  it (`doc-hub:missing`). Completed `docs/superpowers` process artifacts were
+  deleted per the plan rule. `README.md`/`AGENTS.md`/`RULES.md` now point at
+  the hub.
+- **Debugbar Docs panel** — new `Docs` view (`#/docs`,
+  `#/docs/<encodeURIComponent(path)>`) and
+  `GET /api/docs`: the repository's docs rendered inside the debugbar via the
+  KT docs scan (reads confined to the inventory, sanitized HTML). The
+  reference app scans the framework docs (`docsPaths`).
 - **Opt-in off-thread async consumers for password verify and gzip.**
   `@ignex/native` now exposes `verifyPasswordAsync` and `gzipCompressAsync` over
   a process-wide SHARED task runtime (`createTaskRuntime`, created once and
