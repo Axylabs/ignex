@@ -1,9 +1,9 @@
 /**
  * @fileoverview Docs view — the framework/repo documentation rendered inside
  * the debugbar. `PageHeader` → responsive two-pane: the docs inventory sidebar
- * (filterable, scrolls independently at `lg`+) and the selected doc's content
- * card (sanitized server HTML, or a plain-markdown fallback when the server
- * renderer is unavailable). Deep links: `#/docs`, `#/docs/<path>`.
+ * (filterable) and the selected doc's content card (sanitized server HTML, or a
+ * plain-markdown fallback when the server renderer is unavailable). The two
+ * panes stack below `lg`. Deep links: `#/docs`, `#/docs/<path>`.
  */
 
 import {
@@ -81,6 +81,7 @@ export const DocsView: Component = () => {
         <Card title="Documentation" headExtra={<CountChip n={docs().length} />}>
           <div class="mb-2">
             <SearchInput
+              id="search"
               placeholder="filter docs…"
               value={query()}
               spellcheck={false}
