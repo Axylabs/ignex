@@ -38,7 +38,12 @@ const SIZE: Record<ButtonSize, string> = {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary: "text-accent-fg hover:brightness-110",
-  ghost: "border border-line text-muted hover:bg-surface-2 hover:text-ink hover:border-line-strong",
+  // Pressed ghost (toggle) marks itself active with the accent border + tint.
+  // The label stays `--text` rather than `--accent`: accent on `--accent-soft`
+  // measures 3.75:1 in the light theme (accent on white is 4.68:1, and the tint
+  // only lowers it), below the 4.5:1 text floor. `--text` clears it in both themes.
+  ghost:
+    "border border-line text-muted hover:bg-surface-2 hover:text-ink hover:border-line-strong aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-ink",
   danger: "border border-line text-err hover:bg-err-soft hover:border-err",
   icon: "h-7 w-7 border border-line text-muted hover:bg-surface-2 hover:text-ink",
 };

@@ -46,6 +46,8 @@ interface SearchInputProps {
   value?: string | undefined;
   /** Render the value in the mono face. */
   mono?: boolean | undefined;
+  /** Native spellcheck hint (e.g. `false` for identifiers/paths). */
+  spellcheck?: boolean | undefined;
   /** Called with the current value on every input event. */
   onInput?: ((value: string) => void) | undefined;
 }
@@ -57,6 +59,7 @@ export const SearchInput = (props: SearchInputProps): JSX.Element => (
     id={props.id}
     placeholder={props.placeholder}
     value={props.value}
+    spellcheck={props.spellcheck}
     class={`${INPUT_BOX}${props.mono === true ? " font-mono" : ""}`}
     onInput={(ev) => props.onInput?.(ev.currentTarget.value)}
   />

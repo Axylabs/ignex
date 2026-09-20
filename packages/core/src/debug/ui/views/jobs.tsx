@@ -30,11 +30,17 @@ const jobTone = (status: string): BadgeTone =>
 /** The jobs panel. */
 export const JobsView: Component = () => {
   const [data, setData] = createSignal<JobsPanel | null>(null);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
 
   const load = (): void => {
     void getJobs()
-      .then(setData)
-      .catch((): void => {});
+      .then((res): void => {
+        setLoadError(null);
+        setData(res);
+      })
+      .catch((err: Error): void => {
+        setLoadError(err.message);
+      });
   };
 
   load();
@@ -61,9 +67,11 @@ export const JobsView: Component = () => {
         when={data()}
         keyed
         fallback={
-          <Card>
-            <LoadingState rows={3} />
-          </Card>
+          <Show when={loadError() === null}>
+            <Card>
+              <LoadingState rows={3} />
+            </Card>
+          </Show>
         }
       >
         {(res): JSX.Element => {
@@ -112,6 +120,14 @@ export const JobsView: Component = () => {
             </>
           );
         }}
+      </Show>
+
+      <Show when={loadError() !== null}>
+        <ErrorState
+          message={loadError() ?? ""}
+          hint="Is the debugbar enabled and the server running?"
+          onRetry={load}
+        />
       </Show>
     </div>
   );

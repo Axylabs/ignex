@@ -128,6 +128,7 @@ const NovaEmitPanel = (props: { onEmitted: () => void }): JSX.Element => {
         <Field label="Event">
           <SearchInput
             mono
+            spellcheck={false}
             placeholder="event, e.g. recive-fe.created"
             value={name()}
             onInput={(value): void => {
@@ -138,6 +139,7 @@ const NovaEmitPanel = (props: { onEmitted: () => void }): JSX.Element => {
         <Field label="Target">
           <SearchInput
             mono
+            spellcheck={false}
             placeholder="target — user:u-42 · group:premium · topic:room · client:c-1 (blank = broadcast)"
             value={target()}
             onInput={(value): void => {
@@ -363,6 +365,7 @@ export const EventsView: Component = () => {
             <Field label="Subject">
               <SearchInput
                 mono
+                spellcheck={false}
                 placeholder="subject, e.g. orders.created"
                 value={subject()}
                 onInput={(value): void => {

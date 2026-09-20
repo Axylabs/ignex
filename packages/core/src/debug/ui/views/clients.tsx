@@ -8,14 +8,53 @@
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 
 import { getClients } from "../api";
-import { Badge, Chip, KindBadge } from "../components/badge";
+import { Badge, Chip } from "../components/badge";
 import { Button } from "../components/button";
 import { Card, CardGrid } from "../components/card";
-import { Icon } from "../components/icon";
 import { PageHeader } from "../components/page";
 import { EmptyState } from "../components/states";
 import { Stat, StatRow } from "../components/stats";
 import { fmtNum } from "../format";
+
+/** Client platform/kind → categorical token (the span-kind palette does not cover these). */
+const PLATFORM_COLOR: Record<string, string> = {
+  sdk: "var(--cat-1)",
+  client: "var(--cat-6)",
+  node: "var(--cat-2)",
+  bun: "var(--cat-4)",
+};
+
+/**
+ * Categorical badge for a client `platform ?? kind`: tinted from the mapped
+ * `--cat-*` token, falling back to a neutral `Badge` for unknown values.
+ */
+const PlatformBadge = (props: { value: string }): JSX.Element => {
+  const color = (): string | undefined => PLATFORM_COLOR[props.value.toLowerCase()];
+  return (
+    <Show
+      when={color()}
+      keyed
+      fallback={
+        <Badge tone="neutral" mono>
+          {props.value}
+        </Badge>
+      }
+    >
+      {(c): JSX.Element => (
+        <span
+          class="inline-flex h-5 items-center gap-1 rounded-sm border px-1.5 font-mono text-xs font-medium leading-none"
+          style={{
+            color: c,
+            "background-color": `color-mix(in srgb, ${c} 14%, transparent)`,
+            "border-color": `color-mix(in srgb, ${c} 35%, transparent)`,
+          }}
+        >
+          {props.value}
+        </span>
+      )}
+    </Show>
+  );
+};
 
 /** One published client card. */
 const ClientCard = (props: {
@@ -32,7 +71,7 @@ const ClientCard = (props: {
           <b>{c.name}</b>
           {`@${c.version}`}
         </span>
-        <KindBadge kind={c.platform ?? c.kind} />
+        <PlatformBadge value={c.platform ?? c.kind} />
         {c.published === "tagged" ? (
           <Badge tone="ok">tagged</Badge>
         ) : (
@@ -66,10 +105,9 @@ const ClientCard = (props: {
         <div class="mt-3 flex flex-wrap gap-1.5">
           <For each={c.files}>
             {(f): JSX.Element => (
-              <Chip dataCopy={f} title={`Copy ${f}`}>
-                <Icon name="copy" size={12} />
+              <Button variant="ghost" size="sm" icon="copy" title={`Copy ${f}`} dataCopy={f}>
                 <span class="font-mono">{f}</span>
-              </Chip>
+              </Button>
             )}
           </For>
         </div>
