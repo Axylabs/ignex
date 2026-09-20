@@ -10,10 +10,6 @@
       "lines": 795,
       "rationale": "SDK realtime client surface — Tier D"
     },
-    "packages/core/src/debug/types.ts": {
-      "lines": 779,
-      "rationale": "debug observability type surface (37 pure types) — Tier-0 split (T6)"
-    },
     "packages/native/src/crypto.ts": {
       "lines": 753,
       "rationale": "native crypto surface (hmac/cookie/csrf/jwt/token/password/aead/session) — Tier-0 split (T8)"

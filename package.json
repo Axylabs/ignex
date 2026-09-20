@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:cli": "tsc --noEmit -p packages/cli/tsconfig.json",
     "verify": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test && bun run jsdoc:check:strict && bun run check:dead",
-    "verify:quick": "bun run --parallel typecheck typecheck:cli lint jsdoc:check:strict check:debug-ui check:maintainability",
+    "verify:quick": "bun run --parallel typecheck typecheck:cli lint jsdoc:check:strict check:debug-ui && bun run check:maintainability",
     "gen:debug-ui": "bun scripts/gen-debug-ui.ts",
     "check:debug-ui": "bun scripts/gen-debug-ui.ts --check",
     "check:dead": "knip",

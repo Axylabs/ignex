@@ -20,6 +20,14 @@ Date: 2026-09-20 · Status: **approved** · Spec: `docs/superpowers/specs/2026-0
 > 5. **`docs/decisions/` Verification parsing bullets** — the gate's rule 6
 >    strips a leading `- ` bullet, matching the seed entries' `- Verification:`
 >    format (found by the self-test fixture).
+> 6. **verify:quick gate race (surfaced by T6)** — `check:maintainability` and
+>    `check:debug-ui` originally ran in `--parallel`; the gate observed
+>    debug-ui's LIVE `.gen-debug-ui-*` staging dir as an orphan, exited 1, the
+>    runner SIGINT-killed debug-ui mid-build, and the leftover orphan re-tripped
+>    the gate on the next run (red forever). `verify:quick` now chains
+>    `&& bun run check:maintainability` AFTER the parallel set: the gate audits
+>    the final state, and gen-debug-ui's startup sweep heals any prior leftover
+>    first.
 
 Implements Phase 1 of the approved maintainability design: the mechanical gate,
 the gen-debug-ui hygiene fix, the single TODO removal, the decisions registry +
