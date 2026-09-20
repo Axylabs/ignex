@@ -128,7 +128,7 @@ export const MetricsView: Component = () => {
                     label="Custom counters"
                     columns={["Name", "Labels", "Value"]}
                     rows={m.counters}
-                    rowKey={(c): string => c.name}
+                    rowKey={(c): string => `${c.name}\u0000${JSON.stringify(c.labels)}`}
                     align={[2]}
                     render={(c): JSX.Element[] => [
                       <span class="font-mono">{c.name}</span>,

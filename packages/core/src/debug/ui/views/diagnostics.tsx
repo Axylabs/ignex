@@ -71,9 +71,13 @@ export const DiagnosticsView: Component = () => {
   const [gcResult, setGcResult] = createSignal<string | null>(null);
   const [gcRunning, setGcRunning] = createSignal(false);
 
-  void getDiagnostics()
-    .then(setReport)
-    .catch((): void => {});
+  const load = (): void => {
+    void getDiagnostics()
+      .then(setReport)
+      .catch((): void => {});
+  };
+
+  load();
 
   const runGcNow = (): void => {
     setGcRunning(true);
@@ -91,13 +95,16 @@ export const DiagnosticsView: Component = () => {
         title="Diagnostics"
         description="Leak/trend verdict from the observatory analyzer."
         actions={
-          <Button
-            variant="primary"
-            icon="refresh"
-            label="run full GC"
-            disabled={gcRunning()}
-            onClick={runGcNow}
-          />
+          <>
+            <Button
+              variant="primary"
+              icon="bolt"
+              label="run full GC"
+              disabled={gcRunning()}
+              onClick={runGcNow}
+            />
+            <Button icon="refresh" label="Refresh" onClick={load} />
+          </>
         }
       />
       <Show when={report()} keyed>

@@ -6,7 +6,7 @@
  * `aria-label`, so the data is readable without the bitmap (spec §6.6/§6.7).
  */
 
-import { createEffect, createMemo, type JSX } from "solid-js";
+import { createEffect, createMemo, type JSX, Show } from "solid-js";
 
 import { Card } from "./card";
 
@@ -91,6 +91,7 @@ export const Chart = (props: ChartProps): JSX.Element => {
     const list = vals();
     return list.length > 0 ? (list[list.length - 1] ?? 0) : 0;
   });
+  const hasSamples = createMemo(() => vals().length > 0);
   const withUnit = (value: number): string => `${value} ${props.unit}`;
 
   createEffect((): void => {
@@ -102,10 +103,14 @@ export const Chart = (props: ChartProps): JSX.Element => {
       title={props.title}
       hint={
         <span class="flex items-baseline gap-2 font-mono tabular-nums">
-          <span class="text-lg font-semibold text-ink">{withUnit(current())}</span>
-          <span class="text-xs text-faint">
-            {`min ${withUnit(bounds().min)} · max ${withUnit(bounds().max)}`}
+          <span class="text-lg font-semibold text-ink">
+            {hasSamples() ? withUnit(current()) : "…"}
           </span>
+          <Show when={hasSamples()}>
+            <span class="text-xs text-faint">
+              {`min ${withUnit(bounds().min)} · max ${withUnit(bounds().max)}`}
+            </span>
+          </Show>
         </span>
       }
     >
@@ -115,7 +120,11 @@ export const Chart = (props: ChartProps): JSX.Element => {
             canvas = el;
           }}
           role="img"
-          aria-label={`${props.title}: ${withUnit(current())}, min ${bounds().min}, max ${bounds().max}`}
+          aria-label={
+            hasSamples()
+              ? `${props.title}: ${withUnit(current())}, min ${bounds().min}, max ${bounds().max}`
+              : `${props.title}: no samples yet`
+          }
           class="h-full w-full"
         />
       </div>

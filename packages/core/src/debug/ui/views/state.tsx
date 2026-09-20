@@ -8,6 +8,7 @@ import { type Component, createSignal, type JSX, Show } from "solid-js";
 
 import { getState } from "../api";
 import { Chip } from "../components/badge";
+import { Button } from "../components/button";
 import { Card, Disclosure } from "../components/card";
 import { Icon } from "../components/icon";
 import { Kvs } from "../components/kvs";
@@ -53,13 +54,19 @@ const FeatureChip = (props: { on: boolean; label: string }): JSX.Element => (
 /** The state panel. */
 export const StateView: Component = () => {
   const [snap, setSnap] = createSignal<StateSnapshot | null>(null);
-  void (getState() as Promise<StateSnapshot>).then(setSnap).catch((): void => {});
+
+  const load = (): void => {
+    void (getState() as Promise<StateSnapshot>).then(setSnap).catch((): void => {});
+  };
+
+  load();
 
   return (
     <div class="flex flex-col gap-4">
       <PageHeader
         title="State"
         description="Runtime facts, feature flags, plugins and env-var names (values are never exposed)."
+        actions={<Button icon="refresh" label="Refresh" onClick={load} />}
       />
       <Show when={snap()} keyed>
         {(s): JSX.Element => {
