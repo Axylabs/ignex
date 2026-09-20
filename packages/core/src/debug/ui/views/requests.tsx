@@ -1,8 +1,10 @@
 /**
- * @fileoverview Requests + Errors views — live trace table with stat cards,
- * text/method/status filters, pause/resume and clear. Rows render through a
- * keyed identity merge so stream bumps only add the rows that changed instead
- * of rebuilding a 200-row table.
+ * @fileoverview Requests + Errors views — live trace table built from the page
+ * primitives: `PageHeader` (title/description/actions) → `StatRow` → sticky
+ * `Toolbar` (search + method/status filters) → `DataTable` → state slots. Rows
+ * render through a keyed identity merge so stream bumps only add the rows that
+ * changed instead of rebuilding a 200-row table; module-scoped stores keep the
+ * live row set and filters across view remounts.
  */
 
 import {
@@ -11,7 +13,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
   type JSX,
   onCleanup,
   type Setter,
@@ -21,18 +22,16 @@ import {
 
 import type { TraceSummary } from "../../store";
 import { clearRequests, getRequests } from "../api";
+import { MethodBadge, StatusBadge } from "../components/badge";
+import { Button } from "../components/button";
+import { Card } from "../components/card";
+import { SearchInput, Select } from "../components/fields";
 import { mergeById } from "../components/keyed";
-import {
-  BarRow,
-  BarTrack,
-  EmptyState,
-  MethodPill,
-  Panel,
-  rowKeyHandler,
-  StatCard,
-  StatRow,
-  StatusPill,
-} from "../components/widgets";
+import { PageHeader, Toolbar } from "../components/page";
+import { EmptyState, ErrorState } from "../components/states";
+import { Stat, StatRow } from "../components/stats";
+import { DataTable } from "../components/table";
+import { BarRow, BarTrack } from "../components/widgets";
 import { durClass, fmtMs, fmtNum, timeAgo, timeHM } from "../format";
 import {
   baselineFrom,
@@ -46,61 +45,14 @@ import {
 import { navigate } from "../router";
 import { toast } from "../toast";
 
+/** Table column labels, in `DataTable` render order. */
 const HEADERS = ["When", "Method", "Path", "Status", "Duration", "DB", "Spans", "Error"];
 
-/** One trace row (keyed by trace id; fresh rows flash once). */
-const TraceRow = (props: {
-  row: TraceSummary;
-  maxDur: () => number;
-  seenIds: Set<string>;
-}): JSX.Element => {
-  const fresh = !props.seenIds.has(props.row.id);
-  props.seenIds.add(props.row.id);
-  // Bar length is relative to the SLOWEST request in the window so the
-  // distribution is comparable at a glance.
-  const pct = createMemo((): number => {
-    const max = props.maxDur();
-    return Math.max(Math.min((props.row.durationMs / max) * 100, 100), 1.5);
-  });
-  const barColor =
-    props.row.status >= 500 ? "var(--err)" : props.row.status >= 400 ? "var(--warn)" : undefined;
-  return (
-    <tr
-      data-id={props.row.id}
-      class={fresh ? "fresh" : ""}
-      title={timeHM(props.row.ts)}
-      tabIndex={0}
-      onClick={(): void => navigate("detail", props.row.id)}
-      onKeyDown={rowKeyHandler((): void => navigate("detail", props.row.id))}
-    >
-      <td class="text-muted" title={timeHM(props.row.ts)}>
-        {timeAgo(props.row.ts)}
-      </td>
-      <td>
-        <MethodPill method={props.row.method} />
-      </td>
-      <td class="font-mono">{props.row.path}</td>
-      <td>
-        <StatusPill status={props.row.status} />
-      </td>
-      <td>
-        <BarRow>
-          <span class={`font-mono ${durClass(props.row.durationMs)}`}>
-            {fmtMs(props.row.durationMs)}
-          </span>
-          <BarTrack pct={pct()} color={barColor} />
-        </BarRow>
-      </td>
-      <td class="font-mono text-muted">
-        {props.row.dbCount > 0 ? `${fmtMs(props.row.dbTimeMs)} · ${props.row.dbCount}q` : "—"}
-      </td>
-      <td class="font-mono text-muted">{String(props.row.spanCount)}</td>
-      <td class="text-muted">
-        {props.row.error !== null ? <span class="pill status err">{props.row.error}</span> : "—"}
-      </td>
-    </tr>
-  );
-};
+/** Methods offered by the toolbar's method filter. */
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+/** Status families offered by the toolbar's status filter. */
+const STATUS_FAMILIES = ["2xx", "3xx", "4xx", "5xx"];
 
 /**
  * Module-scoped stores so the live row set + filters survive view remounts.
@@ -143,6 +95,7 @@ export const liveErrorCount = (): number => errStore.rows().size;
 const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
   const s = props.errorsOnly ? errStore : reqStore;
   const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [loaded, setLoaded] = createSignal(false);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup((): void => {
@@ -160,9 +113,11 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
       .then((data): void => {
         setLoadError(null);
         s.setRows((prev) => mergeById(prev, data, (r) => r.id));
+        setLoaded(true);
       })
       .catch((err: Error): void => {
         setLoadError(err.message);
+        setLoaded(true);
       });
   };
 
@@ -210,126 +165,167 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
 
   const rowsList = createMemo(() => [...s.rows().values()]);
 
+  /** Report whether `id` is new (and remember it) — the fresh-row flash hook. */
+  const isFresh = (id: string): boolean => {
+    const fresh = !s.seenIds.has(id);
+    s.seenIds.add(id);
+    return fresh;
+  };
+
+  /**
+   * One `DataTable` row, one node per column (the primitive wraps each in a
+   * `<td>`). Bar length is relative to the SLOWEST request in the window so
+   * the distribution is comparable at a glance.
+   */
+  const rowCells = (row: TraceSummary): JSX.Element[] => {
+    const barColor =
+      row.status >= 500 ? "var(--err)" : row.status >= 400 ? "var(--warn)" : undefined;
+    const fresh = isFresh(row.id);
+    return [
+      <span class={`text-muted${fresh ? " fresh" : ""}`} title={timeHM(row.ts)}>
+        {timeAgo(row.ts)}
+      </span>,
+      <MethodBadge method={row.method} />,
+      <span class="font-mono">{row.path}</span>,
+      <StatusBadge status={row.status} />,
+      <BarRow>
+        <span class={`font-mono ${durClass(row.durationMs)}`}>{fmtMs(row.durationMs)}</span>
+        <BarTrack
+          pct={Math.max(Math.min((row.durationMs / stats().maxDur) * 100, 100), 1.5)}
+          color={barColor}
+        />
+      </BarRow>,
+      <span class="font-mono text-muted">
+        {row.dbCount > 0 ? `${fmtMs(row.dbTimeMs)} · ${row.dbCount}q` : "—"}
+      </span>,
+      <span class="font-mono text-muted">{String(row.spanCount)}</span>,
+      <span
+        class={`block max-w-[240px] truncate${row.error !== null ? " text-err" : " text-muted"}`}
+        title={row.error ?? undefined}
+      >
+        {row.error ?? "—"}
+      </span>,
+    ];
+  };
+
   return (
-    <div>
+    <div class="flex flex-col gap-4">
+      <PageHeader
+        title={props.errorsOnly ? "Errors" : "Requests"}
+        description="Live trace ring — newest first, last 200"
+        actions={
+          <>
+            <Button
+              icon={paused() ? "play" : "pause"}
+              label={paused() ? "Resume live" : "Pause live"}
+              ariaPressed={paused()}
+              onClick={(): void => {
+                setPaused(!paused());
+              }}
+            />
+            <Button icon="refresh" label="Refresh" onClick={(): void => pushPulse()} />
+            <Button
+              variant="danger"
+              icon="trash"
+              label="Clear"
+              onClick={(): void => {
+                void clearRequests().then((): void => {
+                  toast("store cleared");
+                  load();
+                });
+              }}
+            />
+          </>
+        }
+      />
+
       <StatRow>
-        <StatCard
+        <Stat
           value={fmtNum(stats().count)}
           label={props.errorsOnly ? "Errors (window)" : "Requests (window)"}
           sub="last 200"
         />
-        <StatCard
+        <Stat
           value={fmtNum(stats().errs)}
           label="Errors"
           tone={stats().errs > 0 ? "err" : undefined}
         />
-        <StatCard
+        <Stat
           value={fmtNum(stats().n4xx)}
           label="4xx"
           tone={stats().n4xx > 0 ? "warn" : undefined}
         />
-        <StatCard
+        <Stat
           value={fmtNum(stats().n5xx)}
           label="5xx"
           tone={stats().n5xx > 0 ? "err" : undefined}
         />
-        <StatCard value={stats().avg} label="avg ms" sub="this window" />
+        <Stat value={stats().avg} label="avg ms" sub="this window" />
       </StatRow>
 
-      <Panel>
-        <div class="toolbar">
-          <input
-            class="search"
-            id="search"
-            type="text"
-            placeholder="filter method / path / error…"
-            value={s.q()}
-            onInput={(ev): void => {
-              s.setQ((ev.target as HTMLInputElement).value);
-              if (debounceTimer !== null) clearTimeout(debounceTimer);
-              debounceTimer = setTimeout(load, 250);
-            }}
-          />
-          <select
-            id="method-filter"
-            onChange={(ev): void => {
-              s.setMethod((ev.target as HTMLSelectElement).value);
-              load();
-            }}
-          >
-            <option value="">all methods</option>
-            {["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].map((m) => (
-              <option value={m}>{m}</option>
-            ))}
-          </select>
-          <select
-            id="status-filter"
-            onChange={(ev): void => {
-              s.setStatus((ev.target as HTMLSelectElement).value);
-              load();
-            }}
-          >
-            <option value="">all statuses</option>
-            {["2xx", "3xx", "4xx", "5xx"].map((s) => (
-              <option value={s}>{s}</option>
-            ))}
-          </select>
-          <span class="grow" />
-          <button
-            type="button"
-            class="ghost mini"
-            id="pause"
-            onClick={(): void => {
-              setPaused(!paused());
-            }}
-          >
-            ⏸/▶ live
-          </button>
-          <button type="button" class="ghost mini" onClick={(): void => pushPulse()}>
-            ↻ refresh
-          </button>
-          <button
-            type="button"
-            class="ghost mini"
-            onClick={(): void => {
-              void clearRequests().then((): void => {
-                toast("store cleared");
-                load();
-              });
-            }}
-          >
-            ✕ clear
-          </button>
-        </div>
-      </Panel>
+      <Toolbar sticky>
+        <SearchInput
+          id="search"
+          placeholder="filter method / path / error…"
+          value={s.q()}
+          onInput={(value): void => {
+            s.setQ(value);
+            if (debounceTimer !== null) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(load, 250);
+          }}
+        />
+        <Select
+          id="method-filter"
+          onChange={(ev): void => {
+            s.setMethod(ev.currentTarget.value);
+            load();
+          }}
+        >
+          <option value="">all methods</option>
+          {METHODS.map((m) => (
+            <option value={m}>{m}</option>
+          ))}
+        </Select>
+        <Select
+          id="status-filter"
+          onChange={(ev): void => {
+            s.setStatus(ev.currentTarget.value);
+            load();
+          }}
+        >
+          <option value="">all statuses</option>
+          {STATUS_FAMILIES.map((family) => (
+            <option value={family}>{family}</option>
+          ))}
+        </Select>
+      </Toolbar>
 
-      <Panel>
-        <table>
-          <thead>
-            <tr>
-              {HEADERS.map((label) => (
-                <th>{label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <For each={rowsList()}>
-              {(row): JSX.Element => (
-                <TraceRow row={row} maxDur={(): number => stats().maxDur} seenIds={s.seenIds} />
-              )}
-            </For>
-          </tbody>
-        </table>
-      </Panel>
+      <Card pad={false}>
+        <DataTable
+          label={props.errorsOnly ? "Errors" : "Requests"}
+          columns={HEADERS}
+          rows={rowsList()}
+          rowKey={(row): string => row.id}
+          render={rowCells}
+          align={[4, 5, 6]}
+          onRowClick={(row): void => navigate("detail", row.id)}
+          loading={!loaded() && rowsList().length === 0}
+          empty={
+            <EmptyState
+              icon="activity"
+              message={props.errorsOnly ? "No errors in the window" : "No requests in the window"}
+              hint="New rows appear here as traffic arrives."
+            />
+          }
+        />
+      </Card>
 
       <Show when={loadError() !== null}>
-        <Panel>
-          <EmptyState
-            glyph="⚠"
-            message={loadError() ?? ""}
-            hint="Is the debugbar enabled and the server running?"
-          />
-        </Panel>
+        <ErrorState
+          message={loadError() ?? ""}
+          hint="Is the debugbar enabled and the server running?"
+          onRetry={load}
+        />
       </Show>
     </div>
   );
