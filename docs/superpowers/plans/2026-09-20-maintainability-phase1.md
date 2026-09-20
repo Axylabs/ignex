@@ -45,6 +45,13 @@ Date: 2026-09-20 · Status: **complete** · Spec: `docs/superpowers/specs/2026-0
 >    (`DEFAULT_BUCKETS`/`sortedKeys`/`sanitizeBuckets`) live in `shared.ts`
 >    rather than in a registry (dominant-consumer rule could not keep the file
 >    under 400).
+> 8. **T8 sibling-import detail (file-table correction)** — the table says
+>    `cookie.ts`/`csrf.ts`/`jwt.ts` import `hmacSha256` from `./hmac`. Executed
+>    code instead imports the raw digest helpers (`hmacSha256Bytes` + friends)
+>    from `../util`, so `./hmac` has NO sibling consumers — it stays the leaf,
+>    exporting only `hmacSha256`/`hmacSha256Verify`, consumed by the entry
+>    barrel / `batch.ts` / `execution.ts`. The split itself is unchanged; only
+>    the internal wiring of the digest differs from the table's guess.
 
 Implements Phase 1 of the approved maintainability design: the mechanical gate,
 the gen-debug-ui hygiene fix, the single TODO removal, the decisions registry +
