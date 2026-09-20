@@ -1,6 +1,6 @@
 # Plan — Maintainability Phase 2 (intern bar: doc-rot guard, Tier-A splits, core barrel, playbook, first-day)
 
-Date: 2026-09-20 · Status: **approved** · Parent spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved; Phase 1 delivered the gate + registry + playbook + 3 splits)
+Date: 2026-09-20 · Status: **complete** · Parent spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved; Phase 1 delivered the gate + registry + playbook + 3 splits)
 
 > **Scope (user-approved, five work items):** (1) extend the doc-rot guard from
 > `docs/decisions/` to `.agents/skills/*/SKILL.md` + `docs/ai/*.md`; (2) split
