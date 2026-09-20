@@ -499,12 +499,12 @@ const v = (id: string) => ({ id, label: id, key: "", domain: null, component: ()
 describe("navGroups", () => {
   it("partitions known views into four ordered groups", () => {
     const groups = navGroups([
-      v("requests"), v("errors"), v("logs"), v("history"),
+      v("requests"), v("errors"), v("logs"), v("history"), v("routes"),
       v("metrics"), v("system"), v("diagnostics"), v("state"), v("jobs"),
       v("events"), v("clients"), v("kt"), v("docs"), v("ai"),
     ]);
     expect(groups.map((g) => g.label)).toEqual(["Observe", "Runtime", "Integrations", "Reference"]);
-    expect(groups[0]!.items.map((i) => i.id)).toEqual(["requests", "errors", "logs", "history"]);
+    expect(groups[0]!.items.map((i) => i.id)).toEqual(["requests", "errors", "logs", "history", "routes"]);
     expect(groups[1]!.items.map((i) => i.id)).toEqual(["metrics", "system", "diagnostics", "state", "jobs"]);
     expect(groups[2]!.items.map((i) => i.id)).toEqual(["events", "clients"]);
     expect(groups[3]!.items.map((i) => i.id)).toEqual(["kt", "docs", "ai"]);

@@ -136,7 +136,7 @@ decorative titles or numbers. Status uses semantic tokens; categories use
   column scrolls.
 - Sidebar (220px): brand block (service + environment chip) → four labelled
   groups:
-  - **Observe** — Requests, Errors, Logs, History
+  - **Observe** — Requests, Errors, Logs, History, Routes
   - **Runtime** — Metrics, System, Diagnostics, State, Jobs
   - **Integrations** — Events, Clients
   - **Reference** — KT, Docs, AI
