@@ -29,8 +29,8 @@ in `docs/debugbar-ui.md`.
   live-tail pause/resume, refresh, theme and the command-palette trigger.
   Per-view actions live in the view's own header, never here.
 - **Per-view header** — every view opens with a header: a title (`h1`), a
-  one-line description, and its own actions (pause/refresh/clear, copy,
-  filters).
+  one-line description, and — where the view has them — its own actions
+  (pause/refresh/clear, copy, filters).
 - **Command palette** — `Cmd`/`Ctrl-K` opens a fuzzy palette over the 15 views
   plus quick actions (refresh, pause/resume live, toggle theme, open a view);
   arrow keys / `Enter` / `Esc`, with focus trapped and restored on close.

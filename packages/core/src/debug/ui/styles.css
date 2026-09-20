@@ -3,8 +3,17 @@
  * Tokens + @theme only. Components are Tailwind utilities in `ui/`.
  * Build: scripts/gen-debug-ui.ts (bun run gen:debug-ui).
  */
-@import "tailwindcss";
-@source "./**/*.{ts,tsx}";
+/*
+ * `source(none)` disables Tailwind's automatic project-wide source detection:
+ * without it, the CLI (run with `--cwd <repo root>`) scans every file in the
+ * repo, so an unrelated doc or test edit changes the emitted CSS — and the
+ * content-hashed dashboard artifact — for no reason. Scanning is scoped to the
+ * UI sources below. `gen-debug-ui` stages `ui/` into a build dir and rewrites
+ * every `.tsx` to `.js` before the Tailwind CLI runs, so the glob must include
+ * `.js` (the staged JSX output) as well as the verbatim `.ts` sources.
+ */
+@import "tailwindcss" source(none);
+@source "./**/*.{ts,tsx,js,jsx}";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 @theme inline {

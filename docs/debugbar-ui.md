@@ -188,13 +188,15 @@ the `⌘K` keyboard hint.
 - `aria-current="page"` on the active nav item; rail mode keeps an
   `aria-label`.
 - All token text ≥ 4.5:1; status always carries a label (never color alone).
-- One focus ring (`outline-2 outline-accent outline-offset-2`) on every
-  interactive control; the palette traps Tab and closes on Esc.
+- Every interactive control has a visible accent focus treatment — buttons,
+  nav links and tabs use `outline-2 outline-accent outline-offset-2`; inputs
+  use an accent border plus `ring-accent/25`. The palette traps Tab and closes
+  on Esc.
 - `aria-pressed` on the live-tail toggle (icon swaps play/pause); charts are
   `role="img"` with a text current/min/max; tables use `<th scope="col">` and
   right-align tabular numerics.
-- Hit targets ≥ 28px (the toolbar buttons are `h-7`/`h-8`); the live-tail
-  control is a labelled button, not an 8px dot.
+- Hit targets ≥ 28px (buttons are `h-7`/`h-8`); the live-tail control is a
+  button with an accessible name (`title`) and `aria-pressed`, not an 8px dot.
 - `prefers-reduced-motion` disables transitions and animations; the keyboard
   map is documented in the status bar (`0–9`, `/`, `r`, `t`, `⌘K`).
 
@@ -206,9 +208,10 @@ the `⌘K` keyboard hint.
 2. **Nav** — add the id to the right group in `ui/nav.ts` (`GROUP_ORDER`) and
    map an icon in `VIEW_ICONS`.
 3. **Module** — create `ui/views/<id>.tsx`. Start it with `PageHeader`
-   (title + description + actions) and compose `StatRow` / `Toolbar` /
-   `DataTable` / `Card` / states from `ui/components/`. Fetch through
-   `ui/api.ts`; never hand-roll a card, badge or table.
+   (title + description, plus an `actions` slot only when the view has
+   actions) and compose `StatRow` / `Toolbar` / `DataTable` / `Card` / states
+   from `ui/components/`. Fetch through `ui/api.ts`; never hand-roll a card,
+   badge or table.
 4. **Page archetype** — pick one and match it: *List/monitor* (`PageHeader` →
    `StatRow` → `Toolbar` → `DataTable` → states), *Dashboard* (`PageHeader` →
    `StatRow` → card grid / callouts), *Detail* (`PageHeader` → summary strip →
@@ -249,9 +252,10 @@ The dashboard cannot be rendered headlessly here (an open SSE stream + TLS
 wedge headless Chromium), so a visual pass is a manual `bun run dev:debug`
 against this list — stated, not assumed. Check: sidebar groups and active
 state, the ≤1100px rail and ≤760px drawer; one accent only, no
-gradients/glows/emoji; every view shows a header with title + description +
-actions; light and dark both legible (especially pills and `--text-faint`);
-tables keep their sticky header inside the scroll container with right-aligned
-numerics; the waterfall, time breakdown, query expandables and the docs
-two-pane at 1440/1100/760px; and the palette keyboard flow, focus rings and
-live-tail toggle.
+gradients/glows/emoji; every view shows a header with a title and description,
+plus actions where the view has any; light and dark both legible (especially
+pills and `--text-faint`); tables keep their sticky header inside the scroll
+container with right-aligned numerics; the waterfall, time breakdown, query
+expandables and the docs two-pane (side-by-side at ≥1024px, stacked below) at
+1440/1100/760px; and the palette keyboard flow, focus rings and live-tail
+toggle.
