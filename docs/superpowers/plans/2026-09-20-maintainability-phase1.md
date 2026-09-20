@@ -28,6 +28,15 @@ Date: 2026-09-20 · Status: **approved** · Spec: `docs/superpowers/specs/2026-0
 >    `&& bun run check:maintainability` AFTER the parallel set: the gate audits
 >    the final state, and gen-debug-ui's startup sweep heals any prior leftover
 >    first.
+> 7. **T7 registry split (file-table correction)** — the plan's
+>    `metrics/registry.ts` held BOTH registries ≈ 665 lines, which violates the
+>    gate's 400-line cap and contradicts T7 step 4 ("post-split files are all
+>    under 400"). Executed as `metrics/registry-native.ts` +
+>    `metrics/registry-fallback.ts` + `metrics/shared.ts` (6 files total, all
+>    under the cap); the three genuinely-shared helpers
+>    (`DEFAULT_BUCKETS`/`sortedKeys`/`sanitizeBuckets`) live in `shared.ts`
+>    rather than in a registry (dominant-consumer rule could not keep the file
+>    under 400).
 
 Implements Phase 1 of the approved maintainability design: the mechanical gate,
 the gen-debug-ui hygiene fix, the single TODO removal, the decisions registry +
@@ -77,7 +86,9 @@ packages/core/src/debug/types/observability.ts T6  domain file (13 types)
 packages/core/src/debug/types/index.ts        T6  barrel (all 37 types)
 packages/native/src/metrics/types.ts          T7  interfaces (5)
 packages/native/src/metrics/decode.ts         T7  decodeMetricsSnapshot + its helpers
-packages/native/src/metrics/registry.ts       T7  createNativeMetricsRegistry + fallback
+packages/native/src/metrics/shared.ts         T7  DEFAULT_BUCKETS/sortedKeys/sanitizeBuckets
+packages/native/src/metrics/registry-native.ts T7  C-ABI + NAPI-backed registry
+packages/native/src/metrics/registry-fallback.ts T7  pure-TS byte-compatible fallback
 packages/native/src/metrics/index.ts          T7  createMetricsRegistry + re-export set
 packages/native/src/crypto/hmac.ts            T8
 packages/native/src/crypto/cookie.ts          T8
@@ -96,7 +107,7 @@ package.json                                  T1  wire check:maintainability int
 scripts/gen-debug-ui.ts                       T2  proactive stale-dir cleanup
 packages/cli/src/templates/event.ts           T3  remove the TODO from the emitted template
 maintainability.json                          T6–T8  remove split entries (metrics/types/crypto)
-docs/decisions/007-metrics-lazy-optional.md   T7  re-cite after metrics split (see T7)
+docs/decisions/007-metrics-lazy-optional.md   T7  no re-cite needed (cites test file, not metrics.ts)
 docs/decisions/*.md (any cited-path churn)    T8  re-cite if a crypto path moves
 docs/stability.md                             T9  progress note on item 12
 docs/ai/TREE.md                               T9  regenerated (bun run gen:ai-map)
