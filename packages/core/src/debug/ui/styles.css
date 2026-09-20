@@ -356,6 +356,82 @@ pre.err-stack {
   color: var(--err);
 }
 
+/* ── markdown (KT fallback + Docs panel) ──────────────────────────────────
+   Server-rendered markdown arrives via `innerHTML`, so scoping its typography
+   needs descendant element selectors — irreducible custom CSS (same category
+   as `.wf*` / `.tree`). Colours and type come from the token layer only. */
+.markdown {
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--text);
+}
+.markdown h1 {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  margin: 4px 0 12px;
+}
+.markdown h2 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin-top: 22px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+.markdown h3 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin-top: 16px;
+}
+.markdown p {
+  margin: 8px 0;
+}
+.markdown table {
+  font-size: var(--fs-sm);
+  margin: 10px 0;
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: left;
+}
+.markdown code {
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-family: var(--mono);
+}
+.markdown pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow: auto;
+}
+.markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 10px 0;
+  padding: 2px 14px;
+  color: var(--text-muted);
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+.markdown a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.markdown a:hover {
+  text-decoration: underline;
+}
+
 /* Honor the OS reduced-motion preference: no transitions or animations run. */
 @media (prefers-reduced-motion: reduce) {
   *,
