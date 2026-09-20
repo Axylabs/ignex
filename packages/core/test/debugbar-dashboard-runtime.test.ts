@@ -216,6 +216,17 @@ const apiPayload = (url: string): unknown => {
       routes: 0,
     };
   if (url.includes("/api/kt")) return "# Knowledge";
+  if (url.includes("/api/docs")) {
+    const path = new URL(url, "http://x").searchParams.get("path");
+    return path === null
+      ? { docs: [{ path: "docs/a.md", title: "Alpha" }] }
+      : {
+          path,
+          title: "Alpha",
+          markdown: "# Alpha\n",
+          html: "<h1>Alpha</h1>",
+        };
+  }
   if (url.includes("/api/stream/ticket")) return { ticket: "tkn-1" };
   return {};
 };
@@ -305,6 +316,16 @@ describe("debugbar dashboard SPA bundle (executed)", () => {
     expect(allText).not.toContain("ReferenceError");
     expect(allText).not.toContain("is not a function");
     expect(allText).toContain("payment retry");
+
+    // The Docs panel mounts from deep links and renders a document.
+    window.location.hash = "#/docs/docs%2Fa.md";
+    window.dispatchEvent(new Event("hashchange"));
+    for (let i = 0; i < 25; i++) await Promise.resolve();
+    allText = document.body.textContent ?? "";
+    expect(allText).not.toContain("is not defined");
+    expect(allText).not.toContain("ReferenceError");
+    expect(allText).not.toContain("is not a function");
+    expect(allText).toContain("Alpha");
 
     // A rotated-out trace: live 404 → history 404 → the "not found" panel
     // renders instead of an uncaught rejection (deep links survive restarts

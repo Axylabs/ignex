@@ -18,6 +18,7 @@ import {
   StatRow,
 } from "../components/widgets";
 import { envTone, fmtMs, fmtNum, fmtUptime, kindColor } from "../format";
+import { navigate } from "../router";
 import { copyAttr } from "./copy-attr";
 
 const AREA_GLYPHS: Record<string, string> = {
@@ -307,8 +308,18 @@ const Knowledge = (props: { k: AppKnowledge }): JSX.Element => {
                   <div class="t">
                     📄 <span class="font-mono">{doc.title}</span>
                   </div>
-                  <div class="p" title="click to copy path" {...copyAttr(doc.path)}>
-                    {doc.path}
+                  <div class="kt-row-actions">
+                    <div class="p" title="click to copy path" {...copyAttr(doc.path)}>
+                      {doc.path}
+                    </div>
+                    <button
+                      type="button"
+                      class="ghost mini"
+                      onClick={(): void => navigate("docs", doc.path)}
+                      title="open in Docs"
+                    >
+                      open ↗
+                    </button>
                   </div>
                 </div>
               ),

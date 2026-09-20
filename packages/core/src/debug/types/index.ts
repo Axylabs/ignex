@@ -16,6 +16,7 @@ export type {
 export type {
   AiDebugSummary,
   AppKnowledge,
+  DocPayload,
   KnowledgeArea,
   KnowledgeDbAction,
   KnowledgeDoc,
