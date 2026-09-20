@@ -5,7 +5,7 @@
 > curated maps live in `docs/*.md` and `AGENTS.md`.
 
 - monorepo: `ignex` v0.2.0 (private, workspaces: packages/*)
-- root scripts (84): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, `gen:ai-map`, …
+- root scripts (85): `typecheck`, `typecheck:cli`, `verify`, `verify:quick`, `gen:debug-ui`, `check:debug-ui`, `check:dead`, `check:maintainability`, `test:parallel`, `verify:full`, `jsdoc:check`, `jsdoc:check:strict`, …
 
 ## packages/ (workspace)
 
@@ -516,380 +516,6 @@ packages/compiler/
 
 ```
 packages/core/
-├─ .gen-debug-ui-6jW2MD/
-│  ├─ components/
-│  │  ├─ detail-parts.js
-│  │  ├─ keyed.ts
-│  │  └─ widgets.js
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.js
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.js
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-6WvBhF/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-ihOzzr/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-oOfWck/
-│  ├─ components/
-│  │  ├─ detail-parts.js
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.js
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-Ps36ji/
-│  ├─ components/
-│  │  ├─ detail-parts.js
-│  │  ├─ keyed.ts
-│  │  └─ widgets.js
-│  ├─ views/
-│  │  ├─ ai.js
-│  │  ├─ clients.js
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.js
-│  │  ├─ events.js
-│  │  ├─ history.js
-│  │  ├─ jobs.js
-│  │  ├─ kt.js
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.js
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.js
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.js
-├─ .gen-debug-ui-RQcBjc/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-SG6nam/
-│  ├─ components/
-│  │  ├─ detail-parts.js
-│  │  ├─ keyed.ts
-│  │  └─ widgets.js
-│  ├─ views/
-│  │  ├─ ai.js
-│  │  ├─ clients.js
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.js
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.js
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.js
-├─ .gen-debug-ui-UpImCM/
-│  ├─ components/
-│  │  ├─ detail-parts.js
-│  │  ├─ keyed.ts
-│  │  └─ widgets.js
-│  ├─ views/
-│  │  ├─ ai.js
-│  │  ├─ clients.js
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.js
-│  │  ├─ events.js
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.js
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.js
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.js
-├─ .gen-debug-ui-vSE0WS/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-XqD2Oa/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
-├─ .gen-debug-ui-zvyJqW/
-│  ├─ components/
-│  │  ├─ detail-parts.tsx
-│  │  ├─ keyed.ts
-│  │  └─ widgets.tsx
-│  ├─ views/
-│  │  ├─ ai.tsx
-│  │  ├─ clients.tsx
-│  │  ├─ copy-attr.ts
-│  │  ├─ detail-types.ts
-│  │  ├─ diagnostics.tsx
-│  │  ├─ events.tsx
-│  │  ├─ history.tsx
-│  │  ├─ jobs.tsx
-│  │  ├─ kt.tsx
-│  │  ├─ log-detail.tsx
-│  │  ├─ logs.tsx
-│  │  ├─ metrics.tsx
-│  │  ├─ registry.tsx
-│  │  ├─ request-detail.tsx
-│  │  ├─ requests.tsx
-│  │  ├─ routes.tsx
-│  │  ├─ state.tsx
-│  │  └─ system.tsx
-│  ├─ api.ts
-│  ├─ app.tsx
-│  ├─ clipboard.ts
-│  ├─ format.ts
-│  ├─ index.tsx
-│  ├─ live.ts
-│  ├─ router.ts
-│  ├─ styles.css
-│  ├─ theme.ts
-│  └─ toast.tsx
 ├─ src/
 │  ├─ content/
 │  │  ├─ i18n.ts
@@ -934,6 +560,12 @@ packages/core/
 │  │  │  ├─ route-index.ts
 │  │  │  ├─ stream.ts
 │  │  │  └─ types.ts
+│  │  ├─ types/
+│  │  │  ├─ api.ts
+│  │  │  ├─ index.ts
+│  │  │  ├─ knowledge.ts
+│  │  │  ├─ observability.ts
+│  │  │  └─ trace.ts
 │  │  ├─ ui/
 │  │  │  ├─ components/
 │  │  │  │  ├─ detail-parts.tsx
@@ -989,8 +621,7 @@ packages/core/
 │  │  ├─ state.ts
 │  │  ├─ store.ts
 │  │  ├─ system.ts
-│  │  ├─ tracer.ts
-│  │  └─ types.ts
+│  │  └─ tracer.ts
 │  ├─ http/
 │  │  ├─ body/
 │  │  │  ├─ conversion.ts
@@ -1241,6 +872,16 @@ packages/mcp/
 ```
 packages/native/
 ├─ src/
+│  ├─ crypto/
+│  │  ├─ aead.ts
+│  │  ├─ cookie.ts
+│  │  ├─ csrf.ts
+│  │  ├─ hmac.ts
+│  │  ├─ index.ts
+│  │  ├─ jwt.ts
+│  │  ├─ password.ts
+│  │  ├─ session.ts
+│  │  └─ token.ts
 │  ├─ ffi/
 │  │  ├─ bind.ts
 │  │  ├─ helpers.ts
@@ -1273,11 +914,17 @@ packages/native/
 │  │  ├─ router.ts
 │  │  ├─ terminal.ts
 │  │  └─ verdict.ts
+│  ├─ metrics/
+│  │  ├─ decode.ts
+│  │  ├─ index.ts
+│  │  ├─ registry-fallback.ts
+│  │  ├─ registry-native.ts
+│  │  ├─ shared.ts
+│  │  └─ types.ts
 │  ├─ vendor/
 │  │  └─ castrum.d.ts
 │  ├─ batch.ts
 │  ├─ bun.ts
-│  ├─ crypto.ts
 │  ├─ decode-compat.ts
 │  ├─ ed25519.ts
 │  ├─ execution.ts
@@ -1288,7 +935,6 @@ packages/native/
 │  ├─ json.ts
 │  ├─ loader.ts
 │  ├─ memory.ts
-│  ├─ metrics.ts
 │  ├─ native-handler.ts
 │  ├─ packed.ts
 │  ├─ payload.ts
@@ -1391,6 +1037,7 @@ scripts/
 ├─ check-compare-bench.ts
 ├─ check-compare-gate.ts
 ├─ check-jsdoc.ts
+├─ check-maintainability.ts
 ├─ check-native-surface.ts
 ├─ check-rss-stability.ts
 ├─ check-server-bench.ts
@@ -1422,12 +1069,30 @@ scripts/
 docs/
 ├─ ai/
 │  ├─ LOCAL_DEV.md
+│  ├─ maintaining.md
 │  └─ TREE.md
+├─ decisions/
+│  ├─ 000-template.md
+│  ├─ 001-native-wins.md
+│  ├─ 002-native-fallback-duality.md
+│  ├─ 003-abi-ptr-len.md
+│  ├─ 004-wire-layout-ownership.md
+│  ├─ 005-fail-closed-policy.md
+│  ├─ 006-abort-status-200.md
+│  ├─ 007-metrics-lazy-optional.md
+│  ├─ 008-header-size-guards.md
+│  ├─ 009-compiler-cache-version.md
+│  ├─ 010-compose-over-classes.md
+│  ├─ 011-castrum-bridge-only.md
+│  └─ 012-offthread-consumers.md
 ├─ superpowers/
-│  └─ plans/
-│     ├─ 2026-09-18-perf-levers.execution.md
-│     ├─ 2026-09-19-castrum-adoption.md
-│     └─ 2026-09-20-offthread-task-consumer.md
+│  ├─ plans/
+│  │  ├─ 2026-09-18-perf-levers.execution.md
+│  │  ├─ 2026-09-19-castrum-adoption.md
+│  │  ├─ 2026-09-20-maintainability-phase1.md
+│  │  └─ 2026-09-20-offthread-task-consumer.md
+│  └─ specs/
+│     └─ 2026-09-20-maintainability-design.md
 ├─ adding-a-feature.md
 ├─ architecture.md
 ├─ bun-internals.md

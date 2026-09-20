@@ -340,9 +340,27 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     (1268 → `ffi/{types,helpers,self-test,bind,routes,instances,metrics,ingress,
     index}.ts`) and `native/src/ingress.ts` (1074 → `ingress/{layout,constants,
     errors,headers,verdict,terminal,factory,router,index}.ts`), each move-only,
-    gated by `check:native:surface` + `smoke:fallback`. The rest of the
-    >400-line set is still to be worked through, highest-value first:
-    `native/src/metrics.ts` / `crypto.ts`,
-    `core/src/debug/types.ts`, `core/src/http/router.ts`, `compiler/src/sdk/*`,
-    and the `core/src/index.ts` barrel. Each split stays move-only: identical
-    behaviour, barrel re-exports, package suite + `verify:quick` + `check:dead`.
+    gated by `check:native:surface` + `smoke:fallback`.
+
+    **Maintainability system live (`check:maintainability` wired into
+    `verify:quick`).** A mechanical gate in `maintainability.json` +
+    `scripts/check-maintainability.ts` now enforces a 400-line cap (shrink-only
+    `knownOver` allowlist), zero `TODO`/`FIXME`/`HACK`/`XXX` debt markers, no
+    orphan `.gen-debug-ui-*` dirs, no exact-duplicate src files, `@fileoverview`
+    on cap-size files, and no dangling `docs/decisions/*.md` Verification paths
+    (`bun run check:maintainability`; `--report` reconciles counts, `--self-test`
+    runs the fixture suite). Phase 1 closed out the three Tier-0 files:
+    `core/src/debug/types.ts` (778 → `debug/types/{trace,api,knowledge,
+    observability,index}.ts`), `native/src/metrics.ts` (825 → `metrics/{types,
+    decode,shared,registry-native,registry-fallback,index}.ts`), and
+    `native/src/crypto.ts` (752 → `crypto/{hmac,cookie,csrf,jwt,token,password,
+    aead,session,index}.ts`) — each move-only, gated by package suite +
+    `check:native:surface` + `smoke:fallback` + `check:dead` + `check:maintainability`.
+    `docs/decisions/` (ADR-lite registry, 12 seed entries) and
+    `docs/ai/maintaining.md` (issue→origin playbook) pin the decisions the splits
+    rely on. The allowlist now holds the remaining **33** >400-line files
+    (3 Tier A · 6 Tier B · 6 Tier C · 11 Tier D · 7 Tier E), highest-value next:
+    `native/src/ffi/bind.ts` / `loader.ts` / `route-wire.ts` (Tier A),
+    `core/src/http/router.ts`, `core/src/index.ts` barrel, then `compiler/src/sdk/*`
+    and the debug Tier-C files. Each split stays move-only: identical behaviour,
+    barrel re-exports, package suite + `verify:quick` + `check:dead`.

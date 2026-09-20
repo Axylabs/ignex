@@ -1,6 +1,14 @@
 # Plan — Maintainability system Phase 1 (intern-maintainable ignex)
 
-Date: 2026-09-20 · Status: **approved** · Spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved)
+Date: 2026-09-20 · Status: **complete** · Spec: `docs/superpowers/specs/2026-09-20-maintainability-design.md` (approved)
+
+> **Close-out (2026-09-20):** all tasks T1–T9 landed as single commits (see the
+> SDD ledger). Gates re-run at close-out: `typecheck`, `typecheck:cli`, `lint`
+> (6 pre-existing baseline warnings only), `jsdoc:check:strict` (1051/1051),
+> `check:dead`, `check:maintainability` (33-file allowlist), `test:parallel`
+> (shared 16, mcp 27, cli 322, compiler 435, core 1090), `check:native:surface`
+> (70 symbols), `smoke` 56/56, `smoke:fallback` 56/56 — all green.
+> `docs/stability.md` item 12 updated; `docs/ai/TREE.md` regenerated.
 
 > **Execution amendments** (2026-09-20, recorded as T1–T3 landed):
 > 1. **Rule 5 threshold = 400, not 120** — user-approved. A measured gate at 120
