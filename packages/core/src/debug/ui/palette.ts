@@ -74,7 +74,7 @@ const promptFor = (message: string): string | null => {
   }
 };
 
-/** Views in sidebar order, with any ungrouped registry views appended. */
+/** Views in sidebar order; any registry view outside a group is appended. */
 const orderedViews = (views: ViewDef[]): ViewDef[] => {
   const grouped = NAV_GROUPS.flatMap((group) => group.items);
   const seen = new Set(grouped.map((view) => view.id));

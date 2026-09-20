@@ -43,24 +43,32 @@ const v = (id: string) =>
 
 describe("navGroups", () => {
   it("partitions known views into four ordered groups", () => {
-    const groups = navGroups([
-      v("requests"),
-      v("errors"),
-      v("logs"),
-      v("history"),
-      v("metrics"),
-      v("system"),
-      v("diagnostics"),
-      v("state"),
-      v("jobs"),
-      v("events"),
-      v("clients"),
-      v("kt"),
-      v("docs"),
-      v("ai"),
-    ]);
+    const ids = [
+      "requests",
+      "errors",
+      "logs",
+      "history",
+      "routes",
+      "metrics",
+      "system",
+      "diagnostics",
+      "state",
+      "jobs",
+      "events",
+      "clients",
+      "kt",
+      "docs",
+      "ai",
+    ];
+    const groups = navGroups(ids.map(v));
     expect(groups.map((g) => g.label)).toEqual(["Observe", "Runtime", "Integrations", "Reference"]);
-    expect(groups[0]!.items.map((i) => i.id)).toEqual(["requests", "errors", "logs", "history"]);
+    expect(groups[0]!.items.map((i) => i.id)).toEqual([
+      "requests",
+      "errors",
+      "logs",
+      "history",
+      "routes",
+    ]);
     expect(groups[1]!.items.map((i) => i.id)).toEqual([
       "metrics",
       "system",
@@ -70,6 +78,11 @@ describe("navGroups", () => {
     ]);
     expect(groups[2]!.items.map((i) => i.id)).toEqual(["events", "clients"]);
     expect(groups[3]!.items.map((i) => i.id)).toEqual(["kt", "docs", "ai"]);
+
+    // Every view present lands in exactly one group — the union is all 15.
+    const grouped = groups.flatMap((g) => g.items.map((i) => i.id));
+    expect(grouped).toHaveLength(ids.length);
+    expect(new Set(grouped)).toEqual(new Set(ids));
   });
 
   it("drops groups with no present views", () => {
@@ -87,7 +100,7 @@ describe("navGroups", () => {
   });
 
   it("ignores views that belong to no group", () => {
-    expect(navGroups([v("routes"), v("requests")]).map((g) => g.id)).toEqual(["observe"]);
+    expect(navGroups([v("unknown"), v("requests")]).map((g) => g.id)).toEqual(["observe"]);
   });
 });
 
@@ -104,6 +117,7 @@ describe("NAV_GROUPS", () => {
       "errors",
       "logs",
       "history",
+      "routes",
       "metrics",
       "system",
       "diagnostics",

@@ -18,12 +18,11 @@ export interface NavGroup {
 }
 
 /**
- * Sidebar groups and their membership, in display order. `routes` is
- * deliberately absent — it is reachable from the command palette and deep
- * links, not the sidebar (spec §6.2/§6.3).
+ * Sidebar groups and their membership, in display order. Every registry view
+ * appears in exactly one group (`routes` belongs to Observe, after `history`).
  */
 const GROUP_ORDER: readonly { id: string; label: string | null; ids: readonly string[] }[] = [
-  { id: "observe", label: "Observe", ids: ["requests", "errors", "logs", "history"] },
+  { id: "observe", label: "Observe", ids: ["requests", "errors", "logs", "history", "routes"] },
   { id: "runtime", label: "Runtime", ids: ["metrics", "system", "diagnostics", "state", "jobs"] },
   { id: "integrations", label: "Integrations", ids: ["events", "clients"] },
   { id: "reference", label: "Reference", ids: ["kt", "docs", "ai"] },

@@ -108,14 +108,14 @@ describe("buildCommands", () => {
   it("builds 15 view commands in sidebar order", () => {
     const views = buildCommands(deps()).filter((cmd) => cmd.group === "Views");
     expect(views).toHaveLength(15);
-    expect(views.slice(0, 4).map((cmd) => cmd.label)).toEqual([
+    expect(views.slice(0, 5).map((cmd) => cmd.label)).toEqual([
       "Requests",
       "Errors",
       "Logs",
       "History",
+      "Routes",
     ]);
-    // `routes` is not a sidebar group; it is appended after the grouped views.
-    expect(views.at(-1)?.label).toBe("Routes");
+    expect(views.at(-1)?.label).toBe("AI");
   });
 
   it("builds the action and go-to groups", () => {
