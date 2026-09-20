@@ -1,12 +1,18 @@
 /**
- * @fileoverview Shared view widgets — panels, stat cards, pills, chips, bars,
- * empty states and key/value grids. All text goes through Solid's text
- * interpolation, so user data can never inject markup.
+ * @fileoverview Compatibility barrel for the view widgets that predate the
+ * primitives split. Every name views import from `./widgets` keeps its OLD
+ * prop signature and delegates to the owning module; the two local pills
+ * (`DirPill`, `CountChip`) and the two bar helpers are kept here because they
+ * have no owning module yet. T25 deletes this barrel once every view imports
+ * from the owning module.
  */
 
-import { For, type JSX } from "solid-js";
+import type { JSX } from "solid-js";
 
-import { kindColor, methodCls, sqlPillCls, statusCls } from "../format";
+import { MethodBadge, Chip as PrimitiveChip } from "./badge";
+import { Card } from "./card";
+import { Kvs as PrimitiveKvs } from "./kvs";
+import { Stat, type StatTone } from "./stats";
 
 /* ── panel ─────────────────────────────────────────────────────────────── */
 
@@ -20,23 +26,11 @@ interface PanelProps {
   children?: JSX.Element | undefined;
 }
 
-/** Titled panel card wrapping body content. */
+/** Titled panel card wrapping body content (delegates to `Card`). */
 export const Panel = (props: PanelProps): JSX.Element => (
-  <section class="panel">
-    {props.title !== undefined || props.headExtra !== undefined || props.hint !== undefined ? (
-      <div class="panel-head">
-        {props.title !== undefined ? <h2>{props.title}</h2> : null}
-        {props.headExtra}
-        {props.hint !== undefined ? (
-          <>
-            <span class="grow" />
-            {props.hint}
-          </>
-        ) : null}
-      </div>
-    ) : null}
+  <Card title={props.title} headExtra={props.headExtra} hint={props.hint}>
     {props.children}
-  </section>
+  </Card>
 );
 
 /* ── stat cards ────────────────────────────────────────────────────────── */
@@ -49,118 +43,73 @@ interface StatCardProps {
   tone?: string | undefined;
 }
 
+/** The tones the primitive `Stat` understands. */
+const STAT_TONES: readonly string[] = ["ok", "warn", "err", "accent"];
+
+/** Narrow the legacy free-form tone string to the primitive's tone union. */
+const statTone = (tone: string | undefined): StatTone | undefined =>
+  tone !== undefined && STAT_TONES.includes(tone) ? (tone as StatTone) : undefined;
+
 /** Stat card: big value + label (+ optional sub line + state tone). */
 export const StatCard = (props: StatCardProps): JSX.Element => (
-  <div class={`stat${props.tone ? ` ${props.tone}` : ""}`}>
-    <div class="v">
-      {props.value === null || props.value === undefined ? "—" : String(props.value)}
-    </div>
-    <div class="k">{props.label}</div>
-    {props.sub !== undefined ? <div class="sub">{props.sub}</div> : null}
-  </div>
+  <Stat value={props.value} label={props.label} sub={props.sub} tone={statTone(props.tone)} />
 );
 
-/** Responsive row of stat cards. */
-export const StatRow = (props: { children?: JSX.Element }): JSX.Element => (
-  <div class="stats">{props.children}</div>
-);
+export { StatRow } from "./stats";
 
 /* ── pills / chips ─────────────────────────────────────────────────────── */
 
-/** HTTP method pill (color per verb). */
-export const MethodPill = (props: { method: string }): JSX.Element => (
-  <span class={`pill method ${methodCls(props.method)}`}>{props.method}</span>
-);
+/** HTTP method pill (delegates to `MethodBadge`). */
+export const MethodPill = MethodBadge;
 
-/** Status pill (color per status family). */
-export const StatusPill = (props: { status: number }): JSX.Element => (
-  <span class={`pill status ${statusCls(props.status)}`}>{String(props.status)}</span>
-);
+/** Kind / level / SQL / status pills (re-exported from `badge`). */
+export {
+  KindBadge as KindPill,
+  LevelBadge as LevelPill,
+  SqlBadge as SqlPill,
+  StatusBadge as StatusPill,
+} from "./badge";
 
-/** Span-kind pill with its palette color. */
-export const KindPill = (props: { kind: string }): JSX.Element => (
-  <span class="pill kind" style={{ "--kc": kindColor(props.kind) }}>
-    {props.kind}
-  </span>
-);
+/** Small neutral chip (delegates to the primitive `Chip`). */
+export const Chip = PrimitiveChip;
 
-/** Log-level pill. */
-export const LevelPill = (props: { level: string }): JSX.Element => (
-  <span class={`lv-pill lv-${props.level}`}>{props.level}</span>
-);
+/** Shared pill box classes for the two local categorical pills. */
+const PILL =
+  "inline-flex h-5 items-center gap-1 rounded-sm border px-1.5 text-xs font-medium leading-none";
 
-/** NATS direction pill. */
+/** Soft color-mixed tint around one categorical palette color. */
+const tintStyle = (color: string): JSX.CSSProperties => ({
+  color,
+  "background-color": `color-mix(in srgb, ${color} 14%, transparent)`,
+  "border-color": `color-mix(in srgb, ${color} 35%, transparent)`,
+});
+
+/** NATS direction pill (`out` cat-3, `in` cat-2). */
 export const DirPill = (props: { direction: string }): JSX.Element =>
   props.direction === "out" ? (
-    <span class="pill kind" style={{ "--kc": "var(--cat-3)" }}>
+    <span class={PILL} style={tintStyle("var(--cat-3)")}>
       out
     </span>
   ) : (
-    <span class="pill kind" style={{ "--kc": "var(--cat-2)" }}>
+    <span class={PILL} style={tintStyle("var(--cat-2)")}>
       in
     </span>
   );
 
-/** SQL action pill. */
-export const SqlPill = (props: { action: string | null | undefined }): JSX.Element => (
-  <span class={`sql-pill sql-${sqlPillCls(props.action)}`}>
-    {String(props.action ?? "SQL").toUpperCase()}
-  </span>
-);
-
 /** Neutral count chip. */
 export const CountChip = (props: { n: number | string }): JSX.Element => (
-  <span class="count-pill">{String(props.n)}</span>
-);
-
-interface ChipProps {
-  children?: JSX.Element;
-  /** Extra classes (e.g. `mono`, env tones). */
-  class?: string;
-  title?: string;
-  /** Copy-on-click text (handled by the shell's delegated listener). */
-  dataCopy?: string;
-}
-
-/** Small neutral chip. */
-export const Chip = (props: ChipProps): JSX.Element => (
-  <span
-    class={`chip${props.class ? ` ${props.class}` : ""}`}
-    title={props.title}
-    data-copy={props.dataCopy}
-  >
-    {props.children}
+  <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-line bg-surface-2 px-1.5 font-mono text-xs tabular-nums text-muted">
+    {String(props.n)}
   </span>
 );
 
 /* ── empty state ───────────────────────────────────────────────────────── */
 
-interface EmptyStateProps {
-  glyph: string;
-  message: string;
-  hint?: string | undefined;
-}
-
-/** Empty-state block inside a panel. */
-export const EmptyState = (props: EmptyStateProps): JSX.Element => (
-  <div class="empty">
-    <div class="big">{props.glyph}</div>
-    {props.message}
-    {props.hint !== undefined ? <div class="hint">{props.hint}</div> : null}
-  </div>
-);
+export { EmptyState } from "./states";
 
 /* ── bars ──────────────────────────────────────────────────────────────── */
 
-/** Keyboard activation for clickable rows (Enter/Space → action). */
-export const rowKeyHandler =
-  (action: () => void) =>
-  (ev: KeyboardEvent): void => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      action();
-    }
-  };
+export { rowKeyHandler } from "./table";
 
 /** Flex row holding a label and a proportion bar. */
 export const BarRow = (props: { children?: JSX.Element }): JSX.Element => (
@@ -190,27 +139,9 @@ export const BarTrack = (props: BarTrackProps): JSX.Element => (
 
 /* ── key/value grid ────────────────────────────────────────────────────── */
 
-export interface KvsRow {
-  k: string;
-  v: string | JSX.Element;
-  /** Render the value in the mono face. */
-  mono?: boolean;
-}
+export type { KvsRow } from "./kvs";
 
-/** Key/value definition grid. */
-export const Kvs = (props: { rows: KvsRow[] }): JSX.Element => (
-  <div class="kvs">
-    <For each={props.rows}>
-      {(row): JSX.Element => (
-        <div>
-          <span class="k">{row.k}</span>
-          <span class={row.mono === true ? "v mono" : "v"}>{row.v}</span>
-        </div>
-      )}
-    </For>
-  </div>
-);
+/** Key/value definition grid (delegates to the `kvs` module). */
+export const Kvs = PrimitiveKvs;
 
-/** Header record → kvs rows. */
-export const headerRows = (headers: Record<string, string>): KvsRow[] =>
-  Object.keys(headers).map((key) => ({ k: key, v: headers[key] ?? "", mono: true }));
+export { headerRows } from "./kvs";
