@@ -50,30 +50,45 @@ export const DocsView: Component = () => {
   return (
     <div class="grid grid-cols-[280px_1fr] items-start gap-[18px]">
       <Panel title="Documentation">
-        <Show when={docs().length === 0} fallback={<></>}>
-          <EmptyState
-            glyph="📄"
-            message="No docs found."
-            hint="Set debugbar({ docsPaths }) to scan your repository's docs."
-          />
+        <Show
+          when={docs().length > 0}
+          fallback={
+            <EmptyState
+              glyph="📄"
+              message="No docs found."
+              hint="Set debugbar({ docsPaths }) to scan your repository's docs."
+            />
+          }
+        >
+          <div class="kt-rows">
+            <For each={docs()}>
+              {(doc): JSX.Element => (
+                <button
+                  type="button"
+                  class={`kt-row w-full text-left ${doc.path === selectedPath() ? "active" : ""}`}
+                  onClick={(): void => navigate("docs", doc.path)}
+                >
+                  <div class="t">📄 {doc.title}</div>
+                  <div class="p font-mono">{doc.path}</div>
+                </button>
+              )}
+            </For>
+          </div>
         </Show>
-        <div class="kt-rows">
-          <For each={docs()}>
-            {(doc): JSX.Element => (
-              <button
-                type="button"
-                class={`kt-row w-full text-left ${doc.path === selectedPath() ? "active" : ""}`}
-                onClick={(): void => navigate("docs", doc.path)}
-              >
-                <div class="t">📄 {doc.title}</div>
-                <div class="p font-mono">{doc.path}</div>
-              </button>
-            )}
-          </For>
-        </div>
       </Panel>
       <div>
-        <Show when={selectedPath() !== null}>
+        <Show
+          when={selectedPath() !== null}
+          fallback={
+            <Panel title="Docs">
+              <EmptyState
+                glyph="📚"
+                message="Pick a document from the sidebar."
+                hint="Docs are rendered from the same scan as the KT page (debugbar docsPaths)."
+              />
+            </Panel>
+          }
+        >
           <Panel title={title() || "Document"}>
             <Show
               when={error() === null}
@@ -84,15 +99,6 @@ export const DocsView: Component = () => {
                 <pre class="overflow-auto whitespace-pre-wrap p-[14px]">{markdown()}</pre>
               </Show>
             </Show>
-          </Panel>
-        </Show>
-        <Show when={selectedPath() === null} fallback={<></>}>
-          <Panel title="Docs">
-            <EmptyState
-              glyph="📚"
-              message="Pick a document from the sidebar."
-              hint="Docs are rendered from the same scan as the KT page (debugbar docsPaths)."
-            />
           </Panel>
         </Show>
       </div>
