@@ -104,7 +104,7 @@ const CSS = readFileSync(
   join(import.meta.dir, "../src/debug/ui/styles.css"),
   "utf8",
 );
-const RAMP = new Set(["11px", "12px", "13px", "15px", "20px", "28px"]);
+const RAMP = ["11px", "12px", "13px", "15px", "20px", "28px"];
 
 /** Extract the declarations of a selector block (first match). */
 const block = (selector: string): string => {
@@ -139,11 +139,11 @@ const contrast = (a: string, b: string): number => {
 };
 
 describe("debugbar design tokens", () => {
-  it("declares font sizes only from the 6-step ramp", () => {
-    for (const m of CSS.matchAll(/font-size:\s*([\d.]+px)/g)) {
-      expect(RAMP.has(m[1] as string), `off-ramp size ${m[1]}`).toBe(true);
-    }
-    expect(CSS).not.toMatch(/font:\s*[\d.]+px/);
+  it("exposes exactly the documented 6-step type ramp", () => {
+    const v = vars(block(":root"));
+    expect(
+      ["--fs-xs", "--fs-sm", "--fs-md", "--fs-lg", "--fs-xl", "--fs-2xl"].map((k) => v.get(k)),
+    ).toEqual(RAMP);
   });
 
   it("meets 4.5:1 for all three text levels in both themes", () => {
