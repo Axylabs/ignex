@@ -132,6 +132,13 @@ const createListStore = (): ListStore => {
 const reqStore = createListStore();
 const errStore = createListStore();
 
+/**
+ * Live size of the Errors window the Errors view has loaded. The sidebar's
+ * Errors badge reads this; an unvisited Errors view (or a zero count) hides
+ * the badge.
+ */
+export const liveErrorCount = (): number => errStore.rows().size;
+
 /** Shared builder for the Requests and Errors surfaces. */
 const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
   const s = props.errorsOnly ? errStore : reqStore;

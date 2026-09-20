@@ -24,7 +24,12 @@ export function Toast(): JSX.Element {
   return (
     <Show when={message()}>
       {(text): JSX.Element => (
-        <div id="toast" class="toast show fixed bottom-5 right-5 z-[200] max-w-[420px]">
+        <div
+          id="toast"
+          role="status"
+          aria-live="polite"
+          class="fixed bottom-5 right-5 z-50 max-w-[420px] rounded-lg border border-line-strong bg-surface-2 px-4 py-2.5 text-sm text-ink shadow-overlay"
+        >
           {text()}
         </div>
       )}

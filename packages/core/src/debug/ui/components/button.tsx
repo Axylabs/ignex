@@ -56,6 +56,8 @@ interface ButtonProps {
   disabled?: boolean | undefined;
   /** Native tooltip / accessible name for icon-only buttons. */
   title?: string | undefined;
+  /** Reflected `aria-pressed` for toggle buttons (omitted when unset). */
+  ariaPressed?: boolean | undefined;
   /** Click handler. */
   onClick?: ((ev: MouseEvent) => void) | undefined;
   /** Copy-on-click text; emitted as `data-copy` for the shell's delegated listener. */
@@ -79,6 +81,7 @@ export const Button = (props: ButtonProps): JSX.Element => {
       style={variant() === "primary" ? { "background-color": PRIMARY_FILL } : undefined}
       disabled={props.disabled}
       title={props.title}
+      aria-pressed={props.ariaPressed}
       data-copy={props.dataCopy}
       onClick={(ev) => props.onClick?.(ev)}
     >
