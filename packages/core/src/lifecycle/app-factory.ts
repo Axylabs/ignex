@@ -17,6 +17,7 @@ import {
 import type { IgnexRouter } from "../http/router";
 import { setServeBootInfo } from "../http/serve-boot";
 import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
+import { errorToResponse } from "../platform/errors";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore, MaybePromise } from "../types";
 import { mergeLifeCycle } from "./hooks";
@@ -76,6 +77,12 @@ export interface AppOptions {
   cache?: HttpResponseCache;
   /** Trust `x-real-ip` / `x-forwarded-for` when `server.requestIP` is unavailable. */
   trustProxy?: boolean;
+  /**
+   * Advisory per-request header-size ceiling in bytes; see
+   * {@link ContextOptions.maxHeaderBytes}. Unset by default — Bun's
+   * socket-level header limits stay the authority unless an app opts in.
+   */
+  maxHeaderBytes?: number;
 }
 
 /**
@@ -156,6 +163,25 @@ const resolveTrustProxy = (options: AppOptions): boolean | undefined => {
 };
 
 /**
+ * Populate the app-invariant context options once at `createApp` time.
+ *
+ * Kept OUT of `createApp` (which sits at the cognitive-complexity ceiling):
+ * cache, proxy trust and the advisory `maxHeaderBytes` gate are all fixed at
+ * creation and must stay out of the per-request hot path.
+ *
+ * @param options - The app options the app was created with.
+ * @param appCache - The app-scoped response cache.
+ * @returns The pre-computed context options for every request the app serves.
+ */
+const buildContextOptions = (options: AppOptions, appCache: HttpResponseCache): ContextOptions => {
+  const ctxOptions: ContextOptions = { cache: appCache };
+  const trustProxy = resolveTrustProxy(options);
+  if (trustProxy !== undefined) ctxOptions.trustProxy = trustProxy;
+  if (options.maxHeaderBytes !== undefined) ctxOptions.maxHeaderBytes = options.maxHeaderBytes;
+  return ctxOptions;
+};
+
+/**
  * Build a runtime app from lifecycle hooks/plugins and a base handler.
  *
  * The interpreted counterpart of the compiler-generated server: stage chains
@@ -193,12 +219,9 @@ export const createApp = (options: AppOptions): IgnexApp => {
   const appCache = options.cache ?? new HttpResponseCache();
 
   // exactOptionalPropertyTypes: only set optional fields that are defined.
-  // The context options are app-invariant (cache + trustProxy are fixed at
-  // createApp time), so they are computed ONCE instead of per request.
-  const ctxOptions: ContextOptions = {};
-  ctxOptions.cache = appCache;
-  const trustProxy = resolveTrustProxy(options);
-  if (trustProxy !== undefined) ctxOptions.trustProxy = trustProxy;
+  // The context options are app-invariant (cache + trustProxy + header cap are
+  // fixed at createApp time), so they are computed ONCE instead of per request.
+  const ctxOptions = buildContextOptions(options, appCache);
 
   // App-invariant response headers declared by plugins (e.g. the `security()`
   // header set). Baked into every framework-built response at construction so
@@ -268,7 +291,16 @@ export const createApp = (options: AppOptions): IgnexApp => {
     // native `routes` instead.
     if (router) return router.dispatch(req, serverArg);
 
-    const ctx = createContext(req, {}, ctxOptions);
+    let ctx: IgnexContext;
+    try {
+      ctx = createContext(req, {}, ctxOptions);
+    } catch (err) {
+      // createContext can reject before request state exists (advisory
+      // `maxHeaderBytes` gate, future pre-context guards). No lifecycle to
+      // run — convert straight to the error envelope so `handler()` fulfills
+      // with a Response instead of rejecting into a 500.
+      return Promise.resolve(errorToResponse(err, exposeErrors));
+    }
     // Wire the Bun server so `ctx.ip` resolves the real socket address —
     // matching the compiled server (which emits `ctx.server = server`).
     // Without this, interpreted `ctx.ip` always fell back to "anonymous"

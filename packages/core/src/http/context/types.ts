@@ -78,6 +78,15 @@ export interface ContextOptions {
    * spoofable (it feeds rate limiting / access logs).
    */
   trustProxy?: boolean;
+  /**
+   * Advisory per-request header-size ceiling in bytes. When set, a request
+   * whose on-the-wire header tally (names + values + framing) exceeds it is
+   * rejected with 431 before any handler runs — defense-in-depth against
+   * header bombs arriving through a reverse proxy or CDN that materialized
+   * them. Unset by default: Bun's socket-level header limits stay the
+   * authority unless an app opts in.
+   */
+  maxHeaderBytes?: number;
 }
 
 /**

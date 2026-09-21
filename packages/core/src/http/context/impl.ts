@@ -12,10 +12,12 @@ import { createDataLoader, type DataLoaderFactory } from "../../data/dataloader"
 import { createQueryParams } from "../../data/query";
 import { NOOP_DEBUG_API } from "../../debug/api";
 import type { DebugApi } from "../../debug/types";
+import { HTTPError } from "../../platform/errors";
 import type { ElysiaCookie, HttpMethod } from "../../types";
 import { createLazyBody, type LazyBody } from "../body";
 import { type Cookie, createLazyCookieJar } from "../cookies";
 import { type SendFileOptions, sendFile } from "../files";
+import { totalHeaderBytes } from "../header-cap";
 import { createResponseInit, responseWithBody, type SetHeaders } from "../headers";
 import { forwardRequest, type ProxyOptions, proxyRequest } from "../proxy";
 import { assertSafeRedirectTarget, type RedirectGuardOptions } from "../redirect-guard";
@@ -81,6 +83,12 @@ export class IgnexContextImpl<P = Record<string, string>>
   private readonly _opts: ContextOptions;
 
   constructor(req: Request, params: P, opts: ContextOptions = {}) {
+    // Advisory header-bomb gate: only when the app opted into a ceiling
+    // (default: Bun's socket limits are authority). Runs before any handler
+    // state is materialized so an oversized request pays nothing.
+    if (opts.maxHeaderBytes !== undefined && totalHeaderBytes(req.headers) > opts.maxHeaderBytes) {
+      throw new HTTPError(431, "Request header fields too large", "HEADER_TOO_LARGE");
+    }
     this.req = req;
     this.method = req.method as HttpMethod;
     this.route = opts.route ?? "";
