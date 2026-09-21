@@ -21,11 +21,14 @@ export {
 export { MetricsRegistry } from "../debug/metrics";
 export { NatsEventTracker } from "../debug/nats-tracker";
 export { ObservatoryDb } from "../debug/persist";
+export type { SpanIdSource } from "../debug/span-id";
+export { createSpanIdSource } from "../debug/span-id";
 export { TraceStore } from "../debug/store";
 export { SystemProfiler } from "../debug/system";
 export {
   currentTrace,
   isTracingEnabled,
+  setTracingEnabled,
 } from "../debug/tracer";
 export type {
   AiDebugSummary,

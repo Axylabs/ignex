@@ -36,9 +36,18 @@ export {
   textReply,
   withBody,
 } from "../http/finalize";
+export { framingConflict, hasConflictingFraming } from "../http/framing-guard";
+export { totalHeaderBytes } from "../http/header-cap";
 export type { SetHeaders } from "../http/headers";
 export { applySet, headersToRecord, mutateHeaders } from "../http/headers";
 export { forwardRequest, proxyRequest } from "../http/proxy";
+export {
+  assertSafeRedirectTarget,
+  checkRedirectTarget,
+  type RedirectGuardOptions,
+  type RedirectTarget,
+  UnsafeRedirectError,
+} from "../http/redirect-guard";
 // Value export: the usage-specialized context emits `requestId:
 // generateRequestId()` so a route that reads `ctx.requestId` can stay on the
 // fast tier, and it must be the SAME generator the full context uses.
@@ -74,6 +83,7 @@ export {
   type ServerProtocolConfig,
   type ServerTlsConfig,
 } from "../http/tls";
+export { type TrustedHostOptions, trustedHost } from "../http/trusted-host";
 export {
   DEFAULT_UPLOAD_TYPES,
   type SavedUpload,

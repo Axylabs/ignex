@@ -6,7 +6,7 @@ description: Work inside @ignex/native (packages/native) — the typed bridge ov
 # ignex: Native bridge (`@ignex/native` × castrum)
 
 `@ignex/native` is the **single typed bridge** over the **castrum** Rust addon
-(`optionalDependencies: { "castrum": "^0.9.6" }`; the dev checkout lives at
+(`optionalDependencies: { "castrum": "^0.9.10" }`; the dev checkout lives at
 `/home/adeel/poc/castrum`). Native is **pure acceleration**: importing this
 package never throws — every primitive has a byte-compatible pure-TS fallback.
 `docs/native-acceleration.md` is the full reference.

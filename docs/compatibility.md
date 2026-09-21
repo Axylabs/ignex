@@ -11,7 +11,7 @@ and, for local development, through `bun link` (see `docs/ai/LOCAL_DEV.md`).
 |---|---|---|---|---|
 | `@ignex/nova` | root devDeps; `packages/core` peer (optional) | `^0.1.7` / `^0.1.1` | `nova` (0.1.7) | typed realtime transport (FlatBuffer pub/sub, Rust FFI, NATS) |
 | `@ignex/ninox` | `packages/app` | `^0.1.3` | `ninox` (0.1.6) | schema-first MongoDB toolkit |
-| `castrum` | `packages/native` `optionalDependencies` | `^0.9.6` | `castrum` (0.9.7) | Rust addon consumed only through `@ignex/native` |
+| `castrum` | `packages/native` `optionalDependencies` | `^0.9.10` | `castrum` (0.9.10) | Rust addon consumed only through `@ignex/native` |
 
 The ignex version lives in the root `package.json` (and `CHANGELOG.md`);
 `@ignex/nova` and `@ignex/ninox` are the only external packages linked into

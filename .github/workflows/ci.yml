@@ -19,18 +19,19 @@ env:
   BUN_VERSION: 1.4.2
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
-  # `^0.9.6` production install (a parity pass proved nothing about what users
-  # actually get). Pinned to the v0.9.6 TAG commit, which is the exact revision
-  # the registry serves (`castrum@0.9.6`). v0.9.6 realigns sha2 on digest 0.10
-  # (buildable from source again — the 0.11 merge that broke efac103 is gone),
-  # carries the full native surface (sharded `MetricsRegistry`, `createPipeline`,
-  # route-wire v3), the optimized single-pass native route parser (2.4x), the
-  # JS-compatible form decoder (0.9.5), the NUL-safe byte-input validators, and
-  # the off-thread task runtime. To move: bump BOTH this and
+  # `^0.9.10` production install (a parity pass proved nothing about what users
+  # actually get). Pinned to the v0.9.10 TAG commit, which is the exact revision
+  # the registry serves (`castrum@0.9.10`). v0.9.10 adds the shared FFI ingress
+  # binding (`getIngressBinding`) that `@ignex/native` delegates to — its absence
+  # in the previous v0.9.6 pin is why the ingress-binding suite failed on every
+  # lane. Everything v0.9.6 carried is still present (sharded `MetricsRegistry`,
+  # `createPipeline`, route-wire v3, the optimized single-pass native route
+  # parser, the JS-compatible form decoder, the NUL-safe byte-input validators,
+  # and the off-thread task runtime). To move: bump BOTH this and
   # packages/native/package.json's optionalDependency deliberately, run
   # `bun run verify:native:ffi && bun run verify:native:route` locally first, and
   # keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
-  CASTRUM_REF: fadc8af331f4829b8d0f917450b66dec65c53073
+  CASTRUM_REF: 5b9d445ca1a7353b0fd19c3db2ba5708e1e871e9
 
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely

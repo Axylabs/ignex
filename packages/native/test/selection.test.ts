@@ -49,6 +49,24 @@ describe("selection table", () => {
     expect([...OPS].sort()).toEqual(Object.keys(SELECTION).sort());
   });
 
+  it("SELECTION is read-only: table AND every decision are frozen", () => {
+    expect(Object.isFrozen(SELECTION)).toBe(true);
+    for (const op of OPS) {
+      const decision = SELECTION[op];
+      expect(Object.isFrozen(decision)).toBe(true);
+      // Attempted mutation must not change the bound decision — in strict
+      // mode it throws, in sloppy mode it is silently ignored; either way
+      // every native/JS dispatch decision stays exactly as measured.
+      const before = decision.impl;
+      try {
+        (decision as { impl: string }).impl = before === "castrum" ? "js" : "castrum";
+      } catch {
+        // strict mode TypeError — the invariant is "cannot change", not "throws".
+      }
+      expect(SELECTION[op].impl).toBe(before);
+    }
+  });
+
   it("implFor agrees with the table for every op", () => {
     for (const op of OPS) {
       expect(implFor(op)).toBe(SELECTION[op].impl);

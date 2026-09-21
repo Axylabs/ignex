@@ -82,10 +82,20 @@ interface TickHandle {
   stop(): void;
 }
 
-let jobIdCounter = 0;
-/** Collision-resistant tick-job id (random suffix — unique across processes). */
-const newJobId = (): string =>
-  `sched-${Date.now()}-${++jobIdCounter}-${Math.random().toString(36).slice(2, 10)}`;
+/**
+ * Per-scheduler job id: `sched-<ms>-<seq>-<hex12>`.
+ *
+ * The seq counter is owned by the `createScheduler` CLOSURE (threaded into
+ * `handleTick`), so two schedulers in one process never share counter state;
+ * the suffix draws 12 hex chars (48 bits) from the CSPRNG — unique across
+ * processes, and not sequential-guessable like `Math.random().toString(36)`.
+ */
+const cryptoHex = (bytes: number): string => {
+  const rand = crypto.getRandomValues(new Uint8Array(bytes));
+  let out = "";
+  for (const byte of rand) out += byte.toString(16).padStart(2, "0");
+  return out;
+};
 
 /** True when a job named `name` is queued or running (a run is in flight). */
 async function hasInFlight(store: JobStore, name: string): Promise<boolean> {
@@ -108,6 +118,7 @@ async function handleTick(
   task: () => Promise<void> | void,
   log: (message: string) => void,
   skipWhenInFlight: boolean,
+  newJobId: () => string,
 ): Promise<void> {
   if (skipWhenInFlight && (await hasInFlight(store, name))) {
     log(`skip ${name} — previous run still in flight`);
@@ -140,6 +151,12 @@ export const createScheduler = (options: SchedulerOptions): Scheduler => {
   const skipWhenInFlight = options.skipWhenInFlight ?? true;
   const log = options.log ?? ((message: string) => console.log(`[scheduler] ${message}`));
   const started = { value: false };
+  // Instance-scoped job-id sequence + crypto suffix — no module-level counter.
+  let jobIdSeq = 0;
+  const newJobId = (): string => {
+    jobIdSeq += 1;
+    return `sched-${Date.now()}-${jobIdSeq}-${cryptoHex(6)}`;
+  };
   const jobs = new Map<
     string,
     { name: string; expression: string; stopped: boolean; handle: TickHandle }
@@ -150,7 +167,7 @@ export const createScheduler = (options: SchedulerOptions): Scheduler => {
       jobs.get(name)?.handle.stop();
       const onTick = (): void => {
         if (!started.value) return; // registered paused; start() begins ticking
-        void handleTick(options.store, name, expression, task, log, skipWhenInFlight);
+        void handleTick(options.store, name, expression, task, log, skipWhenInFlight, newJobId);
       };
       const handle = scheduleTick(expression, onTick); // validates + throws on bad expressions
       const entry = { name, expression, stopped: false, handle };

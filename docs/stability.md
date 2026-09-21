@@ -300,7 +300,7 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 7. **Publish readiness** — `@ignex/mcp` tarball was missing its `bin/` entry
    (`files: ['src']` excluded the declared `bin/ignex-mcp.js`); fixed
    2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
-   `castrum@0.9.6` is already published on npm and resolves via
+   `castrum@0.9.10` is already published on npm and resolves via
    `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
    `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo.
 8. **DX dogfood gate** — a `scripts/dx-journey.ts` under `verify:*`: scaffold a

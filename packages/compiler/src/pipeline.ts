@@ -86,6 +86,11 @@ export const optimizationStage = (s: PipelineState): PipelineState => {
 };
 
 export const precompileStage = async (s: PipelineState): Promise<PipelineState> => {
+  // Failure hygiene: a build with compile errors must not emit precompiled
+  // validators/serializers into the output dir (same rule as artifacts/link).
+  if (s.ctx.diagnostics.hasErrors) {
+    return s;
+  }
   const analysis = s.analysis as ReturnType<typeof runAnalysis>;
   let routes = s.routes;
   routes = await precompileValidators(routes, analysis.modules, s.opts, s.ctx);
@@ -100,6 +105,10 @@ export const precompileStage = async (s: PipelineState): Promise<PipelineState> 
 };
 
 export const artifactsStage = (s: PipelineState): PipelineState => {
+  // Failure hygiene: a build with compile errors must not leave half-written
+  // artifacts (spec/routes.d.ts/client) in the output dir — the compileAsync
+  // hasErrors throw would otherwise strand a corrupt, stale-looking build.
+  if (s.ctx.diagnostics.hasErrors) return s;
   writeArtifacts(s.routes, (s.analysis as ReturnType<typeof runAnalysis>).modules, s.opts, s.ctx);
   return s;
 };
@@ -114,10 +123,15 @@ export const codegenStage = (s: PipelineState): PipelineState => ({
   ),
 });
 
-export const linkStage = async (s: PipelineState): Promise<PipelineState> => ({
-  ...s,
-  outPath: await runLinkingPhaseAsync(s.code as string, s.opts, s.ctx),
-});
+export const linkStage = async (s: PipelineState): Promise<PipelineState> => {
+  // Same failure hygiene: never run the bundler (or write its entry file) for
+  // a build that already carries compile errors.
+  if (s.ctx.diagnostics.hasErrors) return s;
+  return {
+    ...s,
+    outPath: await runLinkingPhaseAsync(s.code as string, s.opts, s.ctx),
+  };
+};
 
 export const cacheStage = async (s: PipelineState): Promise<PipelineState> => {
   // Never cache a failed build — analysis/linker errors surface via the final

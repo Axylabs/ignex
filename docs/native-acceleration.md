@@ -1,7 +1,7 @@
 # Native acceleration (`@ignex/native` × castrum)
 
 ignex is Rust-accelerated through the **castrum** addon, published on npm as
-`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.6" }` in
+`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.10" }` in
 `packages/native/package.json`; the local dev checkout lives at
 `/home/adeel/poc/castrum` and is wired with `IGNEX_NATIVE_PATH`).
 The `@ignex/native` package is the single, typed bridge over the SAME cdylib's

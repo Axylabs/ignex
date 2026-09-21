@@ -22,6 +22,8 @@
  * working, the events panel just shows a "not configured" hint.
  */
 
+import { createScopedId } from "../security/entropy";
+
 /** One tracked NATS event (outbound publish or inbound message). */
 export interface NatsEvent {
   /** Stable id (monotonic counter + timestamp). */
@@ -123,15 +125,6 @@ const parseNatsUrl = (raw: string): NatsUrlParts | null => {
     pass: pass || undefined,
     tls: scheme === "tls",
   };
-};
-
-/** Event id generator (counter + random suffix, monotonic enough for the UI). */
-let eventSeq = 0;
-const nextEventId = (): string => {
-  eventSeq += 1;
-  return `ev-${Date.now().toString(36)}-${eventSeq.toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 6)}`;
 };
 
 /**
@@ -421,8 +414,10 @@ export class NatsEventTracker {
   private conn: NatsConnection | null = null;
   private readonly events: NatsEvent[] = [];
   private started = false;
-
   private readonly onNotify: (() => void) | null;
+
+  /** Per-instance event-id source (counter + timestamp + CSPRNG suffix). */
+  private readonly nextEventId = createScopedId("ev");
 
   constructor(options: NatsTrackerOptions = {}) {
     this.onNotify = options.onNotify ?? null;
@@ -478,7 +473,7 @@ export class NatsEventTracker {
     const truncated =
       payload.length > this.maxPayloadChars ? payload.slice(0, this.maxPayloadChars) : payload;
     this.events.push({
-      id: nextEventId(),
+      id: this.nextEventId(),
       ts: Date.now(),
       direction,
       subject,

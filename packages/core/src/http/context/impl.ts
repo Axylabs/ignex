@@ -12,12 +12,15 @@ import { createDataLoader, type DataLoaderFactory } from "../../data/dataloader"
 import { createQueryParams } from "../../data/query";
 import { NOOP_DEBUG_API } from "../../debug/api";
 import type { DebugApi } from "../../debug/types";
+import { HTTPError } from "../../platform/errors";
 import type { ElysiaCookie, HttpMethod } from "../../types";
 import { createLazyBody, type LazyBody } from "../body";
 import { type Cookie, createLazyCookieJar } from "../cookies";
 import { type SendFileOptions, sendFile } from "../files";
+import { totalHeaderBytes } from "../header-cap";
 import { createResponseInit, responseWithBody, type SetHeaders } from "../headers";
 import { forwardRequest, type ProxyOptions, proxyRequest } from "../proxy";
+import { assertSafeRedirectTarget, type RedirectGuardOptions } from "../redirect-guard";
 import { generateRequestId } from "../request-id";
 import { consumeSetHeaders, emptyHeaders, pathnameOf, resolveClientIp } from "./helpers";
 import type { ContextOptions, IgnexContext, IgnexServer } from "./types";
@@ -80,6 +83,12 @@ export class IgnexContextImpl<P = Record<string, string>>
   private readonly _opts: ContextOptions;
 
   constructor(req: Request, params: P, opts: ContextOptions = {}) {
+    // Advisory header-bomb gate: only when the app opted into a ceiling
+    // (default: Bun's socket limits are authority). Runs before any handler
+    // state is materialized so an oversized request pays nothing.
+    if (opts.maxHeaderBytes !== undefined && totalHeaderBytes(req.headers) > opts.maxHeaderBytes) {
+      throw new HTTPError(431, "Request header fields too large", "HEADER_TOO_LARGE");
+    }
     this.req = req;
     this.method = req.method as HttpMethod;
     this.route = opts.route ?? "";
@@ -305,15 +314,25 @@ export class IgnexContextImpl<P = Record<string, string>>
     return (this._opts.cache ?? defaultCache).getOrSet(this.req, factory, cacheOpts);
   }
 
-  redirect(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
+  redirect(
+    url: string,
+    status: 301 | 302 | 303 | 307 | 308 = 302,
+    opts?: RedirectGuardOptions,
+  ): Response {
     // Build the redirect manually rather than `Response.redirect()`: the
     // standard helper requires an *absolute* URL and throws on relative
     // `Location` values in some runtimes (e.g. undici under vitest), while
     // relative redirects are the common case (`/login`, `/home`). Setting
     // the Location header directly is runtime-agnostic (matches Fastify).
+    //
+    // The target passes the open-redirect guard: `javascript:`/`data:`/other
+    // schemes, protocol-relative `//host` (unless `allowExternal`) and CR/LF
+    // header injection are rejected with an HTTP 400 `UNSAFE_REDIRECT` error.
+    // Apps redirecting to user-controlled targets should combine this with
+    // `trustedHost` allowlisting for the host portion.
     return new Response(null, {
       status,
-      headers: { location: url },
+      headers: { location: assertSafeRedirectTarget(url, opts) },
     });
   }
 }

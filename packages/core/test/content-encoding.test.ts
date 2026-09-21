@@ -13,7 +13,7 @@ import {
   isCompressible,
   negotiateEncoding,
 } from "../src/data/content-encoding.js";
-import { compression, createApp } from "../src/index.js";
+import { compression, createApp, isNativeAvailable } from "../src/index.js";
 
 const req = (url: string, init: RequestInit = {}) => new Request(`http://x${url}`, init);
 
@@ -158,7 +158,15 @@ describe("compression plugin negotiation", () => {
       new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip")),
     ).text();
     expect(text).toBe(payload);
-    expect(Number(res.headers.get("content-length"))).toBe(gz.byteLength);
+    // The native gzip fast path buffers the body and knows the compressed size
+    // up front, so it emits an exact content-length. Without an addon the plugin
+    // streams through `CompressionStream` (chunked) and correctly OMITS the
+    // header — the body above already decoded identically either way.
+    if (isNativeAvailable()) {
+      expect(Number(res.headers.get("content-length"))).toBe(gz.byteLength);
+    } else {
+      expect(res.headers.get("content-length")).toBeNull();
+    }
   });
 });
 

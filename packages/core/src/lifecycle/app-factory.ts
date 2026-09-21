@@ -8,28 +8,24 @@
 
 import { initNative, warmRuntime } from "@ignex/native";
 import { HttpResponseCache } from "../data/cache";
-import {
-  type ContextOptions,
-  createContext,
-  type IgnexContext,
-  type IgnexServer,
-} from "../http/context";
-import type { IgnexRouter } from "../http/router";
+import { createContext, type IgnexContext, type IgnexServer } from "../http/context";
 import { setServeBootInfo } from "../http/serve-boot";
 import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
+import { errorToResponse } from "../platform/errors";
 import { installProcessGuards } from "../platform/process-guards";
-import type { LifeCycleStore, MaybePromise } from "../types";
+import type { LifeCycleStore } from "../types";
+import { type AppOptions, buildContextOptions } from "./app-context-options";
 import { mergeLifeCycle } from "./hooks";
 import {
-  collectContextOptions,
   collectResponseDefaults,
   createPluginContext,
-  type IgnexPlugin,
   pluginContextToLifecycle,
   pluginsToLifeCycle,
 } from "./plugin";
 import { buildPostStages, buildPreStages, runLifecycle } from "./run";
 import { resolveServeLimits } from "./serve";
+
+export type { AppOptions } from "./app-context-options";
 
 /**
  * Default maximum time `IgnexApp.stop` waits for plugin `close()` hooks
@@ -41,43 +37,6 @@ const STOP_DEADLINE_MS = 5_000;
 /**
  * Options for {@link createApp}.
  */
-export interface AppOptions {
-  /** Lifecycle hooks (merged after plugin hooks). */
-  lifecycle?: Partial<LifeCycleStore>;
-  plugins?: IgnexPlugin[];
-  /**
-   * The base handler receiving the resolved context. Required UNLESS a
-   * `router` is provided (routed apps dispatch per-route handlers instead).
-   */
-  handler?(ctx: IgnexContext): MaybePromise<Response>;
-  /**
-   * Optional interpreted router (see `createRouter`). When present, `serve()`
-   * builds a Bun-native `routes` table from it (Rust path/method matching —
-   * no JS per-request scan) and `handler()` dispatches through it. Without a
-   * router, every request reaches the single `handler`.
-   */
-  router?: IgnexRouter;
-  onStart?(): MaybePromise<void>;
-  onStop?(): MaybePromise<void>;
-  /** Expose error details in 500 responses. */
-  exposeErrors?: boolean;
-  /**
-   * Fail CLOSED on plugin `init` errors. Default (best-effort) logs a rejected
-   * `init` and keeps serving. With `strictInit: true`, a failed init stops the
-   * listener so the app never serves in a half-initialized state (e.g. a DB
-   * connection that failed at boot) — the process should be restarted after
-   * the underlying issue is fixed.
-   */
-  strictInit?: boolean;
-  /**
-   * App-scoped response cache for `ctx.cache()`. Defaults to a fresh cache
-   * scoped to this app; pass one here to share a specific cache.
-   */
-  cache?: HttpResponseCache;
-  /** Trust `x-real-ip` / `x-forwarded-for` when `server.requestIP` is unavailable. */
-  trustProxy?: boolean;
-}
-
 /**
  * Options for {@link IgnexApp.serve}.
  */
@@ -138,24 +97,6 @@ export interface IgnexApp {
 }
 
 /**
- * Resolve this app's `trustProxy` setting, or `undefined` when nothing sets it.
- *
- * An explicit app-level option wins; otherwise a plugin's declaration applies
- * (see `IgnexPlugin.contextOptions`, which `security({ trustProxy: true })` now
- * carries). Either way the value has to equal what the compiled server folds
- * into its frozen context-options literal, or `ctx.ip` would resolve
- * differently in a compiled build than in an interpreted one. Extracted from
- * `createApp`, which sits at the cognitive-complexity ceiling.
- *
- * @param options - The app options the app was created with.
- * @returns The setting, or `undefined` to leave it unset.
- */
-const resolveTrustProxy = (options: AppOptions): boolean | undefined => {
-  if (options.trustProxy !== undefined) return options.trustProxy;
-  return collectContextOptions(options.plugins ?? [])?.trustProxy;
-};
-
-/**
  * Build a runtime app from lifecycle hooks/plugins and a base handler.
  *
  * The interpreted counterpart of the compiler-generated server: stage chains
@@ -193,12 +134,9 @@ export const createApp = (options: AppOptions): IgnexApp => {
   const appCache = options.cache ?? new HttpResponseCache();
 
   // exactOptionalPropertyTypes: only set optional fields that are defined.
-  // The context options are app-invariant (cache + trustProxy are fixed at
-  // createApp time), so they are computed ONCE instead of per request.
-  const ctxOptions: ContextOptions = {};
-  ctxOptions.cache = appCache;
-  const trustProxy = resolveTrustProxy(options);
-  if (trustProxy !== undefined) ctxOptions.trustProxy = trustProxy;
+  // The context options are app-invariant (cache + trustProxy + header cap are
+  // fixed at createApp time), so they are computed ONCE instead of per request.
+  const ctxOptions = buildContextOptions(options, appCache);
 
   // App-invariant response headers declared by plugins (e.g. the `security()`
   // header set). Baked into every framework-built response at construction so
@@ -268,7 +206,16 @@ export const createApp = (options: AppOptions): IgnexApp => {
     // native `routes` instead.
     if (router) return router.dispatch(req, serverArg);
 
-    const ctx = createContext(req, {}, ctxOptions);
+    let ctx: IgnexContext;
+    try {
+      ctx = createContext(req, {}, ctxOptions);
+    } catch (err) {
+      // createContext can reject before request state exists (advisory
+      // `maxHeaderBytes` gate, future pre-context guards). No lifecycle to
+      // run — convert straight to the error envelope so `handler()` fulfills
+      // with a Response instead of rejecting into a 500.
+      return Promise.resolve(errorToResponse(err, exposeErrors));
+    }
     // Wire the Bun server so `ctx.ip` resolves the real socket address —
     // matching the compiled server (which emits `ctx.server = server`).
     // Without this, interpreted `ctx.ip` always fell back to "anonymous"

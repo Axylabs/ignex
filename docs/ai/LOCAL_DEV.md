@@ -26,7 +26,7 @@ AI agents only**. CI and releases always resolve from the registry.
 
 ## Known cross-repo edges (verify with `grep` in `package.json` before assuming)
 
-- `@ignex/native` depends on `castrum` (`optionalDependencies: ^0.9.6`).
+- `@ignex/native` depends on `castrum` (`optionalDependencies: ^0.9.10`).
   Working on both repos? Build the addon files the loader looks for, register the
   package, then link it (the loader needs a package-shaped checkout — a bare
   `target/release/libcastrum.so` is not enough):

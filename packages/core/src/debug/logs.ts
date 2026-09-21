@@ -139,11 +139,19 @@ let globalStore: LogStore | null = null;
 
 /**
  * Install the process-wide log store used by {@link debugLog} and console
- * capture. Idempotent: the latest installation wins.
+ * capture. Idempotent: the latest installation wins — but when a DIFFERENT
+ * store replaces an active one (a second observability plugin or boot path),
+ * that clobbering is logged, because silently overwriting a diagnosed capture
+ * hides a real misconfiguration.
  *
  * @returns The installed store (same reference).
  */
 export const installLogStore = (store: LogStore): LogStore => {
+  if (globalStore !== null && globalStore !== store) {
+    console.warn(
+      "[ignex:logs] replacing the active log store with a different one — check for a second observability plugin/boot path",
+    );
+  }
   globalStore = store;
   return store;
 };

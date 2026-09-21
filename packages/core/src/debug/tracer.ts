@@ -19,7 +19,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IgnexContext } from "../http/context";
+import { captureRedactedHeaders, clipBody, isRedactedHeader } from "./redaction";
 import { sharedSourceFrames } from "./sourcemaps";
+import { defaultSpanIds, type SpanIdSource } from "./span-id";
 import type { CapturedRequest, RequestTrace, Span, SpanAttrs, SpanKind } from "./types";
 
 /** The per-request ALS payload. */
@@ -34,10 +36,24 @@ export interface TraceContext {
 const traceContext = new AsyncLocalStorage<TraceContext>();
 /** Set by the plugin at boot; cleared only for tests. */
 let tracingEnabled = false;
+/** Whether {@link setTracingEnabled} has been called at least once. */
+let tracingConfigured = false;
 
-/** Enable/disable ALS propagation for the whole process (debugbar plugin boot). */
+/**
+ * Enable/disable ALS propagation for the whole process (debugbar plugin boot).
+ *
+ * A change AFTER the first configuration is suspicious — a second plugin or
+ * boot path toggling ambient process state — so it logs a warning while still
+ * applying the change. Idempotent re-sets (same value) stay silent.
+ */
 export const setTracingEnabled = (enabled: boolean): void => {
+  if (tracingConfigured && enabled !== tracingEnabled) {
+    console.warn(
+      `[ignex:tracer] tracing ${enabled ? "enabled" : "disabled"} after it was already configured — check for a second tracer plugin/boot path`,
+    );
+  }
   tracingEnabled = enabled;
+  tracingConfigured = true;
 };
 
 /** True when a debug tracer is installed for this process. */
@@ -69,32 +85,6 @@ export const debugStageEnd = (name: string): void => {
 // ============================================================================
 // Trace
 // ============================================================================
-
-const REDACTED_HEADERS = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-  "x-api-key",
-  "x-auth-token",
-  "x-debugbar-token",
-]);
-
-/** Redact sensitive header values while preserving names. */
-export const redactHeaderValue = (name: string): string =>
-  REDACTED_HEADERS.has(name.toLowerCase()) ? "[redacted]" : "";
-
-/** True when the header value must never be captured. */
-export const isRedactedHeader = (name: string): boolean => REDACTED_HEADERS.has(name.toLowerCase());
-
-/** Build a redacted header record from a Headers instance. */
-export const captureRedactedHeaders = (headers: Headers): Record<string, string> => {
-  const out: Record<string, string> = Object.create(null) as Record<string, string>;
-  headers.forEach((value, key) => {
-    out[key] = isRedactedHeader(key) ? "[redacted]" : value;
-  });
-  return out;
-};
 
 /**
  * Directory of THIS debug layer as seen at runtime. NOTE: inside a compiled
@@ -131,18 +121,7 @@ const captureErrorStack = (stack: string | undefined, cap = 40): string | null =
   return (header ? [header, ...frames] : frames).join("\n");
 };
 
-/**
- * Capture cap for request/response bodies (UTF-16 code units ≈ bytes for
- * ASCII payloads). Dev-toolbar tradeoff: big enough for realistic JSON
- * fixtures, small enough that a stray huge upload cannot balloon the ring.
- */
-export const MAX_CAPTURED_BODY_CHARS = 262_144; // 256 KiB
-
-/** Clip a captured body to the cap; returns the text plus a truncated flag. */
-export const clipBody = (text: string): { text: string; truncated: boolean } =>
-  text.length > MAX_CAPTURED_BODY_CHARS
-    ? { text: text.slice(0, MAX_CAPTURED_BODY_CHARS), truncated: true }
-    : { text, truncated: false };
+// ============================================================================
 
 /**
  * Lifecycle stage names the framework records as spans (`runTimed` /
@@ -200,8 +179,6 @@ const callerOrigin = (cap = 16): string | null => {
   return kept.join("\n");
 };
 
-let nextSpanId = 1;
-
 /**
  * One request's trace: the span tree plus request/response metadata. App code
  * normally never touches this directly — it uses `ctx.debug` (the plugin
@@ -230,6 +207,8 @@ export class Trace {
 
   /** Root span (the request itself), created at begin. */
   readonly root: Span;
+  /** Injecteable span-id source (defaults to the process-wide counter). */
+  private readonly spanIds: SpanIdSource;
   private readonly spansById = new Map<number, Span>();
   private readonly stack: Span[] = [];
   private pendingBody: Promise<string> | null = null;
@@ -237,7 +216,8 @@ export class Trace {
   /** Lifecycle stage rows already recorded (idempotence guard). */
   private readonly recordedStages = new Set<string>();
 
-  constructor(ctx: IgnexContext, captureBody: boolean) {
+  constructor(ctx: IgnexContext, captureBody: boolean, spanIds: SpanIdSource = defaultSpanIds) {
+    this.spanIds = spanIds;
     this.id = ctx.requestId;
     // Monotonic clock for ALL span/duration math; the wall-clock twin below
     // is only for serialization (`ts`), persistence and display.
@@ -307,7 +287,7 @@ export class Trace {
     if (this.recordedStages.has(name)) return;
     this.recordedStages.add(name);
     const span: Span = {
-      id: nextSpanId++,
+      id: this.spanIds(),
       parentId: this.root.id,
       name,
       kind: "lifecycle",
@@ -336,7 +316,7 @@ export class Trace {
   start(name: string, kind: SpanKind = "custom", attrs?: SpanAttrs): Span {
     const parent = this.stack[this.stack.length - 1] ?? this.root;
     const span: Span = {
-      id: nextSpanId++,
+      id: this.spanIds(),
       parentId: parent.id,
       name,
       kind,
