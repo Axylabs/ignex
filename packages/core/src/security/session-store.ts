@@ -22,6 +22,20 @@ export interface SessionStore {
   set(id: string, data: SessionData, options?: { expiresAt?: number }): Promise<void>;
   delete(id: string): Promise<void>;
   touch?(id: string, options?: { expiresAt?: number }): Promise<void>;
+  /**
+   * Atomically read-modify-write a session ON the backing store: the updater
+   * receives the current data (`null` when absent) and its return value
+   * replaces the session (serialized per store instance, so concurrent
+   * `update` calls to the same id never lose a mutation — the get→compute→set
+   * interleaving outside this primitive silently drops one writer).
+   *
+   * A returned `null` deletes the session and resolves to `null`.
+   */
+  update?(
+    id: string,
+    updater: (current: SessionData | null) => SessionData | null | Promise<SessionData | null>,
+    options?: { expiresAt?: number },
+  ): Promise<SessionData | null>;
   close?(): void;
 }
 
@@ -50,20 +64,55 @@ export const createSessionStoreFromStore = (
   const ttlMs = (options.ttlSeconds ?? 3600) * 1000;
   const defaultExpiry = (): number => Date.now() + ttlMs;
 
+  /**
+   * Serialized mutation chain: each `set`/`delete`/`touch`/`update` runs only
+   * after the previous one commits. Concurrency is the async-read trap — the
+   * sync drivers still yield on `await store.get(...)`, so two callers doing
+   * get→compute→set can both read the same pre-commit snapshot and lose one
+   * another's update. Serializing keeps every mutation's read fresh.
+   */
+  let mutationTail: Promise<unknown> = Promise.resolve();
+  const serialize = <T>(fn: () => T | Promise<T>): Promise<T> => {
+    const run = mutationTail.then(() => Promise.resolve().then(fn));
+    mutationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
   return {
     async get(id) {
       const data = await store.get(id);
       if (data == null) return null;
       return { ...(data as SessionData) };
     },
-    async set(id, data, opts) {
-      await store.set(id, { ...data }, { expiresAt: opts?.expiresAt ?? defaultExpiry() });
+    set(id, data, opts) {
+      return serialize(async () => {
+        await store.set(id, { ...data }, { expiresAt: opts?.expiresAt ?? defaultExpiry() });
+      });
     },
     async delete(id) {
-      await store.delete(id);
+      return serialize(async () => {
+        await store.delete(id);
+      });
     },
-    async touch(id, opts) {
-      await store.touch?.(id, { expiresAt: opts?.expiresAt ?? defaultExpiry() });
+    touch(id, opts) {
+      return serialize(async () => {
+        await store.touch?.(id, { expiresAt: opts?.expiresAt ?? defaultExpiry() });
+      });
+    },
+    update(id, updater, opts) {
+      return serialize(async () => {
+        const current = await store.get(id);
+        const next = await updater(current == null ? null : { ...(current as SessionData) });
+        if (next == null) {
+          await store.delete(id);
+          return null;
+        }
+        await store.set(id, { ...next }, { expiresAt: opts?.expiresAt ?? defaultExpiry() });
+        return { ...next };
+      });
     },
     close() {
       store.close?.();
