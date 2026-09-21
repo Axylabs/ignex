@@ -125,13 +125,19 @@ const parseNatsUrl = (raw: string): NatsUrlParts | null => {
   };
 };
 
-/** Event id generator (counter + random suffix, monotonic enough for the UI). */
-let eventSeq = 0;
-const nextEventId = (): string => {
-  eventSeq += 1;
-  return `ev-${Date.now().toString(36)}-${eventSeq.toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 6)}`;
+/**
+ * Event id generator (counter + random suffix, monotonic enough for the UI).
+ *
+ * A module-level counter here leaked sequence state across every tracker in
+ * the process; the counter + generator now live on the `NatsEventTracker`
+ * instance so two trackers never share hidden id state, and the suffix draws
+ * from the crypto CSPRNG (Web Crypto) instead of `Math.random()`.
+ */
+const randomHex = (bytes: number): string => {
+  const rand = crypto.getRandomValues(new Uint8Array(bytes));
+  let out = "";
+  for (const byte of rand) out += byte.toString(16).padStart(2, "0");
+  return out;
 };
 
 /**
@@ -421,8 +427,16 @@ export class NatsEventTracker {
   private conn: NatsConnection | null = null;
   private readonly events: NatsEvent[] = [];
   private started = false;
+  /** Per-instance event-id counter (never shared across trackers). */
+  private eventSeq = 0;
 
   private readonly onNotify: (() => void) | null;
+
+  /** Instance-scoped event id: counter + timestamp + crypto-random suffix. */
+  private nextEventId(): string {
+    this.eventSeq += 1;
+    return `ev-${Date.now().toString(36)}-${this.eventSeq.toString(36)}-${randomHex(3)}`;
+  }
 
   constructor(options: NatsTrackerOptions = {}) {
     this.onNotify = options.onNotify ?? null;
@@ -478,7 +492,7 @@ export class NatsEventTracker {
     const truncated =
       payload.length > this.maxPayloadChars ? payload.slice(0, this.maxPayloadChars) : payload;
     this.events.push({
-      id: nextEventId(),
+      id: this.nextEventId(),
       ts: Date.now(),
       direction,
       subject,
