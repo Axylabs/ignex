@@ -158,7 +158,7 @@
         "vitest": "^4.1.10",
       },
       "optionalDependencies": {
-        "castrum": "^0.9.6",
+        "castrum": "^0.9.10",
       },
     },
     "packages/shared": {
@@ -648,7 +648,7 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001810", "", {}, "sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg=="],
 
-    "castrum": ["castrum@0.9.6", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"] }, "sha512-lkhvbAVduV8prkzBBgvfNsmiIWJlCBUer2cgiKxibMNWW8+2X4cV+fITfxu3ldSSzomzFDHGog0DyFRl+Zk5hA=="],
+    "castrum": ["castrum@0.9.10", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"] }, "sha512-Y5Ruv4uzc+lA7WGE3GIngTwpFuc1A02BqSt5MkZ7Hc04EFbREBiC1u9W3/6cdFpKph8um80wm1s/rfBJ6WyD0w=="],
 
     "chai": ["chai@6.2.2", "", {}, "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg=="],
 

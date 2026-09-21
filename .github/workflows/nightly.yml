@@ -36,9 +36,10 @@ env:
   BUN_VERSION: 1.4.2
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
   # the nightly sweep must exercise the SAME addon production installs. Pinned
-  # to the v0.9.6 TAG commit (== registry `castrum@0.9.6`), which builds from
-  # source (sha2 realigned on digest 0.10) and carries the full native surface.
-  CASTRUM_REF: fadc8af331f4829b8d0f917450b66dec65c53073
+  # to the v0.9.10 TAG commit (== registry `castrum@0.9.10`), which builds from
+  # source and carries the full native surface including the shared FFI ingress
+  # binding (`getIngressBinding`).
+  CASTRUM_REF: 5b9d445ca1a7353b0fd19c3db2ba5708e1e871e9
 
 jobs:
   native-parity:

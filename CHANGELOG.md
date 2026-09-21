@@ -146,6 +146,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **castrum 0.9.6 → 0.9.10.** The pinned addon (`CASTRUM_REF` in
+  `ci.yml`/`nightly.yml`, `optionalDependencies` in `packages/native`) now
+  matches the registry's `latest` and the local dev checkout. 0.9.10 adds the
+  shared FFI ingress binding (`getIngressBinding` / `ingressHandleComponents`)
+  that `@ignex/native` delegates to; its absence in the previous pin broke the
+  `ingress-binding` suite on every CI lane. That suite now probes for the
+  binding in a plain-Bun subprocess and **skips** (rather than fails) on lanes
+  without an addon — the macOS/Windows quality lanes deliberately run the
+  pure-TS fallback — while the Linux/native-parity lanes still exercise it for
+  real.
+
 - **Castrum scalar-op re-measurement (Task 7): the base64 large-payload
   pathology is dead; verdict stays "adopt none".** The upstream fix — castrum
   `rust/crypto/base64.rs` now runs its base64 cores on base64 0.23's
