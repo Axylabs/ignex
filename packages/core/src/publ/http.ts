@@ -36,6 +36,7 @@ export {
   textReply,
   withBody,
 } from "../http/finalize";
+export { framingConflict, hasConflictingFraming } from "../http/framing-guard";
 export type { SetHeaders } from "../http/headers";
 export { applySet, headersToRecord, mutateHeaders } from "../http/headers";
 export { forwardRequest, proxyRequest } from "../http/proxy";

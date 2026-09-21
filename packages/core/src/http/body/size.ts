@@ -3,6 +3,7 @@
  * guard. Pure functions, no request state.
  */
 
+import { hasConflictingFraming } from "../framing-guard";
 import { BodyParseError } from "./errors";
 import { forEachFormDataEntry, isFile } from "./form-data";
 import type { BodyKind } from "./types";
@@ -18,8 +19,16 @@ export const textByteLength = (text: string): number => Buffer.byteLength(text ?
  * Throw 413 when the request's `content-length` already exceeds the limit.
  * This pre-check is bypassed by chunked transfer encoding, so the post-parse
  * guard in `assertParsedSize` closes that hole.
+ *
+ * Also rejects a request-smuggling framing setup (both `content-length` and
+ * a non-`chunked`/ambiguous `transfer-encoding`, or duplicate framing) with
+ * 400 — see {@link hasConflictingFraming}. Runs on every body read, with or
+ * without a size cap.
  */
 export function assertContentLength(req: Request, max?: number): void {
+  if (hasConflictingFraming(req.headers)) {
+    throw new BodyParseError("Request framing conflict", 400);
+  }
   if (!max) return;
 
   const len = Number(req.headers.get("content-length") || "0");
