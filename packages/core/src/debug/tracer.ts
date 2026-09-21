@@ -34,10 +34,24 @@ export interface TraceContext {
 const traceContext = new AsyncLocalStorage<TraceContext>();
 /** Set by the plugin at boot; cleared only for tests. */
 let tracingEnabled = false;
+/** Whether {@link setTracingEnabled} has been called at least once. */
+let tracingConfigured = false;
 
-/** Enable/disable ALS propagation for the whole process (debugbar plugin boot). */
+/**
+ * Enable/disable ALS propagation for the whole process (debugbar plugin boot).
+ *
+ * A change AFTER the first configuration is suspicious — a second plugin or
+ * boot path toggling ambient process state — so it logs a warning while still
+ * applying the change. Idempotent re-sets (same value) stay silent.
+ */
 export const setTracingEnabled = (enabled: boolean): void => {
+  if (tracingConfigured && enabled !== tracingEnabled) {
+    console.warn(
+      `[ignex:tracer] tracing ${enabled ? "enabled" : "disabled"} after it was already configured — check for a second tracer plugin/boot path`,
+    );
+  }
   tracingEnabled = enabled;
+  tracingConfigured = true;
 };
 
 /** True when a debug tracer is installed for this process. */
@@ -200,7 +214,28 @@ const callerOrigin = (cap = 16): string | null => {
   return kept.join("\n");
 };
 
-let nextSpanId = 1;
+/**
+ * Span-id source: yields the next numeric span id. Pure, injectable, so tests
+ * and libraries can scope id generation per tracer instead of fighting a
+ * hidden process-wide counter.
+ */
+export type SpanIdSource = () => number;
+
+/**
+ * Create a fresh span-id source starting at `start` (default 1), strictly
+ * increasing per call. Independent sources never share ids.
+ */
+export const createSpanIdSource = (start = 1): SpanIdSource => {
+  let next = start;
+  return (): number => next++;
+};
+
+/**
+ * Process-wide default span-id source. Shared by every `Trace` that does not
+ * inject its own source so ids stay globally unique and ordered across traces
+ * in the debugbar UI.
+ */
+const defaultSpanIds: SpanIdSource = createSpanIdSource();
 
 /**
  * One request's trace: the span tree plus request/response metadata. App code
@@ -230,6 +265,8 @@ export class Trace {
 
   /** Root span (the request itself), created at begin. */
   readonly root: Span;
+  /** Injecteable span-id source (defaults to the process-wide counter). */
+  private readonly spanIds: SpanIdSource;
   private readonly spansById = new Map<number, Span>();
   private readonly stack: Span[] = [];
   private pendingBody: Promise<string> | null = null;
@@ -237,7 +274,8 @@ export class Trace {
   /** Lifecycle stage rows already recorded (idempotence guard). */
   private readonly recordedStages = new Set<string>();
 
-  constructor(ctx: IgnexContext, captureBody: boolean) {
+  constructor(ctx: IgnexContext, captureBody: boolean, spanIds: SpanIdSource = defaultSpanIds) {
+    this.spanIds = spanIds;
     this.id = ctx.requestId;
     // Monotonic clock for ALL span/duration math; the wall-clock twin below
     // is only for serialization (`ts`), persistence and display.
@@ -307,7 +345,7 @@ export class Trace {
     if (this.recordedStages.has(name)) return;
     this.recordedStages.add(name);
     const span: Span = {
-      id: nextSpanId++,
+      id: this.spanIds(),
       parentId: this.root.id,
       name,
       kind: "lifecycle",
@@ -336,7 +374,7 @@ export class Trace {
   start(name: string, kind: SpanKind = "custom", attrs?: SpanAttrs): Span {
     const parent = this.stack[this.stack.length - 1] ?? this.root;
     const span: Span = {
-      id: nextSpanId++,
+      id: this.spanIds(),
       parentId: parent.id,
       name,
       kind,

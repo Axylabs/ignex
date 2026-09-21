@@ -23,9 +23,12 @@ export { NatsEventTracker } from "../debug/nats-tracker";
 export { ObservatoryDb } from "../debug/persist";
 export { TraceStore } from "../debug/store";
 export { SystemProfiler } from "../debug/system";
+export type { SpanIdSource } from "../debug/tracer";
 export {
+  createSpanIdSource,
   currentTrace,
   isTracingEnabled,
+  setTracingEnabled,
 } from "../debug/tracer";
 export type {
   AiDebugSummary,
