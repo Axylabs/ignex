@@ -1,27 +1,52 @@
 /**
- * @fileoverview Diagnostics view — leak/trend verdict, findings with evidence
- * and the force-GC action.
+ * @fileoverview Diagnostics view — leak/trend verdict as a `Callout`, one card
+ * per finding (severity `Badge`, detail, evidence `Kvs`, recommendation
+ * `Callout`) and the force-GC header action. The report fetch and the GC
+ * result handling are unchanged.
  */
 
 import { type Component, createSignal, type JSX, Show } from "solid-js";
 
 import { getDiagnostics, runGc } from "../api";
-import { EmptyState, Kvs, Panel, StatCard, StatRow } from "../components/widgets";
+import { Badge, type BadgeTone, Chip } from "../components/badge";
+import { Button } from "../components/button";
+import { Callout, type CalloutTone, Card } from "../components/card";
+import { Kvs } from "../components/kvs";
+import { PageHeader } from "../components/page";
+import { EmptyState } from "../components/states";
+import { Stat, StatRow } from "../components/stats";
 import { fmtNum } from "../format";
 
-/** One finding card: severity pill + title + evidence + recommendation. */
+/** Finding severity → callout/badge tone. */
+const SEVERITY_TONE: Record<"info" | "warning" | "critical", BadgeTone> = {
+  info: "info",
+  warning: "warn",
+  critical: "err",
+};
+
+/** Verdict → callout tone. */
+const VERDICT_TONE: Record<"ok" | "warning" | "critical", CalloutTone> = {
+  ok: "ok",
+  warning: "warn",
+  critical: "err",
+};
+
+/** One finding card: severity badge + title + evidence + recommendation. */
 const FindingCard = (props: {
   f: Awaited<ReturnType<typeof getDiagnostics>>["findings"][number];
 }): JSX.Element => {
   const f = props.f;
   return (
-    <Panel>
-      <div class="f-head">
-        <span class={`lv-pill sev-${f.severity}`}>{f.severity}</span>
-        <span class="f-title">{f.title}</span>
-        <span class="chip font-mono">{f.id}</span>
-      </div>
-      <div class="f-detail">{f.detail}</div>
+    <Card
+      title={f.title}
+      actions={
+        <>
+          <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
+          <Chip class="font-mono">{f.id}</Chip>
+        </>
+      }
+    >
+      <div class="text-sm text-ink">{f.detail}</div>
       <div class="mt-2.5">
         <Kvs
           rows={Object.keys(f.evidence).map((key) => ({
@@ -31,8 +56,12 @@ const FindingCard = (props: {
           }))}
         />
       </div>
-      <div class="f-reco">{`→ ${f.recommendation}`}</div>
-    </Panel>
+      <div class="mt-2.5">
+        <Callout tone="info" title="Recommendation">
+          {f.recommendation}
+        </Callout>
+      </div>
+    </Card>
   );
 };
 
@@ -42,9 +71,13 @@ export const DiagnosticsView: Component = () => {
   const [gcResult, setGcResult] = createSignal<string | null>(null);
   const [gcRunning, setGcRunning] = createSignal(false);
 
-  void getDiagnostics()
-    .then(setReport)
-    .catch((): void => {});
+  const load = (): void => {
+    void getDiagnostics()
+      .then(setReport)
+      .catch((): void => {});
+  };
+
+  load();
 
   const runGcNow = (): void => {
     setGcRunning(true);
@@ -57,86 +90,90 @@ export const DiagnosticsView: Component = () => {
   };
 
   return (
-    <Show when={report()} keyed>
-      {(d): JSX.Element => {
-        const tr = d.trend;
-        const icon = d.verdict === "ok" ? "✔" : d.verdict === "warning" ? "⚠" : "✖";
-        const label =
-          d.verdict === "ok"
-            ? "No anomalies detected"
-            : d.verdict === "warning"
-              ? "Warnings detected"
-              : "Critical anomalies detected";
-        return (
+    <div class="flex flex-col gap-4">
+      <PageHeader
+        title="Diagnostics"
+        description="Leak/trend verdict from the observatory analyzer."
+        actions={
           <>
-            <div class={`verdict ${d.verdict}`}>
-              <span class="big">{icon}</span>
-              <span>{label}</span>
-              <span class="hint">
+            <Button
+              variant="primary"
+              icon="bolt"
+              label="run full GC"
+              disabled={gcRunning()}
+              onClick={runGcNow}
+            />
+            <Button icon="refresh" label="Refresh" onClick={load} />
+          </>
+        }
+      />
+      <Show when={report()} keyed>
+        {(d): JSX.Element => {
+          const tr = d.trend;
+          const label =
+            d.verdict === "ok"
+              ? "No anomalies detected"
+              : d.verdict === "warning"
+                ? "Warnings detected"
+                : "Critical anomalies detected";
+          return (
+            <>
+              <Callout tone={VERDICT_TONE[d.verdict]} title={label}>
                 {`window ${String(d.windowMin)} min · ${String(d.samplesAnalyzed)} samples analyzed${
                   d.persist?.enabled === true
                     ? ` · SQLite persisting to ${d.persist.path ?? ""}`
                     : " · persistence off"
                 }`}
-              </span>
-            </div>
-            <StatRow>
-              <StatCard
-                value={tr.heapMiBPerMin.toFixed(1)}
-                label="heap MiB/min"
-                sub="trend slope"
-                tone={Math.abs(tr.heapMiBPerMin) > 1 ? "err" : undefined}
-              />
-              <StatCard value={tr.heapR2.toFixed(2)} label="trend R²" sub=">0.6 = real trend" />
-              <StatCard
-                value={`${tr.heapNowMiB.toFixed(1)} MiB`}
-                label="heap now"
-                sub={`min ${String(tr.heapMinMiB)} · max ${String(tr.heapMaxMiB)}`}
-              />
-              <StatCard
-                value={`${tr.eventLoopP95Ms.toFixed(1)} ms`}
-                label="loop delay p95"
-                sub="window"
-                tone={tr.eventLoopP95Ms > 50 ? "warn" : undefined}
-              />
-              <StatCard
-                value={fmtNum(tr.activeRequestsMax)}
-                label="peak active"
-                sub="in-flight requests"
-              />
-            </StatRow>
-            {d.findings.length === 0 ? (
-              <Panel>
-                <EmptyState
-                  glyph="🧘"
-                  message="Nothing suspicious. Memory flat, loop responsive, requests draining."
-                  hint="Findings appear automatically as trends emerge — check back after load tests or long soak runs."
+              </Callout>
+              <StatRow>
+                <Stat
+                  value={tr.heapMiBPerMin.toFixed(1)}
+                  label="heap MiB/min"
+                  sub="trend slope"
+                  tone={Math.abs(tr.heapMiBPerMin) > 1 ? "err" : undefined}
                 />
-              </Panel>
-            ) : (
-              d.findings.map((f) => <FindingCard f={f} />)
-            )}
-            <Panel title="Actions">
-              <div>
-                <button
-                  type="button"
-                  class="primary mini"
-                  disabled={gcRunning()}
-                  onClick={runGcNow}
-                >
-                  ♻ run full GC
-                </button>
-                <span class="muted hint">
-                  {" "}
-                  forces a collection so you can separate cache growth from real leaks (heap should
-                  drop back toward its floor)
-                </span>
-                <div class="hint mt-2.5">{gcResult() ?? ""}</div>
-              </div>
-            </Panel>
-          </>
-        );
-      }}
-    </Show>
+                <Stat value={tr.heapR2.toFixed(2)} label="trend R²" sub=">0.6 = real trend" />
+                <Stat
+                  value={`${tr.heapNowMiB.toFixed(1)} MiB`}
+                  label="heap now"
+                  sub={`min ${String(tr.heapMinMiB)} · max ${String(tr.heapMaxMiB)}`}
+                />
+                <Stat
+                  value={`${tr.eventLoopP95Ms.toFixed(1)} ms`}
+                  label="loop delay p95"
+                  sub="window"
+                  tone={tr.eventLoopP95Ms > 50 ? "warn" : undefined}
+                />
+                <Stat
+                  value={fmtNum(tr.activeRequestsMax)}
+                  label="peak active"
+                  sub="in-flight requests"
+                />
+              </StatRow>
+              {d.findings.length === 0 ? (
+                <Card>
+                  <EmptyState
+                    icon="check"
+                    message="Nothing suspicious. Memory flat, loop responsive, requests draining."
+                    hint="Findings appear automatically as trends emerge — check back after load tests or long soak runs."
+                  />
+                </Card>
+              ) : (
+                d.findings.map((f) => <FindingCard f={f} />)
+              )}
+              <Card title="Actions">
+                <p class="text-sm text-muted">
+                  A full GC forces a collection so you can separate cache growth from real leaks
+                  (heap should drop back toward its floor).
+                </p>
+                <Show when={gcResult() !== null}>
+                  <div class="mt-2 font-mono text-sm text-muted">{gcResult() ?? ""}</div>
+                </Show>
+              </Card>
+            </>
+          );
+        }}
+      </Show>
+    </div>
   );
 };

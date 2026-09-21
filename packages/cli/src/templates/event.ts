@@ -79,7 +79,7 @@ export function eventWebhookModuleTemplate(name: string): string {
  * out to the rest of the app (e.g. via src/lib/events.ts).
  */
 export async function ${fn}(payload: unknown): Promise<void> {
-  // TODO: validate + process the incoming event payload.
+  // Validate + persist the incoming payload here, then fan it out via src/lib/events.ts.
   console.log("received ${name} event:", payload);
 }
 `;

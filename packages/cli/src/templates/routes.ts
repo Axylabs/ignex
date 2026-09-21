@@ -1,3 +1,6 @@
+/**
+ * @fileoverview CLI route template generators — route modules emitted into scaffolded apps.
+ */
 export function indexRouteTemplate(name: string): string {
   const safe = name.replace(/"/g, '\\"');
 

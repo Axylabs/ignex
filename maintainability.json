@@ -1,0 +1,116 @@
+{
+  "maxLines": 400,
+  "fileoverviewMinLines": 400,
+  "knownOver": {
+    "packages/compiler/src/sdk/realtime.ts": {
+      "lines": 795,
+      "rationale": "SDK realtime client surface — Tier D"
+    },
+    "packages/core/src/http/router.ts": {
+      "lines": 695,
+      "rationale": "interpreted router + AOT path — Tier B"
+    },
+    "packages/compiler/src/sdk/flatbuffers.ts": {
+      "lines": 687,
+      "rationale": "SDK flatbuffers codegen — Tier D"
+    },
+    "packages/compiler/src/sdk/typescript.ts": {
+      "lines": 687,
+      "rationale": "SDK TS client generation — Tier D"
+    },
+    "packages/cli/src/templates/ops.ts": {
+      "lines": 658,
+      "rationale": "CLI ops templates — Tier E"
+    },
+    "packages/cli/src/commands/create.ts": {
+      "lines": 645,
+      "rationale": "CLI create command — Tier E"
+    },
+    "packages/core/src/debug/server/handlers/app-panels.ts": {
+      "lines": 658,
+      "rationale": "debug server app-panels handler — Tier C"
+    },
+    "packages/core/src/debug/persist.ts": {
+      "lines": 629,
+      "rationale": "debug persistence + history — Tier C"
+    },
+    "packages/cli/src/templates/routes.ts": {
+      "lines": 621,
+      "rationale": "CLI routes templates — Tier E"
+    },
+    "packages/core/src/debug/kt.ts": {
+      "lines": 619,
+      "rationale": "debug knowledge-tree engine — Tier C"
+    },
+    "packages/mcp/src/server.ts": { "lines": 605, "rationale": "MCP server — Tier E" },
+    "packages/core/src/plugins/debugbar.ts": {
+      "lines": 584,
+      "rationale": "debugbar plugin — Tier C"
+    },
+    "packages/core/src/debug/nats-tracker.ts": {
+      "lines": 572,
+      "rationale": "debug NATS tracker — Tier C"
+    },
+    "packages/core/src/debug/tracer.ts": { "lines": 566, "rationale": "debug tracer — Tier C" },
+    "packages/compiler/src/cache.ts": {
+      "lines": 546,
+      "rationale": "AOT cache + COMPILER_CACHE_VERSION — Tier D (cache-version contract — split with care)"
+    },
+    "packages/cli/src/commands/ops.ts": { "lines": 539, "rationale": "CLI ops command — Tier E" },
+    "packages/core/src/security/session.ts": {
+      "lines": 535,
+      "rationale": "session security — Tier B"
+    },
+    "packages/cli/src/commands/dev.ts": { "lines": 527, "rationale": "CLI dev command — Tier E" },
+    "packages/cli/src/commands/event.ts": {
+      "lines": 510,
+      "rationale": "CLI event command — Tier E"
+    },
+    "packages/compiler/src/utils/ast/handler.ts": {
+      "lines": 480,
+      "rationale": "AST handler utils — Tier D"
+    },
+    "packages/compiler/src/phases/codegen/helpers.ts": {
+      "lines": 476,
+      "rationale": "codegen helpers — Tier D"
+    },
+    "packages/compiler/src/types.ts": { "lines": 471, "rationale": "compiler types — Tier D" },
+    "packages/core/src/lifecycle/app-factory.ts": {
+      "lines": 461,
+      "rationale": "AOT app factory (wave-1 split byproduct) — Tier B"
+    },
+    "packages/compiler/src/phases/analysis/dev-only-plugins.ts": {
+      "lines": 454,
+      "rationale": "dev-only plugin analysis — Tier D"
+    },
+    "packages/compiler/src/phases/linker.ts": {
+      "lines": 450,
+      "rationale": "linker phase — Tier D"
+    },
+    "packages/core/src/lifecycle/run.ts": {
+      "lines": 435,
+      "rationale": "lifecycle run (wave-1 split byproduct) — Tier B"
+    },
+    "packages/compiler/src/phases/codegen/routes/native.ts": {
+      "lines": 418,
+      "rationale": "native route codegen — Tier D"
+    },
+    "packages/compiler/src/phases/codegen/routes/context.ts": {
+      "lines": 412,
+      "rationale": "context route codegen — Tier D"
+    },
+    "packages/core/src/http/ws.ts": {
+      "lines": 401,
+      "rationale": "http websocket handler — wc-400 edge (401 by gate count) — Tier B"
+    }
+  },
+  "ignoreGlobs": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.config.ts",
+    "**/.gen-debug-ui-*/**",
+    "**/test/**",
+    "**/fixture*/**",
+    "**/__fixtures__/**"
+  ]
+}

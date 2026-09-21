@@ -28,7 +28,7 @@ an acceleration layer — importing it **never throws**.
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- `packages/native/src/ffi.ts` binds the **C-ABI fast path**: `bun:ffi`
+- `packages/native/src/ffi/` binds the **C-ABI fast path**: `bun:ffi`
   `dlopen`s the resolved `.node` (via `loader.getAddonPath()`) and binds the hot
   `castrum_*` symbols (`~10-20ns` crossing vs `~100-350ns` NAPI). A bind-time
   self-test asserts every C-ABI op matches the NAPI output byte-for-byte and
@@ -776,7 +776,7 @@ holds with and without the addon. Only wire a native path when its output is
 
 Synced the latest castrum working-tree changes into `@ignex/native`:
 
-- **Header-packing fast paths** (`ingress.ts`, synced from castrum's
+- **Header-packing fast paths** (`ingress/`, synced from castrum's
   `gatherRawHeadersPacked`): a plan selecting no headers short-circuits to the
   shared empty block; a CORS-only plan on a non-preflight request returns a
   **cached origin block** (the packed block is a pure function of the typically

@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createContext } from "../src/http/context.js";
+import { createContext } from "../src/http/context/index.js";
 import { createRouter } from "../src/http/router.js";
 import { createApp } from "../src/index.js";
 import { debugbar } from "../src/plugins/debugbar.js";

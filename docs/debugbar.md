@@ -8,21 +8,37 @@
 
 ## UI tour
 
-The dashboard is a dependency-free, tokenized dark UI (light theme via the
-`◐` button or the `t` key, persisted in `localStorage`). It is designed for
-long sessions: sticky table headers under the top bar, hover accents on rows,
-tabular numerals in every metric, freshly-arrived traces flash once so the
-live tail is visible without staring at timestamps, thin scrollbars,
-`focus-visible` rings, and a `prefers-reduced-motion` guard:
+The dashboard is a dependency-free, tokenized developer UI (light theme via the
+theme button or the `t` key, persisted in `localStorage`). It is designed for
+long sessions: a grouped, collapsible sidebar, a command palette, a per-view
+header, sticky table headers inside their scroll container, hover accents on
+rows, tabular numerals in every metric, and a one-shot flash on freshly-arrived
+traces so the live tail is visible without staring at timestamps. It keeps thin
+scrollbars, `focus-visible` rings and a `prefers-reduced-motion` guard. The
+design system behind it — tokens, components, accessibility bar — is documented
+in `docs/debugbar-ui.md`.
 
-- **Top bar** — service identity (`name@version · environment`), view tabs
-  (Requests / Errors / Logs / History / Metrics / Diagnostics / System / State /
-  Jobs / Routes / Events / Clients / AI / KT), a live-tail dot (amber when
-  paused) and the theme toggle.
+- **Sidebar** — a brand block (`name@version · environment`) over four labelled
+  groups: **Observe** (Requests, Errors, Logs, History, Routes), **Runtime**
+  (Metrics, System, Diagnostics, State, Jobs), **Integrations** (Events,
+  Clients) and **Reference** (KT, Docs, AI). Each item is an inline-SVG icon +
+  label with `aria-current="page"` when active (and a live error count on
+  Errors). It collapses to a 56px icon rail at ≤1100px and an off-canvas drawer
+  at ≤760px; the preference persists in `localStorage`.
+- **Context bar** — a `service / View` breadcrumb plus the global controls:
+  live-tail pause/resume, refresh, theme and the command-palette trigger.
+  Per-view actions live in the view's own header, never here.
+- **Per-view header** — every view opens with a header: a title (`h1`), a
+  one-line description, and — where the view has them — its own actions
+  (pause/refresh/clear, copy, filters).
+- **Command palette** — `Cmd`/`Ctrl-K` opens a fuzzy palette over the 15 views
+  plus quick actions (refresh, pause/resume live, toggle theme, open a view);
+  arrow keys / `Enter` / `Esc`, with focus trapped and restored on close.
 - **Status bar** — native-addon availability, the trace ring-buffer size, and
-  the keyboard cheat-sheet.
+  the keyboard map.
 - **Keyboard shortcuts** — `0`–`9` switch views, `/` focuses the search box,
-  `r` refreshes the current view, `t` toggles the theme, `Esc` clears/blurs.
+  `r` refreshes the current view, `t` toggles the theme, `⌘K` opens the
+  palette, `Esc` clears/blurs.
 - **Requests** — stat cards (window count, errors, 4xx, 5xx, avg ms), a filter
   toolbar (search, method, status family — applied **server-side** via the
   `/api/requests` `q`/`method`/`status` params), and rows with color-coded
@@ -55,19 +71,26 @@ live tail is visible without staring at timestamps, thin scrollbars,
   (`POST /api/nova/events/emit`) — broadcast, or targeted to a user/group/
   topic/client — so consumers can be exercised without leaving the dashboard.
 - **Clients** — published SDK + FlatBuffers frontend clients with local
-  versions and git tags (`sdk-v*`) — tagged ✓ vs local-only.
+  versions and git tags (`sdk-v*`) — a *tagged* vs *local only* badge on each
+  card.
 - **AI** — the compact `ai/summary` snapshot plus a copy-paste MCP config so
   an AI agent can connect and debug this app (see *AI debugging (MCP)* below).
 - **Routes** — searchable inventory with method pills, source files and
   copy-path buttons.
-- **System** — live gradient-filled charts for CPU / RSS / heap / event-loop
-  delay with current/min/max labels, plus request totals and avg req/s.
+- **System** — live charts for CPU / RSS / heap / event-loop delay with
+  current/min/max labels and text values (accessible `role="img"` canvases),
+  plus request totals and avg req/s.
 - **KT** — a purpose-built onboarding surface rendered from the structured
-  knowledge JSON: hero band with runtime chips, headline stat strip, the
-  project map as a card grid (click any file to copy its path), the request
-  flow as a stage pipeline, plugins/routes/database-activity/docs/SDK and
-  environment sections. Falls back to server-rendered markdown for older
-  payloads.
+  knowledge JSON: a header with the service name, environment badges and a
+  right-aligned runtime meta block, a headline stat strip, the project map as a
+  card grid (click any file to copy its path), the request flow as a stage
+  pipeline, then plugins/routes/database-activity/docs/SDK and environment
+  sections. Falls back to server-rendered markdown for older payloads.
+- **Docs** — the repository's documentation rendered inside the dashboard:
+  a sidebar inventory (same scan as KT — `debugbar({ docsPaths })`) and a
+  content pane showing the selected doc (sanitized server-rendered HTML, or a
+  plain-markdown fallback). Deep links: `#/docs` and
+  `#/docs/<encodeURIComponent(path)>` (e.g. `#/docs/docs%2Frouter.md`).
 
 ## What you get
 
@@ -84,6 +107,7 @@ live tail is visible without staring at timestamps, thin scrollbars,
 | **System profile** | CPU, RSS, heap and event-loop delay are sampled continuously and charted, alongside request totals (avg / p95 duration, error count, in-flight requests). |
 | **Published SDK list** | The KT page lists the published SDK (name, version, location, files) generated by `ignex sdk`. |
 | **KT — knowledge transfer** | A generated "how this app works" page for new developers: the **project map** ("where things live" — routes/models/middleware/hooks/views/config/lib/database probed on disk, with the route-file conventions), the repo's **documentation inventory** (every markdown doc with its title), the real route map (from the compiled `manifest.json` or the router) with per-route usage, registered plugins, lifecycle stages, the **DB activity actually observed** across retained requests (normalized statements + call counts + total time + the routes that ran them), span kinds, published SDK metadata, environment and runtime info. |
+| **Docs panel** | The repo's markdown docs rendered in the dashboard — enter the framework docs without leaving the debugbar; cross-links from the KT page. |
 | **Function-call graph** | Each request detail shows the span tree (parent/child call graph) plus the waterfall, so you can see exactly what called what, when, and for how long. |
 
 ## Enabling
@@ -129,12 +153,17 @@ If the actual serving URL differs from the boot hint (custom hostname,
 `port: 0`, `https: false`), the exact URL is logged again on the first traced
 request.
 
-The example app opts in via its own `DEBUG` flag
-(`DEBUG=true` in the shell or `packages/app/.env`) for dev runs:
+The example app opts in via its own `DEBUG` flag. The production `dev`/`build`
+scripts build the production shape (the debugbar is eliminated by construction),
+so use the debug-shaped script instead — it builds the plugin-enabled bundle
+into `packages/app/dist-dev/` and runs it:
 
 ```sh
-DEBUG=true bun run dev     # example app → open /__debugbar
+bun run dev:debug           # example app → open /__debugbar
 ```
+
+(The script sets `DEBUG=true` for both the build and the server; that env value
+is what makes `src/app.config.ts` register the `debugbar()` plugin.)
 
 > **In production** (`NODE_ENV=production`) the plugin cannot boot unless you
 > explicitly set `IGNEX_DEBUG=1` in the process — an explicit
@@ -339,8 +368,8 @@ your handlers to see the shape of a request:
 - Rows are **expandable**: click any bar to unfold its details (span kind,
   start/duration, attrs like the query text or target URL, origin stack
   frame, error). Bars are sized relative to the total request duration;
-  hovering shows the exact start/duration; failed spans are marked ✕ and
-  open spans (request cut short) are flagged ⏳.
+  hovering shows the exact start/duration; failed spans carry the `x-circle`
+  icon and open spans (request cut short) are flagged with the `clock` icon.
 
 ## Errors and replay
 
@@ -348,7 +377,7 @@ your handlers to see the shape of a request:
   handler, failed hook, validation failure, 5xx).
 - The request detail shows the error message + top stack frames and the
   response that was produced.
-- **↻ Replay request** re-issues the exact stored request (method, path,
+- **Replay request** re-issues the exact stored request (method, path,
   headers, body when captured) through the live server — native route table,
   hooks, plugins all run — and shows the fresh status, duration and body.
   Replayed requests appear in the list as new traces so you can diff runs.
@@ -574,7 +603,7 @@ combines them with git state:
   off disk.
 - **Git tags** — `git for-each-ref` (cached 30s, refreshed by
   `GET /api/clients?refresh=1`) lists the `sdk-v*` tags — the release signal
-  `ignex sdk --push` creates — so a package shows **tagged ✓** when its tag
+  `ignex sdk --push` creates — so a package shows as **tagged** when its tag
   exists, **local only** otherwise.
 - **SDK vs client** — `kind: "sdk"` packages (typescript/openapi SDKs) and
   `kind: "client"` packages (the FlatBuffers frontend client — see below) are
@@ -641,7 +670,9 @@ it answers the questions a new developer asks on day one:
   URL: `users/[id].get.ts` → `GET /users/:id`).
 - **Documentation** — every markdown doc in the repo (scanned in `docs/` and
   the project root by default; tune with `debugbar({ docsPaths })`) listed
-  path → title, extracted from each file's first heading. README first.
+  path → title, extracted from each file's first heading. README first. Each
+  row cross-links to the **Docs** panel (`#/docs/<path>`), which renders the
+  file in place.
 - **Database activity** — every `db` span across the retained request traces
   aggregated into normalized statement patterns: action verb, table, call
   count, total time, and which routes performed it. This is what the app
@@ -685,25 +716,46 @@ modules under `packages/core/src/`:
   system/diagnostics handlers (limit clamping, method guards).
 - `debug/server/handlers/app-panels.ts` — KT/SDKs/clients/jobs/routes/events/
   nova/AI-summary handlers.
+- `debug/docs.ts` — the Docs panel read path: `listDocs` (uncapped inventory)
+  and `readDoc`, which reads ONLY paths present in the scanned inventory (no
+  traversal, no absolute paths, no unlisted files) and renders them through the
+  markdown sanitizer used by the rest of the debugbar.
 - `debug/server/revisions.ts` + `stream.ts` — mutation counters per data domain
   and the SSE hub that pushes them (single-use short-TTL tickets authenticate
   EventSource without ever putting tokens in query strings at rest).
-- `debug/ui/` — the SPA source (SolidJS + Tailwind, compiled ahead of time):
-  - `ui/views/*` — one small component per panel (requests, detail, logs,
-    history, metrics, diagnostics, system, state, jobs, routes, events,
-    clients, AI, KT) behind a hash router (#/requests/:id/:tab — deep links
-    survive refresh, the back button works). Solid's fine-grained reactivity
-    means a new trace row appears by inserting one `<tr>`, not re-rendering
-    the table's innerHTML; keyed lists preserve row DOM across stream bumps.
-  - `ui/components/*` — shared widgets (panels, stat cards, pills, bars,
-    waterfall/breakdown/query sub-renderers) plus the keyed-identity merge
-    that keeps `<For>` rows stable across refetches.
-  - `ui/styles.css` — the Tailwind input: token palette (CSS variables
-    switched by `data-theme`), `@theme` mappings that turn those tokens into
-    utilities (`bg-panel`, `text-muted`, …) and the few custom component
-    styles (pills, waterfall, KT hero, animations).
+- `debug/ui/` — the SPA source (SolidJS + Tailwind, compiled ahead of time).
+  The design system it implements is documented in `docs/debugbar-ui.md`:
+  - `ui/views/*` + `registry.tsx` — one small component per panel (requests,
+    detail, logs, history, metrics, diagnostics, system, state, jobs, routes,
+    events, clients, AI, KT, Docs) plus the single view registry that drives
+    deep-link routing (#/requests/:id/:tab — links survive refresh, the back
+    button works), the sidebar, keyboard shortcuts and live-refresh domains.
+    Solid's fine-grained reactivity means a new trace row appears by inserting
+    one `<tr>`, not re-rendering the table's innerHTML; keyed lists preserve
+    row DOM across stream bumps.
+  - `ui/layout/*` — the shell composition root (`shell.tsx`: skip link, SSE
+    stream, global shortcuts, status bar), the grouped collapsible sidebar,
+    the context bar and the command palette, with `nav.ts` deriving the four
+    sidebar groups from the registry.
+  - `ui/components/*` — the primitives every view composes from
+    (`PageHeader`/`Toolbar`, `Card`/`CardGrid`/`Callout`/`Disclosure`,
+    `Stat`/`StatRow`/`StatGrid`, `DataTable`, `Badge`/`Chip`, `Button`,
+    `Field`/`Select`/`SearchInput`, `Tabs`, empty/loading/error states, `Kvs`,
+    `Chart`, `Icon`) plus the detail-geometry components (waterfall, time
+    breakdown, query table) and the keyed-identity merge that keeps `<For>`
+    rows stable across refetches.
+  - `ui/styles.css` — token-first: the `:root` and light `data-theme`
+    palettes, the `@theme inline` map that turns tokens into utilities
+    (`bg-surface-1`, `text-muted`, …) and the irreducible custom CSS
+    (waterfall geometry, span-tree indent, markdown typography, keyframes).
+    Component appearance lives in the TSX primitives, not here.
   - `ui/{router,live,theme,api,format}.ts` — hash router, the revision-pulse
-    bus, theme persistence, the typed API client and pure formatting helpers.
+    bus, theme persistence (first visit follows `prefers-color-scheme`), the
+    typed API client and pure formatting helpers.
+  - `debug/ui/*` is pinned by `packages/core/test/debug-ui-*.test.ts` (tokens
+    + contrast + arbitrary-value guard, nav/registry sync, palette, icon set,
+    tabs, router, theme) and the executed-bundle smoke
+    `packages/core/test/debugbar-dashboard-runtime.test.ts`.
 - `scripts/gen-debug-ui.ts` — compiles `ui/` ahead of time into the committed
   `debug/dashboard-client.gen.ts` (content-hashed): babel-preset-solid +
   @babel/preset-typescript for the JSX, `@tailwindcss/cli` for the stylesheet,
@@ -740,6 +792,7 @@ All under `{path}` (default `/__debugbar`):
 | `GET /api/history?since=&until=&q=&method=&status=&error=&minMs=&limit=` | persisted trace summaries (cross-restart) |
 | `GET /api/history/:id` | one reconstructed persisted trace (with spans) |
 | `GET /api/kt` | knowledge markdown + structured knowledge |
+| `GET /api/docs` | docs inventory; `?path=<relpath>` returns one rendered doc (404 for unknown/traversal paths) |
 | `GET /api/sdks` | published-SDK metadata (enriched with git tags) |
 | `GET /api/clients?refresh=` | published SDK + frontend clients (local + git tags) |
 | `GET /api/events?limit=&direction=&q=` | unified event buffer: NATS + nova/WS stats and interleaved recent rows (source, in/out, kind, event/subject, size, payload) |
@@ -760,16 +813,18 @@ receive one tiny JSON frame they use to refetch ONLY the endpoints whose
 domain moved. This replaces blind polling — a quiet server costs nothing but
 a heartbeat comment every 15 s. When EventSource is unavailable (or the
 stream drops repeatedly), the client degrades automatically to 5-second
-polling. Pause (⏸ / click the live dot) freezes refetching without tearing
-down the connection.
+polling. The play/pause control in the context bar freezes refetching without
+tearing down the connection.
 
 ### Deep links
 
 Every panel has a URL: `#/requests`, `#/errors`, `#/requests/<id>/<tab>`
 (waterfall/queries/headers/body/error/replay), `#/logs/<id>`, `#/history`,
 `#/metrics`, `#/diagnostics`, `#/system`, `#/state`, `#/jobs`, `#/routes`,
-`#/events`, `#/clients`, `#/ai`, `#/kt`. Detail links resolve live-ring traces
-first and persisted history second, so bookmarks keep working after restarts.
+`#/events`, `#/clients`, `#/ai`, `#/kt`, `#/docs`,
+`#/docs/<encodeURIComponent(path)>` (e.g. `#/docs/docs%2Frouter.md`). Detail
+links resolve live-ring traces first and persisted history second, so bookmarks
+keep working after restarts.
 
 The dashboard's own requests are excluded from tracing, and the endpoints are
 kept out of the OpenAPI document.

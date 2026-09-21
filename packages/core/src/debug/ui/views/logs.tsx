@@ -1,6 +1,9 @@
 /**
- * @fileoverview Logs view — structured observatory log stream with level/text
- * filters, SQLite-persisted mode and clear. Live tail via the `logs` domain.
+ * @fileoverview Logs view — structured observatory log stream on the page
+ * primitives: `PageHeader` (title/description plus refresh/clear actions and the
+ * Live/Archive source toggle) → `StatRow` → `Toolbar` (level + text filters) →
+ * `DataTable` → states. Live tail via the `logs` domain; module-scoped signals
+ * keep the window, stats and filters across view remounts.
  */
 
 import {
@@ -8,22 +11,23 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
   type JSX,
+  onCleanup,
   Show,
   untrack,
 } from "solid-js";
 
 import { clearLogs, getLogs } from "../api";
+import { LevelBadge } from "../components/badge";
+import { Button } from "../components/button";
+import { Card } from "../components/card";
+import { SearchInput, Select } from "../components/fields";
+import { Icon } from "../components/icon";
 import { mergeById } from "../components/keyed";
-import {
-  EmptyState,
-  LevelPill,
-  Panel,
-  rowKeyHandler,
-  StatCard,
-  StatRow,
-} from "../components/widgets";
+import { PageHeader, Toolbar } from "../components/page";
+import { EmptyState, ErrorState } from "../components/states";
+import { Stat, StatRow } from "../components/stats";
+import { DataTable } from "../components/table";
 import { fmtNum, timeAgo, timeHM } from "../format";
 import { baselineFrom, currentPulse, domainMoved, lastRevision } from "../live";
 import { navigate } from "../router";
@@ -39,46 +43,8 @@ interface LogRow {
   traceId: string | null;
 }
 
-/** One log row (keyed by record id). */
-const LogRowView = (props: { row: LogRow }): JSX.Element => (
-  <tr
-    title="click for full record"
-    class="cursor-pointer"
-    tabIndex={0}
-    onClick={(): void => navigate("logDetail", String(props.row.id))}
-    onKeyDown={rowKeyHandler((): void => navigate("logDetail", String(props.row.id)))}
-  >
-    <td class="text-muted" title={timeHM(props.row.ts)}>
-      {timeAgo(props.row.ts)}
-    </td>
-    <td>
-      <LevelPill level={props.row.level} />
-    </td>
-    <td class="text-muted">{props.row.source}</td>
-    <td class="log-msg font-mono" title={props.row.message}>
-      {props.row.message}
-      {props.row.attrs !== null && props.row.attrs !== undefined ? (
-        <span class="log-attrs">{JSON.stringify(props.row.attrs)}</span>
-      ) : null}
-    </td>
-    <td>
-      {props.row.traceId !== null ? (
-        <a
-          class="trace-link"
-          href={`#/requests/${encodeURIComponent(props.row.traceId ?? "")}/waterfall`}
-          onClick={(ev): void => {
-            ev.preventDefault();
-            navigate("detail", props.row.traceId ?? "", "waterfall");
-          }}
-        >
-          request ↗
-        </a>
-      ) : (
-        <span class="text-faint">—</span>
-      )}
-    </td>
-  </tr>
-);
+/** Table column labels, in `DataTable` render order. */
+const HEADERS = ["When", "Level", "Source", "Message", "Trace"];
 
 /**
  * Module-scoped store so the log window + filters survive view remounts (tab
@@ -94,7 +60,13 @@ const [persisted, setPersisted] = createSignal(false);
 
 /** The logs panel. */
 export const LogsView: Component = () => {
+  const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [loaded, setLoaded] = createSignal(false);
+
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  onCleanup((): void => {
+    if (debounceTimer !== null) clearTimeout(debounceTimer);
+  });
 
   const load = (): void => {
     void getLogs({
@@ -104,11 +76,15 @@ export const LogsView: Component = () => {
       limit: 300,
     })
       .then((res): void => {
+        setLoadError(null);
         setRecords((prev) => mergeById(prev, res.records as LogRow[], (r) => String(r.id)));
         setStats(res.stats);
+        setLoaded(true);
       })
-      .catch((): void => {
+      .catch((err: Error): void => {
         setRecords(new Map());
+        setLoadError(err.message);
+        setLoaded(true);
       });
   };
 
@@ -130,103 +106,153 @@ export const LogsView: Component = () => {
 
   const recordsList = createMemo(() => [...records().values()]);
 
+  /**
+   * One `DataTable` row, one node per column (the primitive wraps each in a
+   * `<td>`). The message cell keeps a hard max-width + `title` so long lines
+   * truncate instead of silently clipping, with the original link preserved as
+   * an `<a>` (the shell's delegated copy listener never fires on it).
+   */
+  const rowCells = (row: LogRow): JSX.Element[] => [
+    <span class="text-muted" title={timeHM(row.ts)}>
+      {timeAgo(row.ts)}
+    </span>,
+    <LevelBadge level={row.level} />,
+    <span class="text-muted">{row.source}</span>,
+    <span class="block max-w-[640px] truncate font-mono" title={row.message}>
+      {row.message}
+      {row.attrs !== null && row.attrs !== undefined ? (
+        <span class="ml-2 text-faint">{JSON.stringify(row.attrs)}</span>
+      ) : null}
+    </span>,
+    row.traceId !== null ? (
+      <a
+        class="inline-flex items-center gap-1 text-accent hover:underline"
+        href={`#/requests/${encodeURIComponent(row.traceId ?? "")}/waterfall`}
+        onClick={(ev): void => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          navigate("detail", row.traceId ?? "", "waterfall");
+        }}
+      >
+        request
+        <Icon name="external-link" size={12} />
+      </a>
+    ) : (
+      <span class="text-faint">—</span>
+    ),
+  ];
+
   return (
-    <div>
+    <div class="flex flex-col gap-4">
+      <PageHeader
+        title="Logs"
+        description="Structured log stream — newest first, last 300"
+        actions={
+          <>
+            <Button
+              size="sm"
+              ariaPressed={!persisted()}
+              label="Live"
+              onClick={(): void => {
+                setPersisted(false);
+                load();
+              }}
+            />
+            <Button
+              size="sm"
+              ariaPressed={persisted()}
+              label="Archive"
+              onClick={(): void => {
+                setPersisted(true);
+                load();
+              }}
+            />
+            <Button icon="refresh" label="Refresh" onClick={(): void => load()} />
+            <Button
+              variant="danger"
+              icon="trash"
+              label="Clear"
+              onClick={(): void => {
+                void clearLogs().then((): void => {
+                  toast("log ring cleared");
+                  load();
+                });
+              }}
+            />
+          </>
+        }
+      />
+
       <StatRow>
-        <StatCard
+        <Stat
           value={fmtNum(recordsList().length)}
           label="logs (window)"
           sub={persisted() ? "from SQLite history" : "live ring"}
         />
-        <StatCard
+        <Stat
           value={fmtNum(stats()?.warn ?? 0)}
           label="warns"
           tone={(stats()?.warn ?? 0) > 0 ? "warn" : undefined}
         />
-        <StatCard
+        <Stat
           value={fmtNum(stats()?.error ?? 0)}
           label="errors"
           tone={(stats()?.error ?? 0) > 0 ? "err" : undefined}
         />
       </StatRow>
 
-      <Panel>
-        <div class="toolbar">
-          <input
-            class="search"
-            id="search"
-            type="text"
-            placeholder="filter messages…"
-            value={q()}
-            onInput={(ev): void => {
-              setQ((ev.target as HTMLInputElement).value);
-              if (debounceTimer !== null) clearTimeout(debounceTimer);
-              debounceTimer = setTimeout(load, 250);
-            }}
-          />
-          <select
-            onChange={(ev): void => {
-              setLevel((ev.target as HTMLSelectElement).value);
-              load();
-            }}
-          >
-            <option value="">all levels</option>
-            <option value="debug">debug+</option>
-            <option value="info">info+</option>
-            <option value="warn">warn+</option>
-            <option value="error">error only</option>
-          </select>
-          <label class="muted flex items-center gap-1.5 text-[11.5px]">
-            <input
-              type="checkbox"
-              checked={persisted()}
-              onChange={(ev): void => {
-                setPersisted((ev.target as HTMLInputElement).checked);
-                load();
-              }}
-            />
-            SQLite
-          </label>
-          <span class="grow" />
-          <button type="button" class="ghost mini" onClick={(): void => load()}>
-            ↻ refresh
-          </button>
-          <button
-            type="button"
-            class="ghost mini"
-            onClick={(): void => {
-              void clearLogs().then((): void => {
-                toast("log ring cleared");
-                load();
-              });
-            }}
-          >
-            ✕ clear
-          </button>
-        </div>
-      </Panel>
+      <Toolbar>
+        <SearchInput
+          id="search"
+          placeholder="filter messages…"
+          value={q()}
+          onInput={(value): void => {
+            setQ(value);
+            if (debounceTimer !== null) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(load, 250);
+          }}
+        />
+        <Select
+          id="level-filter"
+          onChange={(ev): void => {
+            setLevel(ev.currentTarget.value);
+            load();
+          }}
+        >
+          <option value="">all levels</option>
+          <option value="debug">debug+</option>
+          <option value="info">info+</option>
+          <option value="warn">warn+</option>
+          <option value="error">error only</option>
+        </Select>
+      </Toolbar>
 
-      <Panel>
-        <table>
-          <thead>
-            <tr>
-              {["When", "Level", "Source", "Message", "Trace"].map((l) => (
-                <th>{l}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <For each={recordsList()}>{(row): JSX.Element => <LogRowView row={row} />}</For>
-          </tbody>
-        </table>
-        <Show when={recordsList().length === 0}>
-          <EmptyState
-            glyph="🗒"
-            message="No logs captured yet."
-            hint='Call ctx.debug.log("warn", "…") or debugLog() anywhere, or just console.log — it is mirrored here.'
-          />
-        </Show>
-      </Panel>
+      <Card pad={false}>
+        <DataTable
+          label="Logs"
+          columns={HEADERS}
+          rows={recordsList()}
+          rowKey={(row): string => String(row.id)}
+          render={rowCells}
+          onRowClick={(row): void => navigate("logDetail", String(row.id))}
+          loading={!loaded() && recordsList().length === 0}
+          empty={
+            <EmptyState
+              icon="file-text"
+              message="No logs captured yet."
+              hint='Call ctx.debug.log("warn", "…") or debugLog() anywhere, or just console.log — it is mirrored here.'
+            />
+          }
+        />
+      </Card>
+
+      <Show when={loadError() !== null}>
+        <ErrorState
+          message={loadError() ?? ""}
+          hint="Is the debugbar enabled and the server running?"
+          onRetry={load}
+        />
+      </Show>
     </div>
   );
 };

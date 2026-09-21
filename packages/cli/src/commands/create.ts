@@ -1,3 +1,6 @@
+/**
+ * @fileoverview `ignex create` — scaffold a new app from the built-in template tree.
+ */
 import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";

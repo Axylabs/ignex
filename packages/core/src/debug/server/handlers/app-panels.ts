@@ -7,7 +7,13 @@
 import type { IgnexContext } from "../../../http/context";
 import type { IgnexRouter } from "../../../http/router";
 import type { NovaEventTrace, NovaEventTraceRow } from "../../../plugins/nova";
-import { buildAppKnowledge, countManifestRoutes, formatKnowledgeMarkdown } from "../../kt";
+import { readDoc } from "../../docs";
+import {
+  buildAppKnowledge,
+  countManifestRoutes,
+  formatKnowledgeMarkdown,
+  scanDocsInventory,
+} from "../../kt";
 import { analyzeSamples } from "../../leaks";
 import { renderMarkdownHtml } from "../../markdown";
 import type { NatsEventSummary, NatsEventTracker } from "../../nats-tracker";
@@ -145,6 +151,21 @@ export const createKtData =
     const knowledge = await buildAppKnowledge(options);
     const markdown = formatKnowledgeMarkdown(knowledge);
     return { markdown, html: renderMarkdownHtml(markdown), knowledge };
+  };
+
+/** `GET /api/docs` — docs inventory; `?path=` returns one rendered doc. */
+export const createDocsHandler =
+  (deps: HandlerDeps) =>
+  async (ctx: IgnexContext): Promise<Response> => {
+    const root = deps.state.projectRoot;
+    const paths = deps.state.docsPaths;
+    const rel = (ctx.url.searchParams.get("path") ?? "").trim();
+    if (rel === "") {
+      return json({ docs: await scanDocsInventory(root, paths) });
+    }
+    const doc = await readDoc(root, paths, rel);
+    if (doc === null) return json({ error: "unknown doc" }, 404);
+    return json(doc);
   };
 
 /** `GET /api/state` — application/process snapshot. */

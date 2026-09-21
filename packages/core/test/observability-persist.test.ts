@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObservatoryDb } from "../src/debug/persist.js";
-import type { RequestTrace } from "../src/debug/types.js";
+import type { RequestTrace } from "../src/debug/types/index.js";
 import { loadBunSqlite } from "../src/platform/sqlite.js";
 
 const trace = (id: string, over: Partial<RequestTrace> = {}): RequestTrace => ({

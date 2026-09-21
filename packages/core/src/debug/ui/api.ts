@@ -14,7 +14,9 @@ import type {
   AppKnowledge,
   DebugEventsPayload,
   DiagnosticsReport,
+  DocPayload,
   HistoryTraceSummary,
+  KnowledgeDoc,
   LogLevel,
   LogRecord,
   LogStats,
@@ -155,6 +157,13 @@ export const getKt = (): Promise<{
   html: string | null;
   knowledge: AppKnowledge;
 }> => getJson("/kt");
+
+/** `GET /api/docs` — docs inventory for the Docs panel. */
+export const getDocs = (): Promise<{ docs: KnowledgeDoc[] }> => getJson("/docs");
+
+/** `GET /api/docs?path=` — one doc, rendered server-side when available. */
+export const getDoc = (path: string): Promise<DocPayload> =>
+  getJson(`/docs?path=${encodeURIComponent(path)}`);
 
 /** `GET /api/clients` — published clients registry. */
 export const getClients = (

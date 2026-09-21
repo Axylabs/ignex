@@ -1,5 +1,5 @@
 /**
- * `ignex event [kind] [name]` — event-driven scaffolding wizard.
+ * @fileoverview `ignex event [kind] [name]` — event-driven scaffolding wizard.
  *
  *   ignex event                          → interactive wizard (kind + name)
  *   ignex event sse orders               → SSE stream at GET /events/orders

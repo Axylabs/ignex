@@ -11,6 +11,7 @@ import type { Domain } from "../live";
 import { AiView } from "./ai";
 import { ClientsView } from "./clients";
 import { DiagnosticsView } from "./diagnostics";
+import { DocsView } from "./docs";
 import { EventsView } from "./events";
 import { HistoryView } from "./history";
 import { JobsView } from "./jobs";
@@ -54,6 +55,7 @@ export const VIEWS: ViewDef[] = [
   { id: "clients", label: "Clients", key: "", domain: null, component: ClientsView },
   { id: "ai", label: "AI", key: "", domain: null, component: AiView },
   { id: "kt", label: "KT", key: "", domain: null, component: KtView },
+  { id: "docs", label: "Docs", key: "", domain: null, component: DocsView },
 ];
 
 /** Views rendered as detail surfaces (no nav button of their own). */

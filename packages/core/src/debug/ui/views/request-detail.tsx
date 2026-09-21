@@ -1,26 +1,22 @@
 /**
- * @fileoverview Request detail view — summary bar + tabs (Overview, Waterfall,
- * Queries, Headers, Body, Error, Replay). Serves BOTH live-ring traces and
- * persisted history traces: live is tried first, then history (deep links keep
- * working after restarts).
+ * @fileoverview Request detail view — `PageHeader` (back + `METHOD /path` +
+ * status badge + actions) → identity summary strip → ARIA `Tabs` → panels.
+ * Serves BOTH live-ring traces and persisted history traces: live is tried
+ * first, then history (deep links keep working after restarts).
  */
 
 import { type Component, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 
 import { getHistoryDetail, getRequestDetail, replayRequest } from "../api";
+import { Badge, Chip, KindBadge, MethodBadge, StatusBadge } from "../components/badge";
+import { Button } from "../components/button";
+import { Card } from "../components/card";
 import { BodyPanel, QueriesTable, TimeBreakdown, Waterfall } from "../components/detail-parts";
-import {
-  EmptyState,
-  headerRows,
-  KindPill,
-  Kvs,
-  type KvsRow,
-  MethodPill,
-  Panel,
-  StatCard,
-  StatRow,
-  StatusPill,
-} from "../components/widgets";
+import { headerRows, Kvs, type KvsRow } from "../components/kvs";
+import { PageHeader } from "../components/page";
+import { EmptyState, ErrorState, LoadingState } from "../components/states";
+import { Stat, StatRow, type StatTone } from "../components/stats";
+import { Tabs } from "../components/tabs";
 import { durClass, fmtMs, headerValue, timeHM } from "../format";
 import { currentRoute, navigate } from "../router";
 import { toast } from "../toast";
@@ -36,6 +32,16 @@ const TABS: Array<[string, string]> = [
   ["error", "Error"],
   ["replay", "Replay"],
 ];
+
+/** Stat tone for a duration (shares the `durClass` thresholds). */
+const durTone = (ms: number): StatTone => durClass(ms).replace("text-", "") as StatTone;
+
+/** Tabs visible for a trace — Error only appears when the trace carries one. */
+const visibleTabs = (t: DetailTrace): Array<{ id: string; label: string }> =>
+  TABS.filter(([key]) => key !== "error" || Boolean(t.error)).map(([id, label]) => ({
+    id,
+    label,
+  }));
 
 /** Fetch a trace by id: live ring first, persisted history as fallback. */
 const fetchTrace = async (id: string): Promise<DetailTrace> => {
@@ -62,7 +68,7 @@ const SpanNode = (props: {
   if (kid.origin) {
     meta.push(
       <span
-        class="origin-chain faint copyable"
+        class="origin-chain cursor-copy text-faint"
         title="click to copy origin"
         {...copyAttr(kid.origin)}
       >
@@ -73,7 +79,7 @@ const SpanNode = (props: {
   for (const key of Object.keys(kid.attrs ?? {})) {
     if (key === "params" || key === "error" || key === "stack") continue;
     meta.push(
-      <span class="faint">
+      <span class="text-faint">
         {`${key}=${props.attrValue((kid.attrs as Record<string, unknown>)[key])}`}
       </span>,
     );
@@ -83,12 +89,12 @@ const SpanNode = (props: {
     <>
       <div
         class={isRoot ? "node root" : "node"}
-        style={{ "padding-left": `${props.depth * 14}px` }}
+        style={{ "padding-left": `calc(var(--tree-indent) * ${props.depth})` }}
       >
         <span class={durClass(kid.durationMs)}>{fmtMs(kid.durationMs)}</span>
         {" · "}
-        <b>{kid.name}</b> <KindPill kind={kid.kind} />
-        {kid.error ? <span class="pill status err">{kid.error}</span> : null}
+        <b>{kid.name}</b> <KindBadge kind={kid.kind} />
+        {kid.error ? <Badge tone="err">{kid.error}</Badge> : null}
       </div>
       {meta.length > 0 ? <div class="tree-meta">{meta}</div> : null}
       {props.depth < MAX_TREE_DEPTH ? (
@@ -126,7 +132,7 @@ const SpanTree = (props: { spans: SpanLike[] }): JSX.Element => {
     return String(v);
   };
   return (
-    <Panel title="Span tree">
+    <Card title="Span tree">
       <div class="tree">
         <For each={byParent.get(0) ?? []}>
           {(kid): JSX.Element => (
@@ -134,7 +140,7 @@ const SpanTree = (props: { spans: SpanLike[] }): JSX.Element => {
           )}
         </For>
       </div>
-    </Panel>
+    </Card>
   );
 };
 
@@ -154,6 +160,30 @@ const requestKvsRows = (t: DetailTrace): KvsRow[] => {
   return pairs.map(([key, value]) => ({ k: key, v: value }));
 };
 
+/** Identity strip under the header — method/status/id/ip/time/source chips. */
+const DetailSummary = (props: { t: DetailTrace }): JSX.Element => (
+  <div class="flex flex-wrap items-center gap-2">
+    <MethodBadge method={props.t.method} />
+    <StatusBadge status={props.t.status} />
+    <Chip class="font-mono" title="request id" dataCopy={props.t.requestId}>
+      {props.t.requestId}
+    </Chip>
+    <Chip class="font-mono" title="client ip">
+      {props.t.ip}
+    </Chip>
+    <Chip class="font-mono" title="started">
+      {timeHM(props.t.ts)}
+    </Chip>
+    <Show when={props.t.sourceFile}>
+      {(source): JSX.Element => (
+        <Chip class="font-mono" title="source">
+          {source()}
+        </Chip>
+      )}
+    </Show>
+  </div>
+);
+
 /** The detail surface for the id/tab in the current route. */
 export const RequestDetailView: Component = () => {
   const route = currentRoute();
@@ -169,7 +199,6 @@ export const RequestDetailView: Component = () => {
     });
 
   /** Build the active tab's panels. */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: view renderer — one branch per detail tab
   const tabContent = (t: DetailTrace, active: string): JSX.Element => {
     if (active === "waterfall")
       return (
@@ -182,12 +211,12 @@ export const RequestDetailView: Component = () => {
     if (active === "headers")
       return (
         <>
-          <Panel title="Request headers">
+          <Card title="Request headers">
             <Kvs rows={headerRows(t.request.headers)} />
-          </Panel>
-          <Panel title="Response headers">
+          </Card>
+          <Card title="Response headers">
             <Kvs rows={headerRows(t.responseHeaders ?? {})} />
-          </Panel>
+          </Card>
         </>
       );
     if (active === "body")
@@ -211,141 +240,123 @@ export const RequestDetailView: Component = () => {
       );
     if (active === "replay")
       return (
-        <Panel>
+        <Card>
           <EmptyState
-            glyph="↻"
-            message="Press “↻ replay” above to re-issue this exact request through the server."
+            icon="refresh"
+            message="Press “Replay” above to re-issue this exact request through the server."
           />
-        </Panel>
+        </Card>
       );
 
     // Overview and Error share the overview layout.
+    const errorText = `${t.error ?? ""}${t.errorStack ? `\n\n${t.errorStack}` : ""}`;
     return (
       <>
         <StatRow>
-          <div class="stat accent">
-            <div class={`v ${durClass(t.durationMs)}`}>{fmtMs(t.durationMs)}</div>
-            <div class="k">total</div>
-          </div>
-          <StatCard value={String(t.dbCount)} label="db queries" sub={fmtMs(t.dbTimeMs)} />
-          <StatCard value={String(t.spans.length)} label="spans" />
-          <StatCard value={t.route ?? "—"} label="route" />
+          <Stat value={fmtMs(t.durationMs)} label="total" tone={durTone(t.durationMs)} />
+          <Stat value={String(t.dbCount)} label="db queries" sub={fmtMs(t.dbTimeMs)} />
+          <Stat value={String(t.spans.length)} label="spans" />
+          <Stat value={t.route ?? "—"} label="route" />
         </StatRow>
         {active === "error" && t.error ? (
-          <Panel
+          <Card
             title="Error"
-            headExtra={
-              <button
-                type="button"
-                class="ghost mini"
-                {...copyAttr(`${t.error}${t.errorStack ? `\n\n${t.errorStack}` : ""}`)}
-              >
-                copy
-              </button>
-            }
+            actions={<Button size="sm" icon="copy" label="Copy" dataCopy={errorText} />}
           >
-            <pre class="err-stack">{`${t.error}${t.errorStack ? `\n\n${t.errorStack}` : ""}`}</pre>
-          </Panel>
+            <pre class="err-stack">{errorText}</pre>
+          </Card>
         ) : null}
         {t.stages !== undefined && t.stages.length > 0 ? (
-          <Panel title="Lifecycle stages">
+          <Card title="Lifecycle stages">
             <div class="flex flex-wrap gap-1.5">
               {t.stages.map((s) => (
-                <span class="chip">{s}</span>
+                <Chip>{s}</Chip>
               ))}
             </div>
-          </Panel>
+          </Card>
         ) : null}
         <TimeBreakdown spans={t.spans} durationMs={t.durationMs} />
         <SpanTree spans={t.spans} />
-        <Panel title="Request">
+        <Card title="Request">
           <Kvs rows={requestKvsRows(t)} />
-        </Panel>
+        </Card>
       </>
     );
   };
 
-  const summaryBar = (t: DetailTrace): JSX.Element => {
-    const curl = t.curl ?? `curl -i -X ${t.method} '${t.request.url}'`;
-    return (
-      <div class="summary">
-        <button type="button" class="ghost mini" onClick={(): void => window.history.back()}>
-          ← back
-        </button>
-        <MethodPill method={t.method} />
-        <span class="route-path">{t.path}</span>
-        <StatusPill status={t.status} />
-        <span class="meta">{`${t.requestId} · ${t.ip} · ${timeHM(t.ts)}`}</span>
-        <span class="grow" />
-        <button type="button" class="ghost mini" {...copyAttr(curl)}>
-          ⧉ copy curl
-        </button>
-        <button
-          type="button"
-          class="primary mini"
-          onClick={(): void => {
-            toast("replaying…");
-            void replayRequest(t.id).then((res): void => {
-              if (res.error !== undefined && res.error !== null) {
-                toast(`✖ ${res.error}`);
-                return;
-              }
-              toast(`✔ replay ${res.status ?? ""} in ${fmtMs(res.durationMs ?? null)}`);
-            });
-          }}
-        >
-          ↻ replay
-        </button>
-      </div>
-    );
-  };
-
-  const tabBar = (t: DetailTrace): JSX.Element => (
-    <div class="tabs">
-      {TABS.filter(([key]) => key !== "error" || Boolean(t.error)).map(([key, label]) => (
-        <button
-          type="button"
-          data-tab={key}
-          class={tab() === key ? "active" : ""}
-          onClick={(): void => {
-            setTab(key);
-            navigate("detail", t.id, key);
-          }}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <Switch>
       <Match when={trace()} keyed>
-        {(t): JSX.Element => (
-          <div>
-            {summaryBar(t)}
-            {tabBar(t)}
-            {/* Keyed on the tab so only the body swaps when the tab moves. */}
-            <Show when={tab()} keyed>
-              {(active): JSX.Element => tabContent(t, active)}
-            </Show>
-          </div>
-        )}
+        {(t): JSX.Element => {
+          const curl = t.curl ?? `curl -i -X ${t.method} '${t.request.url}'`;
+          const description = `${t.requestId} · ${t.ip} · ${timeHM(t.ts)}${
+            t.sourceFile ? ` · ${t.sourceFile}` : ""
+          }`;
+          return (
+            <div class="flex flex-col gap-4">
+              <PageHeader
+                back={(): void => window.history.back()}
+                title={`${t.method} ${t.path}`}
+                badge={<StatusBadge status={t.status} />}
+                description={description}
+                actions={
+                  <>
+                    <Button icon="copy" label="Copy curl" dataCopy={curl} />
+                    <Button
+                      variant="primary"
+                      icon="refresh"
+                      label="Replay"
+                      onClick={(): void => {
+                        toast("replaying…");
+                        void replayRequest(t.id).then((res): void => {
+                          if (res.error !== undefined && res.error !== null) {
+                            toast(`replay failed: ${res.error}`);
+                            return;
+                          }
+                          toast(`replay ${res.status ?? ""} in ${fmtMs(res.durationMs ?? null)}`);
+                        });
+                      }}
+                    />
+                  </>
+                }
+              />
+              <DetailSummary t={t} />
+              <div>
+                <Tabs
+                  tabs={visibleTabs(t)}
+                  active={tab()}
+                  onSelect={(next): void => {
+                    setTab(next);
+                    navigate("detail", t.id, next);
+                  }}
+                />
+                {/* Keyed on the tab so only the body swaps when the tab moves. */}
+                <div
+                  id={`tabpanel-${tab()}`}
+                  role="tabpanel"
+                  aria-labelledby={`tab-${tab()}`}
+                  class="flex flex-col gap-4 pt-4"
+                >
+                  <Show when={tab()} keyed>
+                    {(active): JSX.Element => tabContent(t, active)}
+                  </Show>
+                </div>
+              </div>
+            </div>
+          );
+        }}
       </Match>
       <Match when={loadError()} keyed>
         {(msg): JSX.Element => (
-          <Panel>
-            <EmptyState
-              glyph="⚠"
-              message={msg}
-              hint="Is the debugbar enabled and the server running?"
-            />
-          </Panel>
+          <div class="flex flex-col gap-4">
+            <PageHeader back={(): void => window.history.back()} title="Request not found" />
+            <ErrorState message={msg} hint="Is the debugbar enabled and the server running?" />
+          </div>
         )}
       </Match>
       {/* Loading: trace + error both still pending. */}
       <Match when={true}>
-        <div class="panel skeleton h-[120px]" />
+        <LoadingState rows={5} />
       </Match>
     </Switch>
   );

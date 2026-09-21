@@ -29,8 +29,8 @@ describe("shared castrum ingress binding", () => {
       [
         "-e",
         `
-      const { getFfiIngress } = await import('./packages/native/src/ffi.ts');
-      const { createNativeIngress } = await import('./packages/native/src/ingress.ts');
+      const { getFfiIngress } = await import('./packages/native/src/ffi/index.ts');
+      const { createNativeIngress } = await import('./packages/native/src/ingress/index.ts');
       const binding = getFfiIngress();
       binding.ingressHandleComponents = () => { throw new Error('injected native fault'); };
       const open = createNativeIngress({}, { failClosed: false });
@@ -58,8 +58,8 @@ describe("shared castrum ingress binding", () => {
       [
         "-e",
         `
-      const { getFfiIngress } = await import('./packages/native/src/ffi.ts');
-      const { loadCastrumModule } = await import('./packages/native/src/loader.ts');
+      const { getFfiIngress } = await import('./packages/native/src/ffi/index.ts');
+      const { loadCastrumModule } = await import('./packages/native/src/loader/index.ts');
       const mod = await loadCastrumModule();
       const shared = mod.getIngressBinding();
       const actual = getFfiIngress();

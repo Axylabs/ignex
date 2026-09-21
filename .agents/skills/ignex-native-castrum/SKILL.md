@@ -51,12 +51,13 @@ resolved — a lingering `IGNEX_NATIVE_PATH` export silently wins over the link:
 | `selection.ts` | ★ `SELECTION` table — single source of truth for which impl wins (`impl`, `nativeRatio`). **Read-only data — never mutate.** |
 | `execution.ts` | Unified execution API: `backend.*` groups ops by domain, binds each to the fastest impl; `implFor(op)`, `createExecutionBackend`, `executionStatus`, `initNative` |
 | `index.ts` | Flat parity-testable surface: `jwtSign`/`jwtVerify`, `hmacSha256`, `passwordHash`/`passwordVerify`, `randomToken`, `signCookie`/`verifyCookie`, `csrfToken`/`csrfVerify`, `aeadEncrypt`/`aeadDecrypt`, `ed25519` helpers + every `*Fallback` twin |
-| `crypto.ts` / `hash.ts` / `json.ts` / `packed.ts` / `payload.ts` | Op domains (hashing, JSON, packed pairs, payload) |
+| `crypto/` (barrel: `hmac`·`cookie`·`csrf`·`jwt`·`token`·`password`·`aead`·`session`) / `hash.ts` / `json.ts` / `packed.ts` / `payload.ts` | Op domains (hashing, JSON, packed pairs, payload) |
 | `bun.ts` | Bun built-in delegation (some ops are faster as Bun built-ins than the Rust addon — measured in castrum's bench) |
-| `http/` + `ingress.ts` + `native-handler.ts` + `ratelimit.ts` | Native HTTP helpers (ingress pipeline wrappers) |
+| `http/` + `ingress/` (barrel: `factory`·`router`·`headers`·`terminal`·`errors`·`constants`·`layout`·`verdict`) + `native-handler.ts` + `ratelimit.ts` | Native HTTP helpers (ingress pipeline wrappers) |
 | `tasks.ts` | Off-thread task runtime bridge (castrum 0.9.6 "castrum Tasks"): async `createTaskRuntime()` + `isNativeTaskRuntime`; prefers castrum's Rust pool, falls back to a synchronous pure-TS runtime (byte-identical output). |
-| `ffi.ts` / `ffi-read.ts` / `loader.ts` | Addon loading + FFI transport: `loader.ts` `require()`s the castrum NAPI `.node` (never bare `import` — tsconfig paths stub it); `ffi.ts` additionally `dlopen`s the SAME binary via `bun:ffi` (`IGNEX_FFI_MODE=auto\|ffi\|napi`, bind-time self-test). Path comes from `getAddonPath()` (shared by both transports) via `IGNEX_NATIVE_PATH` override — there is NO `IGNEX_FFI_PATH` env var. **Match the real C-ABI signature**: `cstring` ARGs are NUL-terminated, so byte inputs use `(ptr,len)` (validator `*_bytes`, `castrum_accept_negotiator_negotiate`) — binding a `(ptr,len)` symbol as `cstring` leaves the length register uninitialized (worked on Linux by luck; failed on macOS). |
-| `route.ts` / `route-wire.ts` | ★ route-wire v3: `createNativeRoute(plan)` — compile a route descriptor once, run each frame in ONE native call (see castrum's `docs/NATIVE-ROUTE.md`; pins `ROUTE_DESC_VERSION`) |
+| `ffi/` (barrel: `types`·`helpers`·`self-test`·`bind`·`routes`·`instances`·`metrics`·`ingress`) / `ffi-read.ts` / `loader/` (barrel: `types`·`paths`·`require`·`native`·`init`) | Addon loading + FFI transport: `loader/` `require()`s the castrum NAPI `.node` (never bare `import` — tsconfig paths stub it); `ffi/bind/` additionally `dlopen`s the SAME binary via `bun:ffi` (`IGNEX_FFI_MODE=auto\|ffi\|napi`, bind-time self-test). Path comes from `getAddonPath()` (shared by both transports) via `IGNEX_NATIVE_PATH` override — there is NO `IGNEX_FFI_PATH` env var. **Match the real C-ABI signature**: `cstring` ARGs are NUL-terminated, so byte inputs use `(ptr,len)` (validator `*_bytes`, `castrum_accept_negotiator_negotiate`) — binding a `(ptr,len)` symbol as `cstring` leaves the length register uninitialized (worked on Linux by luck; failed on macOS). |
+| `metrics/` (barrel: `types`·`decode`·`shared`·`registry-native`·`registry-fallback`) | Native metrics surface: `createMetricsRegistry` dispatcher + lazy/optional bind (D-007) + pure-TS byte-compatible fallback |
+| `route.ts` / `route-wire/` (barrel: `constants`·`stages`·`plan`·`frame`·`result`) | ★ route-wire v3: `createNativeRoute(plan)` — compile a route descriptor once, run each frame in ONE native call (see castrum's `NATIVE-ROUTE.md`; pins `ROUTE_DESC_VERSION`) |
 | `runtime.ts` | Runtime detection + `isNativeAvailable` |
 
 ## Conventions
@@ -69,7 +70,7 @@ resolved — a lingering `IGNEX_NATIVE_PATH` export silently wins over the link:
 - `IGNEX_NATIVE=off` must behave identically (the `smoke:fallback` gate runs
   this way); `IGNEX_NATIVE_PATH` points at a custom addon build.
 - The cstring/zero-text-encoding FFI conventions live in castrum
-  (`/home/adeel/poc/castrum`, `docs/FFI_BUN_GUIDE.md`); when changing the wire
+  (`/home/adeel/poc/castrum`, `FFI_BUN_GUIDE.md`); when changing the wire
   contract here, keep byte parity with castrum's `castrum_route_*` exports.
 - `@ignex/core` re-exports the whole unified surface (`backend`, `SELECTION`,
   `implFor`, `createNativeRoute`, …) — consumers get it from `@ignex/core`.

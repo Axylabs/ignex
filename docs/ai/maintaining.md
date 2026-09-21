@@ -1,0 +1,34 @@
+# Maintaining ignex — issue → origin → test
+
+The human face of the telemetry taxonomy. When a symptom shows up in logs,
+telemetry, or a response, this table points at the module that produced it,
+the test that pins it, and the documented why (see `docs/decisions/`).
+
+**Rule:** every new `reportDegradation` reason, native error code, or new
+telemetry `call-failed` surface adds a row here (and a decision entry where a
+design choice is involved). Keep rows terse; the linked module is the source
+of truth.
+
+## Seed table
+
+| Symptom (log/telemetry/response) | Origin | Pinning test / fix |
+| --- | --- | --- |
+| `call-failed → ingress.handle` / "native ingress returned 0" | `packages/native/src/ingress/factory.ts` fault path | `packages/native/test/ingress-binding.test.ts` (fail-closed subprocess) |
+| 429 `rate_limited` body | `packages/native/src/ingress/terminal.ts` + `ingress/errors.ts` | rate-limit tests; `retry_after_ms` inline |
+| `U32_MAX` "rate limiting disabled" | `packages/native/src/ingress/constants.ts` | `packages/native/test/ingress-stages.test.ts` parity tests |
+| 304/412 conditional oddities | `packages/native/src/http/conditional.ts` ↔ `packages/core/src/http/conditional.ts` | `packages/native/test/http-property.test.ts` conditional suite |
+| C-ABI garbage value in a header match | D-003 `(ptr,len)` gotcha | `scripts/verify-native-ffi.ts` + `packages/native/test/wire-hardening.test.ts` |
+| `IGNEX_NATIVE=off` behavior mismatch | any native surface | `smoke:fallback`, `packages/native/test/selection.test.ts` |
+| SIGILL v3 guard trip | `packages/native/src/loader/` (v3 CPU-detect in `paths.ts`) | `scripts/check-native-surface.ts` |
+| Cache serving stale output | `packages/compiler/src/cache.ts` | `scripts/check-cache-versions.ts` + cache self-heal tests |
+| Debugbar blank / missing panels | `packages/core/src/debug/*` | `check:debug-ui`, `gen:debug-ui --check` |
+| 404/405/`OPTIONS` oddities on an interpreted route | `packages/core/src/http/router.ts` | `packages/core/test/router.test.ts` + `router-utils.test.ts` |
+| Session cookie missing / `HttpOnly` off / visits not persisting | `packages/core/src/security/session.ts` | `packages/core/test/session-fusion.test.ts` + `session-store.test.ts` (fail-closed + expiry) |
+| JWT/cookie port mismatch (interpreted vs AOT) | `packages/core/src/security/` ↔ `packages/native/src/crypto/` | `packages/core/test/cookie-port.test.ts`, `packages/core/test/auth-module.test.ts`, `packages/native/test/` crypto suites |
+| Generated server artifact wrong / stale / won't boot | `packages/compiler/src/phases/*` + `emitter.ts` | `bun run smoke` (+ `smoke:fallback`), `packages/compiler/test/cache.test.ts` (cache-version self-heal) |
+| SDK client emits wrong types / dead surface | `packages/compiler/src/sdk/*` | `packages/compiler/test/sdk.test.ts` (+ `sdk-flatbuffers` / `sdk-realtime`) |
+| Scaffolded project broken (create/templates) | `packages/cli/src/commands/create.ts`, `templates/*` | `packages/cli/test/create.test.ts` + template suites; `bun run smoke` |
+
+When a bug report says "it returns a weird 429", start at the Origin column
+(`ingress/terminal.ts`), read D-005/D-008 for the why, and run the pinned
+tests before touching code.

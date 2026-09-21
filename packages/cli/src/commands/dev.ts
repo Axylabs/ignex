@@ -1,3 +1,6 @@
+/**
+ * @fileoverview `ignex dev` — watch-mode dev server (Bun.serve + reload).
+ */
 import { type ChildProcess, spawn as spawnProcess, spawnSync } from "node:child_process";
 import { type FSWatcher, watch } from "node:fs";
 import { relative, resolve } from "node:path";

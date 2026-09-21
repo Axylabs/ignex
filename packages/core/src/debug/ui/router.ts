@@ -34,6 +34,7 @@ const KNOWN_VIEWS = new Set([
   "clients",
   "ai",
   "kt",
+  "docs",
 ]);
 
 function parse(hash: string): Route {
@@ -46,6 +47,11 @@ function parse(hash: string): Route {
   }
   if (head === "logs" && parts[1] !== undefined) {
     return { view: "logDetail", id: decodeURIComponent(parts[1]), tab: null };
+  }
+  if (head === "docs" && parts[1] !== undefined) {
+    // `#/docs/<encodeURIComponent(path)>` — one document (the encoded relpath
+    // stays a single hash segment for slashes).
+    return { view: "docs", id: decodeURIComponent(parts[1]), tab: null };
   }
   return { view: head, id: null, tab: null };
 }
@@ -83,6 +89,8 @@ export const navigate = (view: string, id?: string, tab?: string): void => {
     else if (id !== undefined) hash = `#/requests/${encodeURIComponent(id)}${tab ? `/${tab}` : ""}`;
   } else if (view === "logDetail") {
     hash = id !== undefined ? `#/logs/${encodeURIComponent(id)}` : "#/logs";
+  } else if (view === "docs") {
+    hash = id !== undefined ? `#/docs/${encodeURIComponent(id)}` : "#/docs";
   }
   if (window.location.hash === hash) {
     applyHash(hash); // re-enter same route (manual refresh)

@@ -190,6 +190,47 @@ Start with the router for simplicity and good performance; move to AOT when you
 want precompiled validators/serializers, constant hoisting, and handler
 inlining on top of the same routing story.
 
+## WebSocket limits & dispatch
+
+`createWSHandler(hook, connections?, options?)` builds a Bun `WebSocketHandler`
+whose event hooks are wrapped for error containment and bounded dispatch
+(`packages/core/src/http/ws.ts`). It is what both the interpreted path and the
+compiled server emit into Bun's single `websocket` config.
+
+Transport limits (`WSLimits`) mirror Bun's own `WebSocketHandler` tuning fields
+and are spread onto the returned handler, so a single-route server passes them
+to `Bun.serve` untouched:
+
+| Option | Meaning |
+| --- | --- |
+| `maxPayloadLength` | Max message payload bytes per frame. |
+| `backpressureLimit` | Backlog (bytes) at which Bun applies backpressure via the `drain` hook. |
+| `closeOnBackpressureLimit` | Close instead of buffering when the limit hits. |
+| `idleTimeout` | Seconds after which an idle socket is closed. |
+
+Dispatch bounds (`WSHandlerOptions extends WSLimits`):
+
+- `maxInflightMessages` (default 256, matching Elysia) caps concurrent
+  **unsettled** message handlers per handler. At the cap the socket is closed
+  with **1013** (`"Too many in-flight messages"`) instead of queueing unbounded
+  promise work — a slow or wedged handler can no longer pin unbounded
+  event-loop time or memory per socket. The counter decrements when the
+  handler's promise settles; a synchronously-throwing handler decrements
+  immediately.
+- Every hook (open/message/drain/close) is wrapped in `invoke`, which contains
+  sync throws and reports async rejections (`console.error`, never a crash), so
+  one bad handler cannot take down socket dispatch or connection bookkeeping.
+
+When multiple WS routes must share Bun's single `websocket` handler (the
+compiled server), `mergeWSLimits` merges per-route limits **strictest-wins**:
+the smallest `maxPayloadLength`/`backpressureLimit`/`idleTimeout`, and
+`closeOnBackpressureLimit: true` when any route opts in. Fields no handler
+sets stay omitted so Bun's defaults are never clobbered.
+
+Pinned by `packages/core/test/ws-limits.test.ts` (cap closes 1013, throwing
+handler isolation, limits reaching the handler object) and the compiler
+golden/e2e suites.
+
 ### Plugin context declarations
 
 The AOT compiler statically computes which `ctx` members each route touches and

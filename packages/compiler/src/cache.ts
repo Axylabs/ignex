@@ -84,7 +84,7 @@ import { projectPath } from "./utils/path";
  * `status`/`statusText`/`headers`) is now hoisted to a pre-built table-bound
  * Response exactly like a constant JSON return. Generated output shape changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.23";
+export const COMPILER_CACHE_VERSION = "0.9.24";
 
 const CACHE_FILE = ".ignex-cache.json";
 

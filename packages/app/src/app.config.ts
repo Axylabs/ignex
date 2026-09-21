@@ -42,6 +42,10 @@ export const plugins: IgnexPlugin[] = [
         debugbar({
           enabled: true,
           serviceName: "ignex-app",
+          // Framework docs for the Docs + KT panels (paths resolve from
+          // packages/app — the compiler's dev/build scripts run with
+          // `--cwd packages/app`).
+          docsPaths: ["../../docs", "../../README.md"],
           sdkPaths: ["dist/sdk/typescript/package.json", "dist/sdk/openapi/package.json"],
           clientPaths: ["dist/sdk/flatbuffers/package.json"],
         }),

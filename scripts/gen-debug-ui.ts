@@ -118,8 +118,26 @@ const buildClientJs = async (entry: string): Promise<string> => {
 const embed = (text: string): string =>
   text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 
+/**
+ * Remove stale `.gen-debug-ui-*` build dirs under `packages/core`.
+ *
+ * SIGINT-killed runs die before the `finally` rmSync below, leaving gitignored
+ * leftovers that would otherwise fool `--check`'s freshness logic (the leftover
+ * hash never matches, but a later successful build is forced to start over) and
+ * fail the check:maintainability orphan-gen-dir rule.
+ */
+const cleanStaleBuildDirs = (): void => {
+  const coreDir = join(ROOT, "packages/core");
+  for (const entry of readdirSync(coreDir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith(".gen-debug-ui-")) {
+      rmSync(join(coreDir, entry.name), { recursive: true, force: true });
+    }
+  }
+};
+
 /** Build everything and return the generated artifact body. */
 const buildArtifact = async (): Promise<string> => {
+  cleanStaleBuildDirs();
   // Workspace-local staging dir (cleaned up below): /tmp may be unusual on
   // some setups and the bundler reads these files back within the same run.
   // Staged INSIDE `packages/core` so module resolution from the entry walks up

@@ -46,4 +46,12 @@ describe("debugbar hash router", () => {
     expect(window.location.hash).toBe("#/errors");
     expect(currentRoute().view).toBe("errors");
   });
+
+  it("parses docs list and doc-detail routes (encoded single segment)", () => {
+    navigate("docs");
+    expect(currentRoute()).toEqual({ view: "docs", id: null, tab: null });
+    navigate("docs", "docs/router.md");
+    expect(currentRoute()).toEqual({ view: "docs", id: "docs/router.md", tab: null });
+    expect(window.location.hash).toBe("#/docs/docs%2Frouter.md");
+  });
 });

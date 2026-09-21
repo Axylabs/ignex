@@ -11,6 +11,7 @@
     "includes": [
       "**",
       "!**/dist",
+      "!**/dist-dev",
       "!**/.ignex",
       "!**/node_modules",
       "!**/.git",

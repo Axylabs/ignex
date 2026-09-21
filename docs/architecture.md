@@ -3,13 +3,13 @@
 This document explains how the pieces fit together so you can navigate the
 codebase and make changes without breaking the AOT contract.
 
-## Monorepo layout
+## Monorepo Layout Overview
 
 | Package          | Role                                                              | Entry           |
 | ---------------- | ----------------------------------------------------------------- | --------------- |
 | `@ignex/shared`   | FP toolkit + the **compiler ↔ runtime AOT contract** (`ContextUsage`) | `src/index.ts` |
 | `@ignex/native`   | Rust-accelerated primitives + byte-compatible pure-TS fallbacks    | `src/index.ts`  |
-| `@ignex/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders (see below) | `src/index.ts`  |
+| `@ignex/core`     | Runtime primitives: context, lifecycle, auth, plugins, validation — grouped **by use case** into domain folders | `src/index.ts`  |
 | `@ignex/compiler` | AOT compiler pipeline (source-only)                               | `src/index.ts`  |
 | `@ignex/cli`      | Developer CLI (scaffold / dev / build / mcp)                       | `src/index.ts`  |
 | `@ignex/mcp`      | Model Context Protocol server (agent tools over stdio)            | `src/index.ts`  |
@@ -156,15 +156,19 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 
 ## Runtime lifecycle
 
-`@ignex/core/src/lifecycle/lifecycle.ts` owns the request pipeline. `runLifecycle`
-runs the pre-handler stages (`beforeHandle` …), the handler, then the
-post-handler stages (`afterHandle` → `mapResponse` → `afterResponse`) as an
-imperative sequence of named stages — empty stage chains short-circuit with a
-single `if` instead of composing per-request closures. The generated server
-imports `runHooks`/`applySet` from `@ignex/core` — there is **one**
-implementation, not a compiled copy.
+`@ignex/core/src/lifecycle/` owns the request pipeline. `run.ts` holds the
+stage list and `runHooks`/`runLifecycle`/`runTimed` (`lifecycle.ts` is a pure
+re-export barrel); `app-factory.ts` builds the app (`createApp`/serve/stop) and
+`plugin/` holds the plugin registry, composition and the plugin→lifecycle
+bridge. `runLifecycle` runs the pre-handler stages (`beforeHandle` …), the
+handler, then the post-handler stages (`afterHandle` → `mapResponse` →
+`afterResponse`) as an imperative sequence of named stages — empty stage chains
+short-circuit with a single `if` instead of composing per-request closures. The
+generated server imports `runHooks`/`applySet` from `@ignex/core` — there is
+**one** implementation, not a compiled copy.
 
-`IgnexContext` (`core/src/http/context.ts`) is the per-request object: read-only
+`IgnexContext` (`core/src/http/context/types.ts`, with the implementation in
+`core/src/http/context/impl.ts`) is the per-request object: read-only
 request surface (`req`, `url`, `headers`, `ip`…), mutable `params`/`query`/
 `body`/`cookie`/`state`, the `set` outgoing channel, and response builders
 (`json`/`text`/`redirect`/`stream`/…). `ctx.set` mutations are applied by the
@@ -193,7 +197,7 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 | `security/`   | Request security & trust                                   | auth, csrf, crypto, session, session-store |
 | `http/`       | Request/response handling                                  | context, cookies, headers, body, proxy, files, sse, ws, route DSL |
 | `data/`       | Data access, caching & validation                          | cache, dataloader, drivers, lru, query, ratelimit, schema, store, validation |
-| `lifecycle/`  | Request pipeline & composition                             | hooks, lifecycle, plugin |
+| `lifecycle/`  | Request pipeline & composition                             | hooks, run, app-factory, lifecycle (barrel), plugin/ (types, registry, composition, lifecycle-bridge) |
 | `platform/`  | App runtime infrastructure                                 | env, config, coerce, jobs, durable jobs (`jobs-store.ts` / `jobs-durable.ts`), errors |
 | `content/`    | Rendering & localization                                   | i18n, template |
 | `plugins/`    | Ready-made `IgnexPlugin` factories                          | cors, security, compression, ratelimit, logger, auth, csrf, session |
@@ -208,7 +212,8 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
 ## Maintainability conventions
 
 - **Group by use case.** Files that serve one feature live together; god files
-  are split by concern (e.g. `context.ts` → context/cookies/headers/request-id).
+  are split by concern (e.g. `context.ts` → `http/context/{types,helpers,impl,api}`,
+  `plugin.ts` → `lifecycle/plugin/{types,registry,composition,lifecycle-bridge}`).
   A file exceeding ~400 lines is a signal to split.
 - **Barrels are pure re-exports.** Domain `index.ts` files only re-export; all
   logic lives in the sibling modules. Internal imports target the specific
@@ -217,7 +222,8 @@ folders, so the internal layout never leaks to consumers. Subpath exports:
   `http/conditional.ts` (ETag/If-Modified-Since), `http/headers.ts`
   (hop-by-hop set, `appendVary`, `reWrapResponse`, `stripHopByHopHeaders`),
   `http/cookies.ts` (`writeCookie`), `security/auth.ts`
-  (`parseAuthorizationHeader`), `lifecycle/plugin.ts` (`hookToPlugin`),
+  (`parseAuthorizationHeader`), `lifecycle/plugin/lifecycle-bridge.ts`
+  (`hookToPlugin`),
   `lifecycle/hooks.ts` (`mergeHookArrays`, `mergeLifeCycle`),
   `http/request-id.ts` (request ids), `platform/coerce.ts` (`coerceBoolean`),
   `compiler/validate.ts` (`mergeOptions` — preset application happens once),

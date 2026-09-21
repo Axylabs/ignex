@@ -1,6 +1,7 @@
 {
   "name": "ignex",
   "version": "0.2.0",
+  "private": true,
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -9,10 +10,11 @@
     "typecheck": "tsc --noEmit",
     "typecheck:cli": "tsc --noEmit -p packages/cli/tsconfig.json",
     "verify": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test && bun run jsdoc:check:strict && bun run check:dead",
-    "verify:quick": "bun run --parallel typecheck typecheck:cli lint jsdoc:check:strict check:debug-ui",
+    "verify:quick": "bun run --parallel typecheck typecheck:cli lint jsdoc:check:strict check:debug-ui && bun run check:maintainability",
     "gen:debug-ui": "bun scripts/gen-debug-ui.ts",
     "check:debug-ui": "bun scripts/gen-debug-ui.ts --check",
     "check:dead": "knip",
+    "check:maintainability": "bun scripts/check-maintainability.ts",
     "test:parallel": "bun run --parallel test:core test:compiler test:shared test:cli test:mcp",
     "verify:full": "bun run typecheck && bun run typecheck:cli && bun run lint && bun run test:coverage && bun run jsdoc:check:strict && bun run build && bun run smoke && bun run smoke:fallback && bun run check:cache-versions",
     "jsdoc:check": "bun scripts/check-jsdoc.ts",
@@ -44,6 +46,7 @@
     "smoke": "bun scripts/smoke.ts",
     "smoke:fallback": "IGNEX_NATIVE=off bun scripts/smoke.ts",
     "dev": "bun run build && bun --cwd packages/app --watch dist/__server.js",
+    "dev:debug": "bun run --cwd packages/app dev",
     "start": "bun --cwd packages/app dist/__server.js",
     "serve:reuseport": "bun scripts/serve-reuseport.ts",
     "compile": "bun --cwd packages/app builder.ts --compile --binary-outfile ignex-server",

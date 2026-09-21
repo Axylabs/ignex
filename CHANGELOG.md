@@ -47,6 +47,34 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Debugbar dashboard UI redesign** — the debugbar SPA
+  (`packages/core/src/debug/ui/`) now sits on a documented design system: a
+  token-first Tailwind stylesheet (`styles.css` — tokens + `@theme` only, built
+  with a scoped `source(none)` scan), shared primitives under `ui/components/`
+  and `ui/layout/`, an inline-SVG icon set (no emoji chrome), a grouped
+  collapsible sidebar, a `Cmd/Ctrl-K` command palette, a `PageHeader` on every
+  view, and an accessibility pass (contrast-checked tokens, ARIA tabs with
+  keyboard navigation, `role="img"` charts, landmarks and a skip link). The
+  contract is the new **`docs/debugbar-ui.md`** style guide, guarded by
+  `packages/core/test/debug-ui-tokens.test.ts`; the executed-bundle smoke now
+  mounts all 15 views and asserts a header and emoji-free chrome. Debug-shaped
+  only — no production behaviour or wire change.
+- **Docs hub** — `docs/README.md` is now the single entry point: a doc map
+  with audience + maturity per document, reading paths per persona, artifact
+  rules and the "adding a doc" governance; `check:maintainability` enforces
+  it (`doc-hub:missing`). Completed `docs/superpowers` process artifacts were
+  deleted per the plan rule. `README.md`/`AGENTS.md`/`RULES.md` now point at
+  the hub.
+- **Debugbar Docs panel** — new `Docs` view (`#/docs`,
+  `#/docs/<encodeURIComponent(path)>`) and
+  `GET /api/docs`: the repository's docs rendered inside the debugbar via the
+  KT docs scan (reads confined to the inventory, sanitized HTML). The
+  reference app scans the framework docs (`docsPaths`).
+- **`bun run dev:debug`** — runs the reference app in the debug-shaped build
+  (`packages/app/builder.ts --debug` → `packages/app/dist-dev/`, with
+  `production: false` and `DEBUG=true`) so the debugbar mounts; the production
+  `dev`/`build` scripts are unchanged and still eliminate it. `docs/debugbar.md`
+  now points at this script instead of the misleading `DEBUG=true bun run dev`.
 - **Opt-in off-thread async consumers for password verify and gzip.**
   `@ignex/native` now exposes `verifyPasswordAsync` and `gzipCompressAsync` over
   a process-wide SHARED task runtime (`createTaskRuntime`, created once and

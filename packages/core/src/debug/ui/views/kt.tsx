@@ -1,7 +1,10 @@
 /**
  * @fileoverview KT (knowledge transfer) view — the generated "how this app
- * works" page: hero, project-map card grid, request-anatomy pipeline, routes,
- * observed DB activity, span kinds, docs inventory, SDK and environment.
+ * works" page. `PageHeader` (service name + env badges + runtime meta) →
+ * `StatRow` → one `Card` per section: project map (`CardGrid`), request-anatomy
+ * pipeline, plugins, routes, observed DB activity, span kinds, docs inventory,
+ * SDK and environment. Every data source and computed value is unchanged; this
+ * is a restyle onto the shared primitives.
  */
 
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
@@ -9,28 +12,40 @@ import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import type { AppKnowledge } from "../../types";
 import { getKt } from "../api";
 import {
+  Badge,
+  type BadgeTone,
+  Chip,
   CountChip,
-  EmptyState,
-  MethodPill,
-  Panel,
-  SqlPill,
-  StatCard,
-  StatRow,
-} from "../components/widgets";
-import { envTone, fmtMs, fmtNum, fmtUptime, kindColor } from "../format";
+  KindBadge,
+  MethodBadge,
+  SqlBadge,
+} from "../components/badge";
+import { Button } from "../components/button";
+import { Callout, Card, CardGrid } from "../components/card";
+import { Icon, type IconName } from "../components/icon";
+import { Kvs } from "../components/kvs";
+import { PageHeader } from "../components/page";
+import { EmptyState } from "../components/states";
+import { Stat, StatRow } from "../components/stats";
+import { DataTable } from "../components/table";
+import { BarRow, BarTrack } from "../components/widgets";
+import { envTone, fmtMs, fmtNum, fmtUptime } from "../format";
+import { navigate } from "../router";
 import { copyAttr } from "./copy-attr";
 
-const AREA_GLYPHS: Record<string, string> = {
-  routes: "⇄",
-  models: "◆",
-  middleware: "≡",
-  hooks: "↻",
-  views: "▤",
-  config: "⚙",
-  lib: "✳",
-  database: "⛁",
+/** Project-area → icon; unlisted areas fall back to `file-text`. */
+const AREA_ICONS: Record<string, IconName> = {
+  routes: "route",
+  models: "database",
+  middleware: "layers",
+  hooks: "refresh",
+  views: "file-text",
+  config: "package",
+  lib: "briefcase",
+  database: "database",
 };
 
+/** Span kind → onboarding description. */
 const KIND_DESC: Record<string, string> = {
   request: "the request itself",
   lifecycle: "framework stages",
@@ -43,82 +58,82 @@ const KIND_DESC: Record<string, string> = {
   error: "failed operations",
 };
 
+/** Lifecycle stages that run application code (rendered as "hot" badges). */
+const HOT_STAGES = new Set(["handler", "beforeHandle"]);
+
+/** Environment name → badge tone (keeps `envTone`'s prod/dev/other semantics). */
+const envBadgeTone = (value: string): BadgeTone => envTone(value) as BadgeTone;
+
 /* ── sections ───────────────────────────────────────────────────────────── */
 
-/** Hero banner: service name + runtime meta chips. */
-const Hero = (props: { k: AppKnowledge }): JSX.Element => {
+/** Header: service name + env badges, with runtime facts right-aligned. */
+const Header = (props: { k: AppKnowledge }): JSX.Element => {
   const k = props.k;
   const rt = k.runtime;
   return (
-    <div class="kt-hero">
-      <div class="kt-hero-row">
-        <div class="grow">
-          <div class="kt-eyebrow">Knowledge transfer · generated from live artifacts</div>
-          <div class="kt-title">{k.serviceName}</div>
-          <div class="kt-sub">
-            How this app works — every route, plugin, database statement and document, discovered
-            from what this deployment actually runs. Start here before reading any code.
-          </div>
-          <div class="kt-meta">
-            <span class="chip">{`v${k.version}`}</span>
-            <span class={`chip env-${envTone(rt.nodeEnv)}`}>{rt.nodeEnv}</span>
-            <span class="chip">{`Bun ${rt.bunVersion}`}</span>
-            <span class="chip">{`${rt.platform}/${rt.arch}`}</span>
-            <span class="chip">{`pid ${String(rt.pid)}`}</span>
-            <span class="chip">{`up ${fmtUptime(rt.uptimeSec)}`}</span>
-          </div>
+    <PageHeader
+      title={k.serviceName}
+      description="How this app works — every route, plugin, database statement and document, discovered from what this deployment actually runs. Start here before reading any code."
+      badge={
+        <>
+          <Badge tone="neutral" mono>{`v${k.version}`}</Badge>
+          <Badge tone={envBadgeTone(rt.nodeEnv)} mono>
+            {rt.nodeEnv}
+          </Badge>
+        </>
+      }
+      actions={
+        <div class="text-right font-mono text-xs leading-relaxed text-faint">
+          <div class="text-ink">{`${k.serviceName}@${k.version}`}</div>
+          <div>{`Bun ${rt.bunVersion} · ${rt.platform}/${rt.arch}`}</div>
+          <div>{`pid ${String(rt.pid)} · up ${fmtUptime(rt.uptimeSec)}`}</div>
         </div>
-        <div class="kt-runtime">
-          <b>{`${k.serviceName}@${k.version}`}</b>
-          <br />
-          {rt.nodeEnv}
-          <br />
-          {`Bun ${rt.bunVersion} · ${rt.platform}`}
-          <br />
-          {`up ${fmtUptime(rt.uptimeSec)}`}
-        </div>
-      </div>
-    </div>
+      }
+    />
   );
 };
 
-/** Project-map card: glyph + name + dir + description + files. */
+/** Project-map card: icon + name + dir + description + copyable sample files. */
 const AreaCard = (props: { a: AppKnowledge["areas"][number] }): JSX.Element => {
   const a = props.a;
   const isFileArea = /\.(c|m)?[jt]sx?$/.test(a.dir);
   return (
-    <div class="kt-area">
-      <div class="kt-area-head">
-        <span class="kt-glyph">{AREA_GLYPHS[a.name] ?? "▪"}</span>
-        <div>
-          <div class="kt-area-name">{a.name}</div>
-          <div class="kt-area-dir">{isFileArea ? a.dir : `${a.dir}/`}</div>
-        </div>
+    <Card>
+      <div class="flex items-center gap-2">
+        <Icon name={AREA_ICONS[a.name] ?? "file-text"} class="shrink-0 text-faint" />
+        <span class="text-sm font-medium text-ink">{a.name}</span>
+        <span class="ml-auto min-w-0 truncate font-mono text-xs text-faint">
+          {isFileArea ? a.dir : `${a.dir}/`}
+        </span>
       </div>
-      <div class="kt-area-desc">{a.description}</div>
+      <p class="mt-1 text-sm text-muted">{a.description}</p>
       {a.files.length > 0 ? (
         <>
-          <div class="kt-files">
-            {a.files.map((f) => (
-              <span
-                class="kt-file"
-                title="click to copy path"
-                {...copyAttr(`${a.dir.replace(/\/+$/, "")}/${f}`)}
-              >
-                {f}
-              </span>
-            ))}
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            <For each={a.files}>
+              {(f): JSX.Element => (
+                <Chip
+                  class="font-mono"
+                  title="click to copy path"
+                  dataCopy={`${a.dir.replace(/\/+$/, "")}/${f}`}
+                >
+                  {f}
+                </Chip>
+              )}
+            </For>
           </div>
           {a.fileCount > a.files.length ? (
-            <div class="kt-more">{`+ ${String(a.fileCount - a.files.length)} more file${a.fileCount - a.files.length === 1 ? "" : "s"}`}</div>
+            <div class="mt-1 text-xs text-faint">
+              {`+ ${String(a.fileCount - a.files.length)} more file${a.fileCount - a.files.length === 1 ? "" : "s"}`}
+            </div>
           ) : null}
         </>
       ) : null}
-    </div>
+    </Card>
   );
 };
 
-/** Full knowledge render: every panel for a knowledge payload. */
+/** Full knowledge render: every card for a knowledge payload. */
 const Knowledge = (props: { k: AppKnowledge }): JSX.Element => {
   const k = props.k;
   const rt = k.runtime;
@@ -128,223 +143,213 @@ const Knowledge = (props: { k: AppKnowledge }): JSX.Element => {
     if (k.lifecycle.length === 0) return null;
     const stages = [...k.lifecycle].sort((x, y) => x.order - y.order);
     return (
-      <Panel title="Request anatomy">
-        <div>
-          <div class="kt-pipeline">
-            {stages.map(
-              (st, i): JSX.Element => (
-                <>
-                  {i > 0 ? <span class="kt-arrow">→</span> : null}
-                  <span
-                    class={`kt-stage${st.name === "handler" || st.name === "beforeHandle" ? " hot" : ""}`}
-                  >
-                    {st.name}
-                    {st.hookCount > 0 ? <i>{String(st.hookCount)}</i> : null}
-                  </span>
-                </>
-              ),
-            )}
-            <span class="kt-arrow">⤷ on error →</span>
-            <span class="kt-stage err-stage">error</span>
-          </div>
-          <div class="kt-anatomy-note">
-            Every request flows through these stages in order. A pre-handler stage may halt the
-            chain with a response (auth, rate limits, CORS); failures jump to the <b>error</b>{" "}
-            stage. Numbers in a pill are registered hooks. Each stage shows up as a waterfall row
-            when you open a request trace.
-          </div>
+      <Card title="Request anatomy">
+        <div class="flex flex-wrap items-center gap-1.5">
+          {stages.map(
+            (st, i): JSX.Element => (
+              <>
+                {i > 0 ? <Icon name="arrow-right" class="text-faint" /> : null}
+                <Badge
+                  tone={HOT_STAGES.has(st.name) ? "info" : "neutral"}
+                  variant={HOT_STAGES.has(st.name) ? "solid" : "soft"}
+                >
+                  {st.name}
+                  {st.hookCount > 0 ? (
+                    <span class="font-mono tabular-nums">{String(st.hookCount)}</span>
+                  ) : null}
+                </Badge>
+              </>
+            ),
+          )}
+          <Icon name="arrow-right" class="text-faint" />
+          <span class="text-xs text-faint">on error</span>
+          <Badge tone="err" variant="solid">
+            error
+          </Badge>
         </div>
-      </Panel>
+        <p class="mt-3 text-sm text-muted">
+          Every request flows through these stages in order. A pre-handler stage may halt the chain
+          with a response (auth, rate limits, CORS); failures jump to the <b>error</b> stage.
+          Numbers in a badge are registered hooks. Each stage shows up as a waterfall row when you
+          open a request trace.
+        </p>
+      </Card>
     );
   };
 
   return (
-    <>
-      <Hero k={k} />
+    <div class="flex flex-col gap-4">
+      <Header k={k} />
       <StatRow>
-        <StatCard value={fmtNum(k.routes.length)} label="routes" sub="discovered" />
-        <StatCard value={fmtNum(k.plugins.length)} label="plugins" sub="registered" />
-        <StatCard value={fmtNum(k.lifecycle.length)} label="lifecycle" sub="stages" />
-        <StatCard value={fmtNum(k.docs.length)} label="docs" sub="in repo" />
-        <StatCard value={fmtNum(k.dbActions.length)} label="db patterns" sub="observed" />
+        <Stat value={fmtNum(k.routes.length)} label="routes" sub="discovered" />
+        <Stat value={fmtNum(k.plugins.length)} label="plugins" sub="registered" />
+        <Stat value={fmtNum(k.lifecycle.length)} label="lifecycle" sub="stages" />
+        <Stat value={fmtNum(k.docs.length)} label="docs" sub="in repo" />
+        <Stat value={fmtNum(k.dbActions.length)} label="db patterns" sub="observed" />
       </StatRow>
       <Show when={(k.areas ?? []).length > 0}>
-        <Panel title="Where things live" hint={<CountChip n={k.areas.length} />}>
-          <div>
-            <div class="kt-grid">
-              <For each={k.areas}>{(a): JSX.Element => <AreaCard a={a} />}</For>
-            </div>
-            <div class="kt-callout">
-              <span>⌘</span>
-              <span>
-                <b>Convention</b> — route files map 1:1 to URLs: health.get.ts → GET /health,
-                users/[id].get.ts → GET /users/:id. Cross-cutting behavior lives in plugins
-                (app.config.ts) and middleware; per-request work is composed inside handlers. Click
-                any file to copy its path.
-              </span>
-            </div>
+        <Card title="Where things live" headExtra={<CountChip n={k.areas.length} />}>
+          <CardGrid min={330}>
+            <For each={k.areas}>{(a): JSX.Element => <AreaCard a={a} />}</For>
+          </CardGrid>
+          <div class="mt-3">
+            <Callout tone="info" title="Convention">
+              route files map 1:1 to URLs: health.get.ts → GET /health, users/[id].get.ts → GET
+              /users/:id. Cross-cutting behavior lives in plugins (app.config.ts) and middleware;
+              per-request work is composed inside handlers. Click any file to copy its path.
+            </Callout>
           </div>
-        </Panel>
+        </Card>
       </Show>
       {pipeline()}
       <Show when={k.plugins.length > 0}>
-        <Panel title="Plugins" hint={<CountChip n={k.plugins.length} />}>
-          <div class="kt-rows">
-            {k.plugins.map(
-              (p): JSX.Element => (
-                <div class="kt-row">
-                  <div class="t">
-                    <span class="pill kind" style={{ "--kc": "var(--k-lifecycle)" }}>
-                      {p.name}
-                    </span>
-                  </div>
-                  <div class="d">{p.description}</div>
+        <Card title="Plugins" headExtra={<CountChip n={k.plugins.length} />}>
+          <div class="flex flex-col gap-2">
+            <For each={k.plugins}>
+              {(p): JSX.Element => (
+                <div class="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+                  <span class="font-mono text-sm text-ink">{p.name}</span>
+                  <span class="text-sm text-muted">{p.description}</span>
                 </div>
-              ),
-            )}
+              )}
+            </For>
           </div>
-        </Panel>
+        </Card>
       </Show>
       <Show when={k.routes.length > 0}>
-        <Panel
+        <Card
           title="Routes"
-          hint={<span class="hint">from the compiled manifest or the live router</span>}
+          hint={
+            <span class="text-xs text-faint">from the compiled manifest or the live router</span>
+          }
           headExtra={<CountChip n={k.routes.length} />}
+          pad={false}
         >
-          <table class="cursor-default">
-            <thead>
-              <tr>
-                {["Method", "Path", "Source", "Behavior"].map((l) => (
-                  <th>{l}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {k.routes.map(
-                (r): JSX.Element => (
-                  <tr>
-                    <td>
-                      <MethodPill method={r.method} />
-                    </td>
-                    <td class="font-mono">
-                      {r.path}
-                      {r.isConstant ? (
-                        <span class="pill kind" style={{ "--kc": "var(--k-cache)" }}>
-                          constant
-                        </span>
-                      ) : null}
-                    </td>
-                    <td class="font-mono text-muted">
-                      {r.file !== null && r.file !== "" ? r.file : r.description}
-                    </td>
-                    <td class="text-muted whitespace-normal">
-                      {(r.usage ?? []).join(", ") || "—"}
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        </Panel>
+          <DataTable
+            label="Routes"
+            columns={["Method", "Path", "Source", "Behavior"]}
+            rows={k.routes}
+            rowKey={(r): string => `${r.method} ${r.path}`}
+            render={(r): JSX.Element[] => [
+              <MethodBadge method={r.method} />,
+              <span class="flex items-center gap-1.5 font-mono">
+                {r.path}
+                {r.isConstant ? <Badge tone="info">constant</Badge> : null}
+              </span>,
+              <span class="font-mono text-muted">
+                {r.file !== null && r.file !== "" ? r.file : r.description}
+              </span>,
+              <span class="text-muted">{(r.usage ?? []).join(", ") || "—"}</span>,
+            ]}
+          />
+        </Card>
       </Show>
       <Show
         when={k.dbActions.length > 0}
         fallback={
-          <Panel title="Database activity">
+          <Card title="Database activity">
             <EmptyState
-              glyph="⛁"
+              icon="database"
               message="No DB queries observed in the retained window."
               hint="Wrap calls in ctx.debug.query(sql, params, fn) or debugQuery() — then every statement shows up here with timing and routes."
             />
-          </Panel>
+          </Card>
         }
       >
-        <Panel
+        <Card
           title="Database activity"
           hint={
-            <span class="hint">
+            <span class="text-xs text-faint">
               what each route actually does to the database · per-request detail lives in a trace's
               Queries tab
             </span>
           }
           headExtra={<CountChip n={k.dbActions.length} />}
+          pad={false}
         >
           <DbActivity actions={k.dbActions} />
-        </Panel>
+        </Card>
       </Show>
       <Show when={(k.spanKinds ?? []).length > 0}>
-        <Panel title="Span kinds you can trace">
-          <div class="kinds-row">
-            {k.spanKinds.map(
-              (kd): JSX.Element => (
-                <span class="chip">
-                  <i class="dot" style={{ background: kindColor(kd) }} />
-                  {kd}
-                  <span class="faint">{KIND_DESC[kd] ?? ""}</span>
+        <Card title="Span kinds you can trace">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <For each={k.spanKinds}>
+              {(kd): JSX.Element => (
+                <span class="inline-flex items-center gap-1.5">
+                  <KindBadge kind={kd} />
+                  <span class="text-xs text-faint">{KIND_DESC[kd] ?? ""}</span>
                 </span>
-              ),
-            )}
+              )}
+            </For>
           </div>
-        </Panel>
+        </Card>
       </Show>
       <Show
         when={k.docs.length > 0}
         fallback={
-          <Panel title="Documentation">
+          <Card title="Documentation">
             <EmptyState
-              glyph="📄"
+              icon="file-text"
               message="No markdown docs found."
               hint="Scanned docs/ and the project root. Point debugbar({ docsPaths }) at your docs to list them here."
             />
-          </Panel>
+          </Card>
         }
       >
-        <Panel title="Documentation" hint={<CountChip n={k.docs.length} />}>
-          <div class="kt-rows">
-            {k.docs.map(
-              (doc): JSX.Element => (
-                <div class="kt-row">
-                  <div class="t">
-                    📄 <span class="font-mono">{doc.title}</span>
-                  </div>
-                  <div class="p" title="click to copy path" {...copyAttr(doc.path)}>
+        <Card title="Documentation" headExtra={<CountChip n={k.docs.length} />}>
+          <div class="flex flex-col gap-2">
+            <For each={k.docs}>
+              {(doc): JSX.Element => (
+                <div class="flex items-center gap-2">
+                  <Icon name="file-text" size={14} class="shrink-0 text-faint" />
+                  <span class="min-w-0 truncate font-mono text-sm text-ink">{doc.title}</span>
+                  <span
+                    class="ml-auto min-w-0 truncate font-mono text-xs text-faint"
+                    title="click to copy path"
+                    {...copyAttr(doc.path)}
+                  >
                     {doc.path}
-                  </div>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="external-link"
+                    label="open"
+                    title="open in Docs"
+                    onClick={(): void => navigate("docs", doc.path)}
+                  />
                 </div>
-              ),
-            )}
+              )}
+            </For>
           </div>
-        </Panel>
+        </Card>
       </Show>
       <Show when={k.sdk !== null}>
-        <Panel title="Published SDK">
+        <Card title="Published SDK">
           <SdkCard k={k} />
-        </Panel>
+        </Card>
       </Show>
-      <Panel
+      <Card
         title="Environment"
-        hint={<span class="hint">values shown for the standard debug keys only</span>}
+        hint={<span class="text-xs text-faint">values shown for the standard debug keys only</span>}
       >
-        <div class="kvs">
-          <div>
-            <span class="k">runtime</span>
-            <span class="v">{`Bun ${rt.bunVersion} on ${rt.platform}/${rt.arch} (pid ${String(rt.pid)})`}</span>
-          </div>
-          {Object.keys(k.environment ?? {})
-            .sort()
-            .map(
-              (key): JSX.Element => (
-                <div>
-                  <span class="k">{key}</span>
-                  <span class="v font-mono">
-                    {String((k.environment as Record<string, string>)[key])}
-                  </span>
-                </div>
-              ),
-            )}
-        </div>
-      </Panel>
-    </>
+        <Kvs
+          rows={[
+            {
+              k: "runtime",
+              v: `Bun ${rt.bunVersion} on ${rt.platform}/${rt.arch} (pid ${String(rt.pid)})`,
+            },
+            ...Object.keys(k.environment ?? {})
+              .sort()
+              .map((key) => ({
+                k: key,
+                v: String((k.environment as Record<string, string>)[key]),
+                mono: true,
+              })),
+          ]}
+        />
+      </Card>
+    </div>
   );
 };
 
@@ -353,47 +358,32 @@ const DbActivity = (props: { actions: AppKnowledge["dbActions"] }): JSX.Element 
   let maxCalls = 1;
   for (const q of props.actions) maxCalls = Math.max(maxCalls, q.calls);
   return (
-    <table class="cursor-default">
-      <thead>
-        <tr>
-          {["Action", "Table", "Calls", "Total ms", "Statement", "Seen in routes"].map((l) => (
-            <th>{l}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {props.actions.map(
-          (q): JSX.Element => (
-            <tr>
-              <td>
-                <SqlPill action={q.action} />
-              </td>
-              <td class="font-mono">{q.table ?? "—"}</td>
-              <td>
-                <div class="bar-row">
-                  <span class="mono num min-w-[26px]">{String(q.calls)}</span>
-                  <span class="bar-track max-w-[90px]">
-                    <span
-                      class="bar-fill"
-                      style={{ width: `${Math.max((q.calls / maxCalls) * 100, 4).toFixed(0)}%` }}
-                    />
-                  </span>
-                </div>
-              </td>
-              <td class="font-mono text-muted">{fmtMs(q.totalMs)}</td>
-              <td class="stmt">{q.statement}</td>
-              <td>
-                <div class="routes-cell">
-                  {(q.routes ?? []).map((rr) => (
-                    <span class="chip">{rr}</span>
-                  ))}
-                </div>
-              </td>
-            </tr>
-          ),
-        )}
-      </tbody>
-    </table>
+    <DataTable
+      label="Database activity"
+      columns={["Action", "Table", "Calls", "Total ms", "Statement", "Seen in routes"]}
+      rows={props.actions}
+      rowKey={(q): string => `${q.action} ${q.table ?? ""} ${q.statement}`}
+      align={[2, 3]}
+      render={(q): JSX.Element[] => [
+        <SqlBadge action={q.action} />,
+        <span class="font-mono">{q.table ?? "—"}</span>,
+        <BarRow>
+          <span class="min-w-[26px] font-mono tabular-nums">{String(q.calls)}</span>
+          <BarTrack
+            pct={Math.max((q.calls / maxCalls) * 100, 4)}
+            maxWidth="90px"
+            title={`${String(q.calls)} calls`}
+          />
+        </BarRow>,
+        <span class="font-mono text-muted">{fmtMs(q.totalMs)}</span>,
+        <span class="block max-w-[420px] truncate font-mono text-muted" title={q.statement}>
+          {q.statement}
+        </span>,
+        <div class="flex flex-wrap gap-1">
+          <For each={q.routes ?? []}>{(rr): JSX.Element => <Chip>{rr}</Chip>}</For>
+        </div>,
+      ]}
+    />
   );
 };
 
@@ -403,34 +393,36 @@ const SdkCard = (props: { k: AppKnowledge }): JSX.Element => {
   if (sdk === null) return null;
   return (
     <div>
-      <div class="client-head">
-        <span class="pill method get">SDK</span>
-        <span class="font-mono">
+      <div class="flex items-center gap-2">
+        <Badge tone="info" mono>
+          SDK
+        </Badge>
+        <span class="min-w-0 truncate font-mono">
           <b>{sdk.name}</b>
           {`@${sdk.version}`}
         </span>
-        <span class="grow" />
-        <button type="button" class="ghost mini" {...copyAttr(`${sdk.name}@${sdk.version}`)}>
-          copy
-        </button>
+        <span class="ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="copy"
+            label="copy"
+            dataCopy={`${sdk.name}@${sdk.version}`}
+          />
+        </span>
       </div>
-      <div class="client-meta">
-        <div>
-          <span class="k">location</span>
-          <span class="v font-mono">{sdk.location}</span>
-        </div>
+      <div class="mt-3">
+        <Kvs rows={[{ k: "location", v: sdk.location, mono: true }]} />
       </div>
       {sdk.files.length > 0 ? (
-        <div class="client-files">
-          {sdk.files.map((f) => (
-            <code>{f}</code>
-          ))}
+        <div class="mt-3 flex flex-wrap gap-1.5">
+          <For each={sdk.files}>{(f): JSX.Element => <Chip class="font-mono">{f}</Chip>}</For>
         </div>
       ) : null}
-      <div class="kt-anatomy-note">
+      <p class="mt-3 text-sm text-muted">
         Generated with <b>ignex sdk</b> — frontend teams install it and get typed endpoints for
         every route above.
-      </div>
+      </p>
     </div>
   );
 };
@@ -445,14 +437,29 @@ export const KtView: Component = () => {
     .catch((): void => {});
 
   return (
-    <Show when={payload()} keyed>
+    <Show
+      when={payload()}
+      keyed
+      fallback={
+        <PageHeader
+          title="Knowledge transfer"
+          description="Loading the generated map of this deployment…"
+        />
+      }
+    >
       {(res): JSX.Element => {
         const k = res.knowledge;
-        if (k === null || k.runtime === undefined || k.runtime === null) {
+        if (k === undefined || k === null || k.runtime === undefined || k.runtime === null) {
           // Fallback: server-rendered markdown HTML (sanitized server-side).
           return (
-            <div class="panel">
-              <MarkdownFallback html={res.html} markdown={res.markdown} />
+            <div class="flex flex-col gap-4">
+              <PageHeader
+                title="Knowledge transfer"
+                description="Generated from live artifacts, rendered as markdown."
+              />
+              <Card>
+                <MarkdownFallback html={res.html ?? null} markdown={res.markdown ?? ""} />
+              </Card>
             </div>
           );
         }
