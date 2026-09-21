@@ -11,11 +11,7 @@ import { resolve } from "node:path";
 
 import { listAllDocs } from "./kt";
 import { renderMarkdownHtml } from "./markdown";
-import type { DocPayload, KnowledgeDoc } from "./types";
-
-/** The Docs panel inventory (`GET /api/docs`). */
-export const listDocs = (root: string, docsPaths: readonly string[]): Promise<KnowledgeDoc[]> =>
-  listAllDocs(root, docsPaths);
+import type { DocPayload } from "./types";
 
 /** Read one doc — `null` unless it is an inventory entry (never reads outside). */
 export const readDoc = async (

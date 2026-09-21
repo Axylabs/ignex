@@ -13,13 +13,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  beginTrace,
-  createSpanIdSource,
-  isTracingEnabled,
-  setTracingEnabled,
-  Trace,
-} from "../src/debug/tracer";
+import { createSpanIdSource } from "../src/debug/span-id";
+import { beginTrace, isTracingEnabled, setTracingEnabled, Trace } from "../src/debug/tracer";
 import { createContext } from "../src/http/context";
 
 const makeCtx = () => createContext(new Request("http://localhost/tracer-purity"), {});

@@ -65,6 +65,13 @@ export {
   type ObservatoryDbOptions,
 } from "./persist";
 export {
+  captureRedactedHeaders,
+  clipBody,
+  isRedactedHeader,
+  MAX_CAPTURED_BODY_CHARS,
+  redactHeaderValue,
+} from "./redaction";
+export {
   buildDecodedMappings,
   createSourceFrameResolver,
   type DecodedMappings,
@@ -79,6 +86,7 @@ export {
   setSharedSourceFrames,
   sharedSourceFrames,
 } from "./sourcemaps";
+export { createSpanIdSource, type SpanIdSource } from "./span-id";
 export { TraceStore, type TraceStoreOptions, type TraceSummary } from "./store";
 export {
   SystemProfiler,
@@ -87,14 +95,11 @@ export {
 } from "./system";
 export {
   beginTrace,
-  captureRedactedHeaders,
   currentTrace,
   currentTraceContext,
   debugStageEnd,
   enterTraceContext,
-  isRedactedHeader,
   isTracingEnabled,
-  redactHeaderValue,
   redactRequestTrace,
   setTracingEnabled,
   Trace,

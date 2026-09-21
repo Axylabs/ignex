@@ -1,5 +1,5 @@
 /**
- * Durable background jobs — storage layer.
+ * @fileoverview Durable background jobs — storage layer.
  *
  * The in-process queue in `./jobs` is memory-only. For durability we add a
  * `JobStore` abstraction over serializable job records (`StoredJob`) with a

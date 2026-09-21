@@ -95,6 +95,10 @@
       "lines": 418,
       "rationale": "native route codegen — Tier D"
     },
+    "packages/core/src/platform/jobs-store.ts": {
+      "lines": 413,
+      "rationale": "durable jobs store — per-instance mutation serialization (wave-2 split candidate) — Tier B"
+    },
     "packages/compiler/src/phases/codegen/routes/context.ts": {
       "lines": 412,
       "rationale": "context route codegen — Tier D"

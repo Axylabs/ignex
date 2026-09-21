@@ -19,7 +19,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IgnexContext } from "../http/context";
+import { captureRedactedHeaders, clipBody, isRedactedHeader } from "./redaction";
 import { sharedSourceFrames } from "./sourcemaps";
+import { defaultSpanIds, type SpanIdSource } from "./span-id";
 import type { CapturedRequest, RequestTrace, Span, SpanAttrs, SpanKind } from "./types";
 
 /** The per-request ALS payload. */
@@ -84,32 +86,6 @@ export const debugStageEnd = (name: string): void => {
 // Trace
 // ============================================================================
 
-const REDACTED_HEADERS = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-  "x-api-key",
-  "x-auth-token",
-  "x-debugbar-token",
-]);
-
-/** Redact sensitive header values while preserving names. */
-export const redactHeaderValue = (name: string): string =>
-  REDACTED_HEADERS.has(name.toLowerCase()) ? "[redacted]" : "";
-
-/** True when the header value must never be captured. */
-export const isRedactedHeader = (name: string): boolean => REDACTED_HEADERS.has(name.toLowerCase());
-
-/** Build a redacted header record from a Headers instance. */
-export const captureRedactedHeaders = (headers: Headers): Record<string, string> => {
-  const out: Record<string, string> = Object.create(null) as Record<string, string>;
-  headers.forEach((value, key) => {
-    out[key] = isRedactedHeader(key) ? "[redacted]" : value;
-  });
-  return out;
-};
-
 /**
  * Directory of THIS debug layer as seen at runtime. NOTE: inside a compiled
  * bundle `import.meta.url` is the bundle file (`.ignex/server.js`), so this
@@ -145,18 +121,7 @@ const captureErrorStack = (stack: string | undefined, cap = 40): string | null =
   return (header ? [header, ...frames] : frames).join("\n");
 };
 
-/**
- * Capture cap for request/response bodies (UTF-16 code units ≈ bytes for
- * ASCII payloads). Dev-toolbar tradeoff: big enough for realistic JSON
- * fixtures, small enough that a stray huge upload cannot balloon the ring.
- */
-export const MAX_CAPTURED_BODY_CHARS = 262_144; // 256 KiB
-
-/** Clip a captured body to the cap; returns the text plus a truncated flag. */
-export const clipBody = (text: string): { text: string; truncated: boolean } =>
-  text.length > MAX_CAPTURED_BODY_CHARS
-    ? { text: text.slice(0, MAX_CAPTURED_BODY_CHARS), truncated: true }
-    : { text, truncated: false };
+// ============================================================================
 
 /**
  * Lifecycle stage names the framework records as spans (`runTimed` /
@@ -213,29 +178,6 @@ const callerOrigin = (cap = 16): string | null => {
   if (kept.length === 0) return null;
   return kept.join("\n");
 };
-
-/**
- * Span-id source: yields the next numeric span id. Pure, injectable, so tests
- * and libraries can scope id generation per tracer instead of fighting a
- * hidden process-wide counter.
- */
-export type SpanIdSource = () => number;
-
-/**
- * Create a fresh span-id source starting at `start` (default 1), strictly
- * increasing per call. Independent sources never share ids.
- */
-export const createSpanIdSource = (start = 1): SpanIdSource => {
-  let next = start;
-  return (): number => next++;
-};
-
-/**
- * Process-wide default span-id source. Shared by every `Trace` that does not
- * inject its own source so ids stay globally unique and ordered across traces
- * in the debugbar UI.
- */
-const defaultSpanIds: SpanIdSource = createSpanIdSource();
 
 /**
  * One request's trace: the span tree plus request/response metadata. App code
