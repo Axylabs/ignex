@@ -81,6 +81,7 @@ export {
   type ServerProtocolConfig,
   type ServerTlsConfig,
 } from "../http/tls";
+export { type TrustedHostOptions, trustedHost } from "../http/trusted-host";
 export {
   DEFAULT_UPLOAD_TYPES,
   type SavedUpload,
