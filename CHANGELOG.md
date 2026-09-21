@@ -47,6 +47,15 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Enterprise-hardening R2 primitives + regression suites** (audit, evidence
+  and control map in `docs/enterprise-grade.md`): new `SessionStore.update`
+  atomic read-modify-write primitive (no lost updates under concurrent
+  writers), the failing-build artifact guarantee (compiler writes nothing on
+  error), and four new suites that pin the invariants — `enterprise-stability`,
+  `enterprise-scalability`, `enterprise-integrity` (core) and
+  `enterprise-isolation` (compiler: determinism, empty-outDir-on-fail, build
+  isolation), plus the `tracer`/`nats-tracker`/`scheduler`/`logs` purity suites.
+
 - **Debugbar dashboard UI redesign** — the debugbar SPA
   (`packages/core/src/debug/ui/`) now sits on a documented design system: a
   token-first Tailwind stylesheet (`styles.css` — tokens + `@theme` only, built
@@ -364,6 +373,31 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   boot-time win, not a throughput one. Verified by `verify`, the 4-server
   contract harness, `smoke`, `smoke:fallback`, `verify:native:route`,
   `verify:aot:rbac` and `check:native:surface`.
+
+### Security
+
+- **Request-guard set (Track A of the hardening R2):** `ctx.redirect` now
+  validates the target through `assertSafeRedirectTarget` — `http`/`https` only,
+  raw-string checks that never construct `new URL` on hostile input; rejects
+  `javascript:`/`data:`/`vbscript:` schemes, protocol-relative `//host`,
+  backslash forms, CR/LF injection and `allowExternal` still blocks
+  non-http(s). A `trustedHost()` helper validates `Host` with
+  port-normalized, case-insensitive comparison. `detectFramingConflict`
+  rejects ambiguous `content-length` + `transfer-encoding` requests (400
+  `framing-conflict`). `maxHeaderBytes` bounds total header size (431 +
+  `x-ignex-reason: header-too-large`).
+- **Job-store claims are serialized per instance** — concurrent `claim()`
+  calls on a fresh-read backend (file/sqlite/redis) previously read the same
+  pre-commit snapshot and handed the SAME job to every claimer (the in-memory
+  driver masked it by aliasing shared references). All seven store mutations
+  now chain behind the previous one's commit, closing the double-claim window.
+- **`SELECTION` is deep-frozen** (`@ignex/native`) — runtime writes now throw
+  (strict) or no-op (sloppy); the read-only dispatch table is enforced, not
+  documented.
+- **Compiler writes nothing on a failed build** — a malformed route used to
+  strand precompiled validators/serializers, spec, client and bundle in
+  `outDir` before throwing; precompile/artifacts/link stages are now gated on
+  `hasErrors`.
 
 ### Fixed
 
