@@ -269,14 +269,31 @@ export const OPS: readonly OpName[] = [
   "validateUuid",
 ];
 
+/** Recursively freeze a JSON-shaped value (SELECTION + each decision). */
+const deepFreeze = <T>(value: T): T => {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return value;
+  }
+  for (const key of Reflect.ownKeys(value)) {
+    const member = (value as Record<PropertyKey, unknown>)[key as PropertyKey];
+    if (member !== null && typeof member === "object") deepFreeze(member);
+  }
+  return Object.freeze(value);
+};
+
 /**
  * Decisions bound once at module load from castrum's `opImpl` (fixed for the
  * process — no runtime switching). `nativeRatio`/`note` live in castrum's
  * `src/selection.json`; here we keep only the bound implementation.
+ *
+ * Deep-frozen at module end: the table is read-only DATA (see RULES.md —
+ * `SELECTION` is never mutated at runtime), so any accidental write in a
+ * consumer throws in strict mode / is ignored in sloppy mode instead of
+ * silently skewing every native/JS dispatch decision.
  */
-export const SELECTION: Record<OpName, OpDecision> = Object.fromEntries(
-  OPS.map((op) => [op, { impl: implFor(op) }]),
-) as Record<OpName, OpDecision>;
+export const SELECTION: Record<OpName, OpDecision> = deepFreeze(
+  Object.fromEntries(OPS.map((op) => [op, { impl: implFor(op) }])) as Record<OpName, OpDecision>,
+);
 
 /**
  * Per-op input-size crossovers (the "check the length, then decide" layer).
