@@ -74,3 +74,44 @@ describe("redirect (interpreted path)", () => {
     expect(res.headers.get("location")).toBe("/home");
   });
 });
+
+describe("redirect open-redirect guard (interpreted path)", () => {
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "//evil.com/phish",
+    "///evil.com",
+    "\\\\evil.com\\path",
+    "http:evil.com",
+  ])("rejects unsafe target %j with 400", async (target) => {
+    const res = await inject(
+      app((ctx) => ctx.redirect(target)),
+      { url: "/" },
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("location")).toBeNull();
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("UNSAFE_REDIRECT");
+  });
+
+  it("still permits absolute http(s) targets", async () => {
+    const res = await inject(
+      app((ctx) => ctx.redirect("https://example.com/login")),
+      { url: "/" },
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://example.com/login");
+  });
+
+  it("honours allowExternal for protocol-relative targets", async () => {
+    const res = await inject(
+      app((ctx) => ctx.redirect("//cdn.example.com/a", undefined, { allowExternal: true })),
+      { url: "/" },
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("//cdn.example.com/a");
+  });
+});

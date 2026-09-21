@@ -16,6 +16,7 @@ import type { Cookie } from "../cookies";
 import type { SendFileOptions } from "../files";
 import type { SetHeaders } from "../headers";
 import type { ProxyOptions } from "../proxy";
+import type { RedirectGuardOptions } from "../redirect-guard";
 
 /**
  * Narrow, Bun-free view of the server handle exposed on {@link IgnexContext}.
@@ -119,7 +120,21 @@ export interface IgnexContext<P = Record<string, string>, Q = URLSearchParams, B
   json<T>(data: T, init?: ResponseInit): Response;
   text(data: string, init?: ResponseInit): Response;
   html(data: string, init?: ResponseInit): Response;
-  redirect(url: string, status?: 301 | 302 | 303 | 307 | 308): Response;
+  /**
+   * Redirect to `url` with `status` (default 302).
+   *
+   * The target is validated by the open-redirect guard: relative paths and
+   * absolute `http(s)` URLs pass; arbitrary schemes (`javascript:`, `data:`),
+   * protocol-relative `//host` targets (unless `allowExternal: true`) and
+   * CR/LF header-injection payloads throw `UnsafeRedirectError` (400
+   * `UNSAFE_REDIRECT`). For user-influenced targets, additionally allowlist
+   * the host with `trustedHost`.
+   */
+  redirect(
+    url: string,
+    status?: 301 | 302 | 303 | 307 | 308,
+    opts?: RedirectGuardOptions,
+  ): Response;
   stream(stream: ReadableStream, init?: ResponseInit): Response;
   empty(status?: number): Response;
   status(code: number): Response;
