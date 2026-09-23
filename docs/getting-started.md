@@ -156,6 +156,32 @@ bunx @ignex/cli doctor --root .
 or onboarding scripts. `bunx @ignex/cli info --root .` dumps the same facts
 (plus native status) as JSON.
 
+**When the server won't boot.** A plugin that fails during `init` — a database
+that rejects the credentials, a service that isn't reachable, a missing `.env`
+value — is classified and reported configuration-first, then the process exits
+non-zero, instead of dumping the driver's error object:
+
+```
+✖ ignex boot failed — plugin "db" could not start
+
+  code     IGN_DB_CREDENTIALS · db · MongoDB
+  what     MongoDB rejected the credentials
+  message  Command create requires authentication
+  retry    no — fix the cause first
+
+  Configuration check (do this first)
+    .env         found in /srv/app
+    MONGO_URL    mongodb://root:***@localhost:27017/app?authSource=admin
+
+  What to fix
+    • Check `MONGO_URL` in `.env` — user, password and `authSource` must match the server.
+    …
+```
+
+Passwords are masked, so the report is safe to paste into an issue. Set
+`IGNEX_DEBUG=1` to also print the full driver error and stack. The same report
+serves request failures; the taxonomy is documented in [Errors](errors.md).
+
 **Shell completions.** `bunx @ignex/cli completions <shell>` prints a
 tab-completion script for bash, zsh, fish, PowerShell, or cmd (via clink), e.g.
 `source <(bunx @ignex/cli completions bash)`. Install instructions for each

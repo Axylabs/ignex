@@ -3,7 +3,7 @@
  * `components.schemas` and the derived top-level `tags` array.
  */
 
-import { isRecord } from "./schema";
+import { isRecord, tagForPath, tagPrefixForPath } from "./schema";
 
 type SchemaRegistry = Record<string, unknown>;
 
@@ -39,21 +39,33 @@ const hoistDefs = (value: unknown, schemas: SchemaRegistry): unknown => {
 
 /**
  * Collect every tag used across the document's operations into a sorted,
- * de-duplicated top-level `tags` array (`[{ name }]`). Explicit `detail.tags`
- * and auto-derived path tags both land here, so docs UIs render the groups.
+ * de-duplicated top-level `tags` array (`[{ name, description? }]`), so docs
+ * UIs render navigable collapsible groups. Explicit `detail.tags` and
+ * auto-derived path tags both land here; an auto-derived tag also carries the
+ * path prefix it came from as its description (`gigs` → "Endpoints under
+ * `/api/gigs`").
  */
 const collectTags = (
   paths: Record<string, Record<string, Record<string, unknown>>>,
 ): Array<{ name: string; description?: string }> => {
   const byName = new Map<string, { name: string; description?: string }>();
-  for (const methods of Object.values(paths)) {
+  for (const [openApiPath, methods] of Object.entries(paths)) {
+    // A tag that equals the path's auto tag was derived here (not written by
+    // the app), so describing it is safe and never invents intent.
+    const autoTag = tagForPath(openApiPath);
+    const prefix = tagPrefixForPath(openApiPath);
     for (const operation of Object.values(methods)) {
       const tags = operation.tags;
       if (!Array.isArray(tags)) continue;
       for (const tag of tags) {
         if (typeof tag !== "string" || tag.length === 0) continue;
         if (byName.has(tag)) continue;
-        byName.set(tag, { name: tag });
+        byName.set(
+          tag,
+          tag === autoTag && prefix !== ""
+            ? { name: tag, description: `Endpoints under \`${prefix}\`` }
+            : { name: tag },
+        );
       }
     }
   }

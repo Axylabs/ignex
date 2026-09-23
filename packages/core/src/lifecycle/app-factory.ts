@@ -11,6 +11,7 @@ import { HttpResponseCache } from "../data/cache";
 import { createContext, type IgnexContext, type IgnexServer } from "../http/context";
 import { setServeBootInfo } from "../http/serve-boot";
 import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
+import { reportPluginBootFailure } from "../platform/boot-failure";
 import { errorToResponse } from "../platform/errors";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore } from "../types";
@@ -360,9 +361,13 @@ export const createApp = (options: AppOptions): IgnexApp => {
             bindAfterOnStart();
           })
           .catch((err) => {
+            // A plugin failure was already reported (with its own name) by
+            // `initAll`; this is a no-op then, and the attributed report for
+            // anything else (native init, a user hook). Never re-print the raw
+            // error — that is the object dump this reporting replaces.
+            reportPluginBootFailure("app", err);
             console.error(
-              "[ignex] strict init failed — not starting server; fix the failing plugin and restart.",
-              err,
+              "[ignex] strict init failed — not starting the server; fix the failing plugin and restart.",
             );
           });
         return server;
@@ -372,7 +377,10 @@ export const createApp = (options: AppOptions): IgnexApp => {
       // but never crashes or stops a serving app (plugin `close` on shutdown
       // is unaffected).
       void init().catch((err) => {
-        console.error("[ignex] plugin init failed:", err);
+        reportPluginBootFailure("app", err);
+        console.error(
+          "[ignex] plugin init failed — the server keeps serving, but the failed plugin is not initialized.",
+        );
       });
       return bindAfterOnStart();
     },

@@ -186,7 +186,7 @@ const __withBody = (payload, type, init) => {
   } catch {
     // An error-stage hook that throws must not mask the original error.
   }
-  const __errorResponse = errorToResponse(err, EXPOSE_ERRORS);
+  const __errorResponse = errorToResponse(err, EXPOSE_ERRORS, ctx);
   return __DEFAULT_HEADERS ? __decorateWithDefaults(__errorResponse) : __errorResponse;
 }`,
   __schemaFor: `const __schemaFor = (m) => m?.schema ?? m?.default?.schema ?? undefined;`,

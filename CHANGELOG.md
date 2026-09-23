@@ -8,6 +8,39 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Error messages are fail-closed for clients, complete in logs.** A 4xx message
+  is the caller's contract and is sent; a **5xx message is operator detail and is
+  not** — the envelope carries the canonical reason phrase (`Internal Server
+  Error`, `Service Unavailable`, `Gateway Timeout`, …) plus the machine `code`,
+  `details` are gated with the message, and the report keeps the full text. This
+  applies to the whole typed family (`DBError`, `ConfigError`, `UpstreamError`,
+  `DependencyError`, `InternalError`, `ApplicationError`), to plain throws, and
+  to `HTTPError.toJSON()` / `Response.json(err)` — so an implicit serialization
+  cannot leak either. `exposeErrors` (on outside production) reveals the real
+  message redacted, and `new DBError(detail, { message, expose: true })` opts a
+  single 5xx in.
+- **Library-mapped errors are honoured without a dependency.** An error that
+  declares `statusCode`/`status` (400–599) plus a `code` — ninox's
+  `DomainError`/`InfraError`, `http-errors`, most ORMs — keeps its status at the
+  boundary and is classified by its code (`MONGO_TIMEOUT` → `db` · `timeout`),
+  so `throw new DomainError("NOT_FOUND")` answers 404 and a `504` stays a 504
+  instead of a flat 500. Its message follows the same rule: 4xx visible, 5xx
+  masked.
+- **Identical faults aggregate in production** (`reportFault`): one block per
+  `code` + message per 5s window with an `(N identical report(s) suppressed …)`
+  note, so a failing request under load cannot flood the log. Development prints
+  every failure; `IGNEX_ERROR_DEDUPE_MS` overrides and `0` disables.
+
+- **OpenAPI tags group by resource, not by namespace.** Operations are
+  auto-tagged by their first _resource_ segment — namespace segments (`api`,
+  `rest`, `graphql`, `rpc`) and version segments (`v1`, `v2.1`) are skipped — so
+  a namespaced app no longer collapses every route into a single `api` group:
+  `/api/orders/:id` → `orders`, `/api/v1/users` → `users`, `/auth/login` →
+  `auth`. Each auto-derived tag carries the path prefix it covers as its
+  `description` ("Endpoints under `/api/orders`"), and a path that is nothing
+  but namespaces (`/api`) falls back to `default` as before. An explicit
+  `detail.tags` still wins.
+
 - **Six docs removed and folded into their owning doc** (no topic lost a home,
   and `docs/README.md` no longer lists them):
   - `docs/enterprise-grade.md` (a dated audit report — exactly the plan/log
@@ -111,6 +144,48 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   dangling references.
 
 ### Added
+
+- **Enterprise error taxonomy + fault reporting.** Failures are no longer
+  anonymous: every throw is classified into a *fault* with an **origin**
+  (`request`, `auth`, `app`, `internal`, `config`, `db`, `network`,
+  `dependency`, `native`), a **kind** (`credentials`, `unreachable`, `timeout`,
+  `query`, `invalid`, …), a stable **code** (the error's own, else
+  `IGN_<ORIGIN>_<KIND>`), a **retryable** verdict, hints, the **service**, and a
+  sanitized **cause** chain — plus the request id and route when serving one.
+  - New typed classes in `@ignex/core`: `AppError` (root), `RequestError` (4xx
+    base, now the parent of the whole client-error family), `ApplicationError`,
+    `DBError` (503, `db`), `UpstreamError` (502, `network`), `ConfigError`
+    (`config`) and `DependencyError` (`dependency`). The operational classes take
+    the operator's `detail` separately from the client-visible `message`, so
+    driver internals never reach a response body.
+  - `toFault` / `renderFault` / `reportFault` (`platform/fault.ts`,
+    `fault-report.ts`, `fault-vocabulary.ts`) classify *any* throw — typed,
+    driver-shaped, env, network, abort — and print **one** block per failure.
+    `errorToResponse` reports every 5xx through it (4xx stays quiet) and both
+    execution paths pass their request context; the compiled `__handleError` now
+    forwards `ctx` for correlation.
+  - Fail-closed by construction: `redactLogText` masks URL credentials and
+    `secret=…` pairs in every quoted string, a plain throw stays a masked 500
+    with the stable `INTERNAL_ERROR` code, and the raw driver object is never
+    attached as `cause` (`IGNEX_DEBUG=1` prints it on request). The response
+    envelope is unchanged.
+  - Docs: new `docs/errors.md` (taxonomy + report reference), D-013, and the
+    boot report in `docs/getting-started.md` now shows the classified layout.
+
+- **Configuration-first boot-failure reports.** A plugin that throws during
+  `init` (a database that rejects the credentials, an unreachable service, a
+  missing `.env` value) now prints an actionable report instead of the raw
+  driver error. `reportPluginBootFailure` classifies the throw — credentials,
+  unreachable, port-in-use, env, missing module — lists the `.env` files it
+  found and the connection variables the driver was given (passwords masked by
+  `maskCredentials`), and puts what to fix first. The generated server bootstrap
+  and the interpreted `createApp` plugin registry share it, and the rethrown
+  error is compact: the driver object is never attached as `cause`, which is what
+  made Bun expand a `MongoServerError`'s enumerable BSON graph into hundreds of
+  lines. `IGNEX_DEBUG=1` prints the full error and stack.
+  `COMPILER_CACHE_VERSION` 0.9.24 → 0.9.25 and `MODULES_CACHE_VERSION` 10 → 11
+  (the emitted boot code changed; `check:cache-versions` moves both markers
+  together).
 
 - **Enterprise-hardening R2 primitives + regression suites** (guards, evidence
   and control map in `docs/stability.md` §1.1): new `SessionStore.update`

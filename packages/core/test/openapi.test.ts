@@ -109,7 +109,7 @@ describe("generateOpenAPI", () => {
     expect(op.operationId).toBe("delete__items__id_");
   });
 
-  it("auto-tags operations by their first path segment and emits a tags array", () => {
+  it("auto-tags operations by their first RESOURCE segment and emits a tags array", () => {
     const spec = generateOpenAPI(info, [
       { method: "GET", path: "/api/orders" },
       { method: "POST", path: "/api/orders" },
@@ -124,19 +124,42 @@ describe("generateOpenAPI", () => {
     const health = (spec.paths["/health"] as Record<string, any>).get;
     const root = (spec.paths["/"] as Record<string, any>).get;
 
-    expect(orders.tags).toEqual(["api"]);
-    expect(orderById.tags).toEqual(["api"]);
+    // The `/api` namespace is skipped — otherwise every route in a namespaced
+    // app collapses into a single `api` group (the bug this guards).
+    expect(orders.tags).toEqual(["orders"]);
+    expect(orderById.tags).toEqual(["orders"]);
     expect(login.tags).toEqual(["auth"]);
     expect(health.tags).toEqual(["health"]);
     expect(root.tags).toEqual(["default"]);
 
-    // Top-level tags array is derived, sorted, de-duplicated.
+    // Top-level tags array is derived, sorted, de-duplicated, and each
+    // auto-derived tag carries the path prefix it covers.
     expect(spec.tags).toEqual([
-      { name: "api" },
-      { name: "auth" },
+      { name: "auth", description: "Endpoints under `/auth`" },
       { name: "default" },
-      { name: "health" },
+      { name: "health", description: "Endpoints under `/health`" },
+      { name: "orders", description: "Endpoints under `/api/orders`" },
     ]);
+  });
+
+  it("skips namespaces, version segments and params when deriving tags", () => {
+    const spec = generateOpenAPI(info, [
+      { method: "GET", path: "/api" },
+      { method: "GET", path: "/api/v1" },
+      { method: "GET", path: "/api/v2.1/users/:id" },
+      { method: "GET", path: "/api/rest/gigs/:gigId/comments" },
+      { method: "GET", path: "/graphql/orders" },
+      { method: "GET", path: "/:tenant/dashboard" },
+    ]);
+    const tagOf = (path: string) => (spec.paths[path] as Record<string, any>).get.tags as string[];
+
+    // Nothing but namespaces left → the documented `default` fallback.
+    expect(tagOf("/api")).toEqual(["default"]);
+    expect(tagOf("/api/v1")).toEqual(["default"]);
+    expect(tagOf("/api/v2.1/users/{id}")).toEqual(["users"]);
+    expect(tagOf("/api/rest/gigs/{gigId}/comments")).toEqual(["gigs"]);
+    expect(tagOf("/graphql/orders")).toEqual(["orders"]);
+    expect(tagOf("/{tenant}/dashboard")).toEqual(["dashboard"]);
   });
 
   it("respects an explicit empty tags array (no auto-tag) and a custom tag", () => {

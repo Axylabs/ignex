@@ -148,7 +148,12 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
       `setServeBootInfo({ protocol: __serveTls.protocol, port: Number(process.env.PORT ?? __serverCfg.port ?? 3000), hostname: __serverCfg.hostname });`,
     );
     // A throwing plugin must fail boot with a clear, attributable error (not a
-    // cryptic module-load failure / unhandled rejection).
+    // cryptic module-load failure / unhandled rejection). `reportPluginBootFailure`
+    // prints a configuration-first report (`.env` state, the connection vars the
+    // driver rejected, what to fix) and returns a COMPACT error — the raw driver
+    // error is deliberately not attached as `cause`, because Bun's uncaught-error
+    // printer expands a `MongoServerError`'s enumerable BSON graph into hundreds
+    // of lines that say nothing about the fix.
     header.push(`for (const __p of __appPlugins) {
   try {
     if (typeof __p === "function") await __p(__pluginContext);
@@ -156,7 +161,7 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
     else if (__p && typeof __p.init === "function") await __p.init();
   } catch (__err) {
     const __name = (__p && (typeof __p === "object" ? (__p.name ?? __p.constructor?.name) : undefined)) ?? "anonymous plugin";
-    throw new Error("[ignex] plugin boot failed for " + __name + ": " + (__err instanceof Error ? __err.message : String(__err)), { cause: __err });
+    throw reportPluginBootFailure(__name, __err);
   }
 }`);
     if (state.realtimeConsumerRefs.length > 0) {

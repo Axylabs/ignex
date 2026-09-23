@@ -347,7 +347,7 @@ export const runLifecycle = async (
       // fall back to the default error response (matches compiled __handleError).
       handled = { ctx: current };
     }
-    return handled.response ?? errorToResponse(err, exposeErrors);
+    return handled.response ?? errorToResponse(err, exposeErrors, current);
   };
 
   // Observe-only stage (afterResponse / trace): run hooks for side effects and

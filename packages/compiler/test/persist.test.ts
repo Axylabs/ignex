@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   loadPersistedModules,
+  MODULES_CACHE_VERSION,
   modulesCachePath,
   persistModules,
   serializeSourceFiles,
@@ -102,7 +103,7 @@ describe("persistent parse cache", () => {
     const b = serializeSourceFiles(sm.all());
     expect(a).toBe(b);
     const parsed = JSON.parse(a);
-    expect(parsed.version).toBe("10");
+    expect(parsed.version).toBe(MODULES_CACHE_VERSION);
     expect(parsed.modules).toHaveLength(2);
     expect(parsed.modules[0].hash).toBe(hashString(sm.all()[0].content));
   });

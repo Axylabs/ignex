@@ -117,10 +117,12 @@ describe("best-effort init (default)", () => {
     app.serve({ https: false, port: 0 });
     await flush();
     expect(serve).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[ignex] plugin init failed:"),
-      expect.anything(),
-    );
+    // The failure is reported (configuration-first report, then the explicit
+    // "still serving" line) — never the raw thrown error object.
+    const logged = errorSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain("✖ ignex boot failed");
+    expect(logged).toContain("[ignex] plugin init failed — the server keeps serving");
+    expect(logged).toContain("plugin failer init failed");
     errorSpy.mockRestore();
   });
 });

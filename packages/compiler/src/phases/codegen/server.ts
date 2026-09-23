@@ -34,6 +34,7 @@ const APP_CONFIG_CORE = [
   "mergeLifeCycle",
   "pluginsToLifeCycle",
   "pluginContextToLifecycle",
+  "reportPluginBootFailure",
   "setServeBootInfo",
 ] as const;
 

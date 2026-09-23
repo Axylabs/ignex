@@ -52,9 +52,47 @@ export const operationIdFor = (method: string, openApiPath: string): string =>
   `${method.toLowerCase()}_${openApiPath.replace(/[{}/]/g, "_")}`;
 
 /**
- * Derive a management tag from the first path segment, mirroring the
- * `routes/` folder layout: `/api/orders/:id` → `api`, `/auth/login` → `auth`,
- * `/health` → `health`. Root (`/`) falls back to `default`.
+ * Namespace segments — they name the API's shape, not a resource. Dropping
+ * them is what keeps a namespaced app (`/api/…`, `/api/v1/…`) from collapsing
+ * into ONE tag in docs UIs, which is the whole point of auto-tagging.
+ */
+const GENERIC_SEGMENTS = new Set(["api", "rest", "graphql", "rpc"]);
+
+/** Version-ish namespace segments (`v1`, `v2.1`, `v10`) — same reasoning. */
+const VERSION_SEGMENT = /^v\d+(?:[._-]\d+)*$/i;
+
+/** Path-parameter segments (`{id}`, `{path}`) — never a group of their own. */
+const PARAM_SEGMENT = /^\{/;
+
+/** True when a segment names a resource/group rather than a namespace. */
+const isGroupingSegment = (segment: string): boolean =>
+  !GENERIC_SEGMENTS.has(segment.toLowerCase()) &&
+  !VERSION_SEGMENT.test(segment) &&
+  !PARAM_SEGMENT.test(segment);
+
+/** The non-empty segments of an OpenAPI path. */
+const segmentsOf = (openApiPath: string): readonly string[] =>
+  openApiPath.split("/").filter(Boolean);
+
+/**
+ * Derive a management tag from the route path, mirroring the `routes/` folder
+ * layout: `/api/orders/:id` → `orders`, `/auth/login` → `auth`, `/health` →
+ * `health`.
+ *
+ * Namespace segments are skipped, so a versioned/namespaced app still groups
+ * per resource: `/api/orders` → `orders`, `/api/v1/users/:id` → `users`.
+ * A path made only of namespaces (`/api`) falls back to `default`.
  */
 export const tagForPath = (openApiPath: string): string =>
-  openApiPath.split("/").filter(Boolean)[0] ?? "default";
+  segmentsOf(openApiPath).find(isGroupingSegment) ?? "default";
+
+/**
+ * The path prefix the auto tag was derived from — `/api/orders/{id}` →
+ * `/api/orders`. Used for the tag's `description`, so docs UIs say what each
+ * group covers. Empty string when the path has no grouping segment.
+ */
+export const tagPrefixForPath = (openApiPath: string): string => {
+  const segments = segmentsOf(openApiPath);
+  const index = segments.findIndex(isGroupingSegment);
+  return index < 0 ? "" : `/${segments.slice(0, index + 1).join("/")}`;
+};

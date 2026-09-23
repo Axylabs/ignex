@@ -238,8 +238,8 @@ class DevServer {
         warn(
           `Server exited (code=${code ?? "null"}, signal=${signal ?? "null"}). ` +
             `Giving up after ${MAX_CRASH_RESTARTS} rapid restarts — it may be crashing on ` +
-            `boot (e.g. the port is already in use). Waiting for a file change to retry. ` +
-            `Tip: free the port with "ignex dev --kill-port".`,
+            `boot (e.g. the port is already in use). The error logged above says why. ` +
+            `Waiting for a file change to retry (free a port with "ignex dev --kill-port").`,
         );
         return;
       }

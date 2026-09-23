@@ -33,6 +33,8 @@ of truth.
 | 400 `framing-conflict` / 431 `header-too-large` | `packages/core/src/http/framing-guard.ts`, `packages/core/src/http/header-cap.ts` | `packages/core/test/framing-guard.test.ts`, `packages/core/test/header-cap.test.ts` |
 | One job claimed twice on a fresh-read store / a lost session write | `packages/core/src/platform/jobs-store.ts`, `packages/core/src/security/session.ts` | `packages/core/test/enterprise-scalability.test.ts`, `packages/core/test/enterprise-integrity.test.ts`, `packages/core/test/enterprise-hardening.test.ts` |
 | Partial `dist/` left behind after a failed build | `packages/compiler/src/phases/artifacts`, `packages/compiler/src/phases/linker.ts` | `packages/compiler/test/enterprise-isolation.test.ts` |
+| Plugin boot failure dumping a raw driver object (BSON getters, hundreds of lines) | `packages/core/src/platform/boot-failure.ts` → `fault.ts` / `fault-report.ts` (shared by the generated bootstrap `packages/compiler/src/phases/codegen/header.ts` and the interpreted `lifecycle/plugin/registry.ts`) | `packages/core/test/boot-failure.test.ts`, `packages/compiler/test/hardening.test.ts` |
+| A 500 whose origin/kind is unclear, or an unclassified driver error | `packages/core/src/platform/fault.ts` (classifier; `fault-throw.ts` reads the throw, `fault-hints.ts` words it) + `fault-vocabulary.ts` (origins/kinds/codes) | `packages/core/test/fault.test.ts` |
 
 When a bug report says "it returns a weird 429", start at the Origin column
 (`ingress/terminal.ts`), read D-005/D-008 for the why, and run the pinned

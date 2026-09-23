@@ -143,11 +143,16 @@ Paths are configurable via `path` / `specPath`; routes can be excluded with
 `exclude`, and per-route metadata (`summary`/`tags`/`hide`/…) via `detail`
 (interpreted: in the route schema object; AOT: `export const config = { detail }`).
 
-Operations are **auto-grouped into tags by their first path segment**
-(`/api/orders` → `api`, `/auth/login` → `auth` — mirroring the `routes/`
-folder layout) so docs UIs render collapsible resource groups; a top-level
-`tags` array is derived from the operations. An explicit `detail.tags` (even an
-empty array, meaning "no tags") overrides the auto-tag for that route.
+Operations are **auto-grouped into tags by their first resource segment**,
+mirroring the `routes/` folder layout. Namespace segments (`api`, `rest`,
+`graphql`, `rpc`) and version segments (`v1`, `v2.1`) are skipped, so a
+namespaced app doesn't collapse into one group: `/api/orders/:id` → `orders`,
+`/api/v1/users` → `users`, `/auth/login` → `auth`, `/health` → `health`. A
+top-level `tags` array is derived from the operations and each auto-derived tag
+carries the prefix it covers as its description (`orders` — "Endpoints under
+`/api/orders`"), which docs UIs render next to the group. An explicit
+`detail.tags` (even an empty array, meaning "no tags") overrides the auto-tag
+for that route.
 
 ## Errors
 
@@ -172,6 +177,25 @@ Built-in types: `BadRequestError` (400), `UnauthorizedError` (401),
 `TooManyRequestsError` (429), `ValidationError` (422, field-scoped), and the
 base `HTTPError(status, message, code?, details?)` for everything else. Errors
 thrown anywhere in a hook or plugin are mapped the same way.
+
+Each built-in error declares **which part of the stack it came from**, so a
+failure is traceable instead of anonymous: `RequestError` (4xx, the caller's
+fault), `UnauthorizedError`/`ForbiddenError` (`auth`), `InternalError`
+(`internal`), `ApplicationError` (`app`), and the operational family —
+`DBError` (503, `db`), `UpstreamError` (502, `network`), `ConfigError` (`config`)
+and `DependencyError` (`dependency`) — which separate the operator's `detail`
+from the client-visible `message`:
+
+```ts
+try {
+  await db.insertOne(doc);
+} catch (cause) {
+  throw new DBError("insert into gigs failed", { kind: "unreachable", cause });
+}
+```
+
+Every 5xx prints one classified report (origin, stable code, retryability,
+hints, cause chain, request id); 4xx stays quiet. See [Errors](errors.md).
 
 ## Plugins & config (`src/app.config.ts`)
 

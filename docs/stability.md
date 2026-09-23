@@ -55,6 +55,14 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 11. **`SELECTION` is frozen.** The native/JS dispatch table and each
     `OpDecision` are deep-frozen at module end — a runtime write cannot skew
     dispatch.
+12. **Every 5xx is classified and reported once.** `errorToResponse`
+    (`packages/core/src/platform/errors.ts`) reports through the shared fault
+    renderer — origin, stable code, retryability, hints, a sanitized `cause`
+    chain and the request id — and fails closed on leaks: credentials are masked
+    by `redactLogText`, a plain throw stays a masked 500, a 5xx message/detail
+    never reaches a client (canonical phrase + `code` instead), and the raw
+    driver object is never attached as `cause`. 4xx stays quiet. Identical
+    faults print once per 5s window in production with a suppression count.
 
 ### 1.1 Hardening guards (request-in / request-out)
 

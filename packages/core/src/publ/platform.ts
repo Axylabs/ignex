@@ -6,6 +6,17 @@
  */
 
 // ── platform ────────────────────────────────────────────────────
+export type { AppErrorOptions } from "../platform/app-error";
+export { AppError, ApplicationError, isAppError, statusOf } from "../platform/app-error";
+export type {
+  BootFailureReport,
+  ExplainBootFailureOptions,
+} from "../platform/boot-failure";
+export {
+  explainBootFailure,
+  renderBootFailure,
+  reportPluginBootFailure,
+} from "../platform/boot-failure";
 export type { Config, ConfigField, ConfigFieldType, ConfigSchema } from "../platform/config";
 export { defineConfig } from "../platform/config";
 export { env, envBool, envFloat, envInt, envJson, envSecret, loadEnv } from "../platform/env";
@@ -25,9 +36,22 @@ export {
   envExampleFromSchema,
   validateEnv,
 } from "../platform/env-config";
+export type { EnvConnectionVar, EnvFileReport } from "../platform/env-report";
+export { readEnvFileReport } from "../platform/env-report";
+export type {
+  ConfigErrorOptions,
+  DBErrorOptions,
+  DependencyErrorOptions,
+  HttpErrorTaxonomy,
+  InternalErrorOptions,
+  UpstreamErrorOptions,
+} from "../platform/errors";
 export {
   BadRequestError,
+  ConfigError,
   ConflictError,
+  DBError,
+  DependencyError,
   errorToResponse,
   ForbiddenError,
   HTTPError,
@@ -37,10 +61,30 @@ export {
   MethodNotAllowedError,
   NotFoundError,
   ParseError,
+  RequestError,
   TooManyRequestsError,
   UnauthorizedError,
+  UpstreamError,
   ValidationError,
 } from "../platform/errors";
+export type { ToFaultOptions } from "../platform/fault";
+export { statusForOrigin, toFault } from "../platform/fault";
+export type { FaultRenderOptions, ReportFaultOptions } from "../platform/fault-report";
+export {
+  faultOf,
+  faultRequestInfo,
+  isFaultReported,
+  renderFault,
+  reportFault,
+} from "../platform/fault-report";
+export type {
+  Fault,
+  FaultCause,
+  FaultKind,
+  FaultOrigin,
+  FaultRequestInfo,
+} from "../platform/fault-vocabulary";
+export { FAULT_KINDS, FAULT_ORIGINS, FAULT_STATUS } from "../platform/fault-vocabulary";
 export type { Job, JobQueue, JobQueueOptions, ScheduleOptions } from "../platform/jobs";
 export { createJobQueue, withRetry, withTimeout } from "../platform/jobs";
 export type {
@@ -87,6 +131,7 @@ export {
   type NotifyUser,
 } from "../platform/notifier";
 export { installProcessGuards } from "../platform/process-guards";
+export { maskCredentials, redactLogText } from "../platform/redact";
 export {
   createScheduler,
   type ScheduledJob,

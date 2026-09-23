@@ -10,7 +10,9 @@
  * Records are keyed by content hash, so an edited file naturally misses and
  * falls back to a fresh parse (genuine incremental parsing on full rebuilds).
  * Bump {@link MODULES_CACHE_VERSION} whenever the persisted shape changes so
- * stale records are discarded instead of mis-rehydrated.
+ * stale records are discarded instead of mis-rehydrated —
+ * `check:cache-versions` also moves it in lockstep with
+ * `COMPILER_CACHE_VERSION` on any output-affecting change.
  */
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -19,7 +21,8 @@ import type { ParseResult } from "../utils/ast/parse";
 import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
-const MODULES_CACHE_VERSION = "10";
+/** Cache-record version — stale records are discarded, never rehydrated. */
+export const MODULES_CACHE_VERSION = "11";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {

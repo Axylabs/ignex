@@ -64,27 +64,27 @@ import { projectPath } from "./utils/path";
  * shape changed.
  * 0.9.20 — static-default passthrough: a raw `Response`, the 404/405 fallback,
  * an OPTIONS preflight, an error response and a pre-handler short-circuit now
- * carry the emitted `__DEFAULT_HEADERS` (`server.headers` + plugin
- * `responseDefaults`) through the new `__decorateWithDefaults` helper —
- * previously only `__withBody`-built replies baked them, so those paths missed
- * `server.headers` on Bun 1.4.2 (which ignores `Bun.serve({ headers })`).
- * Generated output shape changed.
+ * carry `__DEFAULT_HEADERS` (`server.headers` + plugin `responseDefaults`)
+ * through `__decorateWithDefaults`; only `__withBody`-built replies did before,
+ * so those paths missed them on Bun 1.4.2. Generated output shape changed.
  * 0.9.21 — WebSocket limits (A4): the generated `websocket` option now merges
  * per-route transport limits strictest-wins (`mergeWSLimits`) over an app/base
- * `__wsBase`, and apps with WS routes terminate connections on shutdown
- * (`__server.stop(true)`) instead of wedging the drain deadline. Generated
- * output shape changed.
+ * `__wsBase`; WS apps terminate connections on shutdown (`__server.stop(true)`)
+ * instead of wedging the drain deadline. Generated output shape changed.
  * 0.9.22 — plugin-member merge on the specialized tier: the emitted ctx is now
  * the ROUTE ∪ PLUGIN-LAYER usage union, so a plugin's declared members
- * (`headers`/`req`/`method`, and any future `session`/`compression`/`openapi`
- * declarations) are always present on lean routes — a plugin hook reading
- * them used to get `undefined` and TypeError. Generated output shape changed.
+ * (`headers`/`req`/`method`, and any future `session`/`compression`/`openapi`)
+ * are always present on lean routes. Generated output shape changed.
  * 0.9.23 — response-literal static promotion: a route whose handler returns a
  * constant `new Response(body, init)` (primitive body + static
  * `status`/`statusText`/`headers`) is now hoisted to a pre-built table-bound
  * Response exactly like a constant JSON return. Generated output shape changed.
+ * 0.9.25 — error reporting: the emitted boot catch routes through
+ * `reportPluginBootFailure` (a configuration-first fault report with a compact
+ * rethrow, never the raw driver `cause`) and the emitted `__handleError` hands
+ * its request context to `errorToResponse` for correlation. Output changed.
  */
-export const COMPILER_CACHE_VERSION = "0.9.24";
+export const COMPILER_CACHE_VERSION = "0.9.25";
 
 const CACHE_FILE = ".ignex-cache.json";
 

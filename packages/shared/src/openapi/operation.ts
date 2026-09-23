@@ -120,11 +120,13 @@ export const operationFor = (route: RouteDefinition): OperationModel => {
     responses: responsesFor(schema?.response),
   };
 
-  // Management grouping: tag each operation by its first path segment
-  // (`/api/orders` → `api`, `/auth/login` → `auth`) so docs UIs group routes
-  // by resource. An explicit `detail.tags` (including an empty array, meaning
-  // "no tags") always wins; the top-level `tags` array is derived from the
-  // operations (see `collectTags`).
+  // Management grouping: tag each operation by its path's first RESOURCE
+  // segment (`/orders` → `orders`, `/api/orders` → `orders`, `/api/v1/orders`
+  // → `orders` — namespace segments are skipped, see `tagForPath`) so docs UIs
+  // group routes by resource instead of by namespace. An explicit
+  // `detail.tags` (including an empty array, meaning "no tags") always wins;
+  // the top-level `tags` array is derived from the operations (see
+  // `collectTags`).
   if (!Array.isArray(detail?.tags)) {
     operation.tags = [tagForPath(openApiPath)];
   }

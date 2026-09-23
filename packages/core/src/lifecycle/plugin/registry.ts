@@ -6,6 +6,7 @@
  * skips the rest.
  */
 
+import { reportPluginBootFailure } from "../../platform/boot-failure";
 import type { HookFn } from "../hooks";
 import type { IgnexPlugin, PluginContext } from "./types";
 
@@ -40,13 +41,18 @@ export const createPluginContext = (): PluginContext => {
       // callers can fail CLOSED (`createApp({ strictInit: true })` never binds
       // the listener) — `Promise.allSettled` guarantees later plugins still
       // ran regardless.
+      //
+      // Each failure is reported WITH the plugin's name through
+      // `reportPluginBootFailure`: the user sees the configuration-first report
+      // (`.env` state, the rejected connection variable, what to fix) instead of
+      // a raw driver object graph, and the rethrown error stays compact.
       const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
-      const failures: unknown[] = [];
-      for (const r of results) {
-        if (r.status === "rejected") {
-          console.error("[ignex] plugin init failed:", r.reason);
-          failures.push(r.reason);
-        }
+      const failures: Error[] = [];
+      for (const [index, result] of results.entries()) {
+        if (result.status !== "rejected") continue;
+        failures.push(
+          reportPluginBootFailure(plugins[index]?.name ?? "anonymous plugin", result.reason),
+        );
       }
       if (failures.length > 0) {
         throw failures.length === 1

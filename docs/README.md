@@ -47,6 +47,7 @@ already exists, extend that doc rather than starting a sibling.
 | `docs/deployment.md` | Deployment (Bun binary, Docker, proxies) | Users | stable |
 | `docs/getting-started.md` | First-run tutorial | Users | stable |
 | `docs/cookbook.md` | Task recipes | Users | evolving |
+| `docs/errors.md` | Error taxonomy, failure reports, correlation | Users, Contributors | evolving |
 | `docs/adding-a-feature.md` | Adding a feature (workflow + gates) | Contributors | stable |
 | `docs/release-process.md` | Release checklist + version files | Contributors | stable |
 | `docs/stability.md` | Known risks, gate matrix, hardening guards, further work | Contributors, Agents | evolving |
@@ -61,8 +62,8 @@ workflow, and the versioned log.
 ## Ongoing reading paths
 
 - **Framework user** (build an app): [getting-started](getting-started.md) →
-  [router](router.md) → [cookbook](cookbook.md) → [deployment](deployment.md) →
-  [debugbar](debugbar.md) → [drivers](drivers.md).
+  [router](router.md) → [cookbook](cookbook.md) → [errors](errors.md) →
+  [deployment](deployment.md) → [debugbar](debugbar.md) → [drivers](drivers.md).
 - **Contributor** (work in this repo): [AGENTS.md](../AGENTS.md) §First day →
   [adding-a-feature](adding-a-feature.md) → [architecture](architecture.md) → the
   `.agents/skills/` runbook for your area → [release-process](release-process.md).

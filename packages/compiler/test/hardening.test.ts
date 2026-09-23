@@ -126,8 +126,12 @@ describe("plugin boot boundary (compiled server)", () => {
     });
 
     // A throwing plugin must surface a clear, attributable message instead of a
-    // cryptic module-load failure / unhandled rejection.
-    expect(result.code).toContain("[ignex] plugin boot failed");
+    // cryptic module-load failure / unhandled rejection. The catch routes
+    // through the shared `reportPluginBootFailure`, which prints a
+    // configuration-first report and rethrows a COMPACT error — the raw driver
+    // error is never attached as `cause` (Bun expands a driver's object graph
+    // into hundreds of lines of noise).
+    expect(result.code).toContain("reportPluginBootFailure(__name, __err)");
     expect(result.code).toContain("catch (__err) {");
   });
 });

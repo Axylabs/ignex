@@ -220,7 +220,7 @@ export const createRouter = (): IgnexRouter => {
     } catch {
       // An error-stage hook that throws must not mask the original error.
     }
-    return errorToResponse(err, exposeErrors);
+    return errorToResponse(err, exposeErrors, target);
   };
 
   /** Run the full per-request lifecycle for a matched route (guarded stages). */
