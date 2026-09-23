@@ -59,7 +59,7 @@ the `file:` overrides as needed).
    - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored now).
    - `project.txt` / package `project.txt` — `python3 context.py`.
 4. **Update the READMEs**:
-   - Root `README.md` (status / roadmap / workflow sections).
+   - Root `README.md` (status / roadmap / contributing sections).
    - Per-package READMEs if public APIs changed.
    - `docs/` if the architecture or extension points changed.
 5. **Version bump**: update `version` in the root and each changed package

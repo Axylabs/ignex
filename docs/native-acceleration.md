@@ -855,6 +855,93 @@ Compatibility releases should bump castrum's minor version and add a
 `test/compat/ignex-contract.test.ts` in the castrum repo asserting this exact
 surface, so the contract is guarded by castrum's own CI.
 
+## Bun builtins decision matrix
+
+> **Source of truth for "use Bun internals when runtime = Bun".** Every row is
+> backed by a measured ratio from `scripts/bench-bun-internals.ts`
+> (`bun scripts/bench:bun-internals`), which writes `bench/results/bun-internals.json`.
+> A swap ships only when the Bun builtin is **≥ 1.0× the implementation it
+> replaces (median, interleaved trials) AND byte-compatible**. Otherwise the
+> row records "keep" and the code stays as-is. This mirrors castrum's decision
+> matrix (`docs/bun-builtins-decision-matrix.md` in
+> `/home/adeel/poc/castrum`) / the `BUN_WINS` set in
+> `packages/native/src/selection.ts`.
+>
+> Swaps are re-measured with `bun run bench:bun-internals`; the shipped
+> winners are baked by `scripts/select-native.ts` into `src/selection.json`.
+
+Measured on `Bun v1.4.0-canary` (Linux), 2026-08-20, 5 interleaved trials.
+
+| Bun builtin | Current impl | Ratio (bun/current) | Verdict | Wiring |
+|---|---|---|---|---|
+| `Bun.write` | `node:fs/promises writeFile` / `writeFileSync` | **3.80×** | **swap (async CLI writes)** | `cli` `writeFileEnsuringDir` + `hook` registration. Sync bootstrap (`env.writeEnvKeys`), atomic persists (`jobs-store` tmp+rename), and once-per-build compiler artifact/cache writes stay `node:fs`. |
+| `Bun.file(path).text()` | `node:fs readFile` | 0.82× | keep | Reads stay node:fs — faster. |
+| `Bun.file(path).stat()` | `node:fs stat` | 1.00× | parity | No change to `http/files.ts` (node stat stays). |
+| `Bun.Glob` scan | `node:fs readdir` recursion | 0.79× | keep | Dir scans stay node:fs. |
+| `Bun.escapeHTML` | hand-rolled regex `escapeHtml` (`plugins/openapi.ts`) | 0.06× | keep | Hand-rolled is ~16× faster for typical strings. |
+| `Bun.deepEquals(a,b,true)` | hand-rolled `deepEqual` (`native/src/json.ts`) | 0.35× | keep | Specialized JSON compare is ~3× faster. |
+| `Bun.CryptoHasher("sha1")` | `node:crypto createHash("sha1")` (WS accept key) | **1.12×** | **swap** | `native/src/payload.ts` `wsAcceptKey` prefers Bun SHA-1. |
+| `crypto.getRandomValues` | `node:crypto randomBytes` (CSPRNG) | **87×** | **swap** | `native` csrf fallback, `core` password salt, `cli` ops token. |
+| `Bun.gzipSync` | `node:zlib gzipSync` | 1.77× | **already wired** | `native/src/bun.ts` `bunGzipSync` + `BUN_WINS` (baseline). |
+| `Bun.hash.wyhash` | `fnv1a64` (native/TS) | **16.5×** / **917×** | **swap (runtime-local only)** | `core/src/data/cache/hash.ts` `entityTag` (module-local `fastHash`). Compiler **cache keys stay fnv1a64** (cross-runtime key stability). |
+| `Bun.hash.crc32` | native addon / TS table | 0.97× / **115×** | **already wired** | `native/src/bun.ts` `bunCrc32` + `BUN_WINS` (baseline). |
+| `Bun.password.hashSync` (argon2id) | native argon2id `passwordHash` | 0.16× | keep | Native Rust is ~6× faster; **do not swap**. |
+| `Bun.password.hashSync` (argon2id) | scrypt fallback | 0.31× | keep | Fallback stays. |
+| `Bun.password.verifySync` | native `passwordVerify` | — (throws) | keep | **Incompatible**: Bun cannot parse native/scrypt PHC strings (`PASSWORD_UNSUPPORTED_ALGORITHM`). No cross-verify. |
+| `Bun.spawnSync` | `node:child_process spawnSync` | **1.19×** | **swap** | CLI subprocess exec when Bun present (`cli/src/utils/runtime.ts`). `core` TLS already uses Bun. |
+| `Bun.env` | `process.env` | 0.96× | keep | `process.env` stays (parity, no churn). |
+| `Bun.semver.satisfies` | manual range compare | **1.11×** | **swap** | CLI `doctor` version checks when Bun present. |
+| `Bun.peek` | promise passthrough | 0.86× | keep | No fast-path benefit measured. |
+| `Bun.serve({ http2 })` | `h2` config was a silent no-op (HTTP/1.1 only) | — | **feature (opt-in)** | Bun ≥1.4.1 serves HTTP/2 over TLS (ALPN). `server.h2` (alias `server.http2`) → Bun's `http2` option, gated to TLS. Default off → no behavior change. |
+
+Rules applied:
+
+1. **File writes → `Bun.write` only at async CLI write sites** (`writeFileEnsuringDir`, `hook` registration). Bun has no `writeSync`; sync bootstrap writes (`env.ts writeEnvKeys`), sync atomic persists (`jobs-store.ts` tmp+rename), and once-per-build compiler artifact/cache writes keep `node:fs` (no API churn for rare/one-time writes).
+2. **Reads, dir scans, escapeHTML, deepEquals, password, peek, env, stat stay
+   as-is** — measured slower or parity; the benchmark is the gate.
+3. **`Bun.password` is not wired** — native is faster *and* Bun rejects native
+   PHC strings, so any swap would break stored-hash verification.
+4. **Compiler cache keys stay on `fnv1a64`** even though wyhash is ~16× faster —
+   cache keys must be stable across runtimes/machines; wyhash is used only for
+   runtime-local keys (`core/src/data/cache/hash.ts`).
+5. **`h2` is opt-in** (`server.h2: true` + TLS), preserving the HTTP/1.1
+   default and the `docs/cookbook.md` TLS guidance until the user opts in.
+6. **CLI `spawnSync` sites needing Node shapes stay on `node:child_process`**
+   (`create` git-init/install use `result.error`/`shell`/`stdio: "inherit"`;
+   `route`/`dev` taskkill) — only the status-only `commandExists` check uses
+   `Bun.spawnSync`.
+
+### Bun 1.4 additions
+
+New rows decided on **Bun v1.4.0** (stable, Linux) — features that replace a
+third-party dep or a hand-rolled implementation, gated by the same
+"≥ 1.0× AND byte-compatible" rule (or by feature parity + zero-dep where
+micro-benchmarking is meaningless, e.g. process scheduling):
+
+| Bun builtin | Replaces | Verdict | Wiring |
+|---|---|---|---|
+| `Bun.cron` (5-field, named schedules) | `croner` (third-party dep) | **swap — dependency removed** | `core/src/platform/scheduler.ts` `createScheduler` ticks through `Bun.cron`; expressions validated by `Bun.cron.parse` at registration. Built-in never-overlap; minute granularity. Legacy 6-field (second-precision) expressions keep working through an in-process matcher (`platform/cron6.ts`). |
+| `Bun.cron.parse` | croner expression validation | **swap** | Validation gate in `resolveTransportKind` (5-field + `@named`). |
+| `Bun.markdown.html()` | hand-rolled mini `md()` renderer in the debugbar | **swap (server-side)** | `debug/markdown.ts` renders the KT page to sanitized HTML (`sanitizeMdHtml` allowlist — Bun.markdown output is NOT sanitized); dashboard falls back to the mini renderer when the builtin is unavailable. |
+| `Bun.stringWidth` / `Bun.sliceAnsi` / `Bun.wrapAnsi` | hand-rolled ANSI-aware column math in the CLI | **swap (CLI)** | `cli` table/column formatting (`doctor`, `route:list`) — see `utils/terminal.ts`. `NO_COLOR` still respected. |
+| `bun run --parallel` | sequential `bun run a && bun run b` | **swap (repo tooling)** | Root `verify:quick` / `test:parallel` scripts fan the independent gates out concurrently (Foreman-style output). |
+| `Bun.serve({ routes })` static files | `files.ts` manual range serving | **keep (feature, opt-in)** | Not adopted by default: the AOT-generated server targets `Bun.serve` handlers, and file serving needs the framework's range/conditional semantics. Re-evaluate per feature row. |
+
+Rules applied:
+
+1. **`croner` is fully removed** (root + `@ignex/core`); the scheduler surface
+   is unchanged, and 6-field sub-minute expressions are preserved for dev/tests.
+2. **`Bun.markdown` only for server-side KT rendering** — its output must pass
+   through the sanitizer before reaching the dashboard (raw HTML passthrough).
+3. **CLI ANSI helpers delegate to Bun builtins when present** with the same
+   `NO_COLOR` behavior; no output-shape changes.
+4. **`bun run --parallel` is repo-tooling only** — `verify` stays the serial,
+   ordered gate; `verify:quick` is the fast dev loop.
+
+Re-run with `bun scripts/bench-bun-internals.ts` (or `bun run bench:bun-internals`).
+Results land in `bench/results/bun-internals.json`; update this section when the
+ratio changes materially.
+
 ## Running the parity suite
 
 ```bash

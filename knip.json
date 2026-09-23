@@ -11,7 +11,8 @@
       "ignoreDependencies": ["@ignex/core"]
     },
     "packages/cli": {
-      "project": ["src/**/*.ts", "bin/**/*.js"]
+      "project": ["src/**/*.ts", "bin/**/*.js"],
+      "ignoreDependencies": ["@ignex/mcp"]
     },
     "packages/mcp": {
       "project": ["src/**/*.ts", "bin/**/*.js"]

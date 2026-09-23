@@ -34,6 +34,45 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
    (installed by `createApp().serve()` and the AOT server) logs rejections and
    keeps serving; uncaught exceptions log + `exit(1)` for a clean supervisor
    restart.
+7. **Request framing and header size are validated.** Conflicting
+   `Content-Length`/`Transfer-Encoding` is rejected with a 400
+   (`framing-conflict`) and an oversized request-header block with a 431
+   (`x-ignex-reason: header-too-large`) before any handler runs.
+8. **Redirects and `Host` are validated.** `ctx.redirect` passes
+   `assertSafeRedirectTarget` (raw-string analysis — never `new URL` on hostile
+   input; only `http`/`https`, rejecting `javascript:`/`data:`/`vbscript:`,
+   protocol-relative, backslash and CR/LF forms), and `trustedHost()` compares
+   case-insensitively with port normalization and rejects control characters.
+9. **Concurrent state mutations can't lose or duplicate work.** Job-store
+   mutations (`enqueue`/`claim`/`claimOne`/`complete`/`fail`/`heartbeat`/
+   `releaseExpired`) run through a per-instance serialization chain, so no two
+   workers claim one job on a fresh-read backend; `SessionStore.update(id, fn)`
+   is an atomic read-modify-write, so concurrent writers to one session merge
+   instead of dropping each other.
+10. **Failed builds emit nothing.** `precompileStage`/`artifactsStage`/
+    `linkStage` short-circuit on `ctx.diagnostics.hasErrors`, so a throwing build
+    leaves no partial `dist/` for watchers and SDK tooling to consume.
+11. **`SELECTION` is frozen.** The native/JS dispatch table and each
+    `OpDecision` are deep-frozen at module end — a runtime write cannot skew
+    dispatch.
+
+### 1.1 Hardening guards (request-in / request-out)
+
+| Guard | Module | Behaviour | Control class |
+| --- | --- | --- | --- |
+| `assertSafeRedirectTarget` | `packages/core/src/http/redirect-guard.ts` | Scheme/URL allow-list for `ctx.redirect`; `allowExternal: true` still blocks non-http(s) | OWASP open redirect / URL injection (WSTG-CLNT-04) |
+| `trustedHost()` | `packages/core/src/http/trusted-host.ts` | Case-insensitive, port-normalized Host allow-list; rejects control characters | Host-header poisoning / DNS rebinding |
+| `detectFramingConflict` | `packages/core/src/http/framing-guard.ts` | Rejects CL+TE, duplicate `Content-Length`, non-`chunked` TE → 400 `framing-conflict` | HTTP request smuggling |
+| `maxHeaderBytes` | `packages/core/src/http/header-cap.ts` | Byte tally (names + values + CRLF) at request entry → 431 | DoS — request size limits |
+| Instance-scoped state | `debug/tracer.ts`, `debug/nats-tracker.ts`, `platform/scheduler.ts`, `debug/logs.ts` | No module-level mutable ids/sequences; injectable `SpanIdSource`, crypto suffixes | Test isolation / order-independent suites |
+| Job-store serialization | `packages/core/src/platform/jobs-store.ts` | Per-instance read-modify-write chain; no double-claim | Lost-update / double-claim integrity |
+| `SessionStore.update` | `packages/core/src/security/session.ts` | Atomic per-id mutation on the backing store | Concurrent-writer integrity |
+| `hasErrors` gates | `packages/compiler/src/phases/*` | No artifacts on a failing build | Build failure hygiene |
+| `SELECTION` deep-freeze | `packages/native/src/selection.ts` | Immutable golden data | Read-only invariant |
+
+Note the native parse path: Bun parses headers in Rust, so the framing and
+header-cap guards are the framework-level defense (the interpreted path is
+guarded directly).
 
 ---
 
@@ -264,6 +303,20 @@ Bun is pinned via `env.BUN_VERSION` (was `latest`) — bump deliberately.
 - Lint baseline: `oxlint . && biome check .` should reach zero warnings before
   Phase 5 (hygiene) closes. Current accepted warning debt is being cleared.
 
+The suites behind the §1.1 guards (symptom lookup lives in
+`docs/ai/maintaining.md`):
+
+- `packages/core/test/redirect-guard.test.ts` + `redirect-port.test.ts`,
+  `trusted-host.test.ts`, `framing-guard.test.ts`, `header-cap.test.ts`.
+- `packages/core/test/{tracer,nats-tracker,scheduler,logs}-purity.test.ts`
+  (instance state, id isolation, warn-on-swap).
+- `packages/core/test/enterprise-{stability,scalability,integrity}.test.ts`
+  (teardown containment, claim race, batch coalescing, bounded rate limit,
+  crash artifacts, concurrent sessions, atomic counting).
+- `packages/compiler/test/enterprise-isolation.test.ts` (determinism,
+  empty-outDir-on-fail, build isolation, spec byte-identity).
+- `packages/native/test/selection.test.ts` (`SELECTION` well-formed AND frozen).
+
 ---
 
 ## 5. Cross-repo coordination (castrum, `Axylabs/flux-rs`)
@@ -371,7 +424,16 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     each move-only, gated the same way. The allowlist now holds the remaining
     **29** >400-line files (5 Tier B · 6 Tier C · 11 Tier D · 7 Tier E);
     highest-value next: `core/src/http/router.ts`, `compiler/src/sdk/*` and the
-    debug Tier-C files. `docs/ai/first-day.md` onboards a first-day contributor
-    (run → mental model → three exercises → package map). Each split stays
+    debug Tier-C files. `AGENTS.md` §First day onboards a first-day contributor
+    (run → mental model → three exercises). Each split stays
     move-only: identical behaviour, barrel re-exports, package suite +
     `verify:quick` + `check:dead`.
+13. **Full debug class→factory migration** — the `debug/` classes keep their
+    shapes; the instance-scoping work made the id/state surfaces safe where
+    races matter, and a wholesale conversion is not scheduled.
+14. **Parse-level incremental compilation** — the cache fingerprints whole
+    builds today; per-module parse reuse is tracked separately.
+15. **Distributed CAS for rate limiting / job claiming** — the plugin's atomic
+    path requires a store exposing `incr` (redis), and job claims rely on driver
+    atomicity plus owner-token leases. A pluggable CAS contract for non-atomic
+    shared stores is future work.

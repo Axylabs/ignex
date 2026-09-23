@@ -9,7 +9,7 @@
  * without bun-types (structural casts, same pattern as
  * `packages/native/src/bun.ts`).
  *
- * Benchmark evidence lives in `docs/bun-internals.md`:
+ * Benchmark evidence lives in `docs/native-acceleration.md`:
  *   - `Bun.write` ~3.8x faster than `node:fs/promises writeFile`
  *   - `Bun.spawnSync` ~1.19x faster than `node:child_process spawnSync`
  *   - `crypto.getRandomValues` ~87x faster than `node:crypto randomBytes`
@@ -64,7 +64,7 @@ export function commandExistsBun(command: string): boolean {
 
 /**
  * `n` CSPRNG bytes — `crypto.getRandomValues` (webcrypto, native in Bun and
- * Node ~87x vs `randomBytes` — see `docs/bun-internals.md`), with a
+ * Node ~87x vs `randomBytes` — see `docs/native-acceleration.md`), with a
  * `node:crypto` fallback for environments without the webcrypto global.
  */
 export function secureRandomBytes(n: number): Buffer {

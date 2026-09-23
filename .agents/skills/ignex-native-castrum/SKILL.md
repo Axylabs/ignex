@@ -37,7 +37,7 @@ the call: a regex test measured 1.7 ns).
 
 ## Working against the local castrum checkout (`bun link`)
 
-See `docs/ai/LOCAL_DEV.md` for the full workflow. Short version:
+See `AGENTS.md` §Local development for the full workflow. Short version:
 `cargo build --release --lib` + copy to `castrum.linux-x64-gnu.node`, run
 `bash scripts/build-v3.sh` for the x86-64-v3 SIMD variant the loader prefers,
 then `bun link` in the checkout and link/symlink it into

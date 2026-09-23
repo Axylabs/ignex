@@ -6,6 +6,62 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Six docs removed and folded into their owning doc** (no topic lost a home,
+  and `docs/README.md` no longer lists them):
+  - `docs/enterprise-grade.md` (a dated audit report — exactly the plan/log
+    artifact `RULES.md` §6 forbids) → its guards, control map and suite index
+    became `docs/stability.md` §1 items 7–11 + **§1.1 Hardening guards** and the
+    §4 suite index; the deferred work became `docs/stability.md` §6 items 13–15;
+    and the symptom → module → test rows (redirect/host/framing/header guards,
+    job double-claim, session lost-update, partial-dist-on-failure) moved to
+    `docs/ai/maintaining.md`. Three paths were wrong in the old doc and are now
+    correct (`http/trusted-host.ts`, `http/header-cap.ts`, and the
+    `platform/jobs-store.ts` / `security/session.ts` fixes).
+  - `docs/debugbar-ui.md` → the **UI design system** section of
+    `docs/debugbar.md`, compacted: the hex tables are gone (they duplicated
+    `packages/core/src/debug/ui/styles.css`, the stated source of truth) while
+    the normative rule, token roles, contrast floor, component catalog, icons,
+    a11y bar, add-a-view steps and guards stay.
+  - `docs/bun-internals.md` → the **Bun builtins decision matrix** section of
+    `docs/native-acceleration.md` (one "which implementation wins" matrix
+    instead of two); the eight source/script comments that cited it were
+    repointed.
+  - `docs/ai/first-day.md` + `docs/ai/LOCAL_DEV.md` → `AGENTS.md` **§First day**
+    (run it, the three-layer mental model, three exercises) and **§Local
+    development with the core projects** (the `bun link` workflow, cross-repo
+    edges `@ignex/native`→`castrum` and `@ignex/core`→`@ignex/nova`, and the
+    `IGNEX_NATIVE_PATH` / never-publish-from-a-link traps). `AGENTS.md` is now
+    the single agent doc; `docs/ai/` keeps only `maintaining.md`.
+  - `docs/ai/TREE.md` (a 1,254-line generated file tree that duplicated what
+    `list_dir`/`grep` give for free and rotted on every refactor) and its
+    generator `scripts/gen-ai-map.ts` + the `gen:ai-map` script. The
+    `check-maintainability` doc-hub/doc-ref rules no longer special-case it.
+
+- **Front-door docs rewritten for humans.** `README.md` shrank from an 843-line
+  reference dump to a 190-line front door: what ignex is, a 60-second quick
+  start, the three ideas behind it, a realistic route, and where to read next.
+  The feature tour moved to the docs that already own those topics (`docs/cookbook.md`
+  gained **Errors** and **Testing** recipes) and `docs/README.md` now opens with
+  "start here" paths instead of a bare table. `docs/getting-started.md` got a
+  warmer intro and a compressed HTTPS section. No new docs and no map changes —
+  one owner per topic. Also fixed three snippets that showed the route helpers
+  in the wrong argument order: they are `get(handler, schema?)`, and named hooks
+  live on the route's `export const config = { hooks: [...] }`.
+
+- **`@ignex/mcp` is now an optional peer of `@ignex/cli`, not a dependency.**
+  The MCP server pulls in the Model Context Protocol SDK — **91 packages** that
+  no other CLI command touches — so it was installed by `@ignex/cli`, and
+  therefore by `create-ignex` and every scaffolded app, to serve one command.
+  `ignex mcp` now `import()`s the peer at run time; when it is absent it exits
+  with install instructions (`bun add -d @ignex/mcp`, or run `bunx @ignex/mcp`).
+  Setups that already install `@ignex/mcp` next to the CLI are unaffected, and
+  `@ignex/mcp` itself still depends on `@ignex/cli`. Guarded by
+  `packages/cli/test/mcp-peer.test.ts` (the peer still resolves and exposes
+  `startMcpServer`) and `packages/cli/test/mcp-command.test.ts` (the actionable
+  failure when it does not).
+
 ### Removed
 
 - **Dead exports removed from the published surfaces** (breaking for anyone
@@ -47,8 +103,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Enterprise-hardening R2 primitives + regression suites** (audit, evidence
-  and control map in `docs/enterprise-grade.md`): new `SessionStore.update`
+- **Enterprise-hardening R2 primitives + regression suites** (guards, evidence
+  and control map in `docs/stability.md` §1.1): new `SessionStore.update`
   atomic read-modify-write primitive (no lost updates under concurrent
   writers), the failing-build artifact guarantee (compiler writes nothing on
   error), and four new suites that pin the invariants — `enterprise-stability`,
@@ -64,7 +120,7 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   collapsible sidebar, a `Cmd/Ctrl-K` command palette, a `PageHeader` on every
   view, and an accessibility pass (contrast-checked tokens, ARIA tabs with
   keyboard navigation, `role="img"` charts, landmarks and a skip link). The
-  contract is the new **`docs/debugbar-ui.md`** style guide, guarded by
+  contract is the **UI design system** section of `docs/debugbar.md`, guarded by
   `packages/core/test/debug-ui-tokens.test.ts`; the executed-bundle smoke now
   mounts all 15 views and asserts a header and emoji-free chrome. Debug-shaped
   only — no production behaviour or wire change.
@@ -280,8 +336,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 - **Docs corrected against the code** (they described a repo that no longer
   exists): `ignus` → `ignex`, `bun-rust-runtime-bench` → `/home/adeel/poc/castrum`,
   `ignex-nova` → `nova`, `ignex-mongodb` → `ninox` across `RULES.md`,
-  `docs/ai/LOCAL_DEV.md`, `docs/compatibility.md`, `docs/architecture.md`,
-  `docs/native-acceleration.md`, `docs/bun-internals.md`,
+  `docs/compatibility.md`, `docs/architecture.md`,
+  `docs/native-acceleration.md`,
   `docs/comparison-bench.md`, `docs/release-process.md` and the native/castrum
   skills; the version table in `docs/compatibility.md` and the
   `CHANGELOG` ↔ `package.json` note in `AGENTS.md`/`RULES.md` now say 0.1.32.
@@ -1548,9 +1604,9 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   path is unchanged.
 - `compiledPathFor` memoizes path→regex compilation on the interpreted
   router's hot path (route paths are a finite registration-time set).
-- `docs/bun-internals.md` gained Bun 1.4 rows (Bun.cron, Bun.markdown,
+- `docs/native-acceleration.md` gained Bun 1.4 rows (Bun.cron, Bun.markdown,
   Bun.stringWidth family, `bun run --parallel`, `Bun.serve` static routes
-  decision); `docs/native-acceleration.md` gained the 2026-08-22 wiring
+  decision); it also gained the 2026-08-22 wiring
   decisions; `docs/debugbar.md` gained a UI tour.
 
 ### Removed

@@ -1,21 +1,23 @@
-# AGENTS.md — ignex (ignus framework monorepo)
+# AGENTS.md — ignex monorepo
 
 Guidance for AI coding agents working in this repository. Read this before
-editing code. Human-facing docs: `README.md` (pitch + compiler + status) and
+editing code. Human-facing docs: `README.md` (pitch + quick start + status) and
 `docs/*.md` (architecture, router, native-acceleration, sdk, release-process,
 getting-started, cookbook, …). Agent skills: `.agents/skills/*/SKILL.md`.
-Cross-repo local development: `docs/ai/LOCAL_DEV.md`.
 
-**New here?** Start with `docs/ai/first-day.md` — run it, the three-layer mental
-model, three exercises, and where each package lives.
+**New here?** Run [First day](#first-day) below — it takes you from a cold clone
+to a passing gate, then gives you the three-layer mental model and three
+exercises. Local cross-repo work is in
+[Local development](#local-development-with-the-core-projects-bun-link).
 
 **AI scaffolding index** (this repo):
 - `RULES.md` — the non-negotiable coding rules (bun-first, rust-core-first via
   `@ignex/native`, functional composition, vitest discipline, docs discipline).
 - `.agents/skills/` — task-specific runbooks (codebase map, core framework,
   native/castrum bridge, cli & compiler, sdk & openapi, contributing).
-- `docs/ai/TREE.md` — auto-generated scaffold (`bun run gen:ai-map`).
-- `docs/ai/LOCAL_DEV.md` — `bun link` workflow (this repo is a CORE project).
+- `docs/ai/maintaining.md` — symptom → origin module → pinning test.
+- `docs/decisions/` — accepted design choices (D-001…), each with a
+  Verification clause.
 
 ## What this project is
 
@@ -47,9 +49,43 @@ live in `@ignex/core` (functional composition, no classes). Tests use
 | Native parity checks | `bun run verify:native:route` / `verify:native:ffi` / `verify:aot:rbac` / `verify:cli:resource` / `check:native:surface` (vendor/castrum.d.ts ↔ real addon drift) |
 | Secret scan | `bun run scan:secrets` |
 | New package | `bun scripts/new-package.ts` |
-| Regenerate AI scaffold | `bun run gen:ai-map` |
 
-## Where things live (short map — full detail in docs/architecture.md + docs/ai/TREE.md)
+## First day
+
+```sh
+bun install          # workspace deps (the castrum addon arrives via optionalDependencies)
+bun run verify:quick # typecheck + typecheck:cli + lint + jsdoc + check:debug-ui + maintainability
+bun run dev          # start the reference app in packages/app
+```
+
+`verify:quick` is the fastest full sanity check. `bun run verify` adds tests,
+the dead-code scan and the parity gates; `bun run verify:full` adds coverage,
+the native smoke lanes and cache-version checks.
+
+**The three-layer mental model** — debugging and feature work both use it:
+
+1. **Mechanical** — `scripts/check-maintainability.ts` (+ `maintainability.json`):
+   size cap (shrink-only `knownOver` allowlist), debt markers, orphan build
+   dirs, duplicate files, `@fileoverview`, and the doc-rot guard (backticked
+   repo paths in `docs/decisions` Verification lines, `.agents/skills/**/SKILL.md`
+   and `docs/ai/*.md` must resolve).
+2. **Why** — `docs/decisions/` (D-001 …): each accepted design choice with a
+   Verification clause.
+3. **Where from** — `docs/ai/maintaining.md`: symptom → origin module → pinning
+   test. Start here when a bug report says "it returns a weird 429".
+
+**Three exercises** that work as a first contribution:
+
+- **Trace a bug.** Pick any row in `docs/ai/maintaining.md`, open the origin
+  module, read its decisions entry, run the pinning test, then change one
+  behavior and watch that test fail before reverting.
+- **Add a route plugin.** Follow section A of `docs/adding-a-feature.md`
+  (factory, no classes; export + JSDoc). Run `bun run verify:quick` before
+  pushing.
+- **Run the gates.** `bun run verify:quick`, `bun run test:parallel`, and
+  `bun run smoke:fallback` (`IGNEX_NATIVE=off` — the no-native parity lane).
+
+## Where things live (short map — full detail in docs/architecture.md)
 
 ```
 packages/
@@ -75,10 +111,10 @@ packages/
   create/       create-ignex scaffolder
   test-utils/   shared test helpers
 scripts/        maintainer scripts (verify-*, bench-*, check-*, smoke, sdk,
-                release, select-native, scan-secrets, new-package, gen-ai-map)
+                release, select-native, scan-secrets, new-package)
 bench/          compare/ (framework comparison harness) + run-bench helpers
 docs/           feature docs only — see the doc index below; docs/ai/ is
-                agent scaffolding (LOCAL_DEV.md + generated TREE.md)
+                agent scaffolding (maintaining.md + the ADR-lite decisions/)
 ```
 
 ## Doc index
@@ -88,11 +124,60 @@ per persona — is **`docs/README.md`** (one owner per topic: extend a row, neve
 start a parallel doc; `check:maintainability` enforces it). Quick links:
 `docs/architecture.md`, `docs/router.md`, `docs/getting-started.md`,
 `docs/adding-a-feature.md`, `docs/release-process.md`, `docs/debugbar.md`,
-`docs/ai/first-day.md`, `docs/ai/LOCAL_DEV.md`, `docs/ai/TREE.md`.
+`docs/stability.md`, `docs/ai/maintaining.md`.
 
 Completed plans and dated measurement logs are **not** kept as docs — fold the
 still-live conclusion into the owning doc (or `CHANGELOG.md`) and delete
 the plan. `git log` is the archive.
+
+## Local development with the core projects (`bun link`)
+
+This repo **is** a core project: consumers link its packages. The sibling core
+repos live one directory back in `/home/adeel/poc/` — `castrum`, `ninox`,
+`nova`. Application developers consuming published versions never need this.
+
+```sh
+# Register the package (once per machine, from the package dir):
+cd /home/adeel/poc/ignex/packages/core && bun link
+
+# Link it into a consumer (--save records "link:@ignex/core" in package.json):
+cd /home/adeel/poc/my-app && bun link @ignex/core
+```
+
+Cross-repo edges (verify with `grep` in `package.json` before assuming):
+
+- **`@ignex/native` → `castrum`** (`optionalDependencies: ^0.9.10`). Build the
+  addon files the loader looks for, register it, then link (a bare
+  `target/release/libcastrum.so` is not enough — the loader needs a
+  package-shaped checkout):
+  ```bash
+  cd /home/adeel/poc/castrum
+  cp target/release/libcastrum.so castrum.linux-x64-gnu.node   # baseline
+  bash scripts/build-v3.sh                                     # x86-64-v3 SIMD variant
+  bun link                                                     # register castrum
+
+  cd /home/adeel/poc/ignex
+  bun link castrum                       # root node_modules/castrum → checkout
+  ln -s /home/adeel/poc/castrum packages/native/node_modules/castrum
+  ```
+  The symlink is created directly because `bun link castrum` *inside*
+  `packages/native` fails (`@ignex/test-utils@workspace:*` does not resolve
+  outside the workspace root); it is the same link state bun would produce.
+- **`@ignex/core` → `@ignex/nova`** (optional peer): `cd /home/adeel/poc/nova
+  && bun link`, then `cd packages/core && bun link @ignex/nova`.
+- **Rust cdylibs go stale the moment the Rust source changes** — rebuild before
+  linking (`castrum`: `bun run build`; nova: `bun run build:rust`), then re-run
+  the native gates (`verify:native:ffi`, `verify:native:route`, `smoke`,
+  `bench:server:check`). A stale `.node` silently serves old behavior.
+
+Traps worth knowing:
+
+- A forgotten `IGNEX_NATIVE_PATH` from an earlier session silently wins over the
+  link (it is the loader's first resolution step) and reads exactly like "the
+  link did not work": `echo "${IGNEX_NATIVE_PATH:-<unset>}"`.
+- **Never publish from a linked tree** — that ships symlinks, not packages.
+  CI and releases always resolve from the registry (`scripts/release.ts`); keep
+  `bun link` strictly local.
 
 ## Rules (full text in RULES.md)
 
@@ -104,7 +189,7 @@ the plan. `git log` is the archive.
    public surfaces; small pure functions in small files, domain folders.
 4. **Vitest, not bun test** — suites under `packages/*/test`; `test:parallel`.
 5. **Docs discipline** — docs must match code; keep `AGENTS.md`/`RULES.md`/
-   skills/TREE in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json
+   skills in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json
    (workspace version: 0.1.32 — everything is under the single `[Unreleased]`
    heading until `scripts/release.ts` finalizes it; keep entries flowing, don't
    let the versions drift silently).

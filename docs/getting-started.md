@@ -1,9 +1,11 @@
-# Getting Started
+# Getting started
 
-> How to go from zero to a running Ignex API in a few minutes.
+This is the long-form version of the [README](../README.md) quick start. In
+about five minutes we'll scaffold a project, write a few routes, add validation,
+build, and run it.
 
-Ignex is an AOT-first TypeScript framework for high-performance HTTP APIs on
-[Bun 1.4+](https://bun.sh). Routes are files; the compiler turns them into an
+ignex is an AOT-first TypeScript framework for HTTP APIs on
+[Bun 1.4+](https://bun.sh). Routes are files, and the compiler turns them into an
 optimized `Bun.serve` server with generated types, an OpenAPI spec, and a typed
 client.
 
@@ -11,7 +13,7 @@ client.
 
 - [Bun](https://bun.sh) ≥ 1.4 (`curl -fsSL https://bun.sh/install | bash`)
 
-That's it. No global install required — the CLI is fetched on demand.
+That's it — there's nothing to install globally. The CLI is fetched on demand.
 
 ## 2. Create a project
 
@@ -45,29 +47,28 @@ Rust addon is active:
 ℹ Native: off (pure-TS fallback)  # still fully functional
 ```
 
-**HTTPS, HTTPS + HTTP/2, or HTTP — you choose at scaffold time.** The create
-wizard asks a `Protocol` question (`https` by default; pass `--protocol https2`
-for HTTPS + HTTP/2 over TLS, `--protocol http` for plain HTTP/1). The
-generated `src/app.config.ts` types its `server` export with the public
-`ServerConfig` interface from `@ignex/core`, so every knob is discoverable and
-type-checked:
+**HTTPS is on by default.** The create wizard asks which protocol you want
+(`https` is the default; `--protocol https2` adds HTTP/2 over TLS, `--protocol
+http` gives you plain HTTP/1). The generated `src/app.config.ts` types its
+`server` export with the public `ServerConfig` interface, so every knob is
+discoverable:
 
 ```ts
 export const server: ServerConfig = {
   port: env.PORT,
-  https: true, // or false for plain HTTP/1
-  h2: true, // HTTP/2 over TLS (ALPN) — Bun ≥1.4.1; server.http2: true also works
+  https: true, // false for plain HTTP/1
+  h2: true, // HTTP/2 over TLS (ALPN) — Bun ≥1.4.1
 };
 ```
 
-With HTTPS, ignex enables TLS at startup. In development it auto-generates a
-local certificate (mkcert → openssl fallback) and caches it under
-`.ignex/certs`, logging where it came from. With `h2: true`, Bun serves
-HTTP/2 on that same TLS port — clients that offer `h2` during ALPN (browsers,
-`curl --http2`) get HTTP/2, everyone else gets HTTP/1.1, so existing
-HTTP/1.1 tooling keeps working (WebSocket `upgrade()` is HTTP/1.1-only). The
-server also logs the base and OpenAPI URLs at boot — with the scheme you chose
-(plain HTTP logs `http://…`):
+In development ignex generates a local certificate for you (mkcert → openssl),
+caches it under `.ignex/certs`, and logs where it came from. With `h2: true`,
+Bun serves HTTP/2 to clients that negotiate it (browsers, `curl --http2`) and
+HTTP/1.1 to everyone else — so existing tooling keeps working. If neither mkcert
+nor openssl is available, it warns and falls back to HTTP/1; nothing breaks.
+
+The server logs its base URL and the OpenAPI URL at boot, using the scheme you
+chose:
 
 ```
 [ignex] HTTPS enabled with a locally-trusted dev certificate (mkcert) from …/.ignex/certs.
@@ -75,12 +76,10 @@ ignex listening on https://localhost:3000
 [ignex] openapi: https://localhost:3000/openapi — API docs UI (spec at https://localhost:3000/openapi.json)
 ```
 
-- No mkcert/openssl? It warns and **falls back to HTTP/1** — nothing breaks.
 - Supply your own certs with `server.tls: { certFile, keyFile }`, or force plain
-  HTTP/1 later with `server.https: false` (or `IGNEX_HTTPS=0` for CI/tooling).
-- Bun ≥1.4.1 supports HTTP/2 in `Bun.serve` (experimental). HTTP/3 (QUIC) and
-  managed public certificates are a different story — put **Caddy** (or
-  nginx/Cloudflare) in front for HTTP/3 and auto-provisioned certs.
+  HTTP later with `server.https: false` (or `IGNEX_HTTPS=0` for CI).
+- HTTP/3 and managed public certificates are a different story — put **Caddy**
+  (or nginx/Cloudflare) in front for those. See [deployment](deployment.md).
 
 ## 3. Your first route
 
@@ -103,10 +102,10 @@ import { get } from "@ignex/core/http";
 import { Type } from "typebox";
 
 export default get(
+  (ctx) => ctx.json({ id: ctx.params.id }),
   {
     params: Type.Object({ id: Type.String() }),
   },
-  (ctx) => ctx.json({ id: ctx.params.id }),
 );
 ```
 
@@ -175,8 +174,9 @@ Each build emits, next to the server:
 
 ## 6. Where to go next
 
-- [Cookbook](cookbook.md) — recipes for sessions, jobs,
-  i18n, SSE, WebSockets, templates, rate limiting, caching, and more.
+- [Cookbook](cookbook.md) — recipes for sessions, jobs, i18n, SSE, WebSockets,
+  templates, rate limiting, caching, errors and testing.
+- [Documentation map](README.md) — every doc, its audience and its maturity.
 - [CLI reference](../packages/cli/README.md) — every command and scaffold flag.
 - [Example app](../packages/app/README.md) — the reference app exercising the
   full feature set.

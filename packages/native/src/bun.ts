@@ -75,7 +75,7 @@ export const bunHmacSha256: HmacFn | null =
 /**
  * SHA-1 → standard base64 (RFC 6455 `Sec-WebSocket-Accept`) via
  * `Bun.CryptoHasher` when available (~1.1–1.25x faster than `node:crypto`
- * `createHash("sha1")` — see `docs/bun-internals.md`). The digest is returned
+ * `createHash("sha1")` — see `docs/native-acceleration.md`). The digest is returned
  * in the same standard-base64 form the pure-TS `wsAcceptKey` fallback
  * produces, so the websocket handshake stays byte-identical across backends.
  */

@@ -41,10 +41,20 @@ ambient declaration left is `vendor/castrum.d.ts` (the out-of-repo Rust
 addon), mapped through root tsconfig `paths` so the repo type-checks even
 when the addon isn't installed.
 
+`@ignex/mcp` follows the same pattern from the other direction: it is an
+**optional peer** of `@ignex/cli`, not a dependency. The MCP server pulls in
+the Model Context Protocol SDK (**~90 packages**) that no other command
+touches, so pulling it into `@ignex/cli` — and therefore into `create-ignex`
+and every scaffolded app — cost far more than the one command it serves.
+`ignex mcp` now `import()`s the peer at run time and, when it is missing,
+exits with install instructions (`bun add -d @ignex/mcp`, or `bunx
+@ignex/mcp`). Keep it that way: re-adding it as a dependency silently
+re-inflates the scaffold's install graph.
+
 **Nova and ninox are external standalone packages** (no ambient stubs):
 `@ignex/nova` and `@ignex/ninox` are developed in their own repos (`nova`,
 `ninox`) and consumed here through **registry semver ranges**; local work uses
-`bun link` (`docs/ai/LOCAL_DEV.md`), not `file:` overrides — the root
+`bun link` (`AGENTS.md` §Local development), not `file:` overrides — the root
 `package.json` has no `overrides` block. The tsconfig `paths` entries that
 previously shadowed `@ignex/nova/*` with a type-only stub (and broke
 `novaPlugin`'s lazy `import()` under Bun, which honors `paths` at runtime) are

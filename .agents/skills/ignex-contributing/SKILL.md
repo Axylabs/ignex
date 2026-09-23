@@ -41,8 +41,8 @@ is the human walkthrough; `docs/release-process.md` covers releases.
    changes add `bun run smoke` + `smoke:fallback`.
 4. **Bench** — hot paths: `bun run bench:*` before/after; never assume.
 5. **Docs** — update `docs/*.md` if behavior changed, keep
-   `AGENTS.md`/`RULES.md`/relevant `SKILL.md` in sync, regenerate the scaffold:
-   `bun run gen:ai-map`. Keep `CHANGELOG.md` current (package.json is 0.1.7).
+   `AGENTS.md`/`RULES.md`/relevant `SKILL.md` in sync. Keep `CHANGELOG.md`
+   current (it tracks the workspace package version).
 6. **Scan** — `bun run scan:secrets` before pushing.
 
 ## Do NOT
@@ -50,6 +50,6 @@ is the human walkthrough; `docs/release-process.md` covers releases.
 - Import castrum directly outside `packages/native`.
 - Make native a hard dependency or break `IGNEX_NATIVE=off` parity.
 - Mutate the `SELECTION` table at runtime.
-- Hand-edit generated artifacts (compiler output, `packages/app/dist`, SDK).
+- Hand-edit generated artifacts (compiler output, `packages/app/dist/**`, SDK).
 - Introduce classes into public surfaces where the pattern is composition.
 - Forget the doc/skill sync — stale docs are a merge-blocking smell here.

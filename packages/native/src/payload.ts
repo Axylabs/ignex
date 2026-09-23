@@ -285,7 +285,7 @@ export const wsAcceptKey = (key: string): string => {
   }
   const plain = key + WS_GUID;
   // Under Bun, `Bun.CryptoHasher` SHA-1 beats `node:crypto` (~1.1–1.25x — see
-  // docs/bun-internals.md) and yields the same standard-base64 accept value.
+  // docs/native-acceleration.md) and yields the same standard-base64 accept value.
   if (bunSha1Base64) return bunSha1Base64(plain);
   return createHash("sha1").update(plain).digest("base64");
 };

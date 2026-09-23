@@ -16,7 +16,7 @@ rows, tabular numerals in every metric, and a one-shot flash on freshly-arrived
 traces so the live tail is visible without staring at timestamps. It keeps thin
 scrollbars, `focus-visible` rings and a `prefers-reduced-motion` guard. The
 design system behind it — tokens, components, accessibility bar — is documented
-in `docs/debugbar-ui.md`.
+in [UI design system](#ui-design-system-contributors).
 
 - **Sidebar** — a brand block (`name@version · environment`) over four labelled
   groups: **Observe** (Requests, Errors, Logs, History, Routes), **Runtime**
@@ -724,7 +724,8 @@ modules under `packages/core/src/`:
   and the SSE hub that pushes them (single-use short-TTL tickets authenticate
   EventSource without ever putting tokens in query strings at rest).
 - `debug/ui/` — the SPA source (SolidJS + Tailwind, compiled ahead of time).
-  The design system it implements is documented in `docs/debugbar-ui.md`:
+  The design system it implements is documented in
+  [UI design system](#ui-design-system-contributors):
   - `ui/views/*` + `registry.tsx` — one small component per panel (requests,
     detail, logs, history, metrics, diagnostics, system, state, jobs, routes,
     events, clients, AI, KT, Docs) plus the single view registry that drives
@@ -766,6 +767,213 @@ modules under `packages/core/src/`:
   `persist.ts` / `leaks.ts` / `state.ts` / `kt.ts` — unchanged runtime core;
   the store/log/NATS classes now accept an optional `onNotify` hook that feeds
   the revision counters.
+
+## UI design system (contributors)
+
+> The contract the dashboard SPA (`packages/core/src/debug/ui`) is held to: one
+> token layer, one page layout, one component vocabulary.
+
+The dashboard is a dense, neutral developer tool (Chrome DevTools / Grafana
+class): near-neutral surfaces, a single restrained interactive accent, monospace
+numerics, compact rows, high contrast, dark-first with true light parity. It is
+a dependency-free SolidJS + Tailwind SPA compiled **ahead of time** into the
+committed `packages/core/src/debug/dashboard-client.gen.ts` by
+`scripts/gen-debug-ui.ts` — no runtime build step, and the artifact is checked
+for freshness by `bun run check:debug-ui`.
+
+The design system exists so that 15 views plus two detail surfaces read as one
+product and cannot drift: every color, type size, radius and surface is a token;
+every repeated pattern is a component; the remaining unbounded values are only
+layout dimensions. Three rules keep it honest:
+
+1. The token layer is the only source of color and type.
+2. Repeated appearance lives in a component, never in a view.
+3. Tests pin the token scale, the contrast floor, and the absence of arbitrary
+   typography/color.
+
+### The normative rule
+
+> **Utilities for layout, components for appearance, tokens for color.
+> Arbitrary values only for layout dimensions — never typography or color.**
+
+- Layout (flex/grid, gaps, padding, `max-w-[…]`, `grid-template-columns`, fixed
+  chart heights) uses Tailwind utilities directly in the view.
+- Appearance (borders, surfaces, radius, badges, buttons, tables) comes from a
+  primitive in `ui/components/`; views do not restate card/badge/button styles.
+- Color always resolves through a token (`bg-surface-1`, `text-muted`,
+  `var(--cat-3)`) — never a literal like `text-[#4d9cff]` or `text-[13px]`.
+- `ui/styles.css` holds tokens + `@theme` + irreducible custom CSS only
+  (waterfall geometry, span-tree indent, markdown descendant typography,
+  keyframes). It defines no component surfaces.
+
+`ui/components/button.tsx` is the one documented exception to "no literal color":
+the primary button derives a darker fill from `--accent` because `--accent-fg` on
+raw `--accent` is only ~2.8:1. It is a `color-mix` over a token, not a hard-coded
+hex.
+
+### Tokens
+
+Source of truth — the hex values, both themes, and the `@theme inline` mapping
+that turns tokens into Tailwind utilities — is
+`packages/core/src/debug/ui/styles.css`. Light theme redefines the **complete**
+list, not a subset. The roles:
+
+| Token | Role |
+| --- | --- |
+| `--bg` / `--surface-1…3` | app canvas, card surface, raised surface, input/track |
+| `--border` / `--border-strong` | hairline, emphasized hairline |
+| `--text` / `--text-muted` / `--text-faint` | primary, secondary, tertiary text |
+| `--accent` / `--accent-fg` / `--accent-soft` | the one interactive color, text on an accent fill, accent tint |
+| `--ok` / `--warn` / `--err` / `--info` (+ `--*-soft`) | status and its tints |
+| `--cat-1…8` | categorical data (span kinds, HTTP methods, client platforms) |
+| `--overlay` | the one translucent surface for palette / dialog / drawer |
+
+**Accent discipline (normative).** Accent marks interactive or active state
+only — active nav, focus ring, links, the primary button, selected-row edge,
+chart lines. It never decorates titles or numbers. Status uses the semantic
+tokens; categories use `--cat-*`. There are no gradients, glows or accent halos.
+
+**Contrast floor.** Every text token clears **≥ 4.5:1** on `--surface-1` in
+**both** themes: `--text`, `--text-muted`, `--text-faint`. Status text (badges,
+callouts, error states) also carries a **text label**, so status is never
+conveyed by color alone. Solid accent fills must not place `--accent-fg` straight
+on raw `--accent`; use the primary `Button`'s derived fill (≈5.3:1 dark / ≈7.9:1
+light). The floor is asserted by `debug-ui-tokens.test.ts` — a token that drops
+below it fails CI.
+
+**Type** — one 6-step ramp replaces per-view font sizes; every number, id, path
+and code sample uses `--mono` with `font-variant-numeric: tabular-nums`:
+
+| Token | Size | Tailwind alias | Use |
+| --- | --- | --- | --- |
+| `--fs-xs` | 11px | `text-xs` | labels, badges, meta |
+| `--fs-sm` | 12px | `text-sm` | body, table cells, buttons |
+| `--fs-md` | 13px | `text-md` | inputs, dense body |
+| `--fs-lg` | 15px | `text-lg` | sub-headings |
+| `--fs-xl` | 20px | `text-xl` | view `h1` |
+| `--fs-2xl` | 28px | `text-2xl` | hero numerics (KT) |
+
+Line-height: tight 1.25 for headings, normal 1.5 for body.
+
+**Spacing / radius / elevation / motion** — Tailwind's 4px scale; vertical rhythm
+comes from a page stack (`AppShell` wraps the outlet in `flex flex-col gap-4`,
+each view stacks `PageHeader` → `StatRow`/`Toolbar` → cards/tables; cards own
+`p-4`, or all spacing with `pad={false}`). Radii: `--radius-sm` 6px,
+`--radius-md` 8px, `--radius-lg` 12px, plus full pills for counts — no others.
+Elevation is 1px borders, not shadows; one soft `--shadow` is reserved for
+overlays. Motion is 120ms on color/border/background only, plus the 1.6s
+`row-fresh` flash, the live-dot pulse and a blanket
+`@media (prefers-reduced-motion: reduce)` override.
+
+### Component catalog
+
+Import each primitive from its owning module (there is no barrel).
+
+Layout (`ui/layout/`):
+
+| Component | Contract |
+| --- | --- |
+| `AppShell` | Composition root: skip link, sidebar, context bar, `<main id="view">`, status bar, palette and toast; owns global shortcuts, delegated `[data-copy]` clicks, the SSE stream and its silent-stream watchdog. |
+| `Sidebar` | Grouped, collapsible nav (`full` / 56px `rail` / off-canvas `drawer`) rendered from `NAV_GROUPS`. |
+| `NavItem` | One sidebar link: icon + label + optional live badge, `aria-current="page"` when active. |
+| `ContextBar` | Sticky `service / View` breadcrumb plus nav toggle and the global live-tail / refresh / theme / palette controls; per-view actions live in the view's `PageHeader`. |
+| `CommandPalette` | `Cmd`/`Ctrl-K` `role="dialog"` fuzzy palette over the 15 views plus quick actions; combobox-driven `listbox`, background `inert`, focus trapped and restored. |
+
+Primitives (`ui/components/`):
+
+| Component | Contract |
+| --- | --- |
+| `Icon` | Inline-SVG chrome glyph (`IconName`, 16px default, `stroke="currentColor"`); the only icon surface. |
+| `Button` | `primary` / `ghost` / `danger` / `icon` × `sm` / `md`, optional `icon` / `title` / `ariaPressed` / `dataCopy`. |
+| `Badge` | `tone`-driven status/label chip (soft or solid, optional mono); domain wrappers (`MethodBadge`, `StatusBadge`, `KindBadge`, `LevelBadge`, `SqlBadge`, `Chip`, `CountChip`, `DirPill`) map values onto tones/categorical tokens. |
+| `Card` | Titled token surface (`title` / `description` / `actions`), `pad={false}` for edge-to-edge content; `CardGrid` is an auto-fill grid. |
+| `Callout` | Tone-coloured advisory banner (`ok` / `warn` / `err` / `info`) with a default tone icon. |
+| `Disclosure` | Native `<details>` collapsible with an icon chevron and optional count badge. |
+| `PageHeader` | The view's single `<h1>` plus description, actions and optional back/badge — the one header every view renders. |
+| `Toolbar` | Filter/action strip above a table or grid; `sticky` pins it under the context bar. |
+| `Stat` | Numeric tile (mono tabular; tone colours the value only); `StatRow` / `StatGrid` lay tiles out responsively. |
+| `DataTable` | Dense, scroll-contained table with sticky `<thead>`, `align` columns, and `empty` / `loading` slots. |
+| `Tabs` | ARIA `tablist` with roving tabindex (Arrow/Home/End move selection and focus). |
+| `Field` / `Select` / `SearchInput` | Labelled field wrapper, token-styled native select, and the search box (`id="search"` so `/` focuses it). |
+| `EmptyState` / `LoadingState` / `ErrorState` | The three non-data renders (`role="status"` + `aria-busy`; `role="alert"` + optional retry). |
+| `Kvs` | Key/value definition grid (`headerRows` adapts a headers record). |
+| `Chart` | Fixed-height canvas sparkline with `role="img"` + `aria-label`, current/min/max repeated as text. |
+| `BarRow` / `BarTrack` | Horizontal bar geometry for per-kind totals. |
+
+Detail geometry (`ui/components/detail-parts.tsx`) — the waterfall, time
+breakdown, query table and body/error blocks are genuinely 2-D and stay as
+focused components backed by the irreducible CSS in `styles.css`:
+`TimeBreakdown`, `Waterfall`, `QueriesTable`, `BodyPanel`.
+
+**Icons** — a hand-rolled ~37-glyph inline-SVG set in `ui/components/icon.tsx`
+(no icon dependency, no emoji chrome). Every view, nav entry and button draws
+from `IconName`; `iconForView(id)` maps registry ids, `iconForCommand` maps
+palette commands. Add a glyph by extending the `IconName` union and its `PATHS`
+entry, then update the icon guard. Data-typographic marks are **not** chrome and
+stay as text: `↳` (wire round-trip), `→` (target/relation), `…` (idle/missing),
+`—` (empty value), and the `⌘K` keyboard hint.
+
+**Accessibility bar** — landmarks plus a skip link targeting `<main id="view">`;
+`aria-current="page"` on the active nav item; all token text ≥ 4.5:1 and status
+always labelled; a visible accent focus treatment on every interactive control
+(`outline-2 outline-accent outline-offset-2` for buttons/nav/tabs, accent border
++ `ring-accent/25` for inputs, base `:focus-visible` ring otherwise); `aria-pressed`
+on the live-tail toggle; `role="img"` charts with textual current/min/max; tables
+with `<th scope="col">` and right-aligned tabular numerics; hit targets ≥ 28px;
+`prefers-reduced-motion` disabling transitions/animations. The keyboard map is
+documented in the status bar (`0–9`, `/`, `r`, `t`, `⌘K`).
+
+### How to add a view
+
+1. **Registry entry** — add `{ id, label, key, domain, component }` to `VIEWS` in
+   `ui/views/registry.tsx`; add the id to the router's `KNOWN_VIEWS` in
+   `ui/router.ts`.
+2. **Nav** — add the id to the right group in `ui/nav.ts` (`GROUP_ORDER`) and map
+   an icon in `VIEW_ICONS`.
+3. **Module** — create `ui/views/<id>.tsx`. Start with `PageHeader` (title +
+   description, plus an `actions` slot only when the view has actions) and
+   compose `StatRow` / `Toolbar` / `DataTable` / `Card` / states from
+   `ui/components/`. Fetch through `ui/api.ts`; never hand-roll a card, badge or
+   table.
+4. **Page archetype** — pick one and match it: *List/monitor* (`PageHeader` →
+   `StatRow` → `Toolbar` → `DataTable` → states), *Dashboard* (`PageHeader` →
+   `StatRow` → card grid / callouts), *Detail* (`PageHeader` → summary strip →
+   `Tabs` → panels), *Reference* (`PageHeader`/hero → sectioned cards).
+5. **Tests** — the nav guard (`debug-ui-nav.test.ts`) pins registry↔nav sync, and
+   the executed-bundle smoke (`debugbar-dashboard-runtime.test.ts`) mounts every
+   view and asserts a non-empty `PageHeader <h1>` and emoji-free chrome.
+6. **Regenerate** — `bun run gen:debug-ui`, then `bun run verify:quick` and
+   `bun run test:core`.
+
+### Running the guards
+
+```sh
+# token scale, both-theme contrast floor, no removed tokens,
+# no arbitrary typography/color in ui/ sources
+bunx vitest run packages/core/test/debug-ui-tokens.test.ts
+
+# executed-bundle smoke: every view renders an <h1>, no emoji chrome,
+# nav/palette/icon/tabs/router/theme guards
+bunx vitest run packages/core/test/debug-ui-*.test.ts \
+  packages/core/test/debugbar-dashboard-runtime.test.ts
+```
+
+`bun run verify:quick` includes `check:debug-ui` (artifact freshness) and
+`check:maintainability`; edit `ui/`, then **always** run `bun run gen:debug-ui`
+before committing or the freshness check fails.
+
+### Manual review checklist
+
+The dashboard cannot be rendered headlessly (an open SSE stream + TLS wedge
+headless Chromium), so a visual pass is a manual `bun run dev:debug` against this
+list — stated, not assumed. Check: sidebar groups and active state, the ≤1100px
+rail and ≤760px drawer; one accent only, no gradients/glows/emoji; every view
+shows a header with a title and description, plus actions where the view has any;
+light and dark both legible (especially pills and `--text-faint`); tables keep
+their sticky header inside the scroll container with right-aligned numerics; the
+waterfall, time breakdown, query expandables and the docs two-pane (side-by-side
+at ≥1024px, stacked below) at 1440/1100/760px; and the palette keyboard flow,
+focus rings and live-tail toggle.
 
 ## API endpoints
 

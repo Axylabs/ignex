@@ -13,7 +13,7 @@ const toBytes = (input: string | ArrayBuffer | Uint8Array): Uint8Array => {
 
 /**
  * `Bun.hash.wyhash` — a C++ 64-bit hash that beats `fnv1a64` by ~16x for
- * runtime-local keys (see `docs/bun-internals.md`). Detected once at load;
+ * runtime-local keys (see `docs/native-acceleration.md`). Detected once at load;
  * falls back to the `@ignex/native` `fnv1a64` (castrum native or pure-TS)
  * when not running under Bun.
  */

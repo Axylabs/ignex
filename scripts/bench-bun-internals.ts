@@ -11,7 +11,7 @@
  * representative payloads, using a median of interleaved trials for noise
  * stability.
  *
- * Verdict rules (see `docs/bun-internals.md` for the resulting matrix):
+ * Verdict rules (see `docs/native-acceleration.md` for the resulting matrix):
  *   - ratio >= 1.05 → "bun wins"  — swap when byte-compatible.
  *   - ratio <= 0.95 → "keep"      — current impl stays.
  *   - otherwise      → "parity"   — swap when byte-compatible (no slowdown).

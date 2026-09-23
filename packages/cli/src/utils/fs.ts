@@ -13,7 +13,7 @@ export async function exists(path: string): Promise<boolean> {
 
 export async function writeFileEnsuringDir(path: string, data: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  // `Bun.write` when running under Bun (~3.8x — docs/bun-internals.md).
+  // `Bun.write` when running under Bun (~3.8x — docs/native-acceleration.md).
   await bunWriteFile(path, data);
 }
 

@@ -293,7 +293,7 @@ export interface PasswordHasher {
 export const createPasswordHasher = (options?: PasswordHashOptions): PasswordHasher => ({
   // `crypto.getRandomValues` (webcrypto) is the fast, portable CSPRNG — native
   // in Bun (~87x vs `node:crypto` randomBytes for small buffers — see
-  // docs/bun-internals.md) and available in Node too.
+  // docs/native-acceleration.md) and available in Node too.
   hash: async (password) => {
     const salt = new Uint8Array(16);
     crypto.getRandomValues(salt);

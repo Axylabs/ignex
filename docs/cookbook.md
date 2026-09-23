@@ -80,10 +80,10 @@ import { get } from "@ignex/core/http";
 import { Type } from "typebox";
 
 export default get(
+  (ctx) => ctx.json({ id: ctx.params.id }),
   {
     params: Type.Object({ id: Type.String() }),
   },
-  (ctx) => ctx.json({ id: ctx.params.id }),
 );
 ```
 
@@ -148,6 +148,30 @@ Operations are **auto-grouped into tags by their first path segment**
 folder layout) so docs UIs render collapsible resource groups; a top-level
 `tags` array is derived from the operations. An explicit `detail.tags` (even an
 empty array, meaning "no tags") overrides the auto-tag for that route.
+
+## Errors
+
+Throw from a handler instead of building a response; ignex maps the error to
+the right status and body for you — no `try/catch` needed:
+
+```ts
+// src/routes/users/[id].get.ts
+import { get } from "@ignex/core/http";
+import { ForbiddenError, NotFoundError } from "@ignex/core";
+
+export default get((ctx) => {
+  const user = db.users.find(ctx.params.id);
+  if (!user) throw new NotFoundError("User not found"); // → 404
+  if (!user.visible) throw new ForbiddenError("Not allowed"); // → 403
+  return ctx.json({ user });
+});
+```
+
+Built-in types: `BadRequestError` (400), `UnauthorizedError` (401),
+`ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409),
+`TooManyRequestsError` (429), `ValidationError` (422, field-scoped), and the
+base `HTTPError(status, message, code?, details?)` for everything else. Errors
+thrown anywhere in a hook or plugin are mapped the same way.
 
 ## Plugins & config (`src/app.config.ts`)
 
@@ -249,15 +273,25 @@ ignex build --compile --binary-outfile my-server   # → outDir/my-server (or .e
 
 ## Hooks & auth
 
-Per-route hooks via `config`:
+Named hooks are listed on the route's `config` export (the name resolves to
+`src/hooks/<name>.ts`, which `ignex hook <name>` scaffolds):
 
 ```ts
 // src/routes/me.get.ts
 import { get } from "@ignex/core/http";
 
+export const config = { hooks: ["require-auth"] };
+
+export default get((ctx) => ctx.json({ user: ctx.user }));
+```
+
+For inline guards, pass them as the schema's `before` array — each one runs in
+order before the handler and may halt with a `Response`:
+
+```ts
 export default get(
-  { hooks: ["require-auth"] },
   (ctx) => ctx.json({ user: ctx.user }),
+  { before: [authorize({ permissions: ["profile:read"] })] },
 );
 ```
 
@@ -667,3 +701,40 @@ const res = await api.products.get({ params: { id: "123" } }); // typed from cli
 
 `client.ts` is regenerated on every build with types derived from your routes
 and schemas.
+
+## Testing
+
+Scaffolded apps ship with vitest (`bun run test`). Handlers are ordinary
+functions, so most things are unit-testable without a server — call the module
+your route delegates to and assert on the result. To test a route end to end,
+boot the compiled server the way the scaffolded `test/` does: build if needed,
+spawn `.ignex/server.js` on a test port, then `fetch()` it.
+
+```ts
+// test/app.test.ts — the shape `bun create ignex --features tests` writes
+import { spawn, type ChildProcess } from "node:child_process";
+import { afterAll, beforeAll, expect, test } from "vitest";
+
+const port = 3999;
+const baseUrl = `http://127.0.0.1:${port}`;
+let server: ChildProcess | null = null;
+
+beforeAll(async () => {
+  // run `bun run build` first when .ignex/server.js doesn't exist yet
+  server = spawn("bun", [".ignex/server.js"], {
+    env: { ...process.env, PORT: String(port), IGNEX_HTTPS: "0" },
+    stdio: "ignore",
+  });
+  while (!(await fetch(`${baseUrl}/health`).catch(() => null))?.ok) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}, 30_000);
+
+afterAll(() => server?.kill());
+
+test("GET /health responds ok", async () => {
+  const res = await fetch(`${baseUrl}/health`);
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("ok");
+});
+```

@@ -6,9 +6,9 @@ description: Orient inside the ignex monorepo (/home/adeel/poc/ignex) — where 
 # ignex: Codebase map
 
 Orientation guide for the `ignex` monorepo. `docs/architecture.md` is the
-human deep-dive; `AGENTS.md` is the agent how-to; `docs/ai/TREE.md` is the
-auto-generated scaffold (`bun run gen:ai-map`). Read the relevant `ignex-*`
-skill for the task you're doing.
+human deep-dive; `AGENTS.md` is the agent how-to (commands, the three-layer
+mental model, cross-repo `bun link`). Read the relevant `ignex-*` skill for the
+task you're doing.
 
 ## Monorepo layout
 
@@ -28,10 +28,10 @@ packages/
   create/       create-ignex scaffolder
   test-utils/   shared test helpers
 scripts/        32+ maintainer scripts (verify-*, bench-*, check-*, smoke, sdk, publish,
-                select-native, scan-secrets, new-package, gen-ai-map)
+                select-native, scan-secrets, new-package)
 bench/          compare/ framework-comparison harness + run-bench helpers
 docs/           feature docs (architecture, router, native-acceleration, sdk,
-                release-process, getting-started, cookbook, …) + ai/ scaffolding
+                release-process, getting-started, cookbook, …) + ai/ (maintaining.md)
 ```
 
 ## The AOT pipeline (how routes become a server)
@@ -62,8 +62,8 @@ route files (packages/app/src/routes/**) ── ignex build ──► @ignex/com
 | SDK generation & distribution | `docs/sdk.md` |
 | Release checklist | `docs/release-process.md` |
 | Adding a feature | `docs/adding-a-feature.md` + `.agents/skills/ignex-contributing/` |
-| Local dev across core repos (`bun link`) | `docs/ai/LOCAL_DEV.md` |
-| Fresh structural snapshot | `docs/ai/TREE.md` (regenerate: `bun run gen:ai-map`) |
+| Local dev across core repos (`bun link`) | `AGENTS.md` §Local development |
+| Risky-change register | `docs/stability.md` |
 
 ## Verification gates (run before pushing)
 

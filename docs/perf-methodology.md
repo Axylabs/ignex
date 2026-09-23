@@ -389,6 +389,10 @@ cost is *dispatching* the work, not doing it.
 | Cross-module usage union in the analyzer | ~0.2µs, not the 2.4µs it was expected to be worth. |
 | Request headers as a µs-scale cost | **Refuted.** `ctx.headers` is lazy (correct, free, small). |
 | Micro-optimisation generally | Each lands ~0.2µs against a multi-µs gap. The profile shows **~406 functions/request vs Bun's ~50** — the cost is the count, not a hotspot. |
+| Replacing `pino` with an in-repo logger (drops 13 packages) | **Rejected — 2.39× slower** per line (1,645 vs 689 ns; interleaved medians, 200k iters × 7 rounds, identical discarding sink). Precomputing the redaction rule tree and caching the numeric level threshold only moved it 2.55× → 2.39×; the remainder is pino's hand-rolled stringifier + async `sonic-boom` sink. Not worth owning redaction correctness for ~1.1 MiB. |
+| Replacing `ajv`/`ajv-formats` (6 packages) with `typebox/compile` | **Impossible, not merely expensive.** `compiler/src/phases/validators.ts` emits **Ajv standalone** modules into `validators/*.cjs`, and `core/src/data/schema.ts` uses Ajv as the documented mutation/oracle (`coerceTypes` / `removeAdditional` / `useDefaults` + `ErrorObject` shapes). No other engine emits standalone validators. |
+| Hand-rolling `lru-cache` / `defu` / `citty` / `@clack/prompts` | **Declined on cost/benefit, not feasibility** — 1, 1, 1 and 6 packages respectively (but `lru-cache` is 2.67 MiB of the install), each traded for owning internals or a CLI-framework rewrite. `CompilerOptions` is flat scalars, so a local merge would in fact be equivalent — still not worth it. |
+| `@ignex/mcp` as a hard `@ignex/cli` dependency | **Fixed (was the biggest lever found):** it dragged the MCP SDK (**91 packages**) into every `@ignex/cli` and `create-ignex` install. Now an optional peer + dynamic import. |
 
 The one codegen-shaped lever left is **declarative plugin context requirements**:
 a plugin's `onResponse`/`beforeHandle` receives the context, so the compiler must
@@ -400,6 +404,10 @@ plugin-API change with its own compatibility story, not a codegen tweak.
 
 ### 7.4 Measurement rules earned here
 
+- **Benchmark a dependency with the same instrument you use it with.** pino
+  measured only 2.39× ahead when its async `sonic-boom` destination is
+  replaced by a discarding sink; the gap is *wider* on the real stdout path.
+  A swap that looks free in a hot loop can be a per-request tax once served.
 - **Pace at ≥12k rps** (`SERVER=` on `bench:compare:cpu`): the curve is steep
   below ~8k and flat above ~12k. Always include ≥3 identical variants as the
   control and report the control next to every number.

@@ -15,13 +15,13 @@
  *                    `@fileoverview` JSDoc block.
  *   6. doc-refs — backticked repo paths cited in `docs/decisions/*.md`
  *                    Verification: lines, the skills runbooks (`SKILL.md`
- *                    under `.agents/skills/`), and `docs/ai/*.md` (except the
- *                    generated `TREE.md`) must exist (doc-rot guard). Glob
+ *                    under `.agents/skills/`), and `docs/ai/*.md` must exist
+ *                    (doc-rot guard). Glob
  *                    tokens (`packages/*`, `docs/*.md`) and cross-repo
  *                    references are skipped.
  *   7. doc-hub  — every `docs/*.md` and `docs/ai/*.md` (except the hub
- *                    `docs/README.md` and the generated `docs/ai/TREE.md`)
- *                    must be listed in the `docs/README.md` doc map.
+ *                    `docs/README.md`) must be listed in the `docs/README.md`
+ *                    doc map.
  *
  * Usage:
  *   bun scripts/check-maintainability.ts            # gate (exit 1 on violation)
@@ -188,11 +188,11 @@ const checkDocPathRefs = (root: string, diags: Diag[]): void => {
       filter: (n) => n === "SKILL.md",
       verificationOnly: false,
     },
-    // docs/ai/*.md — all lines, except the generated TREE.md (guaranteed current).
+    // docs/ai/*.md — all lines.
     {
       dir: join(root, "docs", "ai"),
       relPrefix: "docs/ai",
-      filter: (n) => n.endsWith(".md") && n !== "TREE.md",
+      filter: (n) => n.endsWith(".md"),
       verificationOnly: false,
     },
   ];
@@ -217,7 +217,7 @@ const checkDocPathRefs = (root: string, diags: Diag[]): void => {
 
 /**
  * Rule 7 (doc hub) — every `docs/*.md` and `docs/ai/*.md` (except the hub
- * itself and the generated `TREE.md`) must be listed in the `docs/README.md`
+ * itself) must be listed in the `docs/README.md`
  * doc map (backticked path tokens). The map is the single source of truth; a
  * doc nobody can find is a doc that rots.
  */
@@ -242,7 +242,7 @@ const checkDocsHub = (root: string, diags: Diag[]): void => {
     for (const name of readdirSync(scope.dir)) {
       if (!name.endsWith(".md")) continue;
       const rel = `${scope.prefix}/${name}`;
-      if (rel === "docs/README.md" || rel === "docs/ai/TREE.md") continue;
+      if (rel === "docs/README.md") continue;
       if (!listed.has(rel)) {
         diags.push({
           path: rel,

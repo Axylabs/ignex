@@ -28,6 +28,11 @@ of truth.
 | Generated server artifact wrong / stale / won't boot | `packages/compiler/src/phases/*` + `emitter.ts` | `bun run smoke` (+ `smoke:fallback`), `packages/compiler/test/cache.test.ts` (cache-version self-heal) |
 | SDK client emits wrong types / dead surface | `packages/compiler/src/sdk/*` | `packages/compiler/test/sdk.test.ts` (+ `sdk-flatbuffers` / `sdk-realtime`) |
 | Scaffolded project broken (create/templates) | `packages/cli/src/commands/create.ts`, `templates/*` | `packages/cli/test/create.test.ts` + template suites; `bun run smoke` |
+| `ctx.redirect` refuses a URL / attacker-controlled `Location` | `packages/core/src/http/redirect-guard.ts` | `packages/core/test/redirect-guard.test.ts`, `packages/core/test/redirect-port.test.ts` |
+| `Host` header rejected behind a proxy | `packages/core/src/http/trusted-host.ts` | `packages/core/test/trusted-host.test.ts` |
+| 400 `framing-conflict` / 431 `header-too-large` | `packages/core/src/http/framing-guard.ts`, `packages/core/src/http/header-cap.ts` | `packages/core/test/framing-guard.test.ts`, `packages/core/test/header-cap.test.ts` |
+| One job claimed twice on a fresh-read store / a lost session write | `packages/core/src/platform/jobs-store.ts`, `packages/core/src/security/session.ts` | `packages/core/test/enterprise-scalability.test.ts`, `packages/core/test/enterprise-integrity.test.ts`, `packages/core/test/enterprise-hardening.test.ts` |
+| Partial `dist/` left behind after a failed build | `packages/compiler/src/phases/artifacts`, `packages/compiler/src/phases/linker.ts` | `packages/compiler/test/enterprise-isolation.test.ts` |
 
 When a bug report says "it returns a weird 429", start at the Origin column
 (`ingress/terminal.ts`), read D-005/D-008 for the why, and run the pinned

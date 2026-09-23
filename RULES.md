@@ -1,9 +1,9 @@
-# RULES.md — ignex (ignus framework monorepo)
+# RULES.md — ignex monorepo
 
 Non-negotiable rules for writing code in this monorepo. Read before editing.
 Enforced by convention and CI (`bun run verify` / `verify:full`). `AGENTS.md`
 is the how-to guide; `.agents/skills/` holds task-specific runbooks;
-`docs/ai/LOCAL_DEV.md` covers cross-repo local development.
+`AGENTS.md` §Local development covers cross-repo local development.
 
 ## 1. Bun first — Rust core first
 
@@ -56,7 +56,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 ## 4. Structure & maintainability
 
 - New code ships in small, focused files under the right package/folder —
-  consult `AGENTS.md` + `docs/ai/TREE.md` before adding a file. New packages
+  consult `AGENTS.md` + `docs/architecture.md` before adding a file. New packages
   go through `bun scripts/new-package.ts` and are **source-only**: ship
   `src/index.ts` as `main`/`module`/`types` (Bun runs TS natively) — no build
   step (only `packages/app` produces a `dist/`).
@@ -107,8 +107,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   renaming a doc (`docs/`, `AGENTS.md`, `RULES.md`, `.agents/skills/`, source
   comments, `CHANGELOG.md`, `.github/workflows/`).
 - When you add/rename/move files or exports, update `AGENTS.md`, `RULES.md`,
-  the relevant `.agents/skills/`, `docs/*.md`, and regenerate the scaffolding
-  map (`bun run gen:ai-map`).
+  the relevant `.agents/skills/`, and `docs/*.md`.
 - Keep `CHANGELOG.md` in sync with the workspace version (all `packages/*` and
 the root are `0.1.32`). Every change lands under the single `[Unreleased]`
 heading; `scripts/release.ts` finalizes it into `## [<version>] — <date>` at
@@ -120,6 +119,6 @@ symbols (`jsdoc:check:strict`).
 - Core packages live one directory back in `/home/adeel/poc/`. This repo IS a
   core project: consumers `bun link` its packages. When testing against local
   castrum, link it into `packages/native`; when testing local `@ignex/nova`,
-  link it into `packages/core` (optional peer). See
-  `docs/ai/LOCAL_DEV.md`. Never publish from a linked tree; CI/releases
+  link it into `packages/core` (optional peer). See `AGENTS.md` §Local
+  development. Never publish from a linked tree; CI/releases
   resolve from the registry (`scripts/release.ts`).

@@ -3,7 +3,8 @@
 ignex is a framework monorepo that consumes three **external standalone
 projects** (each with its own git repo, CI and release cycle). They are never
 copied into this monorepo; ignex resolves them through **registry semver ranges**
-and, for local development, through `bun link` (see `docs/ai/LOCAL_DEV.md`).
+and, for local development, through `bun link` (see `AGENTS.md` §Local
+development).
 
 ## Declared dependencies (the publish contract)
 
@@ -25,7 +26,7 @@ this repo during development.
 - **Local development uses `bun link`, not `file:`/`overrides`.** The root
   `package.json` has no `overrides` block and the root `tsconfig.json` has no
   `@ignex/nova` paths: both were removed. To test a local castrum/nova/ninox,
-  follow `docs/ai/LOCAL_DEV.md`.
+  follow `AGENTS.md` §Local development.
 - `@ignex/nova` is an **optional peer** of `@ignex/core`: `novaPlugin` and the
   notifier lazy-import it (`@ignex/nova/server`, `@ignex/nova/events`) and
   degrade gracefully when it is absent.
