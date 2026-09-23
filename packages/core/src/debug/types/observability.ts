@@ -7,7 +7,7 @@
  * `./index`.
  */
 
-import type { SpanAttrs } from "./trace";
+import type { FaultMark, SpanAttrs } from "./trace";
 
 /* ============================================================================
  * Observatory — structured logs, metrics, leak diagnostics, app state.
@@ -218,6 +218,8 @@ export interface HistoryTraceSummary {
   readonly status: number;
   readonly durationMs: number;
   readonly error: string | null;
+  /** Compact classification of the failure, when the request failed. */
+  readonly fault?: FaultMark | null;
   readonly dbCount: number;
   readonly dbTimeMs: number;
   readonly spanCount: number;
@@ -232,6 +234,8 @@ export interface HistoryQuery {
   readonly method?: string | undefined;
   /** Status family ("2xx" | "3xx" | "4xx" | "5xx") or exact number as string. */
   readonly status?: string | undefined;
+  /** Exact fault-code match (`IGN_DB_CREDENTIALS`), applied post-query. */
+  readonly code?: string | undefined;
   /** Only failed requests. */
   readonly errorsOnly?: boolean | undefined;
   readonly minDurationMs?: number | undefined;

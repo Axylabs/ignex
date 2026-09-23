@@ -22,7 +22,7 @@ import {
 
 import type { TraceSummary } from "../../store";
 import { clearRequests, getRequests } from "../api";
-import { MethodBadge, StatusBadge } from "../components/badge";
+import { Chip, MethodBadge, StatusBadge } from "../components/badge";
 import { Button } from "../components/button";
 import { Card } from "../components/card";
 import { SearchInput, Select } from "../components/fields";
@@ -69,6 +69,9 @@ interface ListStore {
   setMethod: Setter<string>;
   status: Accessor<string>;
   setStatus: Setter<string>;
+  /** Exact fault-code filter (`IGN_DB_CREDENTIALS`) — one failure mode at a time. */
+  code: Accessor<string>;
+  setCode: Setter<string>;
   /** Ids already shown — flash newly arrived rows exactly once. */
   seenIds: Set<string>;
 }
@@ -78,7 +81,20 @@ const createListStore = (): ListStore => {
   const [q, setQ] = createSignal("");
   const [method, setMethod] = createSignal("");
   const [status, setStatus] = createSignal("");
-  return { rows, setRows, q, setQ, method, setMethod, status, setStatus, seenIds: new Set() };
+  const [code, setCode] = createSignal("");
+  return {
+    rows,
+    setRows,
+    q,
+    setQ,
+    method,
+    setMethod,
+    status,
+    setStatus,
+    code,
+    setCode,
+    seenIds: new Set(),
+  };
 };
 
 const reqStore = createListStore();
@@ -107,6 +123,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
       q: untrack(s.q),
       method: untrack(s.method),
       status: untrack(s.status),
+      code: untrack(s.code),
       errorsOnly: props.errorsOnly,
       limit: 200,
     })
@@ -165,6 +182,13 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
 
   const rowsList = createMemo(() => [...s.rows().values()]);
 
+  /** Distinct fault codes in the window — the failure modes worth filtering by. */
+  const faultCodes = createMemo(() =>
+    [...new Set([...s.rows().values()].map((r) => r.fault?.code))]
+      .filter((code): code is string => typeof code === "string")
+      .sort(),
+  );
+
   /** Report whether `id` is new (and remember it) — the fresh-row flash hook. */
   const isFresh = (id: string): boolean => {
     const fresh = !s.seenIds.has(id);
@@ -198,11 +222,13 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
         {row.dbCount > 0 ? `${fmtMs(row.dbTimeMs)} · ${row.dbCount}q` : "—"}
       </span>,
       <span class="font-mono text-muted">{String(row.spanCount)}</span>,
-      <span
-        class={`block max-w-[240px] truncate${row.error !== null ? " text-err" : " text-muted"}`}
-        title={row.error ?? undefined}
-      >
-        {row.error ?? "—"}
+      <span class="block max-w-[240px] truncate" title={row.error ?? undefined}>
+        {row.fault ? (
+          <Chip class="mr-1 font-mono" title="fault code" dataCopy={row.fault.code}>
+            {row.fault.code}
+          </Chip>
+        ) : null}
+        <span class={row.error !== null ? "text-err" : "text-muted"}>{row.error ?? "—"}</span>
       </span>,
     ];
   };
@@ -265,7 +291,7 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
       <Toolbar sticky>
         <SearchInput
           id="search"
-          placeholder="filter method / path / error…"
+          placeholder="filter method / path / error / fault code…"
           value={s.q()}
           onInput={(value): void => {
             s.setQ(value);
@@ -297,6 +323,21 @@ const ListView = (props: { errorsOnly: boolean }): JSX.Element => {
             <option value={family}>{family}</option>
           ))}
         </Select>
+        <Show when={faultCodes().length > 0}>
+          <Select
+            id="code-filter"
+            value={s.code()}
+            onChange={(ev): void => {
+              s.setCode(ev.currentTarget.value);
+              load();
+            }}
+          >
+            <option value="">all fault codes</option>
+            {faultCodes().map((code) => (
+              <option value={code}>{code}</option>
+            ))}
+          </Select>
+        </Show>
       </Toolbar>
 
       <Card pad={false}>

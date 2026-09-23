@@ -26,7 +26,55 @@ export interface FaultRenderOptions {
   readonly env?: EnvFileReport | undefined;
   /** Request facts, when the failure happened while serving a request. */
   readonly request?: FaultRequestInfo | undefined;
+  /**
+   * The line in the operator's OWN code that reached the failure, when the
+   * tracing layer can supply it — printed above `where`, which is the frame that
+   * actually raised the error (a driver, usually).
+   */
+  readonly inYourCode?: string | undefined;
 }
+
+/**
+ * Resolve the request-scoped location in the operator's own code for the failure
+ * being reported.
+ *
+ * The error system cannot know it: `where` comes from the thrown value's stack,
+ * and when a dependency raises across an `await` the application frame is not in
+ * that stack at all (Bun truncates async stacks at `processTicksAndRejections`).
+ * The tracing layer does know it — the failing span recorded the caller chain
+ * where it started — so it installs a resolver here. Without one, the report
+ * omits the line and looks exactly as before.
+ */
+export type RequestFrameResolver = (context: unknown) => string | undefined;
+
+/** Process-wide business-frame resolver (installed by the debug layer). */
+let requestFrameResolver: RequestFrameResolver | null = null;
+
+/**
+ * Install (or clear) the business-frame resolver.
+ *
+ * @param resolve - The resolver, or `null` to clear it.
+ */
+export const setRequestFrameResolver = (resolve: RequestFrameResolver | null): void => {
+  requestFrameResolver = resolve;
+};
+
+/**
+ * The business location for `context`, or `undefined` when nothing can supply
+ * one. A resolver that throws degrades to `undefined` — reporting must never
+ * become the failure.
+ *
+ * @param context - The request context (may be `undefined` outside a request).
+ * @returns `file:line:column` in the operator's own code, when known.
+ */
+export const requestInYourCode = (context: unknown): string | undefined => {
+  if (requestFrameResolver === null || context === undefined) return undefined;
+  try {
+    return requestFrameResolver(context);
+  } catch {
+    return undefined;
+  }
+};
 
 /** A report is only as useful as its first line. */
 const DEFAULT_TITLE = "ignex error";
@@ -81,7 +129,7 @@ const envSection = (env: EnvFileReport, issues: readonly EnvIssue[]): readonly s
  * dotenv state (boot reports do; request reports read no files).
  *
  * @param fault - The classified failure.
- * @param options - Title, env state, and request facts.
+ * @param options - Title, env state, request facts and the business location.
  * @returns The printable block.
  */
 export const renderFault = (fault: Fault, options: FaultRenderOptions = {}): string => {
@@ -89,6 +137,9 @@ export const renderFault = (fault: Fault, options: FaultRenderOptions = {}): str
   lines.push(`  ${padKey("code")}${fault.code} · ${originLabel(fault)}`);
   lines.push(`  ${padKey("what")}${fault.summary}`);
   if (fault.message.length > 0) lines.push(`  ${padKey("message")}${fault.message}`);
+  // The business line leads: `where` is the frame that RAISED the error, which
+  // is a dependency's file for anything that crossed an await.
+  if (options.inYourCode !== undefined) lines.push(`  ${padKey("in code")}${options.inYourCode}`);
   if (fault.detail !== undefined) lines.push(`  ${padKey("detail")}${fault.detail}`);
   if (fault.where !== undefined) lines.push(`  ${padKey("where")}${fault.where}`);
   const request = options.request === undefined ? undefined : requestLine(options.request);

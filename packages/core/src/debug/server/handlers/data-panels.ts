@@ -54,6 +54,7 @@ export const createRequestsHandler =
     const q = url.searchParams.get("q");
     const method = url.searchParams.get("method");
     const status = url.searchParams.get("status");
+    const code = url.searchParams.get("code");
     const since = numberParam(ctx, "since");
     const until = numberParam(ctx, "until");
     const minDurationMs = numberParam(ctx, "minMs");
@@ -63,6 +64,7 @@ export const createRequestsHandler =
         ...(q !== null && q !== "" ? { q } : {}),
         ...(method !== null && method !== "" ? { method } : {}),
         ...(status !== null && status !== "" ? { status } : {}),
+        ...(code !== null && code !== "" ? { code } : {}),
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(minDurationMs !== undefined ? { minDurationMs } : {}),
@@ -126,6 +128,9 @@ export const createHistoryHandler =
       method: ctx.url.searchParams.get("method") ?? undefined,
       ...(ctx.url.searchParams.get("status")
         ? { status: ctx.url.searchParams.get("status") as string }
+        : {}),
+      ...(ctx.url.searchParams.get("code")
+        ? { code: ctx.url.searchParams.get("code") as string }
         : {}),
       errorsOnly: ctx.url.searchParams.get("error") === "1",
       minDurationMs: numberParam(ctx, "minMs"),

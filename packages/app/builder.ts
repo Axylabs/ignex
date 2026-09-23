@@ -23,7 +23,10 @@ await buildAsync({
 
   optimizationLevel: 3,
   minify: !debug,
-  sourceMap: false,
+  // Source maps only for the DEBUG shape: they are what lets the debugbar and
+  // the fault reports resolve a frame back to the route/model `.ts` file
+  // (`dist-dev/__server.js.map`). The production artifact stays map-free.
+  sourceMap: debug,
 
   // Production shape: eliminates the devbar/tracing instrumentation and bakes
   // `__IGNEX_PROD_BUILD` regardless of this process's NODE_ENV. `--debug`

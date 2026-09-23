@@ -7,7 +7,8 @@
  * are served inline.
  */
 
-import type { RequestTrace } from "./types";
+import { faultMark } from "./fault-capture";
+import type { FaultMark, RequestTrace } from "./types";
 
 /** Options for {@link TraceStore}. */
 export interface TraceStoreOptions {
@@ -40,6 +41,12 @@ export interface TraceSummary {
   readonly path: string;
   readonly status: number;
   readonly error: string | null;
+  /**
+   * Compact classification of the failure (`code`/`origin`/`kind`) — the list
+   * badges and groups runs by fault code without loading each trace. Null for
+   * a request that succeeded.
+   */
+  readonly fault?: FaultMark | null;
   readonly dbTimeMs: number;
   readonly dbCount: number;
   readonly spanCount: number;
@@ -65,11 +72,33 @@ export interface TraceSummaryFilter {
   until?: number | undefined;
   /** Substring match against the matched route pattern. */
   route?: string;
+  /** Exact fault-code match (`IGN_DB_CREDENTIALS`) — group one failure mode. */
+  code?: string | undefined;
   /** Only rows that took at least this long (ms). */
   minDurationMs?: number | undefined;
 }
 
 const statusFamily = (status: number): string => `${Math.floor(status / 100)}xx`;
+
+/**
+ * Text a list filter searches: the request identity AND the failure identity
+ * (`IGN_DB_CREDENTIALS`, "MongoDB rejected the credentials"), because a fault
+ * code is how a developer refers to a failure. Kept out of the per-row
+ * predicate so the closure stays cheap to reason about.
+ */
+const searchText = (t: RequestTrace): string =>
+  `${t.method} ${t.path} ${t.error ?? ""} ${t.fault?.code ?? ""} ${t.fault?.summary ?? ""}`;
+
+/** Exact fault-code gate — an unset `code` accepts every failure mode. */
+const matchesFaultCode = (options: TraceSummaryFilter, t: RequestTrace): boolean =>
+  options.code === undefined || t.fault?.code === options.code;
+
+/** Numeric gates: the inclusive time window, min duration and fault code. */
+const inRange = (options: TraceSummaryFilter, t: RequestTrace): boolean =>
+  (options.since === undefined || t.ts >= options.since) &&
+  (options.until === undefined || t.ts <= options.until) &&
+  (options.minDurationMs === undefined || t.durationMs >= options.minDurationMs) &&
+  matchesFaultCode(options, t);
 
 /** Time/method/status/route/duration/text gate shared by the list views. */
 const matchesSummaryFilter = (options: TraceSummaryFilter) => {
@@ -78,13 +107,11 @@ const matchesSummaryFilter = (options: TraceSummaryFilter) => {
   const methodUpper = options.method?.toUpperCase();
   return (t: RequestTrace): boolean => {
     if (options.errorOnly && !t.error) return false;
-    if (options.since !== undefined && t.ts < options.since) return false;
-    if (options.until !== undefined && t.ts > options.until) return false;
+    if (!inRange(options, t)) return false;
     if (methodUpper && t.method.toUpperCase() !== methodUpper) return false;
     if (options.status && statusFamily(t.status) !== options.status) return false;
     if (route && t.route.toLowerCase().indexOf(route) === -1) return false;
-    if (options.minDurationMs !== undefined && t.durationMs < options.minDurationMs) return false;
-    if (q && `${t.method} ${t.path} ${t.error ?? ""}`.toLowerCase().indexOf(q) === -1) return false;
+    if (q && searchText(t).toLowerCase().indexOf(q) === -1) return false;
     return true;
   };
 };
@@ -179,6 +206,7 @@ export class TraceStore {
         path: t.path,
         status: t.status,
         error: t.error,
+        fault: t.fault === null || t.fault === undefined ? null : faultMark(t.fault),
         dbTimeMs: t.dbTimeMs,
         dbCount: t.dbCount,
         spanCount: t.spans.length,

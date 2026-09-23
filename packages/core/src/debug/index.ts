@@ -77,6 +77,7 @@ export {
   type DecodedMappings,
   decodeVlq,
   type FrameLocation,
+  installSourceFrames,
   lookupMapping,
   type MappingSegment,
   parseFrameLocation,
@@ -106,12 +107,15 @@ export {
 } from "./tracer";
 export type {
   AiDebugSummary,
+  AiRecentError,
   AppKnowledge,
   AppStateSnapshot,
   CapturedRequest,
   DebugApi,
   DebugSpanHandle,
   DiagnosticsReport,
+  FaultMark,
+  FrameClass,
   HistogramSnapshot,
   HistoryQuery,
   HistoryTraceSummary,
@@ -135,4 +139,6 @@ export type {
   SystemSample,
   SystemStats,
   TraceDetail,
+  TraceFault,
+  TraceFrames,
 } from "./types";

@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { type StackFrameRemapper, setStackFrameRemapper } from "../platform/fault-throw";
 
 /** One decoded mapping segment: generated position → original position. */
 export interface MappingSegment {
@@ -334,4 +335,44 @@ export const sharedSourceFrames = (): SourceFrameResolver => {
 /** Swap/reset the process-wide resolver (tests). Null resets to lazy default. */
 export const setSharedSourceFrames = (resolver: SourceFrameResolver | null): void => {
   shared = resolver;
+};
+
+/* ── process-wide installation (tracer + error system) ─────────────────── */
+
+/** `remapFrame`, but `null` when the frame had no mapping (the hook contract). */
+const withMappingSignal =
+  (resolver: SourceFrameResolver): StackFrameRemapper =>
+  (frame) => {
+    const mapped = resolver.remapFrame(frame);
+    return mapped === frame ? null : mapped;
+  };
+
+/**
+ * Install source-frame resolution for the whole process.
+ *
+ * Two consumers share ONE resolver and one cache: the tracer (which rewrites
+ * `Trace.errorStack` and span origins) and the error system (which rewrites
+ * `Fault.where` through the hook it exposes). Installing here is what makes a
+ * fault in a compiled artifact read
+ * `/srv/app/src/routes/gigs.get.ts:42:11` instead of
+ * `dist/__server.js:1:48213` — in the dashboard AND in the terminal report,
+ * because both render the same fault.
+ *
+ * A frame whose file has no adjacent `.map` is left untouched, so this is a
+ * no-op in an un-bundled process (and costs one cached existence check per
+ * unique file on the error path only).
+ *
+ * @param options - Resolver options (search roots, map loader). Defaults to
+ *   `[process.cwd()]`, which covers relative frames; absolute frames resolve
+ *   against their own directory.
+ * @returns A disposer that clears both the shared resolver and the hook.
+ */
+export const installSourceFrames = (options: SourceFrameResolverOptions = {}): (() => void) => {
+  const resolver = createSourceFrameResolver(options);
+  setSharedSourceFrames(resolver);
+  setStackFrameRemapper(withMappingSignal(resolver));
+  return () => {
+    setSharedSourceFrames(null);
+    setStackFrameRemapper(null);
+  };
 };

@@ -25,7 +25,7 @@
 
 import { isAppError, statusOf } from "./app-error";
 import { readMappedError, toFault } from "./fault";
-import { faultRequestInfo, reportFault } from "./fault-report";
+import { faultRequestInfo, reportFault, requestInYourCode } from "./fault-report";
 import { cachedErrorBody, genericStatusMessage, HTTPError, JSON_HEADERS } from "./http-errors";
 import { redactLogText } from "./redact";
 
@@ -120,6 +120,7 @@ export const errorToResponse = (
         label: REQUEST_FAILED,
         title: REQUEST_FAILED_TITLE,
         request: faultRequestInfo(context),
+        inYourCode: requestInYourCode(context),
       });
     }
     // The error decides what a client may see (4xx message, 5xx generic);
@@ -137,6 +138,7 @@ export const errorToResponse = (
       label: REQUEST_FAILED,
       title: REQUEST_FAILED_TITLE,
       request: faultRequestInfo(context),
+      inYourCode: requestInYourCode(context),
     });
   }
 

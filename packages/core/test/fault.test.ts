@@ -39,7 +39,9 @@ import {
   faultRequestInfo,
   isFaultReported,
   reportFault,
+  requestInYourCode,
   resetFaultDedupe,
+  setRequestFrameResolver,
 } from "../src/platform/fault-report.js";
 import { redactLogText } from "../src/platform/redact.js";
 
@@ -265,6 +267,53 @@ describe("reportFault", () => {
         },
       }),
     ).toBeUndefined();
+  });
+
+  it("prints the business location above the frame that raised it", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const thrown = new DBError("aggregate rejected", { kind: "query", service: "MongoDB" });
+    reportFault(thrown, {
+      label: "[ignex] request failed",
+      inYourCode: "/srv/app/src/routes/api/gigs/index.get.ts:7:27",
+    });
+    const block = String(spy.mock.calls[0]?.[0] ?? "");
+    const inCode = block.indexOf("in code");
+    // `padKey` pads the label to the report's 9-char value column.
+    expect(block).toContain("in code  /srv/app/src/routes/api/gigs/index.get.ts:7:27");
+    // The business line leads `where` (the frame that actually raised it).
+    const where = block.indexOf("where");
+    expect(inCode).toBeGreaterThan(block.indexOf("message"));
+    expect(where === -1 || inCode < where).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("omits the business line when nothing can supply one", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    reportFault(new DBError("boom"), { label: "[ignex] request failed" });
+    expect(String(spy.mock.calls[0]?.[0] ?? "")).not.toContain("in code");
+    spy.mockRestore();
+  });
+});
+
+describe("requestInYourCode", () => {
+  afterEach(() => {
+    setRequestFrameResolver(null);
+  });
+
+  it("resolves through the installed hook", () => {
+    setRequestFrameResolver(() => "/srv/app/src/routes/x.ts:1:2");
+    expect(requestInYourCode({})).toBe("/srv/app/src/routes/x.ts:1:2");
+  });
+
+  it("degrades to undefined without a hook, a context, or a working resolver", () => {
+    expect(requestInYourCode({})).toBeUndefined();
+    setRequestFrameResolver(() => "/srv/app/src/x.ts:1:1");
+    expect(requestInYourCode(undefined)).toBeUndefined();
+    setRequestFrameResolver(() => {
+      throw new Error("resolver exploded");
+    });
+    // A broken resolver must never break a report.
+    expect(requestInYourCode({})).toBeUndefined();
   });
 });
 
@@ -495,5 +544,88 @@ describe("redactLogText", () => {
     expect(redactLogText("postgres://u:p@h/db")).toBe("postgres://u:***@h/db");
     expect(redactLogText("api_key=abc123&next=1")).toBe("api_key=***&next=1");
     expect(redactLogText("x".repeat(300)).length).toBe(240);
+  });
+});
+
+/* ── `where` frame selection ────────────────────────────────────────────── */
+
+describe("fault `where`", () => {
+  /** A throw whose stack is exactly the frames given (no real throw site). */
+  const withStack = (...frames: string[]): Error => {
+    const err = new Error("boom");
+    err.stack = ["Error: boom", ...frames].join("\n");
+    return err;
+  };
+
+  it("reports the application frame", () => {
+    const err = withStack(
+      "    at handler (/app/src/routes/gigs.get.ts:42:11)",
+      "    at run (native:7:39)",
+    );
+    expect(toFault(err).where).toBe("/app/src/routes/gigs.get.ts:42:11");
+  });
+
+  it("never reports a synthetic `native:`/`node:` frame", () => {
+    // Reporting these produced useless `where native:7:39` lines: they name no
+    // file, so the honest answer is "no location".
+    const err = withStack(
+      "    at processTicksAndRejections (native:7:39)",
+      "    at node:internal/process/task_queues:95:5",
+    );
+    expect(toFault(err).where).toBeUndefined();
+  });
+
+  it("falls back to the dependency frame that raised the error", () => {
+    // A driver error (ninox, a Mongo client) has no application frame in its
+    // stack — the dependency's own file is the most useful location there is.
+    const err = withStack(
+      "    at mapMongoDriverError (/app/node_modules/@x/db/src/driver-map.ts:131:14)",
+      "    at processTicksAndRejections (native:7:39)",
+    );
+    expect(toFault(err).where).toBe("/app/node_modules/@x/db/src/driver-map.ts:131:14");
+  });
+
+  it("prefers application code over framework code", () => {
+    const err = withStack(
+      "    at sendFile (/repo/packages/core/src/http/files.ts:88:9)",
+      "    at route (/app/src/routes/files.get.ts:12:3)",
+    );
+    expect(toFault(err).where).toBe("/app/src/routes/files.get.ts:12:3");
+  });
+
+  it("prefers application code over an installed core copy too", () => {
+    const err = withStack(
+      "    at parse (/app/node_modules/@ignex/core/src/http/body.ts:61:5)",
+      "    at route (/app/src/routes/upload.post.ts:19:7)",
+    );
+    expect(toFault(err).where).toBe("/app/src/routes/upload.post.ts:19:7");
+  });
+
+  it("prefers SOURCE over compiled, even when the source frame is a dependency's", () => {
+    // The mixed case that matters: a map-less app bundle plus a dependency that
+    // ships (or was mapped to) TypeScript. A bundle offset is not a location
+    // anyone can act on, so the dependency's real line wins.
+    const err = withStack(
+      "    at get (/app/dist/__server.js:50743:1)",
+      "    at mapDriverError (/app/node_modules/@x/db/src/driver-map.ts:131:14)",
+    );
+    expect(toFault(err).where).toBe("/app/node_modules/@x/db/src/driver-map.ts:131:14");
+  });
+
+  it("prefers application code when both frames are compiled", () => {
+    const err = withStack(
+      "    at call (/app/node_modules/@x/db/dist/index.js:88:2)",
+      "    at get (/app/dist/__server.js:50743:1)",
+    );
+    expect(toFault(err).where).toBe("/app/dist/__server.js:50743:1");
+  });
+
+  it("keeps the first frame on a tie, and ignores the error system itself", () => {
+    const err = withStack(
+      "    at classify (/repo/packages/core/src/platform/fault.ts:200:3)",
+      "    at first (/app/src/a.ts:1:1)",
+      "    at second (/app/src/b.ts:2:2)",
+    );
+    expect(toFault(err).where).toBe("/app/src/a.ts:1:1");
   });
 });

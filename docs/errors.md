@@ -120,7 +120,8 @@ report per failure:
   code     IGN_DB_CREDENTIALS · db · MongoDB
   what     MongoDB rejected the credentials
   message  Command create requires authentication
-  where    /srv/app/src/routes/api/gigs/index.get.ts:12:5
+  in code  /srv/app/src/routes/api/gigs/index.get.ts:12:5
+  where    /srv/app/node_modules/@ignex/ninox/src/errors/driver-map.ts:131:14
   request  mb3k4f-1a2 · POST /api/gigs · ip 10.0.0.4
   retry    no — fix the cause first
 
@@ -137,6 +138,57 @@ report per failure:
 A boot failure adds a `Configuration check (do this first)` section listing the
 `.env` files that exist and the connection variables they define. 4xx responses
 are never reported — a rejected request is the caller's fault, not an incident.
+
+The `where` line names the frame that identifies the failure: **application code
+first**, otherwise the dependency (or core) frame that raised it. Inside a
+compiled artifact that frame starts as a bundle offset
+(`dist/__server.js:50935:24`) and is **source-mapped back to the original
+`.ts`** — the debug layer installs a frame remapper the moment it becomes
+active, so the terminal report, the dashboard and the history archive all show
+source positions. Synthetic `native:` / `node:` frames name no file and are
+never reported (the line is omitted instead).
+
+**Read your code, not the internals.** When a dependency raises the error on the
+other side of an `await`, Bun truncates the async stack at
+`processTicksAndRejections` and the error's own frames are all internals — the
+application frame is gone. The tracing layer reconstructs it: the span that
+failed recorded the caller chain where it started, so the terminal report prints
+`in code` (`src/routes/api/gigs/index.get.ts:7:27`) above `where` (the dependency
+line that actually raised it), and the dashboard shows the same pair as
+`in your code` / `raised in` — on the API they are `faultFrames.appWhere` and
+`fault.where`. Without tracing active (or without a span to learn it from) the
+`in code` line is simply absent.
+
+## The same fault in the debugger
+
+The dev debugbar (`debugbar()`) records that same classification onto the
+request trace instead of only the error text, so a failure found in the
+dashboard is as diagnosable as the one printed at boot:
+
+- The **Errors** view badges each row with its fault code and filters by it
+  (`GET /api/requests?code=IGN_DB_CREDENTIALS`); free-text search matches the
+  code and the summary as well as the message.
+- The request detail's **Error** tab renders origin · service, kind, code,
+  status, `what`, `message`, the location **in your code**, the frame it was
+  **raised in** and the retry verdict, then **What to fix** (the hints), the
+  sanitized **cause chain** and any **Configuration check** issues — the browser
+  rendering of the block above. The stack comes last, split into **Your code**
+  and **Framework & dependencies** (collapsed).
+- The **waterfall** marks the span that failed (`faultSpanId`) and badges it
+  with the fault code; the `error:` row carries origin/kind/code/retryable as
+  attributes. A span failure your code *caught* is classified too, even when
+  the response ends up a 200. Stacks and span origins are source-mapped, so
+  they point at your `.ts` files rather than the bundle.
+- The classification is **persisted** (SQLite history) and **served to agents**:
+  `GET /api/ai/summary` lists recent errors with code/origin/kind/service, the
+  innermost cause and the hints, plus a fault-code histogram — so an MCP client
+  sees the root cause without ever opening a trace.
+
+The `fault` on the wire is the same object `toFault` returns (`code`, `origin`,
+`kind`, `status`, `summary`, `message`, `detail`, `service`, `retryable`,
+`hints`, `causes`, `issues`, `errorName`, `where`) — the dashboard cannot drift
+from the classifier. Details and the endpoint contract are in
+[`docs/debugbar.md`](debugbar.md).
 
 ## What never leaks
 

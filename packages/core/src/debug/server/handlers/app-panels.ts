@@ -14,13 +14,11 @@ import {
   formatKnowledgeMarkdown,
   scanDocsInventory,
 } from "../../kt";
-import { analyzeSamples } from "../../leaks";
 import { renderMarkdownHtml } from "../../markdown";
 import type { NatsEventSummary, NatsEventTracker } from "../../nats-tracker";
 import { json } from "../../respond";
 import { buildAppState } from "../../state";
 import type {
-  AiDebugSummary,
   AppKnowledge,
   DebugEventRow,
   DebugEventSourceInfo,
@@ -536,122 +534,4 @@ export const createNovaEmitHandler =
     return json({ ok: true, name, note: result.note });
   };
 
-/** `GET /api/ai/summary` — compact AI-facing debug snapshot. */
-export const createAiSummaryHandler =
-  (deps: HandlerDeps, ktData: () => Promise<{ knowledge: AppKnowledge }>) =>
-  async (): Promise<Response> => {
-    const p = deps.state.store.percentiles();
-    const traces = deps.state.store.list();
-    const recentErrors = traces
-      .filter((t) => t.error !== null)
-      .slice(0, 8)
-      .map((t) => ({
-        id: t.id,
-        ts: t.ts,
-        method: t.method,
-        path: t.path,
-        status: t.status,
-        error: t.error as string,
-      }));
-    const slowest = [...traces]
-      .sort((a, b) => b.durationMs - a.durationMs)
-      .slice(0, 5)
-      .map((t) => ({
-        id: t.id,
-        ts: t.ts,
-        method: t.method,
-        path: t.path,
-        durationMs: t.durationMs,
-        status: t.status,
-      }));
-    const eventStats = deps.state.nats?.stats() ?? null;
-
-    let nova: AiDebugSummary["nova"];
-    const handle = novaHandle(deps);
-    if (handle && typeof handle.getEventTrace === "function") {
-      try {
-        const doc = handle.getEventTrace({
-          limit: 8,
-        }) as import("../../../plugins/nova").NovaEventTrace;
-        if (doc !== undefined && doc !== null) {
-          const st = doc.stats;
-          nova = {
-            enabled: doc.enabled,
-            size: st.size,
-            total: st.total,
-            inCount: st.inCount,
-            outCount: st.outCount,
-            byName: st.byName,
-            recent: doc.recent.map((r) => ({
-              ts: r.ts,
-              direction: r.direction,
-              name: r.name,
-              ...(r.target !== undefined ? { target: r.target } : {}),
-              ...(r.key !== undefined ? { key: r.key } : {}),
-              bytes: r.bytes,
-            })),
-          };
-        }
-      } catch {
-        /* a broken probe must not break the summary */
-      }
-    }
-
-    const clients = deps.state.clients.list(clientProbePaths(deps)).map((c) => ({
-      kind: c.kind,
-      platform: c.platform,
-      name: c.name,
-      version: c.version,
-      published: c.published,
-      gitTags: c.gitTags.slice(0, 5),
-    }));
-    const { knowledge } = await ktData();
-    const diagnostics = analyzeSamples(deps.state.profiler.stats().samples);
-    const badLogs = deps.state.logs.list({ minLevel: "warn", limit: 5 });
-    const sinkStatus = deps.state.sink?.status();
-    const summary: AiDebugSummary = {
-      service: deps.state.serviceName,
-      version: deps.state.version,
-      environment: process.env.NODE_ENV ?? "development",
-      uptimeSec: Math.round(process.uptime()),
-      traces: {
-        total: deps.state.store.size,
-        errors: deps.state.store.errorCount,
-        avgDurationMs: p.avgMs,
-        p95DurationMs: p.p95Ms,
-        recentErrors,
-        slowest,
-      },
-      events: {
-        enabled: eventStats?.enabled ?? false,
-        connected: eventStats?.connected ?? false,
-        total: eventStats?.total ?? 0,
-        errors: eventStats?.errors ?? 0,
-        bySubject: eventStats?.bySubject ?? {},
-      },
-      clients,
-      ...(nova !== undefined ? { nova } : {}),
-      observatory: {
-        verdict: diagnostics.verdict,
-        findings: diagnostics.findings.map((f) => ({
-          id: f.id,
-          severity: f.severity,
-          title: f.title,
-        })),
-        heapMiBPerMin: diagnostics.trend.heapMiBPerMin,
-        logErrors: deps.state.logs.stats().error,
-        recentWarnings: badLogs.map((l) => ({
-          ts: l.ts,
-          level: l.level as string,
-          message: l.message.slice(0, 200),
-          ...(l.traceId !== null ? { traceId: l.traceId } : {}),
-        })),
-        persist: {
-          enabled: sinkStatus?.available ?? false,
-          path: sinkStatus?.path ?? null,
-        },
-      },
-      routes: knowledge.routes.length,
-    };
-    return json(summary);
-  };
+// `GET /api/ai/summary` lives in `./ai-summary.ts` — the fault-aware AI snapshot.

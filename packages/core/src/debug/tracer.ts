@@ -16,13 +16,22 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { IgnexContext } from "../http/context";
+import { setRequestFrameResolver } from "../platform/fault-report";
+import { faultAttrs, markOf, traceFault } from "./fault-capture";
+import { callerOrigin, captureErrorStack, failingOrigin, summarizeFailureFrames } from "./frames";
 import { captureRedactedHeaders, clipBody, isRedactedHeader } from "./redaction";
-import { sharedSourceFrames } from "./sourcemaps";
+import { installSourceFrames } from "./sourcemaps";
 import { defaultSpanIds, type SpanIdSource } from "./span-id";
-import type { CapturedRequest, RequestTrace, Span, SpanAttrs, SpanKind } from "./types";
+import type {
+  CapturedRequest,
+  RequestTrace,
+  Span,
+  SpanAttrs,
+  SpanKind,
+  TraceFault,
+  TraceFrames,
+} from "./types";
 
 /** The per-request ALS payload. */
 export interface TraceContext {
@@ -54,6 +63,12 @@ export const setTracingEnabled = (enabled: boolean): void => {
   }
   tracingEnabled = enabled;
   tracingConfigured = true;
+  if (enabled) {
+    installSourceFrames(); // frames resolve to `.ts`, not the bundle
+    // …and the terminal report can name the application line that reached the
+    // failure, which the error's own stack lost at the async boundary.
+    setRequestFrameResolver(() => currentTrace()?.faultFrames?.appWhere);
+  }
 };
 
 /** True when a debug tracer is installed for this process. */
@@ -86,41 +101,6 @@ export const debugStageEnd = (name: string): void => {
 // Trace
 // ============================================================================
 
-/**
- * Directory of THIS debug layer as seen at runtime. NOTE: inside a compiled
- * bundle `import.meta.url` is the bundle file (`.ignex/server.js`), so this
- * does NOT match sourcemapped frames — they resolve back to core's real
- * source tree. `isInternalFrame` therefore also matches stable path shapes
- * (packages/core/src/debug, @ignex/core) that hold wherever core is
- * installed (workspace link, node_modules, published tarball).
- */
-const DEBUG_SRC_DIR = dirname(fileURLToPath(import.meta.url));
-
-/** True when a (remapped) frame belongs to framework/vendor internals. */
-export const isInternalFrame = (frame: string): boolean =>
-  frame.includes(`${DEBUG_SRC_DIR}/`) ||
-  frame.includes("packages/core/src/debug/") ||
-  /[\\/]@ignex[\\/]core[\\/]/.test(frame) ||
-  /\bnode_modules\b/.test(frame) ||
-  /\bat\s+(?:async\s+)?node:/.test(frame);
-
-/**
- * Capture an error stack for the trace: sourcemapped where maps are
- * registered, keeping the FULL chain in true order (capped at `cap` frames so
- * a pathological recursion cannot balloon the ring). The complete chain —
- * framework and vendor frames included — is what lets a developer trace where
- * an error actually started.
- */
-const captureErrorStack = (stack: string | undefined, cap = 40): string | null => {
-  if (!stack) return null;
-  const remap = sharedSourceFrames().remapFrame;
-  const lines = stack.split("\n").filter((l) => l.trim().length > 0);
-  const header = lines[0] && !lines[0].trimStart().startsWith("at ") ? (lines[0] as string) : null;
-  const frames = (header ? lines.slice(1) : lines).map(remap).slice(0, cap);
-  if (frames.length === 0) return null;
-  return (header ? [header, ...frames] : frames).join("\n");
-};
-
 // ============================================================================
 
 /**
@@ -150,36 +130,6 @@ const isFrameworkStageSpan = (span: Span): boolean =>
   span.kind === "lifecycle" && FRAMEWORK_STAGE_NAMES.has(span.name);
 
 /**
- * The caller chain of a span — "where was this span created", traced from the
- * APPLICATION call site through every frame below it (capped so a deep chain
- * cannot balloon the trace). The leading debug-layer wrappers (`Trace.start`,
- * `debugQuery`, `ctx.debug.*`) are skipped so the chain STARTS at the app
- * code that created the span; everything beneath it — helper libraries such
- * as ninox, route handlers, framework hooks, node internals — is kept in
- * true order, so an origin can be traced back to the request entry point
- * instead of stopping at the first wrapper frame.
- */
-const callerOrigin = (cap = 16): string | null => {
-  const lines = new Error().stack?.split("\n") ?? [];
-  const remap = sharedSourceFrames().remapFrame;
-  const kept: string[] = [];
-  let started = false;
-  for (let i = 1; i < lines.length; i++) {
-    const raw = lines[i]?.trim();
-    if (!raw || raw === "Error") continue;
-    const mapped = remap(raw);
-    if (!started) {
-      if (isInternalFrame(mapped)) continue;
-      started = true;
-    }
-    kept.push(mapped);
-    if (kept.length >= cap) break;
-  }
-  if (kept.length === 0) return null;
-  return kept.join("\n");
-};
-
-/**
  * One request's trace: the span tree plus request/response metadata. App code
  * normally never touches this directly — it uses `ctx.debug` (the plugin
  * injects it) or the `debugSpan`/`debugQuery` free functions.
@@ -203,6 +153,12 @@ export class Trace {
   responseBodyTruncated = false;
   error: string | null = null;
   errorStack: string | null = null;
+  /** Classification of the request failure (the wire-safe `Fault`), else null. */
+  fault: TraceFault | null = null;
+  /** The failure's frames, business logic first (see {@link TraceFrames}). */
+  faultFrames: TraceFrames | null = null;
+  /** Span that was innermost-open when the failure was recorded, else null. */
+  faultSpanId: number | null = null;
   finalized = false;
 
   /** Root span (the request itself), created at begin. */
@@ -346,11 +302,14 @@ export class Trace {
     }
   }
 
-  /** End a span as failed. */
+  /** End a span as failed, classifying the throw so the row can badge it. */
   fail(span: Span, err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
     this.end(span, { error: message });
     span.error = message;
+    if (span.fault === undefined || span.fault === null) span.fault = markOf(err);
+    // Remember WHICH span failed for the request-level fault recorded later.
+    if (span !== this.root && this.faultSpanId === null) this.faultSpanId = span.id;
   }
 
   /** Run `fn` inside a timed span of `kind`; records failures and rethrows. */
@@ -379,19 +338,18 @@ export class Trace {
 
   /** Record an error against the request (also ends the innermost span as failed when open). */
   recordError(err: unknown, attrs?: SpanAttrs): void {
-    const message = err instanceof Error ? err.message : String(err);
+    const fault = traceFault(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    this.error = message;
+    this.fault = fault;
+    this.error = fault.message.length > 0 ? fault.message : fault.summary;
     if (stack) this.errorStack = captureErrorStack(stack);
     const innermost = this.stack[this.stack.length - 1];
     if (innermost && innermost !== this.root && innermost.open) {
       this.fail(innermost, err);
     }
-    this.event(`error: ${message}`, {
-      ...attrs,
-      error: message,
-      stack: this.errorStack ?? undefined,
-    });
+    // The classification rides the error row, so the waterfall explains
+    // itself without the reader opening the Error tab.
+    this.event(`error: ${this.error}`, { ...attrs, ...faultAttrs(fault, this.errorStack) });
   }
 
   /** Resolve the captured body (bounded wait) — used at finalize for replay. */
@@ -439,12 +397,21 @@ export class Trace {
     this.responseHeaders = input.responseHeaders
       ? captureRedactedHeaders(input.responseHeaders)
       : null;
-    if (input.error !== undefined && input.error !== null) {
-      const err = input.error;
-      const message = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : undefined;
-      this.error = message;
-      this.errorStack = stack ? captureErrorStack(stack) : null;
+    if (input.error !== undefined && input.error !== null && this.fault === null) {
+      // A failure the app never recorded itself (`ctx.debug.error`) still has to
+      // reach the trace. Re-recording classifies it, marks the span that was
+      // innermost-open and adds the `error:` row to the waterfall; a failure
+      // that WAS recorded keeps the classification it already carries.
+      this.recordError(input.error);
+    }
+    if (this.error !== null) {
+      // Read the failure back the way an operator reads it: the failing span's
+      // origin is the application call site, while the error's own stack is
+      // often all dependency internals (Bun truncates async stacks there).
+      this.faultFrames = summarizeFailureFrames({
+        stack: this.errorStack,
+        origins: failingOrigin([...this.spansById.values()], this.faultSpanId),
+      });
     }
     // Close dangling spans (request cut short) as failed/open so the waterfall
     // stays truthful instead of hiding the leak. Two spans are exempt: the
@@ -507,6 +474,9 @@ export class Trace {
       ip: this.ip,
       error: this.error,
       errorStack: this.errorStack,
+      fault: this.fault,
+      faultSpanId: this.faultSpanId,
+      faultFrames: this.faultFrames,
       request: { ...this.request },
       responseHeaders: this.responseHeaders,
       responseBody: this.responseBody,

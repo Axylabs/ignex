@@ -10,23 +10,22 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { debugQuery } from "../src/debug/api";
+import { isInternalFrame } from "../src/debug/frames";
 import {
   buildDecodedMappings,
   createSourceFrameResolver,
   decodeVlq,
+  installSourceFrames,
   lookupMapping,
   parseFrameLocation,
   setSharedSourceFrames,
   sharedSourceFrames,
 } from "../src/debug/sourcemaps";
-import {
-  beginTrace,
-  enterTraceContext,
-  isInternalFrame,
-  setTracingEnabled,
-} from "../src/debug/tracer";
+import { beginTrace, enterTraceContext, setTracingEnabled } from "../src/debug/tracer";
+import { toFault } from "../src/platform/fault";
+import { setStackFrameRemapper } from "../src/platform/fault-throw";
 
 /* ── VLQ decoder ────────────────────────────────────────────────────────── */
 
@@ -381,5 +380,71 @@ describe("sourcemap end-to-end (requires Bun)", () => {
       rmSync(dir, { recursive: true, force: true });
       delete (globalThis as Record<string, unknown>).__STACK__;
     }
+  });
+});
+
+/* ── the error system's `where` (fault classification) ──────────────────── */
+
+describe("fault `where` reports the source file, not the bundle", () => {
+  /** A throw whose stack starts inside the compiled server bundle. */
+  const bundledError = (frames: readonly string[]): Error => {
+    const err = new Error("Command aggregate requires authentication");
+    err.stack = ["Error: Command aggregate requires authentication", ...frames].join("\n");
+    return err;
+  };
+
+  /** The install used by the live debugger: resolver + error-system hook. */
+  const install = (): (() => void) =>
+    installSourceFrames({ loadMap: (p) => (p.endsWith("server.js.map") ? fixtureMap() : null) });
+
+  // The hook is process-wide: never let it leak into another test's assertions.
+  afterEach(() => {
+    setStackFrameRemapper(null);
+    setSharedSourceFrames(null);
+  });
+
+  it.skipIf(isWin)("classifies `where` as the original TypeScript position", () => {
+    const dispose = install();
+    try {
+      // `/app/.ignex/server.js:1:101` → seg3 → ../src/lib/db.ts line 16 col 3.
+      const fault = toFault(bundledError(["    at run (/app/.ignex/server.js:1:101)"]));
+      expect(fault.where).toBe("/app/src/lib/db.ts:17:4");
+      expect(fault.where).not.toContain("__server.js");
+    } finally {
+      dispose();
+    }
+  });
+
+  it.skipIf(isWin)("prefers a frame that resolves over an earlier unmapped one", () => {
+    const dispose = install();
+    try {
+      const fault = toFault(
+        bundledError([
+          "    at legacy (/app/dist/legacy.js:9:9)", // no adjacent map
+          "    at handler (/app/.ignex/server.js:1:31)", // → users/[id].get.ts
+        ]),
+      );
+      expect(fault.where).toBe("/app/src/routes/users/[id].get.ts:12:4");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps bundle coordinates when no remapper is installed", () => {
+    // No install: a compiled frame is still better than no location at all.
+    const fault = toFault(bundledError(["    at run (/app/dist/__server.js:1:101)"]));
+    expect(fault.where).toBe("/app/dist/__server.js:1:101");
+  });
+
+  it("is not applied from a bare shared-resolver swap (tracer-only)", () => {
+    // `setSharedSourceFrames` is the tracer's seam; only `installSourceFrames`
+    // wires the error system, which is what keeps the hook explicit.
+    setSharedSourceFrames(
+      createSourceFrameResolver({
+        loadMap: (p) => (p.endsWith("server.js.map") ? fixtureMap() : null),
+      }),
+    );
+    const fault = toFault(bundledError(["    at run (/app/.ignex/server.js:1:101)"]));
+    expect(fault.where).toBe("/app/.ignex/server.js:1:101");
   });
 });

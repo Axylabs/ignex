@@ -12,6 +12,7 @@ import { Badge, Chip, KindBadge, MethodBadge, StatusBadge } from "../components/
 import { Button } from "../components/button";
 import { Card } from "../components/card";
 import { BodyPanel, QueriesTable, TimeBreakdown, Waterfall } from "../components/detail-parts";
+import { FaultPanel, FrameGroup, faultToText } from "../components/fault-panel";
 import { headerRows, Kvs, type KvsRow } from "../components/kvs";
 import { PageHeader } from "../components/page";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
@@ -62,6 +63,7 @@ const SpanNode = (props: {
   depth: number;
   byParent: Map<number, SpanLike[]>;
   attrValue: (v: unknown) => string;
+  faultSpanId?: number | null | undefined;
 }): JSX.Element => {
   const kid = props.span;
   const meta: JSX.Element[] = [];
@@ -85,6 +87,10 @@ const SpanNode = (props: {
     );
   }
   const isRoot = (kid.parentId ?? 0) === 0 && props.depth === 0;
+  // The span that failed is the anchor of the whole investigation: mark it
+  // explicitly, and badge its fault code so origin/kind travel with the row.
+  const isFault = (): boolean =>
+    props.faultSpanId !== undefined && props.faultSpanId !== null && props.faultSpanId === kid.id;
   return (
     <>
       <div
@@ -94,6 +100,12 @@ const SpanNode = (props: {
         <span class={durClass(kid.durationMs)}>{fmtMs(kid.durationMs)}</span>
         {" · "}
         <b>{kid.name}</b> <KindBadge kind={kid.kind} />
+        {isFault() ? <Chip title="this is where the request failed">failed here</Chip> : null}
+        {kid.fault ? (
+          <Chip class="font-mono" title="fault code — click to copy" dataCopy={kid.fault.code}>
+            {kid.fault.code}
+          </Chip>
+        ) : null}
         {kid.error ? <Badge tone="err">{kid.error}</Badge> : null}
       </div>
       {meta.length > 0 ? <div class="tree-meta">{meta}</div> : null}
@@ -105,6 +117,7 @@ const SpanNode = (props: {
               depth={props.depth + 1}
               byParent={props.byParent}
               attrValue={props.attrValue}
+              faultSpanId={props.faultSpanId}
             />
           )}
         </For>
@@ -114,7 +127,10 @@ const SpanNode = (props: {
 };
 
 /** Span tree panel (children grouped by parentId, indented by depth). */
-const SpanTree = (props: { spans: SpanLike[] }): JSX.Element => {
+const SpanTree = (props: {
+  spans: SpanLike[];
+  faultSpanId?: number | null | undefined;
+}): JSX.Element => {
   const byParent = new Map<number, SpanLike[]>();
   for (const sp of props.spans) {
     // The request-root span (id 0) is redundant here — the tree starts at
@@ -136,7 +152,13 @@ const SpanTree = (props: { spans: SpanLike[] }): JSX.Element => {
       <div class="tree">
         <For each={byParent.get(0) ?? []}>
           {(kid): JSX.Element => (
-            <SpanNode span={kid} depth={0} byParent={byParent} attrValue={attrValue} />
+            <SpanNode
+              span={kid}
+              depth={0}
+              byParent={byParent}
+              attrValue={attrValue}
+              faultSpanId={props.faultSpanId}
+            />
           )}
         </For>
       </div>
@@ -181,6 +203,17 @@ const DetailSummary = (props: { t: DetailTrace }): JSX.Element => (
         </Chip>
       )}
     </Show>
+    <Show when={props.t.fault}>
+      {(fault): JSX.Element => (
+        <Chip
+          class="font-mono"
+          title={`fault code — ${fault().origin} · ${fault().kind}`}
+          dataCopy={fault().code}
+        >
+          {fault().code}
+        </Chip>
+      )}
+    </Show>
   </div>
 );
 
@@ -198,57 +231,67 @@ export const RequestDetailView: Component = () => {
       setLoadError(err.message);
     });
 
-  /** Build the active tab's panels. */
-  const tabContent = (t: DetailTrace, active: string): JSX.Element => {
-    if (active === "waterfall")
-      return (
-        <>
-          <TimeBreakdown spans={t.spans} durationMs={t.durationMs} />
-          <Waterfall spans={t.spans} total={Math.max(t.durationMs, 1)} />
-        </>
-      );
-    if (active === "queries") return <QueriesTable spans={t.spans} />;
-    if (active === "headers")
-      return (
-        <>
-          <Card title="Request headers">
-            <Kvs rows={headerRows(t.request.headers)} />
-          </Card>
-          <Card title="Response headers">
-            <Kvs rows={headerRows(t.responseHeaders ?? {})} />
-          </Card>
-        </>
-      );
-    if (active === "body")
-      return (
-        <>
-          <BodyPanel
-            title="Request body"
-            bodyText={t.request.body ?? null}
-            contentType={headerValue(t.request.headers, "content-type")}
-            truncated={false}
-            meta={`${t.method} ${t.path}`}
-          />
-          <BodyPanel
-            title="Response body"
-            bodyText={t.responseBody ?? null}
-            contentType={headerValue(t.responseHeaders ?? {}, "content-type")}
-            truncated={t.responseBodyTruncated === true}
-            meta={`status ${t.status}`}
-          />
-        </>
-      );
-    if (active === "replay")
-      return (
-        <Card>
-          <EmptyState
-            icon="refresh"
-            message="Press “Replay” above to re-issue this exact request through the server."
-          />
+  /**
+   * Per-tab panel builders — one small function per tab, so each render path
+   * is independently readable and the tab set is obvious at a glance.
+   */
+  const tabPanels: Record<string, (t: DetailTrace, active: string) => JSX.Element> = {
+    waterfall: (t) => (
+      <>
+        <TimeBreakdown spans={t.spans} durationMs={t.durationMs} />
+        <Waterfall spans={t.spans} total={Math.max(t.durationMs, 1)} />
+      </>
+    ),
+    queries: (t) => <QueriesTable spans={t.spans} />,
+    headers: (t) => (
+      <>
+        <Card title="Request headers">
+          <Kvs rows={headerRows(t.request.headers)} />
         </Card>
-      );
+        <Card title="Response headers">
+          <Kvs rows={headerRows(t.responseHeaders ?? {})} />
+        </Card>
+      </>
+    ),
+    body: (t) => (
+      <>
+        <BodyPanel
+          title="Request body"
+          bodyText={t.request.body ?? null}
+          contentType={headerValue(t.request.headers, "content-type")}
+          truncated={false}
+          meta={`${t.method} ${t.path}`}
+        />
+        <BodyPanel
+          title="Response body"
+          bodyText={t.responseBody ?? null}
+          contentType={headerValue(t.responseHeaders ?? {}, "content-type")}
+          truncated={t.responseBodyTruncated === true}
+          meta={`status ${t.status}`}
+        />
+      </>
+    ),
+    replay: () => (
+      <Card>
+        <EmptyState
+          icon="refresh"
+          message="Press “Replay” above to re-issue this exact request through the server."
+        />
+      </Card>
+    ),
+  };
 
-    // Overview and Error share the overview layout.
+  /** Build the active tab's panels (an unknown tab falls back to the overview). */
+  const tabContent = (t: DetailTrace, active: string): JSX.Element =>
+    (tabPanels[active] ?? overviewPanels)(t, active);
+
+  /**
+   * Overview and Error share the overview layout. The Error tab LEADS with the
+   * classification — origin/kind/code, the operator hints and the real cause —
+   * and keeps the stack as the last card: a stack answers "where", the fault
+   * answers "why" and "what do I change".
+   */
+  const overviewPanels = (t: DetailTrace, active: string): JSX.Element => {
     const errorText = `${t.error ?? ""}${t.errorStack ? `\n\n${t.errorStack}` : ""}`;
     return (
       <>
@@ -259,12 +302,38 @@ export const RequestDetailView: Component = () => {
           <Stat value={t.route ?? "—"} label="route" />
         </StatRow>
         {active === "error" && t.error ? (
-          <Card
-            title="Error"
-            actions={<Button size="sm" icon="copy" label="Copy" dataCopy={errorText} />}
-          >
-            <pre class="err-stack">{errorText}</pre>
-          </Card>
+          <>
+            {t.fault ? <FaultPanel fault={t.fault} frames={t.faultFrames} /> : null}
+            <Card
+              title="Stack trace"
+              actions={
+                <Button
+                  size="sm"
+                  icon="copy"
+                  label="Copy"
+                  dataCopy={t.fault ? faultToText(t.fault, t.faultFrames) : errorText}
+                />
+              }
+            >
+              <Show when={t.faultFrames} fallback={<pre class="err-stack">{errorText}</pre>}>
+                {(frames): JSX.Element => (
+                  <div class="flex flex-col gap-3">
+                    <FrameGroup
+                      title="Your code"
+                      lines={frames().app}
+                      empty="No application frame was captured — the spans above show where the request spent its time."
+                    />
+                    <FrameGroup
+                      title="Framework & dependencies"
+                      lines={frames().internal}
+                      empty="No framework or dependency frame was captured."
+                      collapsed
+                    />
+                  </div>
+                )}
+              </Show>
+            </Card>
+          </>
         ) : null}
         {t.stages !== undefined && t.stages.length > 0 ? (
           <Card title="Lifecycle stages">
@@ -276,7 +345,7 @@ export const RequestDetailView: Component = () => {
           </Card>
         ) : null}
         <TimeBreakdown spans={t.spans} durationMs={t.durationMs} />
-        <SpanTree spans={t.spans} />
+        <SpanTree spans={t.spans} faultSpanId={t.faultSpanId ?? null} />
         <Card title="Request">
           <Kvs rows={requestKvsRows(t)} />
         </Card>

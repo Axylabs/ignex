@@ -15,6 +15,7 @@ export type {
 } from "./api";
 export type {
   AiDebugSummary,
+  AiRecentError,
   AppKnowledge,
   DocPayload,
   KnowledgeArea,
@@ -44,6 +45,8 @@ export type {
 export type {
   CapturedRequest,
   DebugSpanHandle,
+  FaultMark,
+  FrameClass,
   RequestTrace,
   Span,
   SpanAttrs,
@@ -51,4 +54,6 @@ export type {
   SystemSample,
   SystemStats,
   TraceDetail,
+  TraceFault,
+  TraceFrames,
 } from "./trace";

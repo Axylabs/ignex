@@ -126,12 +126,49 @@ export interface KnowledgeSdk {
 }
 
 /**
+ * One recent failure in the AI snapshot: the compact trace row PLUS its fault
+ * classification, so an agent reads *why* it broke — not just that it did —
+ * without a second request.
+ */
+export interface AiRecentError {
+  readonly id: string;
+  readonly ts: number;
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly error: string;
+  /** Stable fault code (`IGN_DB_CREDENTIALS`, `VALIDATION_ERROR`). */
+  readonly code?: string | null;
+  /** Which subsystem broke (`db`, `network`, `request`, `config`, …). */
+  readonly origin?: string | null;
+  /** The shape of the failure (`credentials`, `timeout`, `invalid`, …). */
+  readonly kind?: string | null;
+  /** Named service behind the failure (`MongoDB`, `PostgreSQL`, …). */
+  readonly service?: string | null;
+  /** Whether retrying the same request may succeed. */
+  readonly retryable?: boolean | null;
+  /** `file:line:column` of the first application frame. */
+  readonly where?: string | null;
+  /**
+   * Where the failure surfaces in the application's OWN code
+   * (`src/routes/api/gigs/index.get.ts:7:27`) — the frame to open first. Absent
+   * when the runtime never recorded an application frame.
+   */
+  readonly appWhere?: string | null;
+  /** Innermost cause, one line — usually the real story behind the 500. */
+  readonly cause?: string | null;
+  /** What to fix, most likely first (the classifier's operator hints). */
+  readonly hints?: readonly string[];
+}
+
+/**
  * Compact AI-facing debug summary served at `{path}/api/ai/summary`.
  *
  * One small JSON document that tells an AI agent (via MCP) what is happening
- * on this server right now: error/slow traces, event-queue stats and published
- * clients. Designed to be cheap to fetch and cheap to read — the agent then
- * drills into specific traces with the per-request endpoints.
+ * on this server right now: error/slow traces (each recent failure carrying its
+ * fault classification), event-queue stats and published clients. Designed to
+ * be cheap to fetch and cheap to read — the agent then drills into specific
+ * traces with the per-request endpoints.
  */
 export interface AiDebugSummary {
   readonly service: string;
@@ -143,15 +180,13 @@ export interface AiDebugSummary {
     readonly errors: number;
     readonly avgDurationMs: number;
     readonly p95DurationMs: number;
-    /** Most recent failed requests (compact rows). */
-    readonly recentErrors: Array<{
-      id: string;
-      ts: number;
-      method: string;
-      path: string;
-      status: number;
-      error: string;
-    }>;
+    /** Most recent failed requests, each with its fault classification. */
+    readonly recentErrors: AiRecentError[];
+    /**
+     * Fault-code histogram over the retained ring (`IGN_DB_CREDENTIALS → 12`).
+     * One line answers "what broke most" — present only when something failed.
+     */
+    readonly errorCodes?: Record<string, number>;
     /** Slowest retained requests. */
     readonly slowest: Array<{
       id: string;

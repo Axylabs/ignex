@@ -98,7 +98,7 @@ in [UI design system](#ui-design-system-contributors).
 | --- | --- |
 | **Request waterfall** | Every request is traced end-to-end **automatically**: each lifecycle stage (request / handler / afterHandle / …) gets its own row, and every span your code records sits inside the handler at its true position. A time-breakdown panel (per-kind ms + %, idle/unaccounted gaps) makes the bottleneck visible at a glance, and rows unfold to show attrs, origin and errors. |
 | **DB timing** | Queries recorded through `ctx.debug.query()` (or the free `debugQuery()`) get their own rows with millisecond timing, what was sent (params / full wire command) and what came back (result summary / reply preview), plus a per-request `db time` / `query count` headline. MongoDB: `instrumentMongoClient(client)` captures every driver round-trip at wire level. |
-| **Errors + replay** | Every error (handler throw, hook failure, 5xx) is captured with its stack. Any stored request can be **replayed** with one click — re-issued through the live server, full routing and hooks — and the fresh result (status, duration, body) is shown inline. |
+| **Errors + replay** | Every error (handler throw, hook failure, 5xx) is captured **classified** — the same fault the terminal report prints: origin · kind · code, the retryable verdict, the operator "what to fix" hints and the sanitized cause chain — together with its stack. Any stored request can be **replayed** with one click — re-issued through the live server, full routing and hooks — and the fresh result (status, duration, body) is shown inline. |
 | **Logs** | Structured log capture: `ctx.debug.log(level, msg, attrs)` / the free `debugLog()` helper are correlated to the active request trace, and `console.*` calls are mirrored in (still printed). Level/text/time filters; click a row for the full record, or its *request ↗* link to jump to the request waterfall. |
 | **History** | Everything (traces, spans, logs, samples) is persisted to a local SQLite db and survives restarts. Query the archive by time/text/method/status/errors/min-duration and reopen any past trace with its full span tree — post-mortems included. |
 | **Metrics** | Per-route request/error counters and duration histograms with p50/p95/p99 estimates, system gauges and custom counters — plus a **Prometheus text endpoint** so Grafana boards scrape ignex directly, no agents. |
@@ -373,10 +373,29 @@ your handlers to see the shape of a request:
 
 ## Errors and replay
 
-- The **Errors** tab lists every request that carried an error (thrown
-  handler, failed hook, validation failure, 5xx).
-- The request detail shows the error message + top stack frames and the
-  response that was produced.
+The debugger does not paraphrase a failure: it carries the **same fault the
+terminal report prints** (see [`docs/errors.md`](errors.md)). `toFault` runs
+once on the failure path, and the result rides the trace — so the dashboard, the
+history archive, the AI summary and the MCP tools all show the identical
+classification.
+
+- The **Errors** view lists every request that carried an error (thrown handler,
+  failed hook, validation failure, 5xx), badges each row with its **fault code**
+  (`IGN_DB_CREDENTIALS`, `VALIDATION_ERROR`, …) and offers a **fault-code filter**
+  built from the codes actually present in the window.
+- The request detail's **Error** tab leads with the classification: origin ·
+  service and kind badges, the fault code (click to copy), the HTTP status the
+  boundary answered with, the one-line `what`, the driver's own `message`, the
+  `where` frame, the retryable verdict — then **What to fix** (the operator
+  hints), the **Cause chain (innermost last)** and any structured
+  **Configuration check** issues. The stack is the *last* card: a stack answers
+  "where", the fault answers "why" and "what do I change".
+- The **waterfall and span tree** anchor the failure: the span that broke carries
+  the fault code next to its message, the error row carries
+  origin/kind/code/retryable as attributes, and the span the request failed in is
+  marked (its id is `faultSpanId`). A span failure the handler **caught** is
+  classified too — the trace stays a 200 while the row still says *why* the span
+  failed.
 - **Replay request** re-issues the exact stored request (method, path,
   headers, body when captured) through the live server — native route table,
   hooks, plugins all run — and shows the fresh status, duration and body.
@@ -386,17 +405,47 @@ your handlers to see the shape of a request:
 > headers (authorization, cookie, api keys) are stored for replay fidelity but
 > **redacted** in the dashboard API.
 
+The `fault` object on `GET /api/requests/:id` (and on a rebuilt
+`GET /api/history/:id`) is the full classification — `code`, `origin`, `kind`,
+`status`, `summary`, `message`, `detail`, `service`, `retryable`, `hints`,
+`causes`, `issues`, `errorName`, `where`. List rows carry the compact form
+(`code`/`origin`/`kind`/`service`/`where`) plus the exact `?code=` filter.
+
 ## Source positions (sourcemaps)
 
-Stack frames captured by the tracer (`errorStack`, span `origin`) are
-remapped to your TypeScript sources:
+A compiled artifact reports failures in BUNDLE coordinates
+(`dist/__server.js:50935:24`), which are useless when debugging. Everything the
+debug layer reports is remapped back to the original TypeScript instead:
 
+- **Fault `where`** (the terminal report AND the dashboard's Error tab /
+  `fault.where`), **`Trace.errorStack`**, span **`origin`** and the error-event
+  span's `where` attr all resolve to `.ts` positions.
 - The compiler emits a source map next to the server bundle by default
-  (`sourceMap: true` → `<out>.js.map`). Bun does **not** apply source maps
-  to runtime stack traces itself, so `@ignex/core`'s debug layer ships its
-  own remapper: frames whose file has an adjacent `.map` are translated
-  back through the v3 VLQ mappings (negative-cached — files without maps
-  pass through untouched).
+  (`sourceMap: true` → `<out>.js.map`); the reference app's debug build does the
+  same (`packages/app/builder.ts` sets `sourceMap: debug`, so `dist-dev/` ships a
+  map while the production artifact stays map-free). Bun does **not** apply
+  source maps to runtime stack traces itself, so `@ignex/core` ships its own
+  remapper: frames whose file has an adjacent `.map` are translated back through
+  the v3 VLQ mappings (negative-cached — files without maps pass through
+  untouched).
+- One seam drives both consumers: the debug layer installs the resolver
+  (`installSourceFrames()`, called when the debugbar activates) and registers its
+  frame remapper with the error system, so the fault the dashboard shows and the
+  fault printed on stderr agree — including for boot failures.
+- A frame is chosen by usefulness, not by position: **application code first**,
+  then the dependency/framework frame that raised the error, and a source-mapped
+  frame beats a compiled one. Synthetic `native:` / `node:` frames name no file
+  and are never reported (`where` is simply omitted when nothing else is left).
+- **Your code is named, and the machinery is grouped away.** Every failure
+  carries `faultFrames` (`app`, `internal`, `appWhere`): the frames split into
+  business logic vs framework/dependency/generated. `appWhere` survives the one
+  case that would otherwise defeat this — a dependency raising the error across
+  an `await`, where Bun truncates the error's stack at
+  `processTicksAndRejections` and no application frame is left; the span that
+  failed recorded the caller chain where it started, and that is where the path
+  comes from. The Error tab shows `in your code` above `raised in`, its stack card
+  splits **Your code** from **Framework & dependencies**, and `/api/ai/summary`
+  reports the same `appWhere` per recent error.
 - Independent of sourcemaps, `GET /api/requests/:id` resolves the matched
   route's repo-relative **source file** from the AOT manifest and returns
   it as `sourceFile` (e.g. `src/routes/users/[id].get.ts`); the request
@@ -634,8 +683,8 @@ Tools (the dashboard's **AI** view shows this config + the tool list):
 
 | Tool | What the agent gets |
 | --- | --- |
-| `debug-summary` | **one compact JSON** — errors, slow traces, event stats, clients **plus the observatory block** (leak verdict, recent warnings, persistence state). The token-efficient entry point. |
-| `debug-requests` | recent traces, server-side filtered (`error`, `q`, `method`, `status`, `limit`) |
+| `debug-summary` | **one compact JSON** — recent errors **with their fault classification** (code, origin, kind, service, retryable, innermost cause, hints) and a fault-code histogram, slow traces, event stats, clients **plus the observatory block** (leak verdict, recent warnings, persistence state). The token-efficient entry point. |
+| `debug-requests` | recent traces, server-side filtered (`error`, `q`, `method`, `status`, `limit`); `q` also matches the fault code |
 | `debug-request` | full trace: span tree, waterfall timings, queries, redacted headers, stack |
 | `debug-replay` | re-issue a stored request through the live server |
 | `debug-logs` | structured logs filtered by level/text/trace; `persisted: true` reads the SQLite archive |
@@ -984,8 +1033,8 @@ All under `{path}` (default `/__debugbar`):
 | `GET /` | dashboard shell (redirects from the bare mount) |
 | `GET /app.js` | dashboard app (static asset, no token required) |
 | `GET /api/meta` | service name/version/env/debug mode |
-| `GET /api/requests?limit=&error=&q=&method=&status=` | trace summaries (newest first, server-side filters) |
-| `GET /api/requests/:id` | full trace (waterfall data, headers redacted) |
+| `GET /api/requests?limit=&error=&q=&method=&status=&code=` | trace summaries (newest first, server-side filters; `code` = exact fault code) |
+| `GET /api/requests/:id` | full trace + its classified `fault` (waterfall data, headers redacted) |
 | `POST /api/requests/:id/replay` | replay the request, return the fresh result |
 | `GET /api/requests/clear` | clear the store |
 | `GET /api/system` | system samples + request totals |
@@ -997,8 +1046,8 @@ All under `{path}` (default `/__debugbar`):
 | `GET /api/diagnostics` | leak/trend report + persistence status |
 | `POST /api/diagnostics/gc` | force full GC, report freed memory |
 | `GET /api/state` | application/process state snapshot |
-| `GET /api/history?since=&until=&q=&method=&status=&error=&minMs=&limit=` | persisted trace summaries (cross-restart) |
-| `GET /api/history/:id` | one reconstructed persisted trace (with spans) |
+| `GET /api/history?since=&until=&q=&method=&status=&error=&code=&minMs=&limit=` | persisted trace summaries (cross-restart; `code` = exact fault code) |
+| `GET /api/history/:id` | one reconstructed persisted trace (with spans + its `fault`) |
 | `GET /api/kt` | knowledge markdown + structured knowledge |
 | `GET /api/docs` | docs inventory; `?path=<relpath>` returns one rendered doc (404 for unknown/traversal paths) |
 | `GET /api/sdks` | published-SDK metadata (enriched with git tags) |
@@ -1009,7 +1058,7 @@ All under `{path}` (default `/__debugbar`):
 | `GET /api/nova/events?limit=&direction=&name=` | raw nova transport trace (sent/received rows) |
 | `POST /api/nova/events/clear` | drop the nova trace ring rows |
 | `POST /api/nova/events/emit` | fire a realtime event manually `{ name, payload?, target? }` (`target` = `user:u-42` / `group:` / `topic:` / `client:`, blank = broadcast) |
-| `GET /api/ai/summary` | compact AI-facing snapshot (errors, slow traces, events, clients, observatory verdict) |
+| `GET /api/ai/summary` | compact AI-facing snapshot (recent errors **classified** with code/origin/kind/cause/hints + a fault-code histogram, slow traces, events, clients, observatory verdict) |
 | `POST /api/stream/ticket` | mint a single-use, short-TTL ticket authorizing one stream connection |
 | `GET /api/stream?ticket=` | Server-Sent-Events revision stream (per-domain mutation counters; falls back to polling when unavailable) |
 

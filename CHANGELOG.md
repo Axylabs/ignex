@@ -6,6 +6,65 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The debugger carries the fault classification, not just the error text.**
+  A failed request's trace now stores the same `Fault` the terminal report
+  prints — origin · service, kind, code, status, retryable, the operator hints,
+  the sanitized `cause` chain and the first application frame — and the span
+  that failed stores a compact mark (`code`/`origin`/`kind`/`service`/`where`).
+  New `packages/core/src/debug/fault-capture.ts` is the one seam
+  (`faultOf` first, else `toFault`), so the dashboard can never disagree with
+  `ignex boot`/request reports.
+  - The **Error tab** leads with the classification, the **What to fix** hints,
+    the **Cause chain (innermost last)** and any **Configuration check** issues;
+    the stack is the last card. The copy button copies that whole report.
+  - The **waterfall / span tree** badges the failed span with its fault code,
+    marks it (`faultSpanId`), and carries origin/kind/code/retryable on the
+    `error:` row. A span failure your code **caught** is classified too — the
+    trace stays a 200 while the row still says why the span broke.
+  - `GET /api/requests?code=…` filters by exact fault code (a fault-code picker
+    appears in the actions toolbar), `q` matches the code and the summary, and
+    the same filter exists on `/api/history`.
+  - `GET /api/ai/summary` now serves each recent error with its code, origin,
+    kind, service, retryable verdict, innermost cause and hints, plus a
+    fault-code histogram (`traces.errorCodes`) — an MCP agent sees the root
+    cause without opening a trace.
+  - Faults **persist**: `traces.fault`/`traces.fault_span_id` and
+    `spans.fault` are added by the new `packages/core/src/debug/persist-schema.ts`
+    (idempotent migrations), so the History panel is as diagnosable as the live
+    ring.
+- **A failure is located in your source, never in the bundle.** `Fault.where`
+  (terminal report, `fault.where` on the API, the Error tab's `where` row), the
+  trace's `errorStack`, span `origin` and the error-event span's `where` attr all
+  resolve to `.ts` positions: the error system exposes a frame-remap hook
+  (`setStackFrameRemapper` in `packages/core/src/platform/fault-throw.ts`) and
+  `packages/core/src/debug/sourcemaps.ts` installs it — with one shared resolver
+  and cache — the moment the debug layer activates, so a compiled artifact no
+  longer reports `dist/__server.js:50935:24`.
+  Frames are chosen by usefulness, not by position: application code first, then
+  the dependency/framework frame that raised the error, and a source-mapped
+  frame beats a compiled one. Synthetic `native:`/`node:` frames name no file and
+  are never reported (the `where` line is omitted instead of printing
+  `native:7:39`). The reference app's debug build now ships a source map
+  (`packages/app/builder.ts` → `sourceMap: debug`; the production artifact stays
+  map-free).
+- **A failure is told in terms of YOUR code, not the machinery.**
+  `packages/core/src/debug/frames.ts` classifies every captured frame (app /
+  framework / dependency / generated / synthetic) and splits a failure into
+  `faultFrames = { app, internal, appWhere }`: the Error tab now leads with
+  **in your code** and **raised in**, and its stack card groups **Your code** vs
+  **Framework & dependencies** (collapsed). `appWhere` also survives the case
+  that used to make this impossible — a dependency raising the error across an
+  `await`, where Bun truncates the error's stack at `processTicksAndRejections`
+  and no application frame remains: the failing span's recorded caller chain
+  supplies it. Reflected on `GET /api/requests/:id`, in rebuilt history traces
+  (derived on read) and in `/api/ai/summary` (`recentErrors[].appWhere`). The
+  **terminal report** prints it too, as an `in code` line above `where` — the
+  reporter asks a request-frame resolver the tracing layer installs
+  (`setRequestFrameResolver`), so stderr and the dashboard finally name the same
+  line.
+
 ### Changed
 
 - **Error messages are fail-closed for clients, complete in logs.** A 4xx message

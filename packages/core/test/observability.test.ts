@@ -94,8 +94,11 @@ describe("LogStore", () => {
     expect(store.list({ minLevel: "warn" }).length).toBe(2);
     expect(store.list({ q: "users" })[0]?.level).toBe("warn");
     expect(store.list({ traceId: "req-a" }).length).toBe(1);
+    // The window is a minute wide on purpose: a 1ms window made this
+    // load-flaky, because the three pushes above are easily older than 1ms by
+    // the time `now` is read under a parallel test run.
     const now = Date.now();
-    expect(store.list({ since: now - 1 }).length).toBe(3);
+    expect(store.list({ since: now - 60_000 }).length).toBe(3);
     expect(store.list({ until: now - 60_000 }).length).toBe(0);
     expect(store.list({ limit: 1 }).length).toBe(1);
   });

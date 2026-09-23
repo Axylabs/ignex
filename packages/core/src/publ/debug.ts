@@ -32,10 +32,12 @@ export {
 } from "../debug/tracer";
 export type {
   AiDebugSummary,
+  AiRecentError,
   AppStateSnapshot,
   DebugApi,
   DebugSpanHandle,
   DiagnosticsReport,
+  FaultMark,
   HistoryQuery,
   HistoryTraceSummary,
   LeakFinding,
@@ -52,4 +54,5 @@ export type {
   SpanKind,
   SystemSample,
   SystemStats,
+  TraceFault,
 } from "../debug/types";

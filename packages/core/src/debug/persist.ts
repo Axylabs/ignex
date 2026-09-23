@@ -13,8 +13,13 @@
  * every method degrades to the in-memory queue with `available: false`.
  */
 
+import type { Fault } from "../platform/fault-vocabulary";
 import { type BunSqliteDatabase, loadBunSqlite } from "../platform/sqlite";
+import { faultMark } from "./fault-capture";
+import { failingOrigin, summarizeFailureFrames } from "./frames";
+import { applySchema } from "./persist-schema";
 import type {
+  FaultMark,
   HistoryQuery,
   HistoryTraceSummary,
   LogRecord,
@@ -43,69 +48,6 @@ export interface ObservatoryDbOptions {
 }
 
 const DEFAULT_PATH = ".ignex/observatory.db";
-
-/** Schema applied on open (each statement idempotent). */
-const SCHEMA: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS traces (
-    id TEXT PRIMARY KEY,
-    ts INTEGER NOT NULL,
-    duration_ms REAL NOT NULL,
-    method TEXT NOT NULL,
-    path TEXT NOT NULL,
-    route TEXT,
-    status INTEGER NOT NULL,
-    request_id TEXT,
-    ip TEXT,
-    error TEXT,
-    error_stack TEXT,
-    request_url TEXT,
-    request_headers TEXT,
-    request_body TEXT,
-    response_headers TEXT,
-    response_body TEXT,
-    response_body_truncated INTEGER NOT NULL DEFAULT 0,
-    db_time_ms REAL NOT NULL DEFAULT 0,
-    db_count INTEGER NOT NULL DEFAULT 0,
-    span_count INTEGER NOT NULL DEFAULT 0,
-    stages TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_traces_ts ON traces(ts)`,
-  `CREATE TABLE IF NOT EXISTS spans (
-    trace_id TEXT NOT NULL,
-    sid INTEGER NOT NULL,
-    parent_id INTEGER,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    start_ms REAL NOT NULL,
-    duration_ms REAL NOT NULL,
-    open INTEGER NOT NULL DEFAULT 0,
-    error TEXT,
-    origin TEXT,
-    attrs TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_spans_trace ON spans(trace_id)`,
-  `CREATE TABLE IF NOT EXISTS logs (
-    lid INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts INTEGER NOT NULL,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    attrs TEXT,
-    trace_id TEXT,
-    request_id TEXT,
-    route TEXT,
-    source TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)`,
-  `CREATE TABLE IF NOT EXISTS samples (
-    ts INTEGER PRIMARY KEY,
-    cpu_pct REAL NOT NULL,
-    rss_mib REAL NOT NULL,
-    heap_mib REAL NOT NULL,
-    event_loop_delay_ms REAL NOT NULL,
-    active_requests INTEGER NOT NULL
-  )`,
-];
 
 /**
  * Queue + batch-write SQLite sink for observatory data. Create with
@@ -157,20 +99,9 @@ export class ObservatoryDb {
       const db = new Database(path);
       db.run("PRAGMA journal_mode=WAL");
       db.run("PRAGMA busy_timeout=3000");
-      for (const stmt of SCHEMA) db.run(stmt);
-      // Migration for databases created before response-body capture existed:
-      // CREATE TABLE IF NOT EXISTS won't add columns to an existing file, so
-      // add them best-effort (duplicate-column errors are the no-op signal).
-      try {
-        db.run("ALTER TABLE traces ADD COLUMN response_body TEXT");
-      } catch {
-        /* column already exists */
-      }
-      try {
-        db.run("ALTER TABLE traces ADD COLUMN response_body_truncated INTEGER NOT NULL DEFAULT 0");
-      } catch {
-        /* column already exists */
-      }
+      // Tables + best-effort column migrations (adds `fault`/`fault_span_id`
+      // to databases created before the debugger carried classifications).
+      applySchema(db);
       return new ObservatoryDb(db, path, opts);
     } catch {
       // An unopenable file must never take the app down — degrade to off.
@@ -238,9 +169,9 @@ export class ObservatoryDb {
     db.run(
       `INSERT OR REPLACE INTO traces
        (id, ts, duration_ms, method, path, route, status, request_id, ip, error, error_stack,
-        request_url, request_headers, request_body, response_headers, response_body,
-        response_body_truncated, db_time_ms, db_count, span_count, stages)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        fault, fault_span_id, request_url, request_headers, request_body, response_headers,
+        response_body, response_body_truncated, db_time_ms, db_count, span_count, stages)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         t.id,
         t.ts,
@@ -253,6 +184,8 @@ export class ObservatoryDb {
         t.ip,
         t.error,
         t.errorStack,
+        t.fault ? JSON.stringify(t.fault) : null,
+        t.faultSpanId ?? null,
         t.request.url,
         JSON.stringify(t.request.headers),
         t.request.body,
@@ -269,8 +202,8 @@ export class ObservatoryDb {
     for (const s of t.spans) {
       db.run(
         `INSERT INTO spans
-         (trace_id, sid, parent_id, name, kind, start_ms, duration_ms, open, error, origin, attrs)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (trace_id, sid, parent_id, name, kind, start_ms, duration_ms, open, error, fault, origin, attrs)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           t.id,
           s.id,
@@ -281,6 +214,7 @@ export class ObservatoryDb {
           s.durationMs,
           s.open ? 1 : 0,
           s.error,
+          s.fault ? JSON.stringify(s.fault) : null,
           s.origin,
           s.attrs ? JSON.stringify(s.attrs) : null,
         ],
@@ -398,12 +332,7 @@ export class ObservatoryDb {
     const out: HistoryTraceSummary[] = [];
     for (const row of rows) {
       const summary = rowToSummary(row);
-      if (
-        q &&
-        !`${summary.method} ${summary.path} ${summary.error ?? ""}`.toLowerCase().includes(q)
-      ) {
-        continue;
-      }
+      if (!matchesRowFilter(query, summary, q)) continue;
       out.push(summary);
       if (out.length >= limit) break;
     }
@@ -551,6 +480,34 @@ const jsonParseSafe = <T>(text: unknown, fallback: T): T => {
   }
 };
 
+/** Persisted `fault` column → compact mark (null when the trace succeeded). */
+const faultFromRow = (value: unknown): FaultMark | null => {
+  const fault = jsonParseSafe<Fault | null>(value, null);
+  return fault === null ? null : faultMark(fault);
+};
+
+/**
+ * Row gate applied AFTER the SQL query: the substring and fault-code filters
+ * SQL cannot index. Extracted so the query builder stays a flat list of
+ * `where` clauses.
+ *
+ * @param query - The history query (may carry `q` and `code`).
+ * @param summary - The mapped summary row.
+ * @param q - The pre-lowercased search text, or `undefined`/`""` for none.
+ * @returns Whether the row belongs in the result.
+ */
+const matchesRowFilter = (
+  query: HistoryQuery,
+  summary: HistoryTraceSummary,
+  q: string | undefined,
+): boolean => {
+  if (query.code !== undefined && summary.fault?.code !== query.code) return false;
+  if (q === undefined || q === "") return true;
+  return `${summary.method} ${summary.path} ${summary.error ?? ""} ${summary.fault?.code ?? ""}`
+    .toLowerCase()
+    .includes(q);
+};
+
 const rowToSummary = (row: Record<string, unknown>): HistoryTraceSummary => ({
   id: String(row.id ?? ""),
   ts: numOr(row.ts),
@@ -560,6 +517,7 @@ const rowToSummary = (row: Record<string, unknown>): HistoryTraceSummary => ({
   status: numOr(row.status),
   durationMs: numOr(row.duration_ms),
   error: strOrNull(row.error),
+  fault: faultFromRow(row.fault),
   dbCount: numOr(row.db_count),
   dbTimeMs: numOr(row.db_time_ms),
   spanCount: numOr(row.span_count),
@@ -567,44 +525,61 @@ const rowToSummary = (row: Record<string, unknown>): HistoryTraceSummary => ({
 
 type SpanRow = Record<string, unknown>;
 
-const rowToTrace = (row: SpanRow, spanRows: SpanRow[]): RequestTrace => ({
-  id: String(row.id ?? ""),
-  ts: numOr(row.ts),
-  startedAtMs: 0,
-  durationMs: numOr(row.duration_ms),
-  method: String(row.method ?? ""),
-  path: String(row.path ?? ""),
-  route: strOrNull(row.route) ?? "",
-  status: numOr(row.status),
-  requestId: strOrNull(row.request_id) ?? "",
-  ip: strOrNull(row.ip) ?? "",
-  error: strOrNull(row.error),
-  errorStack: strOrNull(row.error_stack),
-  request: {
-    method: String(row.method ?? ""),
-    url: strOrNull(row.request_url) ?? "",
-    headers: jsonParseSafe<Record<string, string>>(row.request_headers, {}),
-    body: strOrNull(row.request_body),
-  },
-  responseHeaders: jsonParseSafe<Record<string, string> | null>(row.response_headers, null),
-  responseBody: strOrNull(row.response_body),
-  responseBodyTruncated: numOr(row.response_body_truncated) === 1,
-  spans: spanRows.map((s) => ({
-    id: numOr(s.sid),
-    parentId: s.parent_id === null || s.parent_id === undefined ? null : numOr(s.parent_id),
-    name: String(s.name ?? ""),
-    kind: String(s.kind ?? "custom") as RequestTrace["spans"][number]["kind"],
-    startMs: numOr(s.start_ms),
-    durationMs: numOr(s.duration_ms),
-    open: numOr(s.open) === 1,
-    error: strOrNull(s.error),
-    attrs: jsonParseSafe<Record<string, unknown> | null>(s.attrs, null),
-    origin: strOrNull(s.origin),
-  })),
-  dbTimeMs: numOr(row.db_time_ms),
-  dbCount: numOr(row.db_count),
-  stages: jsonParseSafe<string[]>(row.stages, []),
+/** Persisted span row → wire span (exported for the trace rebuild below). */
+const rowToSpan = (s: SpanRow): RequestTrace["spans"][number] => ({
+  id: numOr(s.sid),
+  parentId: s.parent_id === null || s.parent_id === undefined ? null : numOr(s.parent_id),
+  name: String(s.name ?? ""),
+  kind: String(s.kind ?? "custom") as RequestTrace["spans"][number]["kind"],
+  startMs: numOr(s.start_ms),
+  durationMs: numOr(s.duration_ms),
+  open: numOr(s.open) === 1,
+  error: strOrNull(s.error),
+  fault: jsonParseSafe<FaultMark | null>(s.fault, null),
+  attrs: jsonParseSafe<Record<string, unknown> | null>(s.attrs, null),
+  origin: strOrNull(s.origin),
 });
+
+const rowToTrace = (row: SpanRow, spanRows: SpanRow[]): RequestTrace => {
+  const spans = spanRows.map(rowToSpan);
+  const faultSpanId = typeof row.fault_span_id === "number" ? row.fault_span_id : null;
+  const errorStack = strOrNull(row.error_stack);
+  return {
+    id: String(row.id ?? ""),
+    ts: numOr(row.ts),
+    startedAtMs: 0,
+    durationMs: numOr(row.duration_ms),
+    method: String(row.method ?? ""),
+    path: String(row.path ?? ""),
+    route: strOrNull(row.route) ?? "",
+    status: numOr(row.status),
+    requestId: strOrNull(row.request_id) ?? "",
+    ip: strOrNull(row.ip) ?? "",
+    error: strOrNull(row.error),
+    errorStack,
+    fault: jsonParseSafe<Fault | null>(row.fault, null),
+    faultSpanId,
+    // Derived on read (no extra column): a history trace is as readable as a
+    // live one, from the same inputs — the stack plus the failing span's origin.
+    faultFrames: summarizeFailureFrames({
+      stack: errorStack,
+      origins: failingOrigin(spans, faultSpanId),
+    }),
+    request: {
+      method: String(row.method ?? ""),
+      url: strOrNull(row.request_url) ?? "",
+      headers: jsonParseSafe<Record<string, string>>(row.request_headers, {}),
+      body: strOrNull(row.request_body),
+    },
+    responseHeaders: jsonParseSafe<Record<string, string> | null>(row.response_headers, null),
+    responseBody: strOrNull(row.response_body),
+    responseBodyTruncated: numOr(row.response_body_truncated) === 1,
+    spans,
+    dbTimeMs: numOr(row.db_time_ms),
+    dbCount: numOr(row.db_count),
+    stages: jsonParseSafe<string[]>(row.stages, []),
+  };
+};
 
 const rowToLog = (row: SpanRow): LogRecord => ({
   id: numOr(row.lid),

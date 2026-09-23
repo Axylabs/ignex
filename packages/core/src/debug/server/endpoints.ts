@@ -15,8 +15,8 @@
 import type { IgnexContext } from "../../http/context";
 import type { IgnexRouter } from "../../http/router";
 import { json, notFound } from "../respond";
+import { createAiSummaryHandler } from "./handlers/ai-summary";
 import {
-  createAiSummaryHandler,
   createClientsHandler,
   createDocsHandler,
   createEventPublishHandler,

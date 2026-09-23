@@ -99,6 +99,8 @@ interface ListFilters {
   q?: string | undefined;
   method?: string | undefined;
   status?: string | undefined;
+  /** Exact fault-code filter (`IGN_DB_CREDENTIALS`) — one failure mode at a time. */
+  code?: string | undefined;
   minMs?: string | undefined;
   errorsOnly?: boolean | undefined;
   limit?: number | undefined;
@@ -114,6 +116,7 @@ const filtersToQuery = (filters: ListFilters): string => {
   put("q", filters.q);
   put("method", filters.method);
   put("status", filters.status);
+  put("code", filters.code);
   put("minMs", filters.minMs);
   put("error", filters.errorsOnly);
   params.set("limit", String(filters.limit ?? 200));

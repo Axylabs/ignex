@@ -83,20 +83,100 @@ export const causesOf = (chain: readonly unknown[]): readonly FaultCause[] =>
     .filter((cause) => cause.message.length > 0);
 
 /**
- * The first stack frame outside the framework and `node_modules` — the app code
- * that actually threw. Bun remaps this to TypeScript when the artifact ships a
- * sourcemap, so it is `file:line:column` of the operator's own source.
+ * A stack-frame rewriter that can turn a COMPILED frame into its source frame.
+ *
+ * The error system must not know what a source map is (the debug toolkit owns
+ * that, and it is dev-only), so it only asks a registered remapper: return the
+ * rewritten `at … (file:line:column)` line, or `null` when this frame has no
+ * mapping. `null` is the signal {@link whereFromStack} uses to keep looking for
+ * a frame that DOES resolve to a real source file.
+ */
+export type StackFrameRemapper = (frame: string) => string | null;
+
+/** Process-wide frame remapper (installed by the debug layer when it boots). */
+let frameRemapper: StackFrameRemapper | null = null;
+
+/**
+ * Install (or clear) the process-wide stack-frame remapper.
+ *
+ * Called by the debug toolkit (`installSourceFrames`) the moment it becomes
+ * active, so every fault — boot failures included — reports `where` in the
+ * operator's own `.ts` file rather than `dist/__server.js:1:48213`. `null`
+ * restores raw bundle coordinates (used by tests, and the default in a process
+ * where no sourcemap-aware layer is loaded).
+ *
+ * @param remap - The remapper, or `null` to clear it.
+ */
+export const setStackFrameRemapper = (remap: StackFrameRemapper | null): void => {
+  frameRemapper = remap;
+};
+
+/** `file:line:column` of one stack-frame line, or `undefined` when it has none. */
+const frameLocation = (line: string): string | undefined => {
+  const frame = /\(?([^()\s]+):(\d+):(\d+)\)?\s*$/.exec(line.trim());
+  return frame === null ? undefined : `${frame[1]}:${frame[2]}:${frame[3]}`;
+};
+
+/** Synthetic frames (`native:7:39`, `node:internal/…`) name no source file. */
+const SYNTHETIC_FRAME = /^(?:native|node):/;
+
+/** Framework frames: core's own source, linked or installed. */
+const FRAMEWORK_FRAME = /(?:[\\/]packages[\\/]core[\\/]src[\\/]|[\\/]@ignex[\\/]core[\\/])/;
+
+/** A real SOURCE position (the frame names a `.ts` file, not a compiled one). */
+const SOURCE_FILE = /\.(?:ts|tsx|mts|cts)(?::\d+:\d+)?$/i;
+
+/**
+ * How good a frame is as the answer to "where did this happen?" — higher wins,
+ * the first frame wins ties.
+ *
+ * ```
+ *  4 application source      3 dependency/framework source
+ *  2 application compiled    1 dependency/framework compiled
+ *  0 unusable
+ * ```
+ *
+ * Source beats compiled, because a bundle offset (`dist/__server.js:1:48213`)
+ * is not a location anyone can act on; among equal kinds, application code wins
+ * because that is the frame the operator can change (a dependency frame — the
+ * driver that raised the error, core rejecting a request — still beats saying
+ * nothing). `0` covers synthetic `native:`/`node:` frames and the error system's
+ * own frames: reporting those is what produced useless `where native:7:39`
+ * lines.
+ */
+const whereRank = (where: string): number => {
+  if (SYNTHETIC_FRAME.test(where) || !/[/\\]/.test(where)) return 0;
+  if (where.includes("/platform/fault")) return 0;
+  const dependency = FRAMEWORK_FRAME.test(where) || where.includes("/node_modules/");
+  return (SOURCE_FILE.test(where) ? 3 : 1) + (dependency ? 0 : 1);
+};
+
+/**
+ * The stack frame that says where the failure was raised, as
+ * `file:line:column`.
+ *
+ * A compiled artifact reports bundle coordinates
+ * (`dist/__server.js:1:48213`); the debug layer installs a sourcemap remapper
+ * ({@link setStackFrameRemapper}) so those frames become the operator's own
+ * `.ts` position — see {@link whereRank} for how a frame is chosen. Returns
+ * `undefined` when no frame names a real file (a synthetic-only stack), which
+ * renders as an absent `where` rather than a fake location.
  */
 export const whereFromStack = (thrown: unknown): string | undefined => {
   if (!(thrown instanceof Error) || typeof thrown.stack !== "string") return undefined;
+  let best: string | undefined;
+  let bestRank = 0;
   for (const line of thrown.stack.split("\n").slice(1)) {
-    const frame = /\(?([^()\s]+):(\d+):(\d+)\)?\s*$/.exec(line.trim());
-    if (frame === null) continue;
-    const file = frame[1] ?? "";
-    if (file.includes("/node_modules/") || file.includes("/platform/fault")) continue;
-    return `${file}:${frame[2]}:${frame[3]}`;
+    const mapped = frameRemapper === null ? null : frameRemapper(line);
+    const where = frameLocation(mapped ?? line);
+    if (where === undefined) continue;
+    const rank = whereRank(where);
+    if (rank > bestRank) {
+      best = where;
+      bestRank = rank;
+    }
   }
-  return undefined;
+  return best;
 };
 
 /** Collect structured env issues off a chain (duck-typed for `EnvError`). */

@@ -5,7 +5,77 @@
  * Extracted from the pre-split `debug/types.ts` (move-only); the other three
  * domain files are `./api`, `./knowledge` and `./observability`, all
  * re-exported by `./index`.
+ *
+ * Failures ride the SAME taxonomy as the terminal reporter: a failed trace
+ * carries the classified {@link Fault} (`origin`, `kind`, `code`, `retryable`,
+ * hints, the sanitized cause chain, `where`) and the span that failed carries
+ * the compact {@link FaultMark}. `./fault-capture` builds them, so the
+ * dashboard can never disagree with `ignex boot`/request reports.
  */
+
+import type { Fault } from "../../platform/fault-vocabulary";
+
+/**
+ * The classified failure attached to a trace — the exact shape the terminal
+ * report renders (`renderFault`). A type ALIAS, not a mirror: the dashboard
+ * and the error system cannot drift.
+ */
+export type TraceFault = Fault;
+
+/**
+ * Compact classification carried on a trace summary and on a failed span:
+ * enough to badge, filter and group a failure without shipping the hint list
+ * and cause chain per span.
+ */
+export interface FaultMark {
+  /** Stable machine code (`IGN_DB_CREDENTIALS`, `VALIDATION_ERROR`). */
+  readonly code: string;
+  /** Which subsystem broke (`db`, `network`, `request`, …). */
+  readonly origin: Fault["origin"];
+  /** The shape of the failure (`credentials`, `timeout`, `invalid`, …). */
+  readonly kind: Fault["kind"];
+  /** Named service behind the failure (`MongoDB`, `PostgreSQL`, …). */
+  readonly service?: string | undefined;
+  /** `file:line:column` of the first application frame, when known. */
+  readonly where?: string | undefined;
+}
+
+/**
+ * What a stack frame is, from the operator's point of view. Drives the "your
+ * code" vs "framework & dependencies" split in the Error tab.
+ */
+export type FrameClass =
+  /** Business logic — the application's own routes, models and lib code. */
+  | "app"
+  /** The ignex framework (core/shared/native/…), installed or linked. */
+  | "framework"
+  /** A third-party package (`node_modules`). */
+  | "dependency"
+  /** Compiler output: the bundle, its entry shim, the `.ignex` build dir. */
+  | "generated"
+  /** A synthesized runtime frame (`native:`, `node:`) — names no file. */
+  | "synthetic"
+  /** Not a frame line at all. */
+  | "none";
+
+/**
+ * A failure's frames, split the way an operator reads them: business logic
+ * first, the machinery that carried the failure after.
+ *
+ * Both groups are needed — the second explains the first — but only the first
+ * is where the fix goes. `appWhere` is the location in the application's own
+ * code; it exists even when the error's own stack has no application frame
+ * (Bun truncates async stacks at `processTicksAndRejections`, so a dependency
+ * error is traced back through the span that started the work).
+ */
+export interface TraceFrames {
+  /** Business-logic frames, in capture order (the error's own stack first). */
+  readonly app: readonly string[];
+  /** Framework, dependency and generated frames, in capture order. */
+  readonly internal: readonly string[];
+  /** The location in the application's own code where the failure surfaces. */
+  readonly appWhere?: string | undefined;
+}
 
 /** What a span represents. Drives the waterfall color + grouping in the UI. */
 export type SpanKind =
@@ -48,6 +118,12 @@ export interface Span {
   attrs: SpanAttrs | null;
   /** Error message when this span failed, else null. */
   error: string | null;
+  /**
+   * Classification of the failure that ended this span (`code`/`origin`/
+   * `kind`) — the waterfall badge says WHICH subsystem broke, not just that
+   * something did. Absent on a span that succeeded.
+   */
+  fault?: FaultMark | null;
   /** Stack frame top when the span was created (first non-debug frame). */
   readonly origin: string | null;
 }
@@ -117,6 +193,27 @@ export interface RequestTrace {
   readonly ip: string;
   readonly error: string | null;
   readonly errorStack: string | null;
+  /**
+   * The classified failure behind {@link RequestTrace.error} — origin, kind,
+   * code, retryable verdict, operator hints, the sanitized `cause` chain
+   * (never the raw driver object) and the first application frame. This is
+   * what turns "500 on POST /api/gigs" into "MongoDB rejected the credentials;
+   * check `MONGO_URL`; the driver said code 13". Absent when the request
+   * succeeded.
+   */
+  readonly fault?: TraceFault | null;
+  /**
+   * Id of the span that failed (the innermost span open when the error was
+   * recorded, or `null` when the request failed outside any span). Lets the
+   * dashboard point the waterfall at the failing stage.
+   */
+  readonly faultSpanId?: number | null;
+  /**
+   * The failure as frames — your code first, the machinery after — so the Error
+   * tab (and an MCP agent) leads with the business location instead of a
+   * driver's internals. Absent when the request succeeded.
+   */
+  readonly faultFrames?: TraceFrames | null;
   readonly request: CapturedRequest;
   /** Redacted response headers. */
   readonly responseHeaders: Record<string, string> | null;

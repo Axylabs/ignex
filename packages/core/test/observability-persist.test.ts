@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObservatoryDb } from "../src/debug/persist.js";
-import type { RequestTrace } from "../src/debug/types/index.js";
+import type { RequestTrace, TraceFault } from "../src/debug/types/index.js";
 import { loadBunSqlite } from "../src/platform/sqlite.js";
 
 const trace = (id: string, over: Partial<RequestTrace> = {}): RequestTrace => ({
@@ -157,6 +157,87 @@ describe("ObservatoryDb", () => {
     second.start();
     expect(second.queryTraces({}).map((r) => r.id)).toEqual(["t-old"]);
     await second.close();
+  });
+
+  it("persists the fault classification and filters history by fault code", async () => {
+    if (!(await loadBunSqlite())) return;
+    const db = await ObservatoryDb.create({ path: tempPath(), flushIntervalMs: 5 });
+    if (!db) return;
+    db.start();
+
+    const fault: TraceFault = {
+      origin: "db",
+      kind: "credentials",
+      code: "IGN_DB_CREDENTIALS",
+      status: 503,
+      summary: "MongoDB rejected the credentials",
+      message: "Command create requires authentication",
+      retryable: false,
+      hints: ["Check `MONGO_URL` in `.env`."],
+      causes: [{ name: "MongoServerError", message: "auth failed", code: "13" }],
+      issues: [],
+      errorName: "DBError",
+      where: "/srv/app/src/routes/gigs.post.ts:12:5",
+    };
+    const failingSpan = {
+      id: 1,
+      parentId: 0,
+      name: "insertOne",
+      kind: "db" as const,
+      startMs: 1,
+      durationMs: 4,
+      open: false,
+      attrs: null,
+      error: "auth failed",
+      fault: { code: "IGN_DB_CREDENTIALS", origin: "db" as const, kind: "credentials" as const },
+      // The caller chain the span recorded — the application frame a history
+      // trace must still lead with (derived on read, no extra column).
+      origin: "    at insert (/srv/app/src/models/gig.ts:12:5)",
+    };
+    db.pushTrace(
+      trace("t-fault", {
+        status: 503,
+        error: "Command create requires authentication",
+        errorStack:
+          "InfraError: Command create requires authentication\n    at mapDriverError (/app/node_modules/@x/db/src/driver-map.ts:131:14)",
+        fault,
+        faultSpanId: 1,
+        spans: [
+          {
+            id: 0,
+            parentId: null,
+            name: "POST /gigs",
+            kind: "request" as const,
+            startMs: 0,
+            durationMs: 9,
+            open: false,
+            attrs: null,
+            error: null,
+            origin: null,
+          },
+          failingSpan,
+        ],
+      }),
+    );
+    await db.flush();
+
+    // The whole classification survives the round-trip, not just the message.
+    const full = db.getTrace("t-fault");
+    expect(full?.fault?.code).toBe("IGN_DB_CREDENTIALS");
+    expect(full?.fault?.hints).toEqual(["Check `MONGO_URL` in `.env`."]);
+    expect(full?.fault?.causes[0]?.name).toBe("MongoServerError");
+    expect(full?.faultSpanId).toBe(1);
+    expect(full?.spans.find((s) => s.id === 1)?.fault?.kind).toBe("credentials");
+    // The rebuilt trace is as readable as a live one: your code first.
+    expect(full?.faultFrames?.appWhere).toBe("/srv/app/src/models/gig.ts:12:5");
+    expect(full?.faultFrames?.app).toHaveLength(1);
+    expect(full?.faultFrames?.internal[0]).toContain("driver-map.ts:131:14");
+
+    // History filters and searches by fault code, not only by error text.
+    expect(db.queryTraces({ code: "IGN_DB_CREDENTIALS" }).map((r) => r.id)).toEqual(["t-fault"]);
+    expect(db.queryTraces({ code: "NOT_A_CODE" })).toEqual([]);
+    expect(db.queryTraces({ q: "ign_db_credentials" }).map((r) => r.id)).toEqual(["t-fault"]);
+    await db.close();
   });
 
   it("prunes rows older than maxAgeSec", async () => {
