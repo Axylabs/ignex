@@ -117,6 +117,17 @@ ignex hook require-auth            # named per-route hook (src/hooks/…)
 ignex hook log-requests --global   # global lifecycle hook
 ```
 
+Already have a project and want a whole feature? `ignex add` installs one into
+it (the counterpart to `create --features`, and idempotent — existing files are
+skipped):
+
+```sh
+ignex add auth                 # auth lib + require-auth hook + register/login/me routes
+ignex add auth,refresh         # + refresh/logout with revocable refresh tokens
+ignex add cors,security        # src/plugins/index.ts, wired into src/app.config.ts
+ignex add sessions --dry-run   # preview the files without writing them
+```
+
 Only the commands in the scaffold's `package.json` (`dev`, `build`, `start`,
 `route`, `lint`, `format`, `typecheck`, `test`) can be run with `bun run`; every
 other CLI command is invoked directly as `ignex <command>`.

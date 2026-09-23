@@ -13,6 +13,7 @@ Source-only package — `bin/ignex.js` (`#!/usr/bin/env bun`) imports
 
 ```
 ignex create <app-name> [options]   Scaffold a new ignex app (wizard + 22 feature toggles)
+ignex add <feature…> [options]      Add a feature bundle (auth, sessions, jobs, plugins, …) to an existing app
 ignex route <path> [options]        Scaffold a route + its src/modules business logic
 ignex event <kind> <name>           Scaffold event flows (sse | webhook | bus) — wizard
 ignex hook <name> [options]         Scaffold a hook (--global for lifecycle)
@@ -50,6 +51,43 @@ HTTP)**, and feature set (checkbox multi-select) instead of typing
 comma-separated features. Non-interactive runs default to HTTPS; pass
 `--protocol https2` for HTTPS + HTTP/2 over TLS or `--protocol http` for plain
 HTTP/1.
+
+## Adding a feature to an existing app (`ignex add`)
+
+`ignex create --features …` only runs against an empty directory. `ignex add`
+installs the **same** feature bundles — same templates, same vocabulary — into
+the project you are already working in:
+
+```sh
+ignex add auth                     # src/lib/auth.ts + require-auth hook + auth routes
+ignex add auth,refresh             # + refresh/logout and the revocable token store
+ignex add cors,security,compression # src/plugins/index.ts, wired into app.config.ts
+ignex add middleware               # src/middleware/* + plugins + lifecycle wiring
+ignex add sessions jobs sse        # space-separated works too
+ignex add auth --dry-run           # list the plan, write nothing
+```
+
+The rest of the vocabulary is `files` (`upload`), `ws` (`websocket`), `cache`,
+`proxy`, `i18n`, `templates`, `env`, `examples`, `tests`, `logger` and
+`rateLimit` (`rate-limit`). `ignex add` with no arguments opens the multi-select
+wizard.
+
+Behavior worth knowing:
+
+- **Idempotent.** A file that already exists is skipped (and reported); pass
+  `--force` to overwrite. `--dry-run` prints the plan without touching anything.
+- **Additive wiring.** For the plugin/middleware bundles the command adds the
+  missing imports and the `...appPlugins` / `...middleware` spreads to the
+  `plugins` array in `src/app.config.ts`, and merges the example
+  `beforeHandle` hooks into an existing `lifecycle` export. If the file doesn't
+  have the expected shape it is left untouched and the manual step is printed —
+  pass `--no-wire` to skip wiring entirely.
+- **Plugins accumulate.** `src/plugins/index.ts` is extended in place on later
+  runs, so `ignex add cors` followed by `ignex add security` ends up with both
+  (a hand-added plugin in that file is preserved).
+- **Post-install hints.** Anything that isn't a file (`bun add typebox` for
+  `examples`, `bun add -D vitest` for `tests`, the JWT keys for `auth`) is
+  printed at the end.
 
 ## Routes with business-logic modules (`ignex route`)
 

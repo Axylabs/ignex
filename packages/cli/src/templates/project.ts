@@ -12,9 +12,17 @@ export interface ProjectTemplateOptions {
   h2: boolean;
 }
 
-const PLUGIN_FEATURES: Feature[] = ["cors", "rateLimit", "security", "compression", "logger"];
+/** Features that contribute a plugin factory to `src/plugins/index.ts`. */
+export const PLUGIN_FEATURES: readonly Feature[] = [
+  "cors",
+  "rateLimit",
+  "security",
+  "compression",
+  "logger",
+];
 
-export function hasPluginFeatures(features: Set<Feature>): boolean {
+/** True when any selected feature contributes a plugin to `src/plugins/index.ts`. */
+export function hasPluginFeatures(features: ReadonlySet<Feature>): boolean {
   return PLUGIN_FEATURES.some((feature) => features.has(feature));
 }
 
@@ -232,7 +240,7 @@ Examples:
 `;
 }
 
-export function pluginsTemplate(opts: ProjectTemplateOptions): string {
+export function pluginsTemplate(opts: { features: ReadonlySet<Feature> }): string {
   const selected = PLUGIN_FEATURES.filter((feature) => opts.features.has(feature));
   const calls = selected.map((feature) => `${feature}()`);
 

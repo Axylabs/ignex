@@ -8,6 +8,31 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ignex add <feature…>` installs a feature bundle into an app you already
+  have.** The counterpart to `ignex create --features …` (`php artisan
+  install:*`-style): `ignex add auth` writes the auth lib, the `require-auth`
+  hook and the register/login/me routes; `ignex add auth,refresh` adds the
+  revocable refresh/logout pair; `ignex add cors,security,compression` writes
+  `src/plugins/index.ts`; `ignex add middleware` drops in the global middleware
+  set; `sessions`, `jobs`, `sse`, `files`, `ws`, `cache`, `proxy`, `i18n`,
+  `templates`, `env`, `examples`, `tests` and `logger` are the rest of the
+  vocabulary (aliases like `upload`/`websocket`/`session` work too).
+  - **Idempotent and inspectable**: existing files are skipped unless `--force`,
+    `--dry-run` prints the plan without writing, and every file is tagged with
+    the feature that owns it.
+  - **Additive config wiring** (`--no-wire` to skip): the `src/app.config.ts`
+    imports plus the `...appPlugins` / `...middleware` spreads are inserted into
+    the existing `plugins` array, and the example `beforeHandle` hooks are merged
+    into an existing `lifecycle` — never a second `export const lifecycle`. A
+    config that doesn't match the expected shape is left untouched with a manual
+    hint instead of being corrupted.
+  - **Plugins accumulate**: a second `ignex add` extends `src/plugins/index.ts`
+    in place (`addPluginsToModule`) rather than skipping the file, so
+    `ignex add cors` then `ignex add security` ends up with both.
+  - The shared feature vocabulary (names, aliases, labels) now lives in
+    `packages/cli/src/templates/features.ts` and is imported by `ignex create`
+    too — one alias/label table for both commands
+    (`pluginsTemplate`/`hasPluginFeatures` accept a `ReadonlySet`).
 - **The debugger carries the fault classification, not just the error text.**
   A failed request's trace now stores the same `Fault` the terminal report
   prints — origin · service, kind, code, status, retryable, the operator hints,

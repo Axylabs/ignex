@@ -46,6 +46,18 @@ export const commands: readonly CommandRow[] = [
     ],
   },
   {
+    name: "add",
+    aliases: ["install"],
+    group: "Scaffold",
+    description: "Add a feature bundle (auth, sessions, jobs, plugins, …) to an existing app",
+    examples: [
+      "ignex add auth",
+      "ignex add auth,refresh",
+      "ignex add cors,security,compression",
+      "ignex add sessions --dry-run",
+    ],
+  },
+  {
     name: "route",
     aliases: ["r"],
     group: "Scaffold",

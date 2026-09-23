@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
+import { FEATURE_LABELS, parseFeatureTokens } from "../templates/features.js";
 import { loggerLibTemplate } from "../templates/logger.js";
 import {
   middlewareIndexTemplate,
@@ -129,31 +130,6 @@ interface CreateDefaults {
   install?: boolean;
   git?: boolean;
 }
-
-/** Human labels for the feature multi-select in the create wizard. */
-const FEATURE_LABELS: Record<Feature, string> = {
-  cors: "CORS",
-  rateLimit: "Rate limiting",
-  security: "Security headers",
-  compression: "Compression",
-  logger: "Logging (access logs + global log)",
-  middleware: "Global middleware",
-  openapi: "OpenAPI docs",
-  files: "File uploads",
-  ws: "WebSockets",
-  sse: "Server-Sent Events",
-  cache: "Browser cache",
-  proxy: "HTTP proxy",
-  auth: "Auth (register / login / me)",
-  refresh: "Refresh tokens + logout",
-  sessions: "Sessions",
-  templates: "HTML templates",
-  env: "Env route",
-  jobs: "Jobs route",
-  i18n: "i18n",
-  examples: "Example routes",
-  tests: "Tests (vitest)",
-};
 
 /** Ask the user for any option not already provided (TTY only). */
 async function resolveInteractive(options: CreateDefaults): Promise<Required<CreateDefaults>> {
@@ -574,71 +550,16 @@ function normalizePm(input: string | undefined, runtime: "bun" | "node"): string
   return runtime === "bun" ? "bun" : "npm";
 }
 
-const FEATURE_ALIASES: Record<string, Feature> = {
-  cors: "cors",
-  ratelimit: "rateLimit",
-  "rate-limit": "rateLimit",
-  rateLimit: "rateLimit",
-  security: "security",
-  compression: "compression",
-  logger: "logger",
-  logs: "logger",
-  middleware: "middleware",
-  "global-hooks": "middleware",
-  openapi: "openapi",
-  files: "files",
-  upload: "files",
-  ws: "ws",
-  websocket: "ws",
-  sse: "sse",
-  cache: "cache",
-  proxy: "proxy",
-  auth: "auth",
-  refresh: "refresh",
-  "refresh-tokens": "refresh",
-  sessions: "sessions",
-  session: "sessions",
-  templates: "templates",
-  env: "env",
-  jobs: "jobs",
-  i18n: "i18n",
-  examples: "examples",
-  tests: "tests",
-  test: "tests",
-};
-
+/**
+ * Parse the `--features` value into the canonical feature set.
+ *
+ * Accepts `all` / `none`, comma- or space-separated tokens and the shared
+ * aliases (`upload` → `files`, `websocket` → `ws`, …); unknown tokens warn and
+ * are ignored. `ignex add` shares the vocabulary through
+ * {@link parseFeatureTokens} in `templates/features.ts`.
+ */
 export function parseFeatures(input: string | string[] | undefined): Set<Feature> {
-  if (!input) return new Set();
-
-  // Normalize input to an array of strings
-  const inputs = Array.isArray(input) ? input : [input];
-  const out = new Set<Feature>();
-
-  for (const raw of inputs) {
-    if (!raw) continue;
-    const normalized = String(raw).trim().toLowerCase();
-
-    if (normalized === "all") {
-      return new Set(FEATURE_NAMES);
-    }
-
-    if (normalized === "none" || normalized === "") {
-      continue; // Skip "none" if mixed with other features
-    }
-
-    for (const rawToken of normalized.split(",")) {
-      const token = rawToken.trim();
-      if (!token) continue;
-
-      const feature = FEATURE_ALIASES[token];
-
-      if (feature) {
-        out.add(feature);
-      } else {
-        warn(`Unknown feature: ${token}`);
-      }
-    }
-  }
-
-  return out;
+  const { features, unknown } = parseFeatureTokens(input);
+  for (const token of unknown) warn(`Unknown feature: ${token}`);
+  return features;
 }

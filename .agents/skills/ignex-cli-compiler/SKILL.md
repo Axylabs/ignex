@@ -42,6 +42,11 @@ sdk/         SDK generation support
 - **Every command** is a `defineCommand` with a typed `argsDef` (one source
   of truth for parsing, help, and completions), exported as the default +
   a legacy `runX(argv)` entry tests call. `utils/run-def.ts` bridges the two.
+- `ignex create` scaffolds a new app; `ignex add` installs the *same* feature
+  bundles into an existing app (vocabulary + file plan in
+  `templates/features.ts`, wiring in `utils/app-config-merge.ts`). Keep the two
+  in sync — `planInstall` is exhaustive over `FEATURE_NAMES`, so a new feature
+  fails to typecheck until it is declared there.
 - `ignex route` inspects the route table (verify with
   `bun run verify:cli:resource`); `ignex dev` runs the watch loop
   (`--no-spawn` to build-only, `--open` to launch the browser).

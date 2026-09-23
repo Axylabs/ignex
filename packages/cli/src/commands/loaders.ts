@@ -19,6 +19,7 @@ type LoadableCommand = { default: CommandDef<any> };
 /** Command name → lazy loader. Keys must match registry rows 1:1. */
 export const loaders: Record<string, () => Promise<LoadableCommand>> = {
   create: () => import("./create.js"),
+  add: () => import("./add.js"),
   route: () => import("./route.js"),
   event: () => import("./event.js"),
   hook: () => import("./hook.js"),

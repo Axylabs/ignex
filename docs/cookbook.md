@@ -321,7 +321,12 @@ export default get(
 
 Full auth stack: `authModule()` (Ed25519 access tokens), `createPasswordHasher`
 (argon2id/scrypt), in-memory user store, and the `require-auth` hook — scaffold
-it with `bunx @ignex/cli@latest create my-api --features auth`.
+it with `bunx @ignex/cli@latest create my-api --features auth`, or drop it into
+an existing app with `bunx @ignex/cli@latest add auth` (add `,refresh` for the
+revocable refresh/logout pair). `ignex add` installs any of the `create`
+features into a project that already exists — sessions, jobs, SSE, i18n, the
+CORS/rate-limit/security/compression plugins, global middleware — reusing the
+same templates.
 
 ## Sessions
 
