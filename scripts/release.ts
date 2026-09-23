@@ -571,6 +571,34 @@ function verifyBunLockVersions(nextVersion: string, targetNames: Set<string>): v
 /* Preflight + publish                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Verify the npm credential before any work happens. npm answers an
+ * unauthorized *write* with `404 Not Found`, so a dead token surfaces as the
+ * publisher's `"does not exist in this registry"` — which reads like a missing
+ * package rather than bad credentials. Failing here beats discovering the real
+ * cause after the bump/verify/pack phases have already run.
+ */
+function assertNpmAuth(): void {
+  const whoami = spawnSync("npm", ["whoami"], { cwd: ROOT, encoding: "utf8" });
+  const account = whoami.status === 0 ? whoami.stdout.trim() : "";
+  if (account !== "") {
+    console.log(`🔐 npm auth: ${account} (verified via npm whoami)`);
+    return;
+  }
+  if (whoami.error !== undefined) {
+    console.warn("⚠  could not verify npm auth (npm CLI unavailable) — publish may fail.");
+    return;
+  }
+  die(
+    `npm auth check failed — \`npm whoami\` exited ${whoami.status ?? 1}, so the token in\n` +
+      "  your npm config is invalid, expired or revoked. Publishing would report this as\n" +
+      '  "404 Not Found … does not exist in this registry": npm answers an unauthorized\n' +
+      "  write with 404, so that message means bad credentials, not a missing package.\n" +
+      "  Fix: refresh the credential (`npm login`, or a new granular read/write token),\n" +
+      "  then re-run — or pass --no-preflight to skip this check.",
+  );
+}
+
 function preflight(args: CliArgs, publishingLocally: boolean): void {
   if (capture("git", ["status", "--porcelain"]) !== "") {
     if (args.allowDirty) {
@@ -580,15 +608,7 @@ function preflight(args: CliArgs, publishingLocally: boolean): void {
     }
   }
   if (publishingLocally) {
-    const whoami = spawnSync("npm", ["whoami"], { cwd: ROOT, encoding: "utf8" });
-    const account = whoami.status === 0 ? whoami.stdout.trim() : "";
-    if (account === "") {
-      console.warn(
-        "⚠  could not verify npm auth (npm CLI unavailable or not logged in) — publish may fail.",
-      );
-    } else {
-      console.log(`🔐 npm auth: ${account} (verified via npm whoami)`);
-    }
+    assertNpmAuth();
   }
 }
 
@@ -645,6 +665,7 @@ async function publishWorkspace(
     );
     return;
   }
+  const published: string[] = [];
   for (const pkg of order) {
     const publishArgs = [
       "bun",
@@ -662,12 +683,30 @@ async function publishWorkspace(
     console.log(`\n🚀 Publishing ${pkg.name}@${nextVersion} (${pkg.relDir}) …`);
     if (exitCode(publishArgs, pkg.dir) !== 0) {
       restoreBackups(backups);
-      die(
-        `publish failed after ${pkg.name} — already-published packages remain on npm.\n` +
-          "  Version files rolled back. Rerun with --no-bump --no-verify --no-pack to finish publishing.",
-      );
+      die(publishFailureHint(published, pkg.name));
     }
+    published.push(pkg.name);
   }
+}
+
+/**
+ * Explain what a failed publish left behind. The rollback restores the version
+ * files, so when nothing reached the registry yet the version is bumped off
+ * again — re-running with `--no-bump` would then try to republish the version
+ * that is already on npm and fail for a second, unrelated reason.
+ */
+function publishFailureHint(published: string[], failed: string): string {
+  if (published.length === 0) {
+    return (
+      `publish failed on ${failed} — nothing reached the registry and the version files were rolled back.\n` +
+      "  Fix the cause, then re-run the release normally (no --no-bump needed)."
+    );
+  }
+  return (
+    `publish failed after ${published[published.length - 1]} — already-published packages remain on npm:\n` +
+    `  ${published.join(", ")}\n` +
+    "  Version files rolled back. Rerun with --no-bump --no-verify --no-pack to finish publishing the rest."
+  );
 }
 
 /* ------------------------------------------------------------------ */

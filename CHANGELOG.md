@@ -61,6 +61,15 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `packages/cli/test/mcp-peer.test.ts` (the peer still resolves and exposes
   `startMcpServer`) and `packages/cli/test/mcp-command.test.ts` (the actionable
   failure when it does not).
+- **The release preflight now fails fast on a dead npm credential** instead of
+  surfacing it as a phantom missing package. npm answers an unauthorized
+  *write* with `404 Not Found`, so a revoked `_authToken` made `bun run release`
+  die with `'@ignex/native@0.2.1' does not exist in this registry` after the
+  bump/verify/pack phases had already run. `scripts/release.ts` now checks
+  `npm whoami` before any work and names the real cause, and its post-failure
+  hint no longer suggests `--no-bump` when nothing reached the registry (the
+  rollback already restored the version, so `--no-bump` would try to republish
+  an existing version).
 
 ### Removed
 

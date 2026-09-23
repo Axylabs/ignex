@@ -125,6 +125,16 @@ npm publish --workspace packages/cli
   in the repo `.npmrc` is a live credential — if one is present, rotate it at
   https://www.npmjs.com/settings/<user>/tokens and delete the line (the file is
   gitignored, but a leaked token is a leak regardless).
+- **"does not exist in this registry" means bad credentials, not a missing
+  package.** npm answers an unauthorized *write* with `404 Not Found`, so an
+  expired or revoked token makes the publisher print
+  `404 Not Found: https://registry.npmjs.org/@ignex%2fnative` followed by
+  `'@ignex/native@0.2.0' does not exist in this registry` — while the very same
+  package reads back fine from the registry. Classic `_authToken`s that bypass
+  2FA are being retired for direct publishing, so re-authenticate with
+  `npm login` (or a granular read/write token) instead of minting another
+  classic one. `scripts/release.ts` runs `npm whoami` in its preflight and stops
+  before the bump when the credential is dead.
 - CI has no npm publish job by design; releases are manual via the shared
   canonical flow `scripts/release.ts` + `.release.json` (`bun run release:dry` /
   `release:bump` (`--no-publish`) / `release`). If
