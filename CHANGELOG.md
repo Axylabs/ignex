@@ -468,6 +468,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Flaky `observability` heap-growth fixture.** The leak-analysis test built its
+  sample series with a `Date.now()` per sample, so ±ms jitter decided whether the
+  trailing 10-minute window kept 11 samples (60 MiB growth) or 10 (54 MiB).
+  Critical requires growth ≥ 25% of the window's starting heap, so that
+  one-sample flip straddled the bound (55 MiB) and failed the ubuntu CI lane
+  while passing on macOS/Windows and locally. The fixture now captures one base
+  clock for the series and starts the 6 MiB/min case at 20 MiB, leaving 54–66 MiB
+  of growth against 48–52 MiB required for any ±1-sample slice. Test-only —
+  `analyzeSamples` thresholds are unchanged.
+
 - **Specialized-context routes now emit the plugin layer's declared members.**
   A route on the usage-specialized tier used to emit only the members its own
   handler referenced; a declarable plugin layer (`cors`/`security`) ran its

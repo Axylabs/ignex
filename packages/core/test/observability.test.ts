@@ -257,18 +257,27 @@ describe("analyzeSamples", () => {
   });
 
   it("detects sustained heap growth with severity scaled to the slope", () => {
+    // One base clock for the series. A `Date.now()` per sample leaves ±ms
+    // jitter, and the trailing-window slice is inclusive, so a single
+    // millisecond decides whether the oldest in-window sample is kept: 11
+    // samples (60 MiB growth) or 10 (54 MiB). Critical requires growth >= 25%
+    // of the window's starting heap, so that one-sample flip was enough to
+    // turn a passing fixture into a machine-dependent failure.
+    const base = Date.now();
     // ~2 MiB/min → warning.
     const warnSamples = Array.from({ length: 40 }, (_, i) =>
-      sample({ ts: Date.now() - (40 - i) * 60_000, heapMiB: 40 + i * 2 }),
+      sample({ ts: base - (40 - i) * 60_000, heapMiB: 40 + i * 2 }),
     );
     const warnReport = analyzeSamples(warnSamples);
     const warn = warnReport.findings.find((f) => f.id === "heap-growth");
     expect(warn?.severity).toBe("warning");
     expect(warnReport.verdict).toBe("warning");
 
-    // ~6 MiB/min → critical, with full evidence attached.
+    // ~6 MiB/min → critical, with full evidence attached. The series starts at
+    // 20 MiB so the ±1-sample window slice keeps margin over the
+    // 25%-of-start bound: 54-66 MiB of growth against 48-52 MiB required.
     const critSamples = Array.from({ length: 40 }, (_, i) =>
-      sample({ ts: Date.now() - (40 - i) * 60_000, heapMiB: 40 + i * 6 }),
+      sample({ ts: base - (40 - i) * 60_000, heapMiB: 20 + i * 6 }),
     );
     const report = analyzeSamples(critSamples);
     const heap = report.findings.find((f) => f.id === "heap-growth");
