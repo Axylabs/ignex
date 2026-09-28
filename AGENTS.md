@@ -27,7 +27,8 @@ routes are files; the compiler (`@ignex/compiler`) turns them into an
 optimized `Bun.serve` server with generated types, an OpenAPI spec, and a
 typed client. Native performance comes from the **castrum** Rust addon through
 `@ignex/native` (pure-TS fallbacks when castrum is absent). Runtime primitives
-live in `@ignex/core` (functional composition, no classes). Tests use
+live in `@ignex/core` (factories, not classes — the only class exceptions are
+the error taxonomy and self-contained data structures; see D-010). Tests use
 **vitest**; lint is oxlint + Biome.
 
 ## Commands (root)
@@ -35,7 +36,7 @@ live in `@ignex/core` (functional composition, no classes). Tests use
 | Task | Command |
 |------|---------|
 | Typecheck (root + cli) | `bun run typecheck` / `bun run typecheck:cli` |
-| Quick verify gate | `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict) |
+| Quick verify gate | `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict + check:debug-ui + check:maintainability + check:consistency) |
 | Full verify | `bun run verify` (adds tests + check:dead); `bun run verify:full` (adds coverage, build, smoke, smoke:fallback, check:cache-versions) |
 | Tests (all packages, parallel) | `bun run test:parallel` (core/compiler/shared/cli/mcp) |
 | Single package tests | `bunx vitest run packages/<name>/test`; `bun run test:native` / `test:native:real` |
@@ -48,13 +49,14 @@ live in `@ignex/core` (functional composition, no classes). Tests use
 | Benchmarks | `bun run bench`, `bench:native`, `bench:ffi`, `bench:jwt*`, `bench:server*`, `bench:compare` |
 | Native parity checks | `bun run verify:native:route` / `verify:native:ffi` / `verify:aot:rbac` / `verify:cli:resource` / `check:native:surface` (vendor/castrum.d.ts ↔ real addon drift) |
 | Secret scan | `bun run scan:secrets` |
+| SBOM (SPDX 2.3) | `bun run sbom` → `sbom.spdx.json` (CI artifact; `--out <path>` to write a file) |
 | New package | `bun scripts/new-package.ts` |
 
 ## First day
 
 ```sh
 bun install          # workspace deps (the castrum addon arrives via optionalDependencies)
-bun run verify:quick # typecheck + typecheck:cli + lint + jsdoc + check:debug-ui + maintainability
+bun run verify:quick # typecheck + typecheck:cli + lint + jsdoc + check:debug-ui + maintainability + consistency
 bun run dev          # start the reference app in packages/app
 ```
 
@@ -68,7 +70,11 @@ the native smoke lanes and cache-version checks.
    size cap (shrink-only `knownOver` allowlist), debt markers, orphan build
    dirs, duplicate files, `@fileoverview`, and the doc-rot guard (backticked
    repo paths in `docs/decisions` Verification lines, `.agents/skills/**/SKILL.md`
-   and `docs/ai/*.md` must resolve).
+   and `docs/ai/*.md` must resolve). `scripts/check-consistency.ts` adds the
+   drift guards those cannot see: cited `bun run` scripts and `docs/`/`scripts/`
+   paths must exist, `SECURITY.md` must track the workspace version, `RULES.md`/
+   `AGENTS.md` must not hard-code one, and the published `exports` surface is
+   frozen against `scripts/api-surface.json`.
 2. **Why** — `docs/decisions/` (D-001 …): each accepted design choice with a
    Verification clause.
 3. **Where from** — `docs/ai/maintaining.md`: symptom → origin module → pinning
@@ -99,8 +105,10 @@ packages/
                 errors), content/ (i18n, template), plugins/, debug/ (debugbar +
                 observatory: logs, metrics/Prometheus, SQLite history, leak
                 diagnostics; debug/ui/ is a SolidJS + Tailwind SPA compiled
-                ahead of time by scripts/gen-debug-ui.ts), openapi.ts, jobs.ts —
-                barrel exports; subpaths @ignex/core/http|debug|...
+                ahead of time by scripts/gen-debug-ui.ts), rpc/ (realtime kit),
+                types/ (type umbrella), vendor/ (third-party shims); index.ts +
+                openapi.ts, jobs.ts, client.ts and the publ/ sub-barrels —
+                subpaths @ignex/core/http|debug|...
   compiler/     AOT: frontend/ (source manager), ir/, phases/ (discovery, analysis,
                 optimization, codegen, linker, artifacts), sdk/, cache.ts
                 (COMPILER_CACHE_VERSION), pipeline.ts, emitter.ts
@@ -185,14 +193,17 @@ Traps worth knowing:
    `@ignex/native` (castrum); measure with `bench:*`, never assume.
 2. **Native is acceleration, never a hard dependency** — byte-compatible
    fallbacks, `SELECTION` is read-only, `IGNEX_NATIVE=off` parity is a gate.
-3. **Functional composition** — factories over explicit state; no classes on
-   public surfaces; small pure functions in small files, domain folders.
+3. **Functional composition** — factories over explicit state; classes only
+   for the error taxonomy and self-contained data structures (D-010); small
+   pure functions in small files, domain folders.
 4. **Vitest, not bun test** — suites under `packages/*/test`; `test:parallel`.
 5. **Docs discipline** — docs must match code; keep `AGENTS.md`/`RULES.md`/
-   skills in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json
-   (workspace version: 0.1.32 — everything is under the single `[Unreleased]`
-   heading until `scripts/release.ts` finalizes it; keep entries flowing, don't
-   let the versions drift silently).
+   skills in sync; `jsdoc:check:strict`; CHANGELOG ↔ package.json. Never
+   hard-code the workspace version in prose: the root `package.json` is the
+   source of truth and `scripts/release.ts` rewrites the tracked version files
+   (`.release.json` `versionFiles`). Everything stays under the single
+   `[Unreleased]` heading until the release script finalizes it; keep entries
+   flowing. `bun run check:consistency` enforces this.
 
 ## Do NOT
 

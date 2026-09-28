@@ -80,11 +80,11 @@ import { projectPath } from "./utils/path";
  * `status`/`statusText`/`headers`) is now hoisted to a pre-built table-bound
  * Response exactly like a constant JSON return. Generated output shape changed.
  * 0.9.25 — error reporting: the emitted boot catch routes through
- * `reportPluginBootFailure` (a configuration-first fault report with a compact
- * rethrow, never the raw driver `cause`) and the emitted `__handleError` hands
- * its request context to `errorToResponse` for correlation. Output changed.
+ * `reportPluginBootFailure` and `__handleError` hands its context to
+ * `errorToResponse`. 0.9.26 — docs-only edit on an output-affecting path
+ * (`native/src/selection.ts`); no generated shape change.
  */
-export const COMPILER_CACHE_VERSION = "0.9.25";
+export const COMPILER_CACHE_VERSION = "0.9.26";
 
 const CACHE_FILE = ".ignex-cache.json";
 

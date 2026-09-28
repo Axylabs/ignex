@@ -24,9 +24,12 @@ Public surface = `src/index.ts` barrel + documented subpaths
 | `plugins/` | ready-made `IgnexPlugin` factories: auth-module, auth, session, csrf, cors, compression, security, logger, ratelimit, rbac, native, nova, openapi, debugbar, metrics |
 | `debug/` | debugbar + observatory (logs, metrics/Prometheus, SQLite history, leak diagnostics); KT collection in `kt.ts`, pure rendering in `knowledge-markdown.ts`, shared span descriptions in `span-kind-names.ts` |
 | `types/` | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
+| `rpc/` | realtime RPC kit (manifest + bindings) |
+| `vendor/` | third-party type shims |
 
-Top-level: `client.ts` (typed fetch client), `openapi.ts` (OpenAPI 3.1 spec
-generator), `jobs.ts`.
+Top-level: `publ/` (public sub-barrels re-exported by `src/index.ts`),
+`client.ts` (typed fetch client), `openapi.ts` (OpenAPI 3.1 spec generator),
+`jobs.ts`.
 
 ## The `ctx.set` contract
 
@@ -38,9 +41,10 @@ requestId, locals).
 ## Conventions
 
 - **Functional composition**: factories (`createApp`, `defineConfig`,
-  `createContext`, plugin factories) return plain objects with closures — no
-  classes on the public surface. Reuse the FP toolkit from `@ignex/shared`
-  (`compose`, `always`, …).
+  `createContext`, plugin factories) return plain objects with closures.
+  Classes are the documented exception — the error taxonomy plus self-contained
+  data structures / registries (`LRUCache`, `TraceStore`; D-010). Reuse the FP
+  toolkit from `@ignex/shared` (`compose`, `always`, …).
 - **Pure functions** in the data/content/platform helpers; side effects
   (sockets, files, timers, env) isolated in dedicated modules.
 - **Route DSL** (`http/route.ts`): schema-first `get`/`post`/… helpers — the

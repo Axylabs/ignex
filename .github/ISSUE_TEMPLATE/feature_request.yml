@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a capability, an API change, or a docs improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that ignex makes hard today? Describe the situation, not only the desired API.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The shape you would like (route helper, plugin, compiler option, doc change).
+      render: ts
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What you tried instead, and why it was not enough.
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes a **public API** (published `exports`).
+          required: false
+        - label: This affects the AOT compiler's generated output (needs a cache-version bump).
+          required: false
+        - label: I am willing to open a pull request for this.
+          required: false

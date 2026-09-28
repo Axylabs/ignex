@@ -3,7 +3,8 @@
  * `components.schemas` and the derived top-level `tags` array.
  */
 
-import { isRecord, tagForPath, tagPrefixForPath } from "./schema";
+import { isRecord } from "../guards";
+import { tagForPath, tagPrefixForPath } from "./schema";
 
 type SchemaRegistry = Record<string, unknown>;
 

@@ -1,0 +1,36 @@
+# Dependency + supply-chain hygiene.
+#
+# This file only *updates* pinned dependencies; the other supply-chain controls
+# live elsewhere: vulnerability scanning is the `supply-chain` job in
+# `.github/workflows/ci.yml` (OSV, SARIF-uploaded), leaked-credential detection
+# is `bun run scan:secrets`, and the public `exports` contract is frozen by
+# `bun run check:consistency` (`scripts/api-surface.json`).
+#
+# GitHub Actions are pinned by commit SHA in the workflows — Dependabot is what
+# keeps those SHAs current, so this entry matters for the secret-scan/supply-chain
+# jobs themselves.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Bun is the workspace package manager (`bun.lock`), so use the `bun`
+  # ecosystem — an `npm` entry would look for `package-lock.json` and find none.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: "production"
+        patterns: ["*"]
+      development:
+        dependency-type: "development"
+        patterns: ["*"]

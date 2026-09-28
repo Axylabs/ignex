@@ -15,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isRecord } from "@ignex/shared";
 import type { SdkRealtimeInput, SdkRouteInfo } from "./types";
 
 /** Shape of a `manifest.json` route entry (the fields the SDK reads). */
@@ -35,9 +36,6 @@ interface ManifestDoc {
 /** Manifest path (`/reports/:id`) → OpenAPI path key (`/reports/{id}`). */
 const toOpenApiPath = (path: string): string =>
   path.replace(/:([A-Za-z0-9_]+)/g, "{$1}").replace(/\*([A-Za-z0-9_]+)/g, "{$1}");
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

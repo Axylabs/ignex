@@ -90,8 +90,9 @@ export type OpName =
   | "validateUuid";
 
 /**
- * Ops where Bun's NATIVE built-in beats the Rust addon (mirrors castrum's
- * `docs/bun-builtins-decision-matrix.md` + `src/selection.ts` BUN_WINS). Under
+ * Ops where Bun's NATIVE built-in beats the Rust addon (see
+ * `docs/native-acceleration.md` §"Bun builtins decision matrix"; mirrors
+ * castrum's `docs/bun-builtins-decision-matrix.md`). Under
  * Bun these bind to `"js"` so the Bun-aware fallback is used (Bun.gzipSync,
  * Bun.hash.crc32, Bun.CryptoHasher, crypto.getRandomValues) — never something
  * slower than what Bun natively provides. Under Node the base decision stands

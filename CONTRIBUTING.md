@@ -83,5 +83,12 @@ typechecks the touched packages. Install it once with `bunx lefthook install`.
 
 ## Reporting bugs / security issues
 
-Open an issue for bugs. For security vulnerabilities, follow
+Open an issue for bugs (the issue forms ask for the reproduction and versions
+that make a report actionable). For security vulnerabilities, follow
 [SECURITY.md](SECURITY.md) — do **not** open a public issue.
+
+## Code of conduct
+
+Participation is covered by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+(Contributor Covenant 2.1). Report unacceptable behaviour through the private
+channel described in [SECURITY.md](SECURITY.md).

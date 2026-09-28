@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Axylabs/ignex/security/advisories/new
+    about: Report privately — never in a public issue. See SECURITY.md.
+  - name: Question / usage help
+    url: https://github.com/Axylabs/ignex/blob/main/docs/README.md
+    about: Start with the documentation map (getting started, cookbook, errors, deployment).
+  - name: Contributing
+    url: https://github.com/Axylabs/ignex/blob/main/CONTRIBUTING.md
+    about: Workflow, gates and the rules a change must satisfy.

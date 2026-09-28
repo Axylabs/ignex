@@ -16,6 +16,7 @@
  * {@link SdkFile}s from the shared {@link SdkGenerateContext}.
  */
 
+import { isRecord } from "@ignex/shared";
 import { jsonSchemaToTs } from "./json-schema-to-ts";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRouteInfo } from "./types";
 
@@ -635,9 +636,6 @@ ignex sdk --version ${version} --release       # + attach the tarball to a GitHu
 \`\`\`
 `;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * The TypeScript SDK platform: emits a self-contained, installable npm

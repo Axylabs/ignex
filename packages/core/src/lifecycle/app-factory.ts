@@ -13,6 +13,7 @@ import { setServeBootInfo } from "../http/serve-boot";
 import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from "../http/tls";
 import { reportPluginBootFailure } from "../platform/boot-failure";
 import { errorToResponse } from "../platform/errors";
+import { installGracefulShutdown } from "../platform/graceful-shutdown";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore } from "../types";
 import { type AppOptions, buildContextOptions } from "./app-context-options";
@@ -127,6 +128,9 @@ export const createApp = (options: AppOptions): IgnexApp => {
   const postStages = buildPostStages(lifecycle);
   let server: { stop(closeActive?: boolean): void } | null = null;
   let initialized = false;
+  // Disposer for the SIGTERM/SIGINT listeners `serve()` installs; cleared by
+  // an explicit `stop()` so nothing leaks onto the shared process.
+  let disposeShutdown: (() => void) | null = null;
 
   // Per-app response cache: entries are scoped to THIS app unless the caller
   // passes an explicit cache. This prevents URL-keyed collisions between apps
@@ -225,7 +229,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
     return runLifecycle(lifecycle, preStages, postStages, ctx, baseHandler, exposeErrors);
   };
 
-  return {
+  const app: IgnexApp = {
     lifecycle,
 
     init,
@@ -324,6 +328,11 @@ export const createApp = (options: AppOptions): IgnexApp => {
       const bind = (): unknown => {
         if (server) return server;
         server = serve(serveOpts);
+        // Drain on SIGTERM/SIGINT (containers, rolling deploys, Ctrl-C). The
+        // AOT-generated server emits the same contract inline; `bind()` is the
+        // single point where exactly one server exists, so the listener is
+        // installed once and never duplicated by a late async `onStart`.
+        disposeShutdown ??= installGracefulShutdown(() => app.stop());
         return server;
       };
 
@@ -386,6 +395,10 @@ export const createApp = (options: AppOptions): IgnexApp => {
     },
 
     async stop(stopOptions: { closeActive?: boolean; stopDeadlineMs?: number } = {}) {
+      // A manual stop (tests, an embedding host) removes the signal listeners
+      // it may have installed — never leak handlers onto the shared process.
+      disposeShutdown?.();
+      disposeShutdown = null;
       const hooks = [...lifecycle.stop, ...(options.onStop ? [options.onStop] : [])];
       // Run every stop hook even if one throws, so closeAll() always runs and
       // resources (stores, intervals, connections) are not leaked.
@@ -412,4 +425,5 @@ export const createApp = (options: AppOptions): IgnexApp => {
       ]);
     },
   };
+  return app;
 };

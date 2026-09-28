@@ -1,0 +1,19 @@
+{
+  "@ignex/cli": [".", "./bin/*", "./config", "./route"],
+  "@ignex/compiler": ["."],
+  "@ignex/core": [
+    ".",
+    "./config",
+    "./content",
+    "./debug",
+    "./env",
+    "./http",
+    "./jobs",
+    "./openapi",
+    "./package.json",
+    "./store"
+  ],
+  "@ignex/mcp": [".", "./server"],
+  "@ignex/native": ["."],
+  "@ignex/shared": ["."]
+}

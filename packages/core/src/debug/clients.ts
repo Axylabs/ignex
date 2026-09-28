@@ -21,6 +21,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { isRecord } from "@ignex/shared";
 
 /** A published client package (SDK platform or frontend client). */
 export interface PublishedClient {
@@ -65,9 +66,6 @@ const DEFAULT_TAG_PREFIXES = ["sdk-v"] as const;
 
 /** Capped file list shown in the UI. */
 const FILES_CAP = 12;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * Registry that combines local SDK/client probes with cached git-tag state.

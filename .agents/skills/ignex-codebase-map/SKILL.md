@@ -18,7 +18,8 @@ packages/
   native/       ★ castrum wrapper — unified backend.* execution API, SELECTION table,
                 byte-compatible pure-TS fallbacks, route-wire v3 (createNativeRoute)
   core/         runtime primitives by domain folder (security/, http/, data/, lifecycle/,
-                platform/, content/, plugins/, debug/, types/) + client.ts, openapi.ts
+                platform/, content/, plugins/, debug/, types/, rpc/) + the publ/
+                sub-barrels, vendor/ shims, index.ts, client.ts, openapi.ts, jobs.ts
   compiler/     AOT compiler — frontend/ (source manager), ir/, phases/ (discovery,
                 analysis, optimization, codegen, linker, artifacts), sdk/, cache.ts
   cli/          ignex CLI — commands/, route.ts, templates/, completions/, config.ts
@@ -67,7 +68,8 @@ route files (packages/app/src/routes/**) ── ignex build ──► @ignex/com
 
 ## Verification gates (run before pushing)
 
-`bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict);
-`bun run test:parallel` for cross-package tests; `bun run verify:native:route`
+`bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict +
+check:debug-ui + check:maintainability + check:consistency); `bun run
+test:parallel` for cross-package tests; `bun run verify:native:route`
 / `verify:native:ffi` after native changes; `bun run smoke` + `smoke:fallback`
 after app/compiler changes.

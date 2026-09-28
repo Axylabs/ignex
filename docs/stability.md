@@ -115,15 +115,20 @@ guarded directly).
 - **Status:** ✅ resolved 2026-08-17 — `installProcessGuards()` in
   `packages/core/src/platform/process-guards.ts`, exported from `@ignex/core`,
   auto-installed by `createApp().serve()` and the AOT server bootstrap.
-- **Follow-up:** wire SIGTERM/SIGINT → `__server.stop(true)` drain in the
-  generated server (see "Further work" §6).
+- **Follow-up:** the interpreted `createApp().serve()` had no signal wiring (only
+  the generated server did). ✅ resolved 2026-09-28 — `installGracefulShutdown()`
+  (`packages/core/src/platform/graceful-shutdown.ts`) is installed at bind time
+  by `serve()`, drains through `app.stop()`, and is disposed by an explicit
+  `stop()`; the exit hook fires at most once (a second signal, the deadline and a
+  late drain collapse into one exit).
 
 ### 🟠 Generated server: no graceful-shutdown signal wiring (fixed)
 
 - **Status:** ✅ resolved 2026-08-19 — `compiler/src/phases/codegen/server.ts` emits
-  SIGTERM/SIGINT → `__server.stop(true)` + `__pluginContext.closeAll()` + `process.exit(0)`
-  with a 10s hard deadline when an app config is present (plain `exit(0)` otherwise).
-  Verified live: `[ignex] received SIGTERM — draining connections`.
+  SIGTERM/SIGINT → `__server.stop(...)` drain (`stop(true)` for WS apps, whose
+  sockets Bun cannot selectively drain) + `__pluginContext.closeAll()` +
+  `process.exit(0)` when an app config is present, with an unref'd 10s hard
+  deadline. Verified live: `[ignex] received SIGTERM — draining connections`.
 
 ### 🟠 Native-mode compiled server ~15-16% slower than fallback on `/api/big` (fixed)
 
@@ -364,7 +369,7 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
    `castrum@0.9.10` is already published on npm and resolves via
    `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
    `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo.
-8. **DX dogfood gate** — a `scripts/dx-journey.ts` under `verify:*`: scaffold a
+8. **DX dogfood gate** — a `dx-journey` harness wired into `verify:*`: scaffold a
    temp app, run the realtime event → frontend journey (create → `ignex event
    bus` → build → SDK → receive), and fail if **any** manual fix is needed
    (assert `tsc --noEmit` is clean and the E2E delivery works with zero edits).

@@ -8,6 +8,70 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`createApp().serve()` now drains on `SIGTERM`/`SIGINT`.** The AOT-generated
+  server already did (`compiler/src/phases/codegen/server.ts`, tested in
+  `packages/compiler/test/compile.test.ts`); the interpreted server did not, so a
+  rolling deploy or Ctrl-C cut in-flight requests off and skipped every `stop`
+  hook. `installGracefulShutdown()`
+  (`packages/core/src/platform/graceful-shutdown.ts`, exported from `@ignex/core`)
+  is installed at bind time, drains through `app.stop()`, forces `exit(1)` on a
+  second signal or after the unref'd 10s deadline, and is disposed by an explicit
+  `stop()` so no listener leaks onto the host process. The exit hook is
+  guaranteed to fire at most once (a second signal, the deadline and a late drain
+  collapse into a single exit).
+- **SBOM: an SPDX 2.3 dependency inventory** (`bun run sbom`,
+  `scripts/sbom.ts`) generated from `bun.lock` with no new dependency and no
+  network call — deterministic for a given lockfile, with purls and SHA-512
+  checksums converted from the lockfile integrity hashes. CI writes
+  `sbom.spdx.json` and uploads it as the `sbom-spdx` artifact.
+- **Standard open-source community files.** `CODE_OF_CONDUCT.md` (Contributor
+  Covenant 2.1), `.github/CODEOWNERS`, YAML issue forms with a contact-links
+  config, a pull-request template that restates the gates, and README badges.
+- **One `isRecord`.** The guard was copy-pasted in six files across
+  `@ignex/cli`, `@ignex/compiler` and `@ignex/core`; it now lives once in
+  `packages/shared/src/guards.ts` and is exported from `@ignex/shared` (which
+  the CLI now depends on directly). `fault-report.ts` also reuses the
+  `fault-throw.ts` predicate rather than repeating it — that predicate is
+  deliberately different (`Record<PropertyKey, unknown>`, arrays included) and
+  is documented as such.
+
+### Changed
+
+- **Documentation and version drift can no longer pass the gate.** The repo had
+  accumulated self-contradictions that every existing gate accepted, so a new
+  `bun run check:consistency` (`scripts/check-consistency.ts`, wired into
+  `verify:quick`, the CI quality job and the release `checks`) now fails on: a
+  cited `bun run <name>`
+  or `bun scripts/<file>.ts` that does not exist, a cited `docs/`/`.agents/`/
+  `scripts/` path that does not exist, a `SECURITY.md` supported-version row that
+  disagrees with the root `package.json`, a hard-coded `X.Y.Z` in `RULES.md`/
+  `AGENTS.md`, and any change to a package's published `exports` subpath map that
+  was not deliberately re-frozen in `scripts/api-surface.json` (the new
+  `--update` mode).
+- **The workspace version is single-sourced.** `RULES.md` and `AGENTS.md` no
+  longer repeat a literal version (they claimed `0.1.32` while the tree was on
+  `0.2.x`); `SECURITY.md` now tracks the current minor, and `.release.json`
+  declares `CHANGELOG.md` as a `versionFiles` entry so `scripts/release.ts`
+  finalizes the `[Unreleased]` section as the docs always said it did.
+- **Fixed the stale and contradictory guidance** the audit turned up: the
+  `verify:quick` component list (was missing `check:debug-ui` +
+  `check:maintainability`), `verify:all` described as having a Mongo gate (it is
+  `verify` + `verify:nova`), `verify` described without `jsdoc:check:strict`/
+  `check:dead`, a pointer to "adding-a-feature.md §G" for JSDoc (§H is the JSDoc
+  section), a `python3 context.py` step for files that do not exist, a release
+  section that split the pre-release checklist in half, `RULES.md`/`AGENTS.md`
+  folder lists that omitted `publ/`, `rpc/`, `vendor/`, `types/` and `debug/`,
+  and the D-010 blanket "no classes on public surfaces" (now scoped to the real
+  exceptions: the error taxonomy and self-contained data structures — the
+  public barrels have always exported `LRUCache`, `TraceStore`,
+  `MetricsRegistry`, `HTTPError`, `IgnexCompiler`).
+- **`ignex route:list` looks where the compiler writes.** The manifest lookup
+  defaulted to `dist` (the reference app's outDir) while the compiler, CLI
+  config and scaffolds all default to `.ignex`; it now defaults to `.ignex` and
+  keeps `dist` only as a legacy fallback.
+
+### Added
+
 - **`ignex add <feature…>` installs a feature bundle into an app you already
   have.** The counterpart to `ignex create --features …` (`php artisan
   install:*`-style): `ignex add auth` writes the auth lib, the `require-auth`

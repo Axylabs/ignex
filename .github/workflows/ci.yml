@@ -125,6 +125,16 @@ jobs:
       - name: JSDoc completeness (every public export documented)
         run: bun run jsdoc:check:strict
 
+      # Both gates are cheap and pure-Static-analysis, so they run on every OS
+      # lane. They were previously only reachable through `verify:quick`, which
+      # CI never invoked — which is how `RULES.md`/`AGENTS.md` could claim a
+      # version the workspace was not on, and cite deleted docs/scripts.
+      - name: Maintainability gate (size caps, doc refs, doc hub)
+        run: bun run check:maintainability
+
+      - name: Consistency gate (script/version/export drift)
+        run: bun run check:consistency
+
       - name: Test + coverage thresholds
         run: bun run test:coverage
 
@@ -154,6 +164,21 @@ jobs:
       - name: Compiler cache-version check (vs last tag)
         if: runner.os == 'Linux'
         run: bun run check:cache-versions
+
+      # SBOM: a standards-compliant SPDX 2.3 dependency inventory, generated
+      # from the lockfile the build already trusts and uploaded as an artifact
+      # for consumers / procurement / vulnerability response.
+      - name: SBOM (SPDX 2.3 dependency inventory)
+        if: runner.os == 'Linux'
+        run: bun run sbom --out sbom.spdx.json
+
+      - name: Upload SBOM
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-spdx
+          path: sbom.spdx.json
+          if-no-files-found: warn
 
       - name: Upload coverage report
         if: runner.os == 'Linux' && always()

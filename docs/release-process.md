@@ -1,8 +1,11 @@
 # Release Process
 
 Ignex uses a source-only, Bun-first monorepo. This document is the checklist for
-cutting a release. Every package is versioned independently
-(`packages/*/package.json`) with a shared root version bump as a convenience.
+cutting a release. Each `packages/*/package.json` carries its own version, and a
+release bumps the root plus **only the packages that changed** (plus their
+dependents). The root `package.json` `version` is the workspace/release version
+that `scripts/release.ts` also writes into the tracked version files declared in
+`.release.json` `versionFiles` — never hard-code a version in prose.
 
 > **Shared canonical flow.** All four product repos — `ignex`, `castrum`,
 > `@ignex/ninox` and `@ignex/nova` — release through ONE flow: the canonical
@@ -26,8 +29,8 @@ cutting a release. Every package is versioned independently
 2. **Run the full gate**:
 
    ```sh
-   bun run verify         # typecheck + lint + tests + jsdoc:check:strict
-   bun run verify:all     # adds the mongo + nova gates (typecheck/test/verify:nova)
+   bun run verify         # typecheck (root+cli) + lint + tests + jsdoc:check:strict + check:dead
+   bun run verify:all     # + the nova plugin gate (verify + verify:nova)
    bun run test:coverage
    bun run build
    bun run smoke
@@ -35,29 +38,11 @@ cutting a release. Every package is versioned independently
    ```
 
    All must be green. `verify` now includes `jsdoc:check:strict` — every
-   public export must carry JSDoc (see [adding-a-feature.md §G](adding-a-feature.md)).
+   public export must carry JSDoc (see [adding-a-feature.md §H](adding-a-feature.md)).
    Coverage thresholds are enforced in CI.
 
-## Publishing the external standalone packages
-
-`@ignex/nova` and `@ignex/ninox` are published from their **own repos**
-(`nova`, `ninox`), not from this monorepo:
-
-- **Nova** — source-published (`files: index.ts public src rust prebuilds docs`);
-  keep the `events`/`bindings`/`generate` subpaths stable (the notifier + CLI
-  template import `@ignex/nova/events`). The Rust addon must be built and
-  staged into `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
-- **Ninox** — ships `dist/` (tsup); keep the `@ignex/ninox` name and the
-  `check:api` gate (API.md ↔ barrel). Run `bun run prepublishOnly` from
-  `ninox`.
-
-This monorepo consumes them through registry semver ranges; the root
-`overrides` block points them at local `file:` links for development. When a
-new version is published, update the semver ranges here (and drop or refresh
-the `file:` overrides as needed).
 3. **Regenerate stale artifacts** (if they are committed):
-   - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored now).
-   - `project.txt` / package `project.txt` — `python3 context.py`.
+   - `repomix-output.txt` — `bunx repomix` (AI context dump; gitignored).
 4. **Update the READMEs**:
    - Root `README.md` (status / roadmap / contributing sections).
    - Per-package READMEs if public APIs changed.
@@ -88,9 +73,27 @@ If nothing has changed since the last tag the release aborts with a hint
 subset). `bun run release:dry` prints the exact planned package set before
 anything is bumped or published.
 
-Example: after tag `v0.1.32`, if only `@ignex/cli` and `@ignex/compiler`
+Example: after tag `v0.2.0`, if only `@ignex/cli` and `@ignex/compiler`
 changed, `bun run release` bumps and publishes `@ignex/compiler`, `@ignex/cli`
 and their dependents (`@ignex/mcp`, `create-ignex`) — not the whole workspace.
+
+## Publishing the external standalone packages
+
+`@ignex/nova` and `@ignex/ninox` are published from their **own repos**
+(`nova`, `ninox`), not from this monorepo:
+
+- **Nova** — source-published (`files: index.ts public src rust prebuilds docs`);
+  keep the `events`/`bindings`/`generate` subpaths stable (the notifier + CLI
+  template import `@ignex/nova/events`). The Rust addon must be built and
+  staged into `prebuilds/<platform>-<arch>/` for the FFI-backed encode paths.
+- **Ninox** — ships `dist/` (tsup); keep the `@ignex/ninox` name and the
+  `check:api` gate (API.md ↔ barrel). Run `bun run prepublishOnly` from
+  `ninox`.
+
+This monorepo consumes them through registry semver ranges; the root
+`overrides` block points them at local `file:` links for development. When a
+new version is published, update the semver ranges here (and drop or refresh
+the `file:` overrides as needed).
 
 ## Tag & publish
 

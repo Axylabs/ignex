@@ -3,9 +3,7 @@
  * vocabulary helpers shared by the generator stages.
  */
 
-/** True when `value` is a plain (non-array) record. */
-export const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+import { isRecord } from "../guards";
 
 /** True when `value` is a record carrying a `properties` record. */
 export const hasProperties = (value: unknown): value is Record<string, unknown> =>

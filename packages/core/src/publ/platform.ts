@@ -85,6 +85,10 @@ export type {
   FaultRequestInfo,
 } from "../platform/fault-vocabulary";
 export { FAULT_KINDS, FAULT_ORIGINS, FAULT_STATUS } from "../platform/fault-vocabulary";
+export {
+  type GracefulShutdownOptions,
+  installGracefulShutdown,
+} from "../platform/graceful-shutdown";
 export type { Job, JobQueue, JobQueueOptions, ScheduleOptions } from "../platform/jobs";
 export { createJobQueue, withRetry, withTimeout } from "../platform/jobs";
 export type {

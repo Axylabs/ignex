@@ -21,8 +21,13 @@ import type { ParseResult } from "../utils/ast/parse";
 import { hashString } from "../utils/hash";
 import type { SourceFile } from "./source-file";
 
-/** Cache-record version — stale records are discarded, never rehydrated. */
-export const MODULES_CACHE_VERSION = "11";
+/**
+ * Cache-record version — stale records are discarded, never rehydrated.
+ *
+ * 12 — moves in lockstep with `COMPILER_CACHE_VERSION` 0.9.26 (a
+ * documentation-only edit on an output-affecting path; see `cache.ts`).
+ */
+export const MODULES_CACHE_VERSION = "12";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {

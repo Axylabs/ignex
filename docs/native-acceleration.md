@@ -924,7 +924,7 @@ micro-benchmarking is meaningless, e.g. process scheduling):
 | `Bun.cron.parse` | croner expression validation | **swap** | Validation gate in `resolveTransportKind` (5-field + `@named`). |
 | `Bun.markdown.html()` | hand-rolled mini `md()` renderer in the debugbar | **swap (server-side)** | `debug/markdown.ts` renders the KT page to sanitized HTML (`sanitizeMdHtml` allowlist — Bun.markdown output is NOT sanitized); dashboard falls back to the mini renderer when the builtin is unavailable. |
 | `Bun.stringWidth` / `Bun.sliceAnsi` / `Bun.wrapAnsi` | hand-rolled ANSI-aware column math in the CLI | **swap (CLI)** | `cli` table/column formatting (`doctor`, `route:list`) — see `utils/terminal.ts`. `NO_COLOR` still respected. |
-| `bun run --parallel` | sequential `bun run a && bun run b` | **swap (repo tooling)** | Root `verify:quick` / `test:parallel` scripts fan the independent gates out concurrently (Foreman-style output). |
+| `bun run --parallel` | sequential `bun run … && bun run …` | **swap (repo tooling)** | Root `verify:quick` / `test:parallel` scripts fan the independent gates out concurrently (Foreman-style output). |
 | `Bun.serve({ routes })` static files | `files.ts` manual range serving | **keep (feature, opt-in)** | Not adopted by default: the AOT-generated server targets `Bun.serve` handlers, and file serving needs the framework's range/conditional semantics. Re-evaluate per feature row. |
 
 Rules applied:

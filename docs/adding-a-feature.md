@@ -197,10 +197,11 @@ symbol. Run it with `bun run jsdoc:check`.
 ## Quality gates (run before pushing)
 
 ```sh
-bun run verify          # typecheck + typecheck:cli + lint + test
+bun run verify          # typecheck (root+cli) + lint + test + jsdoc:check:strict + check:dead
 bun run test:coverage   # tests + coverage thresholds
 bun run build && bun run smoke   # AOT compile + boot + assert routes
-bun run jsdoc:check     # every public export has attached JSDoc
+bun run jsdoc:check     # iterate locally (CI runs the --strict variant inside `verify`)
+bun run check:consistency        # no doc/version/reference drift
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these on every push/PR.

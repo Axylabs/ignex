@@ -3,7 +3,8 @@
  * headers, cookie) onto `ParameterDoc`s, de-duplicated by `in:name`.
  */
 
-import { isRecord, propertiesOf, requiredOf, stripId } from "./schema";
+import { isRecord } from "../guards";
+import { propertiesOf, requiredOf, stripId } from "./schema";
 import type { ParameterDoc, ParameterLocation, RouteDefinition } from "./types";
 
 const toParameter = (

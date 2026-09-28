@@ -44,14 +44,18 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
 
 - The public API is **functional composition over explicit state**: factories
   returning plain objects with closures. `@ignex/shared` ships the FP toolkit
-  (`compose`, `always`, …) — reuse it; don't roll your own.
+  (`compose`, `always`, …) — reuse it; don't roll your own. Classes are the
+  exception, not the rule (D-010): allowed only for the error taxonomy
+  (`HTTPError` family, D-013) and self-contained data structures / registries
+  with no framework state (`LRUCache`, `TraceStore`, `MetricsRegistry`).
 - Prefer **pure functions** (same input → same output, no hidden state) so
   they are directly unit-testable without mocks. Isolate side effects
   (sockets, files, timers, env) in dedicated modules.
 - **Small functions in small files**: one responsibility per file, grouped
   into domain folders (`packages/core/src/{security,http,data,lifecycle,
-  platform,content,plugins}/`, compiler `phases/`, cli `commands/`). Never
-  build god-files.
+  platform,content,plugins,debug,types}/`, plus the `publ/` public sub-barrels,
+  `rpc/` and `vendor/`; compiler `phases/`; cli `commands/`). Never build
+  god-files.
 
 ## 4. Structure & maintainability
 
@@ -108,11 +112,14 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   comments, `CHANGELOG.md`, `.github/workflows/`).
 - When you add/rename/move files or exports, update `AGENTS.md`, `RULES.md`,
   the relevant `.agents/skills/`, and `docs/*.md`.
-- Keep `CHANGELOG.md` in sync with the workspace version (all `packages/*` and
-the root are `0.1.32`). Every change lands under the single `[Unreleased]`
-heading; `scripts/release.ts` finalizes it into `## [<version>] — <date>` at
-release time, so do **not** hand-write release headings. Keep JSDoc on exported
-symbols (`jsdoc:check:strict`).
+- Keep `CHANGELOG.md` in sync with the workspace version — the root
+  `package.json` `version` is the single source of truth. Never repeat a literal
+  version in prose (`RULES.md`, `AGENTS.md`, `docs/**`, `SECURITY.md`):
+  `scripts/release.ts` bumps the root and the changed packages and rewrites the
+  tracked version files declared in `.release.json` `versionFiles`. Every change
+  lands under the single `[Unreleased]` heading; the release script finalizes it
+  into `## [<version>] — <date>` at release time, so do **not** hand-write
+  release headings. Keep JSDoc on exported symbols (`jsdoc:check:strict`).
 
 ## 7. Local development with core projects (maintainers & AI only)
 

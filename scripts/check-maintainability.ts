@@ -1,7 +1,7 @@
 /**
  * @fileoverview Maintainability gate — the mechanical part of the
- * "intern-maintainable ignex" system (spec:
- * `docs/superpowers/specs/2026-09-20-maintainability-design.md`).
+ * "intern-maintainable ignex" system (see
+ * `docs/decisions/010-compose-over-classes.md` and `docs/ai/maintaining.md`).
  *
  * Enforces, for every src file under the packages src trees:
  *   1. size-cap    — files over `maxLines` must be allowlisted in

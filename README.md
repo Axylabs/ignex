@@ -1,5 +1,9 @@
 # ignex
 
+[![CI](https://github.com/Axylabs/ignex/actions/workflows/ci.yml/badge.svg)](https://github.com/Axylabs/ignex/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Contributor Covenant 2.1](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+
 ignex is a small, opinionated framework for building HTTP APIs in TypeScript on
 [Bun](https://bun.sh). You write your endpoints as files. You run one command.
 Out comes a compiled server, an OpenAPI document, and a typed client that already

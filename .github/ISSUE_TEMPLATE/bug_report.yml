@@ -1,0 +1,45 @@
+name: Bug report
+description: Something behaves differently from what the docs say.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Small, runnable reproductions get fixed fastest.
+        For **security** issues, do **not** open an issue — see
+        [SECURITY.md](https://github.com/Axylabs/ignex/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        Minimal route/hook/plugin code, or the exact commands you ran. If it
+        involves an AOT build, include the `ignex build` output.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "`@ignex/*` versions, Bun version (`bun --version`), OS, and whether the interpreted (`createApp`) or compiled server is affected."
+      placeholder: "@ignex/core 0.2.3 · bun 1.4.2 · Linux x64 · compiled server"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same symptom.
+          required: true
+        - label: "`bun run verify:quick` and `bun run test:parallel` are green (for repo changes)."
+          required: false

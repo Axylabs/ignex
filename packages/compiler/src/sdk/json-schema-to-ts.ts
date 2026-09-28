@@ -13,6 +13,8 @@
  * broken types.
  */
 
+import { isRecord } from "@ignex/shared";
+
 /** Options for {@link jsonSchemaToTs}. */
 export interface JsonSchemaToTsOptions {
   /** Resolve a `$ref` string to its schema; `undefined` → `unknown`. */
@@ -20,9 +22,6 @@ export interface JsonSchemaToTsOptions {
   /** Indent unit for multi-line object types. Defaults to two spaces. */
   indent?: string;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Identifier-safe property names stay bare; anything else is quoted. */
 const propertyKey = (name: string): string =>

@@ -16,6 +16,7 @@
 import type { EnvIssue } from "./env-diagnostics";
 import type { EnvFileReport } from "./env-report";
 import { type ToFaultOptions, toFault } from "./fault";
+import { isRecord } from "./fault-throw";
 import type { Fault, FaultRequestInfo } from "./fault-vocabulary";
 
 /** How the block is framed (title + which extra sections to render). */
@@ -239,9 +240,6 @@ const shouldPrint = (fault: Fault): { suppressed: boolean; since: number } => {
   }
   return { suppressed: false, since };
 };
-
-const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
-  typeof value === "object" && value !== null;
 
 const markReported = (thrown: unknown): void => {
   if (!isRecord(thrown)) return;

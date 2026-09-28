@@ -2,8 +2,9 @@
  * `ignex route:list` — pretty route table for an ignex app.
  *
  * Laravel's `php artisan route:list` equivalent. Reads the AOT compiler's
- * `manifest.json` (paths `manifest.json` under the configured outDir, or
- * `dist/manifest.json`) and prints one row per route: method, path, source
+ * `manifest.json` under the configured outDir (default `.ignex`; `dist` is
+ * kept as a legacy fallback for the reference app) and prints one row per
+ * route: method, path, source
  * file, dynamic/static, constant response, response type, and hotness.
  *
  *   ignex route:list            → table from the built manifest
@@ -116,11 +117,12 @@ function rowsFromManifest(manifestPath: string): RouteRow[] {
   }));
 }
 
-/** Find the manifest under the configured outDir (default `dist`). */
+/** Find the manifest under the configured outDir (default `.ignex`). */
 function findManifest(root: string, config: { outDir?: string }): string | null {
-  const outDir = config.outDir ?? "dist";
+  const outDir = config.outDir ?? ".ignex";
   for (const candidate of [
     join(root, outDir, "manifest.json"),
+    join(root, ".ignex", "manifest.json"),
     join(root, "dist", "manifest.json"),
   ]) {
     if (existsSync(candidate)) return candidate;

@@ -36,7 +36,8 @@ is the human walkthrough; `docs/release-process.md` covers releases.
    `bunx vitest run packages/<name>/test`. Pure functions get direct unit
    tests; native gets parity tests; the app gets smoke coverage.
 3. **Verify** — `bun run verify:quick` (typecheck + typecheck:cli + lint +
-   jsdoc:check:strict), then `bun run test:parallel`; native changes add
+   jsdoc:check:strict + check:debug-ui + check:maintainability +
+   check:consistency), then `bun run test:parallel`; native changes add
    `verify:native:route` / `verify:native:ffi` / `test:native:real`; app/compiler
    changes add `bun run smoke` + `smoke:fallback`.
 4. **Bench** — hot paths: `bun run bench:*` before/after; never assume.
@@ -51,5 +52,6 @@ is the human walkthrough; `docs/release-process.md` covers releases.
 - Make native a hard dependency or break `IGNEX_NATIVE=off` parity.
 - Mutate the `SELECTION` table at runtime.
 - Hand-edit generated artifacts (compiler output, `packages/app/dist/**`, SDK).
-- Introduce classes into public surfaces where the pattern is composition.
+- Introduce classes beyond the D-010 exceptions (error taxonomy, self-contained
+  data structures).
 - Forget the doc/skill sync — stale docs are a merge-blocking smell here.
