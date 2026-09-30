@@ -456,7 +456,10 @@ describe("SDK generation", () => {
     const tarball = packSdk(pkgDir);
     expect(tarball).toMatch(/\.tgz$/);
     expect(existsSync(tarball)).toBe(true);
-  });
+    // `packSdk` shells out to `npm pack`, and npm's cold start on the Windows
+    // runner is an order of magnitude slower than on Linux (~30s vs ~4s), so
+    // this one test gets its own budget instead of the 30s default.
+  }, 120_000);
 
   it("rejects unknown platforms and missing artifacts", async () => {
     const outDir = await buildSchemaFixture();
