@@ -83,9 +83,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 - **Coverage has per-package floors.** The aggregate threshold alone let a single
   package rot beneath a healthy tree average (`native` sat at 57.7 % lines and
   `cli` at 63.0 % while the tree reported 77.5 %). `vitest.config.ts` now sets a
-  floor per published package — each the 2026-09-29 measurement minus a small
-  margin, and the authoritative gate. `packages/test-utils` is deliberately
-  absent: private test scaffolding, not a published surface.
+  floor per published package, each the **lowest** of the three CI lanes minus a
+  small margin — the Windows lane is the binding one for `native`, whose
+  loader/paths/require modules are platform-conditional and measure 52.5 lines /
+  50.2 statements / 45.1 functions there against ~56 lines on Linux. A floor
+  only Linux could hold would fail PR CI without saying anything about the code.
+  `packages/test-utils` is deliberately absent: private test scaffolding, not a
+  published surface.
+- **Five `npm` advisories are fixed in the lockfile.** OSV flagged `fast-uri`
+  3.1.7 (pulled by `ajv`) and 4.1.4 (pulled by `fast-json-stringify`) plus
+  `ip-address` 10.7.0 (`express-rate-limit`); the lockfile now resolves 3.1.8,
+  4.2.1 and 10.7.2, all inside the existing ranges, so no manifest changed.
 - **`check:cache-versions` watches paths that exist.** `OUTPUT_AFFECTING` had
   listed `packages/native/src/loader.ts` and `ffi.ts` for months after they
   became directories, so both trees were silently unchecked. The list now names

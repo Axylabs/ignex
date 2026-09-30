@@ -62,15 +62,21 @@ export default defineConfig({
         // Per-package floors. The aggregate alone let a single package rot
         // underneath a healthy tree average (`native` sat at 57.7% lines,
         // `cli` at 63.0% while the tree reported 77.5%). Each floor is the
-        // 2026-09-29 measurement minus a small margin, and these are the
-        // authoritative gates — `packages/test-utils` is deliberately absent
-        // because it is private test scaffolding, not a published surface.
+        // LOWEST of the three CI lanes minus a small margin, and these are the
+        // authoritative gates. The Windows lane is the binding one for
+        // `native`: its loader/paths/require modules are platform-conditional,
+        // so that lane exercises the win32 branches and never the posix ones
+        // (52.5 lines / 50.2 statements / 45.1 functions / ~33 branches, vs
+        // ~56 lines on Linux) — a floor only Linux can hold fails PR CI
+        // without telling you anything about the code.
+        // `packages/test-utils` is deliberately absent: private test
+        // scaffolding, not a published surface.
         "packages/core/src/**": { lines: 82, statements: 80, functions: 79, branches: 70 },
         "packages/compiler/src/**": { lines: 84, statements: 81, functions: 86, branches: 69 },
         "packages/shared/src/**": { lines: 95, statements: 92, functions: 95, branches: 84 },
         "packages/cli/src/**": { lines: 60, statements: 58, functions: 62, branches: 54 },
         "packages/mcp/src/**": { lines: 68, statements: 66, functions: 46, branches: 53 },
-        "packages/native/src/**": { lines: 54, statements: 51, functions: 48, branches: 33 },
+        "packages/native/src/**": { lines: 50, statements: 48, functions: 43, branches: 31 },
       },
     },
   },
