@@ -51,11 +51,26 @@ export default defineConfig({
       thresholds: {
         // Raised 2026-08-19 after the hardening pass (aggregate was ~75-77%
         // statements/lines). These are the CI floor — drift below fails the
-        // quality job deliberately.
+        // quality job deliberately. Measured 2026-09-29 on Linux with NO addon
+        // (the condition the CI `quality` lane runs under, which is why the
+        // native numbers below are fallback-mode figures): 77.5 lines /
+        // 75.3 statements / 75.9 functions / 66.1 branches.
         lines: 70,
         functions: 60,
         statements: 65,
         branches: 50,
+        // Per-package floors. The aggregate alone let a single package rot
+        // underneath a healthy tree average (`native` sat at 57.7% lines,
+        // `cli` at 63.0% while the tree reported 77.5%). Each floor is the
+        // 2026-09-29 measurement minus a small margin, and these are the
+        // authoritative gates — `packages/test-utils` is deliberately absent
+        // because it is private test scaffolding, not a published surface.
+        "packages/core/src/**": { lines: 82, statements: 80, functions: 79, branches: 70 },
+        "packages/compiler/src/**": { lines: 84, statements: 81, functions: 86, branches: 69 },
+        "packages/shared/src/**": { lines: 95, statements: 92, functions: 95, branches: 84 },
+        "packages/cli/src/**": { lines: 60, statements: 58, functions: 62, branches: 54 },
+        "packages/mcp/src/**": { lines: 68, statements: 66, functions: 46, branches: 53 },
+        "packages/native/src/**": { lines: 54, statements: 51, functions: 48, branches: 33 },
       },
     },
   },

@@ -99,7 +99,7 @@ const argsDef = {
   yes: { type: "boolean", description: "Skip interactive prompts (use defaults)" },
 } satisfies ArgsDef;
 
-export const opsCmd = defineCommand({
+const opsCmd = defineCommand({
   meta: metaFor("ops"),
   args: argsDef,
   async run(ctx) {

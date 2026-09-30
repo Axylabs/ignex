@@ -474,7 +474,7 @@ const argsDef = {
   open: { type: "boolean", description: "Open the app in your browser when the server is up" },
 } satisfies ArgsDef;
 
-export const devCmd = defineCommand({
+const devCmd = defineCommand({
   meta: metaFor("dev"),
   args: argsDef,
   async run(ctx) {

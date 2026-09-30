@@ -52,7 +52,7 @@ const argsDef = {
  * the classic single-file route. Interactive mode asks for the path and, when
  * the path carries no method suffix, the HTTP method.
  */
-export const routeCmd = defineCommand({
+const routeCmd = defineCommand({
   meta: metaFor("route"),
   args: argsDef,
   async run(ctx) {

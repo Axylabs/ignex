@@ -18,6 +18,25 @@
     "test": "vitest run"
   },
   "description": "Shared types and constants for Ignex.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "bun",
+    "typescript",
+    "types",
+    "utilities"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

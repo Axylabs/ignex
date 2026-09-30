@@ -17,6 +17,25 @@
     "test": "vitest run"
   },
   "description": "Ignex AOT compiler: route discovery, analysis, optimization, codegen, linker, artifacts.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/compiler"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "bun",
+    "compiler",
+    "aot",
+    "codegen"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

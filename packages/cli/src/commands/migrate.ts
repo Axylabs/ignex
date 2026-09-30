@@ -51,7 +51,7 @@ const argsDef = {
   },
 } satisfies ArgsDef;
 
-export const migrateCmd = defineCommand({
+const migrateCmd = defineCommand({
   meta: metaFor("migrate"),
   args: argsDef,
   async run(ctx) {

@@ -2,7 +2,8 @@
 
 How to run an ignex app in production: AOT-only, TLS at the proxy, HTTP/2,
 horizontal scaling behind a load balancer, durable jobs/scheduler across
-instances, and the realtime (nova) cluster topology.
+instances, the realtime (nova) cluster topology, Kubernetes manifests, backups /
+disaster recovery, and zero-downtime releases.
 
 ## 1. AOT-only in production
 
@@ -274,7 +275,152 @@ stores, nova hub), then exit (10s hard deadline). Send SIGTERM and wait —
 containers / systemd / the LB drain naturally. `queue:work` / `schedule:run`
 drain the same way.
 
-## 8. Reference: `ignex ops`
+## 8. Kubernetes
+
+A production-shaped set of manifests for the compiled binary (the image has no
+runtime to install — see `ignex ops dockerfile`). Apply with `kubectl apply -f`,
+creating the `ignex-secrets` Secret separately (never in git; the hardening
+checklist in [SECURITY.md](../SECURITY.md) applies here too).
+
+```yaml
+# deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ignex-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: ignex-app }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }   # zero-downtime roll
+  template:
+    metadata:
+      labels: { app: ignex-app }
+    spec:
+      terminationGracePeriodSeconds: 30                  # MUST exceed the 10s drain deadline
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/ignex-app:latest
+          ports: [{ containerPort: 3000 }]
+          env:
+            - name: PORT
+              value: "3000"
+            - name: IGNEX_HTTPS
+              value: "0"                                  # TLS terminates at the ingress
+            - name: MONGO_URL
+              valueFrom: { secretKeyRef: { name: ignex-secrets, key: mongo-url } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: ignex-secrets, key: redis-url } }
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: ignex-secrets, key: jwt-secret } }
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }        # never touches dependencies
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 3000 }         # 503 while a dependency is down
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+```
+
+```yaml
+# service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ignex-app
+spec:
+  selector: { app: ignex-app }
+  ports: [{ port: 80, targetPort: 3000 }]
+---
+# hpa.yaml — requires metrics-server
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ignex-app
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: ignex-app }
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+```
+
+What matters more than the YAML:
+
+- **`replicas > 1` requires externalized state.** Sessions, rate limits, the HTTP
+  cache and durable jobs must live in Redis/the shared store (§3). Otherwise each
+  pod enforces its own quota and one client gets N× the configured limit.
+- **Probe the two endpoints differently.** `/health` failing restarts the pod;
+  `/ready` failing only removes it from the Service. Wiring a DB check into
+  `/health` turns a brief database outage into a restart loop.
+- **`maxUnavailable: 0` plus a grace period longer than the drain deadline** is
+  what makes a rollout lossless: the pod gets `SIGTERM`, drains
+  (`server.stop(true)`), closes plugin resources, then exits. A grace period
+  SHORTER than the drain truncates in-flight requests.
+- **WebSockets (nova):** if you rely on sticky sessions add
+  `sessionAffinity: ClientIP`; with the NATS bridge stickiness is an efficiency
+  choice, not a correctness one (§5).
+- **Never deploy `--dev` artifacts.** A production build eliminates the debugbar
+  and bakes `__IGNEX_PROD_BUILD` in at build time (§1).
+- `reusePort` (§3) is worth enabling *inside* a pod only if you run several
+  processes in one container; with `replicas` you already have process-level
+  parallelism.
+
+## 9. Backups & disaster recovery
+
+What must survive a lost cluster, in priority order:
+
+| State | Where it lives | Backup approach |
+| --- | --- | --- |
+| Application data | MongoDB | `mongodump`/operator backups + PITR (oplog) |
+| Durable job queue | the `JobStore` backing store | back up with the datastore it uses; a lost queue replays as at-least-once, so idempotent handlers recover |
+| Sessions / cache / rate limits | Redis | intentionally **not** backed up — treat as ephemeral and acceptable to lose |
+| Secrets (`JWT_SECRET`, store credentials) | your secret manager | backed up out-of-band; rotating `JWT_SECRET` invalidates issued tokens |
+
+Recovery drill — run it once *before* you need it:
+
+```sh
+# 1. Restore into a scratch database (never straight over production)
+mongorestore --uri="$MONGO_URL" --archive=backup.archive \
+  --nsFrom='app.*' --nsTo='app_restore.*'
+# 2. Point a staging deployment at the restored data (env change only, no code)
+# 3. Verify: readiness green, a read route returns real rows, a write route commits
+```
+
+- **RPO/RTO are deployment decisions, not framework defaults.** Choose the
+  backup interval (RPO) and the acceptable restore time (RTO) explicitly, then
+  rehearse the drill on the real platform.
+- **Never store `.env` next to a data backup.** Secrets travel through the
+  secret manager; a data-plane leak must not also hand over credentials.
+- **Volume snapshots:** the only thing ignex writes to local disk in production
+  is an opt-in file/SQLite durable job store. If you use it, that volume needs a
+  snapshot too — or choose the Redis/Mongo store and let your datastore backup
+  cover it.
+
+## 10. Zero-downtime releases
+
+The **ordering** matters more than the tooling:
+
+1. **Schema first, expand-only.** Apply additive migrations
+   (`ignex migrate up`) compatible with both the old and the new code: add
+   columns/fields, never rename or drop in the same release.
+2. **Roll the app.** `maxUnavailable: 0` plus the drain above. Workers
+   (`ignex queue:work`) and the scheduler are separate Deployments and roll the
+   same way — a job claimed by a dying worker is re-queued by lease expiry, so
+   handlers must be idempotent (§4).
+3. **Contract later.** Once the new code is fully rolled and the old code is
+   gone, ship the destructive migration (drop/rename) in a follow-up release.
+
+**Rollback is a redeploy of the previous image tag.** Because step 3 is deferred,
+that older version still runs correctly against the new schema — which is exactly
+what makes the rollback safe.
+
+## 11. Reference: `ignex ops`
 
 | Command | Emits |
 | --- | --- |

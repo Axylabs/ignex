@@ -192,7 +192,7 @@ export function renderDoctor(report: DoctorReport): string[] {
 /**
  * `ignex doctor` — check project health and print the report.
  */
-export const doctorCmd = defineCommand({
+const doctorCmd = defineCommand({
   meta: metaFor("doctor"),
   args: argsDef,
   async run(ctx) {

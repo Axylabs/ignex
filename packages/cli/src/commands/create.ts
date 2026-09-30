@@ -103,7 +103,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite an existing non-empty directory" },
 } satisfies ArgsDef;
 
-export const createCmd = defineCommand({
+const createCmd = defineCommand({
   meta: metaFor("create"),
   args: argsDef,
   async run(ctx) {

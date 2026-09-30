@@ -74,7 +74,7 @@ const argsDef = {
   "no-build": { type: "boolean", description: "Skip the rebuild; use existing artifacts" },
 } satisfies ArgsDef;
 
-export const sdkCmd = defineCommand({
+const sdkCmd = defineCommand({
   meta: metaFor("sdk"),
   args: argsDef,
   async run(ctx) {

@@ -168,7 +168,7 @@ const argsDef = {
   },
 } satisfies ArgsDef;
 
-export const routeListCmd = defineCommand({
+const routeListCmd = defineCommand({
   meta: metaFor("route:list"),
   args: argsDef,
   async run(ctx) {

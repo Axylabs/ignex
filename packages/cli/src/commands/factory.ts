@@ -36,7 +36,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite an existing factory" },
 } satisfies ArgsDef;
 
-export const factoryCmd = defineCommand({
+const factoryCmd = defineCommand({
   meta: metaFor("factory"),
   args: argsDef,
   async run(ctx) {

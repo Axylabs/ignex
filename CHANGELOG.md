@@ -8,6 +8,35 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A security policy that answers the questions a report needs.** `SECURITY.md`
+  now names a channel reachable from the registry alone (email + private GitHub
+  advisory), a stage table for what to expect (acknowledge in 3 business days,
+  assess in 10, disclose after the fix or at 90 days), a safe-harbour statement,
+  explicit in/out-of-scope (the `castrum` addon only *as consumed through*
+  `@ignex/native`; a consuming app's own route code and its opt-in validation
+  are the app's responsibility), and a threat-model table of trust boundary →
+  threats → enforcing module, each module pinned by a test.
+- **Kubernetes, backups/DR and zero-downtime releases in the deployment guide.**
+  `docs/deployment.md` §8 adds production-shaped manifests — a Deployment with
+  `maxUnavailable: 0` and `terminationGracePeriodSeconds` above the 10 s drain
+  deadline, a Service, an HPA — and the two rules the YAML cannot express:
+  `/health` restarts the pod while `/ready` only removes it from the Service
+  (wiring a DB check into `/health` turns an outage into a restart loop), and
+  `replicas > 1` requires sessions, rate limits, cache and durable jobs to live
+  in the shared store, or each pod enforces its own quota.
+- **`bun run release:matrix`** (`scripts/release-matrix.ts`) prints what a given
+  checkout actually carries — every `packages/*` version and whether it is
+  published, as a Markdown table or `--json` for tooling. It exists because the
+  packages version independently, so there is no single "ignex version" to pin
+  in prose (`RULES.md` §6). `docs/release-process.md` gains the matching policy:
+  pin ranges not versions (the frozen `exports` map is the contract), deprecate
+  one minor before removal, patches never break behaviour, no LTS line before
+  1.0.
+- **The published manifests carry their registry metadata.** The six publishable
+  packages now declare `repository` (with `directory`), `homepage`, `bugs`,
+  `keywords` and `publishConfig.access`, like `@ignex/native` and
+  `@ignex/shared` already did — npm links each package back to the repo, which
+  is also how the security contact above is discovered from the registry.
 - **`createApp().serve()` now drains on `SIGTERM`/`SIGINT`.** The AOT-generated
   server already did (`compiler/src/phases/codegen/server.ts`, tested in
   `packages/compiler/test/compile.test.ts`); the interpreted server did not, so a
@@ -37,6 +66,39 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **CI runs the dead-code scan and a real-driver resource check.** The quality
+  job now runs `bun run check:dead` (Linux lane) and `bun run verify:drizzle` —
+  the latter drives the generated Drizzle resource through
+  create/read/update/delete against a real `bun:sqlite` engine, so a
+  codegen/template regression that still typechecks fails in PR CI. The
+  Mongo/NATS-backed suites deliberately stay out of PR CI: they need live
+  services, and the ninox-backed trace test needs a sibling checkout.
+- **`knip` duplicate exports are an error, not a note.** `rules.duplicates` moved
+  from `off` to `error`; it caught 25 CLI command modules that exported both
+  `<name>Cmd` and `export default <name>Cmd` while only the default binding had
+  consumers, so the named export is gone. `includeEntryExports` stays `false` by
+  design — with it on, the published surface of `@ignex/native`/`@ignex/shared`
+  reports as hundreds of false positives; `check:consistency` freezes that
+  surface against `scripts/api-surface.json` instead.
+- **Coverage has per-package floors.** The aggregate threshold alone let a single
+  package rot beneath a healthy tree average (`native` sat at 57.7 % lines and
+  `cli` at 63.0 % while the tree reported 77.5 %). `vitest.config.ts` now sets a
+  floor per published package — each the 2026-09-29 measurement minus a small
+  margin, and the authoritative gate. `packages/test-utils` is deliberately
+  absent: private test scaffolding, not a published surface.
+- **`check:cache-versions` watches paths that exist.** `OUTPUT_AFFECTING` had
+  listed `packages/native/src/loader.ts` and `ffi.ts` for months after they
+  became directories, so both trees were silently unchecked. The list now names
+  the real paths (compiler `frontend`/`ir`/`utils/ast`/`phases`, native
+  `loader`/`ffi`/`route-wire`) and documents the rule for adding one: include a
+  path only when editing it can change the bytes of `dist/__server.js` — not
+  separate products such as `compiler/src/sdk`. A new `assertPathsExist()` guard
+  fails the script if any entry goes missing, so a split cannot go blind again.
+- **`CODEOWNERS` actually matches someone.** The entries named
+  `@Axylabs/maintainers`, which is not a team in the org
+  (`gh api orgs/Axylabs/teams` returns an empty list) — and an entry for a
+  missing team silently requests no reviewer — so the handle is now the account
+  owner.
 - **Documentation and version drift can no longer pass the gate.** The repo had
   accumulated self-contradictions that every existing gate accepted, so a new
   `bun run check:consistency` (`scripts/check-consistency.ts`, wired into

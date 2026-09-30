@@ -14,7 +14,7 @@ import { runDef } from "../utils/run-def.js";
 import { metaFor } from "./registry.js";
 
 /** Print app/compiler info as JSON. */
-export const infoCmd = defineCommand({
+const infoCmd = defineCommand({
   meta: metaFor("info"),
   args: {
     root: { type: "string", valueHint: "dir", description: "Project root" },

@@ -39,6 +39,6 @@
   "ignoreExportsUsedInFile": true,
   "includeEntryExports": false,
   "rules": {
-    "duplicates": "off"
+    "duplicates": "error"
   }
 }

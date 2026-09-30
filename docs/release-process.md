@@ -77,6 +77,56 @@ Example: after tag `v0.2.0`, if only `@ignex/cli` and `@ignex/compiler`
 changed, `bun run release` bumps and publishes `@ignex/compiler`, `@ignex/cli`
 and their dependents (`@ignex/mcp`, `create-ignex`) — not the whole workspace.
 
+## Versioning, support & deprecation
+
+Packages under `packages/*` version **independently**, so a tag legitimately
+carries a different version per package (a patch to the CLI does not move
+`@ignex/native`). There is therefore **no single "ignex version" to pin**: the
+workspace root version is the release-train marker, and dependants declare
+semver ranges. To see exactly what a checkout carries — without hard-coding
+version literals into docs, which `RULES.md` §6 forbids — run:
+
+```sh
+bun run release:matrix          # Markdown table: package → version → published?
+bun run release:matrix --json   # the same data, machine-readable
+```
+
+What that means for a consumer:
+
+- **Pin ranges, not versions** (`"@ignex/core": "^<current minor>"`). The frozen
+  `exports` subpath map is the real compatibility contract —
+  `bun run check:consistency` freezes it against `scripts/api-surface.json` — so
+  a minor bump cannot silently drop a subpath you import.
+- The `@ignex/*` packages in one train are mutually compatible: each manifest's
+  `workspace:*` dependency is published as the concrete range of the version
+  released alongside it.
+- The generated app SDK is versioned separately — see
+  [App SDK releases](#app-sdk-releases).
+
+### Deprecation policy
+
+While pre-1.0, semver's own rule applies: **a breaking change may ship in a
+minor**, and `CHANGELOG.md` records every one. To keep that survivable:
+
+1. A deprecation is announced under `Deprecated` in `CHANGELOG.md` **one minor
+   before** the removal, naming the replacement.
+2. The deprecated export keeps working for that minor (a runtime warning is
+   preferred over removal) and is removed in the next minor — never in a patch.
+3. **Patches never break behaviour.** A patch fixes; a minor may break, with the
+   notice above.
+
+### Support window
+
+| Release | Security fixes | Notes |
+| --- | --- | --- |
+| Current minor | Yes | the only supported line (see [SECURITY.md](../SECURITY.md)) |
+| Older minors | No | upgrade to the current minor |
+| LTS, post-1.0 | Planned | latest major + previous major, 12 months each |
+
+There is **no backport branch today** and no LTS line yet. When 1.0 ships this
+table becomes the contract, and a `release/<major.minor>` branch is cut per
+supported line at that point. Until then, run the current minor.
+
 ## Publishing the external standalone packages
 
 `@ignex/nova` and `@ignex/ninox` are published from their **own repos**

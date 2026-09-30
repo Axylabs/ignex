@@ -12,7 +12,7 @@ import { yellow } from "../utils/logger.js";
 import { loadCommand } from "./loaders.js";
 import { findCommand, renderRootHelp } from "./registry.js";
 
-export const helpCmd = defineCommand({
+const helpCmd = defineCommand({
   meta: {
     name: "help",
     description: "Show help for ignex or a specific command",

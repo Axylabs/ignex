@@ -60,7 +60,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite existing files" },
 } satisfies ArgsDef;
 
-export const eventCmd = defineCommand({
+const eventCmd = defineCommand({
   meta: metaFor("event"),
   args: argsDef,
   async run(ctx) {

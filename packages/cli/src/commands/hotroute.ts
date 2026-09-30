@@ -52,7 +52,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite existing files" },
 } satisfies ArgsDef;
 
-export const hotrouteCmd = defineCommand({
+const hotrouteCmd = defineCommand({
   meta: metaFor("hotroute"),
   args: argsDef,
   async run(ctx) {

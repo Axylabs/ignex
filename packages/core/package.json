@@ -18,6 +18,26 @@
     "test": "vitest run"
   },
   "description": "Ignex runtime core: context, body parsing, errors, plugins, cache, files, proxy, SSE, WS.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "bun",
+    "typescript",
+    "framework",
+    "http",
+    "backend"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./http": "./src/http/route.ts",

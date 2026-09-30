@@ -41,7 +41,7 @@ console.log("[seed] done");
 await service.closeConnections();
 `;
 
-export const seedCmd = defineCommand({
+const seedCmd = defineCommand({
   meta: metaFor("seed"),
   args: argsDef,
   async run(ctx) {

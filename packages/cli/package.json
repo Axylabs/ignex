@@ -2,6 +2,26 @@
   "name": "@ignex/cli",
   "version": "0.2.4",
   "description": "CLI for Ignex: build, watch, scaffold routes and apps",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "bun",
+    "cli",
+    "scaffold",
+    "aot",
+    "build"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "license": "MIT",
   "bin": {

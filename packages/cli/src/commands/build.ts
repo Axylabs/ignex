@@ -38,7 +38,7 @@ const argsDef = {
   dev: { type: "boolean", description: "Dev-shaped build (keeps debugbar/tracing in)" },
 } satisfies ArgsDef;
 
-export const buildCmd = defineCommand({
+const buildCmd = defineCommand({
   meta: metaFor("build"),
   args: argsDef,
   async run(ctx) {

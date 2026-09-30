@@ -18,6 +18,25 @@
     "test": "vitest run"
   },
   "description": "Model Context Protocol server for Ignex — agent tooling for build/dev/route/info/openapi/doctor.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "ignex-mcp": "./bin/ignex-mcp.js"
   },

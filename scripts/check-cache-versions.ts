@@ -17,16 +17,37 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
-/** Paths whose changes alter generated output / cache behavior. */
+/**
+ * Paths whose changes alter the EMITTED server bundle (or the native route
+ * wire it projects) without changing the cache fingerprint — which hashes
+ * routes, options and `core/src`, not the compiler's own source.
+ *
+ * Rule: include a path when editing it can change the bytes of
+ * `dist/__server.js` (or the native wire layout codegen projects into it).
+ * Do NOT include separate products such as `compiler/src/sdk` (SDK packages
+ * are generated on demand, not served from this cache) or pure diagnostics.
+ *
+ * Every entry MUST exist — `assertPathsExist` below fails loudly otherwise, so
+ * a path that is split into a directory (or deleted) cannot go silently blind.
+ */
 const OUTPUT_AFFECTING = [
-  "packages/native/src/loader.ts",
-  "packages/native/src/ffi.ts",
-  "packages/native/src/runtime.ts",
-  "packages/native/src/selection.ts",
+  // Compiler: everything that shapes or emits the server bundle.
+  "packages/compiler/src/cache.ts",
+  "packages/compiler/src/frontend",
+  "packages/compiler/src/ir",
+  "packages/compiler/src/utils/ast",
+  "packages/compiler/src/phases/discovery.ts",
+  "packages/compiler/src/phases/analysis",
+  "packages/compiler/src/phases/optimization.ts",
+  "packages/compiler/src/phases/linker.ts",
   "packages/compiler/src/phases/codegen",
   "packages/compiler/src/phases/artifacts",
-  "packages/compiler/src/frontend/persist.ts",
-  "packages/compiler/src/cache.ts",
+  // Native: the loader/ABI selection and the wire layout codegen projects.
+  "packages/native/src/loader",
+  "packages/native/src/ffi",
+  "packages/native/src/route-wire",
+  "packages/native/src/runtime.ts",
+  "packages/native/src/selection.ts",
 ];
 
 /** The version constants that must be bumped when OUTPUT_AFFECTING changes. */
@@ -74,7 +95,24 @@ const lastTag = (): string | undefined => {
   }
 };
 
+/**
+ * Guard against a listed path being deleted or split into a directory without
+ * updating this list — the exact rot that made the loader/ffi entries blind.
+ */
+const assertPathsExist = (): void => {
+  const missing = OUTPUT_AFFECTING.filter((p) => !existsSync(p));
+  if (missing.length === 0) return;
+  console.error("check-cache-versions FAILED: OUTPUT_AFFECTING lists missing paths:");
+  for (const p of missing) console.error(`  - ${p}`);
+  console.error(
+    "\nA watched path was deleted or moved. Update OUTPUT_AFFECTING to the new " +
+      "location, otherwise output-affecting changes under it stop being checked.",
+  );
+  process.exit(1);
+};
+
 const main = (): void => {
+  assertPathsExist();
   const tag = lastTag();
   if (!tag) {
     console.log("check-cache-versions: no previous git tag — skipping.");

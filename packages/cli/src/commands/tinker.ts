@@ -122,7 +122,7 @@ const argsDef = {
   },
 } satisfies ArgsDef;
 
-export const tinkerCmd = defineCommand({
+const tinkerCmd = defineCommand({
   meta: metaFor("tinker"),
   args: argsDef,
   async run(ctx) {

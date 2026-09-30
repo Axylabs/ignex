@@ -122,7 +122,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite an existing hook file" },
 } satisfies ArgsDef;
 
-export const hookCmd = defineCommand({
+const hookCmd = defineCommand({
   meta: metaFor("hook"),
   args: argsDef,
   async run(ctx) {

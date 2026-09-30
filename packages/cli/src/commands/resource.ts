@@ -68,7 +68,7 @@ const argsDef = {
   },
 } satisfies ArgsDef;
 
-export const resourceCmd = defineCommand({
+const resourceCmd = defineCommand({
   meta: metaFor("resource"),
   args: argsDef,
   async run(ctx) {

@@ -28,7 +28,7 @@ const argsDef = {
   root: { type: "string", valueHint: "dir", description: "Project root" },
 } satisfies ArgsDef;
 
-export const scheduleRunCmd = defineCommand({
+const scheduleRunCmd = defineCommand({
   meta: metaFor("schedule:run"),
   args: argsDef,
   async run(ctx) {

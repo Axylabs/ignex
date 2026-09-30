@@ -18,6 +18,26 @@
     "test": "vitest run"
   },
   "description": "Ignex native accelerator: Rust NAPI addon (castrum) wrapper with byte-compatible pure-TS fallbacks.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/native"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "bun",
+    "native",
+    "napi",
+    "ffi",
+    "rust"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

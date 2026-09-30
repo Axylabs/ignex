@@ -25,7 +25,7 @@ const SHELL_SCRIPTS: Record<(typeof COMPLETION_SHELLS)[number], string> = {
   cmd: cmdCompletionScript,
 };
 
-export const completionsCmd = defineCommand({
+const completionsCmd = defineCommand({
   meta: metaFor("completions"),
   args: {
     shell: {

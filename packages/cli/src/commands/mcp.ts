@@ -11,7 +11,7 @@ import { metaFor } from "./registry.js";
 /** Typed CLI surface shared by parsing and usage rendering. */
 const argsDef = {};
 
-export const mcpCmd = defineCommand({
+const mcpCmd = defineCommand({
   meta: metaFor("mcp"),
   args: argsDef,
   async run(ctx) {

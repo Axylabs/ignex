@@ -1,28 +1,31 @@
 # Default owners for everything in this repository.
 #
-# Replace `@Axylabs/maintainers` with the real GitHub team handle (org team
-# slug) if it differs — CODEOWNERS silently matches nothing when the handle
-# does not exist, so verify it once in repository settings.
+# `@adeelaliasd` is the account owner (verified with `gh api user`). The
+# previous handle `@Axylabs/maintainers` does NOT exist as an org team —
+# `gh api orgs/Axylabs/teams` returns an empty list — and a CODEOWNERS entry
+# for a missing team matches NOTHING, silently disabling review requests.
+# If a maintainers team is created later, swap the handle here and re-verify
+# that reviews are still requested.
 #
 # Reviews are requested automatically from these owners; the paths below call
 # out the surfaces where a mistake is expensive (public API, generated output,
 # release/CI machinery).
 
-*                       @Axylabs/maintainers
+*                       @adeelaliasd
 
 # Public API + published surface: add/remove subpaths deliberately and
 # re-freeze with `bun scripts/check-consistency.ts --update`.
-/packages/*/src/index.ts        @Axylabs/maintainers
-/packages/*/src/publ/           @Axylabs/maintainers
-/scripts/api-surface.json       @Axylabs/maintainers
+/packages/*/src/index.ts        @adeelaliasd
+/packages/*/src/publ/           @adeelaliasd
+/scripts/api-surface.json       @adeelaliasd
 
 # Compiler codegen: touches generated output + the cache-version contract.
-/packages/compiler/src/phases/  @Axylabs/maintainers
+/packages/compiler/src/phases/  @adeelaliasd
 
 # Native bridge: the only place castrum may be imported.
-/packages/native/src/           @Axylabs/maintainers
+/packages/native/src/           @adeelaliasd
 
 # Release, CI and supply chain.
-/scripts/release.ts             @Axylabs/maintainers
-/.release.json                  @Axylabs/maintainers
-/.github/                       @Axylabs/maintainers
+/scripts/release.ts             @adeelaliasd
+/.release.json                  @adeelaliasd
+/.github/                       @adeelaliasd

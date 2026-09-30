@@ -32,7 +32,7 @@ const argsDef = {
   force: { type: "boolean", description: "Overwrite an existing model file" },
 } satisfies ArgsDef;
 
-export const modelCmd = defineCommand({
+const modelCmd = defineCommand({
   meta: metaFor("model"),
   args: argsDef,
   async run(ctx) {

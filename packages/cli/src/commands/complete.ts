@@ -64,7 +64,7 @@ export async function loadCompletableCommands(): Promise<CompletableCommand[]> {
   );
 }
 
-export const completeCmd = defineCommand({
+const completeCmd = defineCommand({
   meta: { name: "_complete", hidden: true, description: "Shell-completion backend" },
   args: {
     line: { type: "string", description: "Full command line to complete" },

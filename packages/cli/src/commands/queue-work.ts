@@ -30,7 +30,7 @@ const argsDef = {
   root: { type: "string", valueHint: "dir", description: "Project root" },
 } satisfies ArgsDef;
 
-export const queueWorkCmd = defineCommand({
+const queueWorkCmd = defineCommand({
   meta: metaFor("queue:work"),
   args: argsDef,
   async run(ctx) {

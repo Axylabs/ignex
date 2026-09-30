@@ -41,7 +41,7 @@ the error taxonomy and self-contained data structures; see D-010). Tests use
 | Tests (all packages, parallel) | `bun run test:parallel` (core/compiler/shared/cli/mcp) |
 | Single package tests | `bunx vitest run packages/<name>/test`; `bun run test:native` / `test:native:real` |
 | Lint / fix | `bun run lint` (oxlint + biome) / `bun run lint:fix` |
-| Dead-code scan | `bun run check:dead` (knip — unused files/exports/deps; config in `knip.json`; part of `verify`) |
+| Dead-code scan | `bun run check:dead` (knip — unused files/deps + duplicate exports; config in `knip.json`; part of `verify` and CI) |
 | Build + run app | `bun run build` → `bun run dev` / `bun run start` |
 | App dev server with debugbar | `bun run dev:debug` (debug-shaped build in `packages/app/dist-dev/`; production `dev`/`build` eliminate the debugbar) |
 | Smoke gates | `bun run smoke` (native) + `bun run smoke:fallback` (`IGNEX_NATIVE=off`) |

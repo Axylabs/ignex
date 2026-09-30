@@ -2,6 +2,22 @@
   "name": "create-ignex",
   "version": "0.2.4",
   "description": "Scaffold a new Ignex app — `npm create ignex` / `bun create ignex`",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axylabs/ignex.git",
+    "directory": "packages/create"
+  },
+  "homepage": "https://github.com/Axylabs/ignex#readme",
+  "bugs": {
+    "url": "https://github.com/Axylabs/ignex/issues"
+  },
+  "keywords": [
+    "ignex",
+    "create",
+    "scaffold",
+    "template",
+    "bun"
+  ],
   "type": "module",
   "license": "MIT",
   "bin": {
