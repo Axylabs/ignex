@@ -36,6 +36,39 @@ bun run jsdoc:check  # every public export must carry JSDoc (see docs/adding-a-f
 All packages ship **source-only** (`exports` point at `src/*.ts`); Bun runs TS
 natively. The CLI is no exception — `bin/ignex.js` imports `../src/index.ts`.
 
+## Orientation (a fast path into the code)
+
+ignex is layered, and the layers only point one way:
+
+```
+shared ← native ← core ← compiler ← cli
+```
+
+A package may depend on lower tiers, never higher ones. You do not have to
+memorise the rule — `bun run check:layers` runs in CI and on pre-push and
+rejects an upward edge or an import cycle — but knowing it tells you where a
+change belongs. To see the current shape of the monorepo:
+
+```sh
+bun run check:layers --report    # tier table + which package imports which
+bun run check:layers --mermaid   # the same graph as a mermaid diagram
+```
+
+| You are changing… | Start in | Read first |
+| --- | --- | --- |
+| runtime primitives (context, auth, plugins, validation) | `packages/core/src` | `docs/architecture.md` |
+| native ops / route wire | `packages/native/src` | `docs/native-acceleration.md` |
+| the AOT compiler or codegen | `packages/compiler/src` | `docs/architecture.md` |
+| the CLI or scaffolds | `packages/cli/src` | `docs/adding-a-feature.md` |
+
+**Your first change, in order:** pick the package from the table → read its
+`.agents/skills/` runbook (`ignex-codebase-map` first) → write the test first →
+run the package suite (`bun run test:core`, `bun run test:compiler`,
+`bun run test:cli`) → `bun run verify:quick` → `bun run smoke` if you touched
+the app or compiler. `docs/README.md` carries the full reading paths, and
+`docs/ai/maintaining.md` maps a symptom to the module that produced it, and
+walks the fault pipeline module by module.
+
 ## Quality gates (CI)
 
 The `.github/workflows/ci.yml` pipeline runs on every push/PR:
@@ -45,8 +78,11 @@ The `.github/workflows/ci.yml` pipeline runs on every push/PR:
 3. `jsdoc:check:strict` — every public export must carry JSDoc (see
    [docs/adding-a-feature.md §G](docs/adding-a-feature.md)); fails CI on any
    undocumented public symbol
-4. `test:coverage` — all tests + coverage thresholds
-5. `build` then `smoke` — the generated server must boot and pass route assertions
+4. `check:maintainability`, `check:consistency`, `check:layers` — the mechanical
+   architecture gates: size caps and doc-refs, script/version/export drift, and
+   the one-way package dependency rule (+ import cycles)
+5. `test:coverage` — all tests + coverage thresholds
+6. `build` then `smoke` — the generated server must boot and pass route assertions
 
 Keep these green locally with `bun run verify` before pushing.
 

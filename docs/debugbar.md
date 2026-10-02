@@ -133,6 +133,27 @@ and `openapi()`). Because the plugin self-disables outside debug mode and marks
 itself dev-only, the compiled server drops it from the lifecycle at boot — a
 default-mode `debugbar()` in your config costs nothing in production.
 
+**How it disappears from a production build.** The compiler does not merely
+disable the plugin at boot — it removes it from the bundle:
+
+1. **Analysis** (`packages/compiler/src/phases/analysis/dev-only-plugins.ts`)
+   finds every reachable `debugbar(...)` call in the app-config `plugins`
+   export and decides what is *provably disabled*: everything in a
+   production-shaped build (`ignex build --compile`, or `NODE_ENV=production`
+   with no `IGNEX_DEBUG=1` at build time), and `debugbar({ enabled: false })`
+   in any build.
+2. **Rewrite** — for a production shape, `debugbarStubRewrite` removes the
+   `debugbar` specifier from the `@ignex/core` import and rebinds the name to a
+   local factory returning the inert `{ name: "debugbar", __ignexDevOnly: true }`.
+3. **Tree-shake** — with the import gone, the bundler drops the dashboard SPA,
+   the observatory endpoints and the `TraceStore` (megabytes) from the artifact.
+
+Two edges are deliberate: an aliased import (`import { debugbar as db }`) is
+treated conservatively and never eliminated, and a non-literal `enabled:`
+expression is kept rather than guessed. The debug primitives themselves are not
+part of the root barrel either (`@ignex/core/debug` only, D-015), so even
+before tree-shaking runs a production bundle has no path to the debug graph.
+
 **Token auth never rides in API query strings.** With `token` set, endpoints
 accept the `x-debugbar-token` header or the path-scoped HttpOnly
 `__debugbar_token` cookie. Visiting `/__debugbar/?token=…` once performs the
@@ -278,7 +299,7 @@ needed, JetStream-free by design. Publishing from your own code works through
 the same tracker so the Events panel sees it:
 
 ```ts
-import { NatsEventTracker } from "@ignex/core";
+import { NatsEventTracker } from "@ignex/core/debug";
 const tracker = new NatsEventTracker(); // reads $NATS_URL
 tracker.start();
 tracker.publish("orders.created", { orderId: "o-1" }); // recorded in the Events panel

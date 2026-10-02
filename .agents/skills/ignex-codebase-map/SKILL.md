@@ -50,6 +50,9 @@ route files (packages/app/src/routes/**) ── ignex build ──► @ignex/com
   path changes (`docs/release-process.md`).
 - Runtime never duplicates the compiler: `@ignex/core` is the single source of
   truth for runtime behavior; generated code imports it.
+- Dependencies point one way (`shared ← native ← core ← compiler ← cli`),
+  enforced by `bun run check:layers`; `--report` prints the layer table and
+  `--mermaid` the graph (see `docs/decisions/014-enforced-layers.md`).
 
 ## Doc authority map
 
@@ -69,7 +72,7 @@ route files (packages/app/src/routes/**) ── ignex build ──► @ignex/com
 ## Verification gates (run before pushing)
 
 `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict +
-check:debug-ui + check:maintainability + check:consistency); `bun run
+check:debug-ui + check:maintainability + check:consistency + check:layers); `bun run
 test:parallel` for cross-package tests; `bun run verify:native:route`
 / `verify:native:ffi` after native changes; `bun run smoke` + `smoke:fallback`
 after app/compiler changes.

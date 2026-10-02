@@ -269,12 +269,14 @@ guarded directly).
 | `bun run bench:compare:gate:self` | Deterministic self-test of the compare gate — injected p50 regression must fail, control must pass, stale/timestamp-less reports must be rejected (no benchmark run). |
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
+| `bun run check:layers` | Architecture fitness function: the one-way package dependency rule + no import cycles (D-014). `--report` / `--mermaid` print the graph. |
 | `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |
 | `bun run bench:compare:gate` | Elysia-relative perf gate: ignus-aot per-route median p50 ≤ elysia × tolerance (default 1.10; KNOWN_SLOWER scenarios looser) **and** every compared report newer than the producer reference (default = newest `bench/compare/**/*.ts` mtime; `--since` / `--allow-stale` override). Nightly job. |
 
 ### CI gate matrix (see `.github/workflows/ci.yml`)
 
-- **`quality`** (hard): typecheck ×2, lint, JSDoc, `test:coverage`, `bench:native`
+- **`quality`** (hard): typecheck ×2, lint, JSDoc, `check:maintainability`,
+  `check:consistency`, `check:layers`, `test:coverage`, `bench:native`
   sanity, build, smoke, smoke:fallback, `verify:aot:rbac`, `verify:cli:resource`,
   `check:cache-versions`. Coverage artifact uploaded.
 - **`native-parity`** (hard): builds castrum; `test:native:real` + `native-bench`,

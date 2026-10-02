@@ -8,6 +8,28 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The dev-only plugin elimination is documented.** `docs/debugbar.md` explains
+  how a production build actually removes `debugbar()` — analysis decides, the
+  compiler rewrites the app config to drop the import, and the bundler
+  tree-shakes the dashboard SPA / observatory / `TraceStore` out of the artifact
+  — and `docs/ai/maintaining.md` gains the matching symptom → origin →
+  pinning-test row (`packages/compiler/src/phases/analysis/dev-only-plugins.ts`).
+- **The fault pipeline is documented end to end.** `docs/errors.md` gains a
+  diagram of how a throw becomes a response (boundary → classification →
+  envelope / operator report), and `docs/ai/maintaining.md` gains a
+  module-by-module map with the owner of each stage — so "which file produced
+  this failure" has one answer. Every cited path is validated by
+  `check:maintainability`'s doc-ref guard, so the map cannot rot.
+- **The monorepo's one-way dependency rule is now enforced.** New
+  `scripts/check-layers.ts` (`bun run check:layers`, wired into `verify:quick`,
+  `verify`, the CI `quality` job and the pre-push hook) reads every import in
+  the package `src` trees and fails on an upward or same-tier edge that is not a
+  documented exception, and on any import cycle inside a package. Writing it
+  surfaced and fixed two real compiler cycles (`utils/ast/handler.ts` ↔
+  `utils/ast/constant.ts`, `phases/schema-loader.ts` ↔ `phases/schema-convert.ts`)
+  via move-only extractions. `--report` / `--mermaid` print the graph, and
+  `CONTRIBUTING.md` gains an orientation path for new contributors. See
+  `docs/decisions/014-enforced-layers.md`.
 - **A security policy that answers the questions a report needs.** `SECURITY.md`
   now names a channel reachable from the registry alone (email + private GitHub
   advisory), a stage table for what to expect (acknowledge in 3 business days,
@@ -66,6 +88,15 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **⚠️ The debug/observatory toolkit left the `@ignex/core` root surface.**
+  `export * from "./publ/debug"` is removed and `packages/core/src/publ/debug.ts`
+  is deleted; those primitives are served only from the `@ignex/core/debug`
+  subpath (a superset of what the root used to expose). The root entry drops 47
+  names (321 total) and no longer pulls the debug module graph into every
+  consumer. **Breaking** for anyone importing a debug primitive from the package
+  root — import from `@ignex/core/debug` instead. The `debugbar()` plugin itself
+  still ships from the root. See `docs/decisions/015-debug-subpath-only.md`;
+  pinned by `packages/core/test/public-surface.test.ts`.
 - **CI runs the dead-code scan and a real-driver resource check.** The quality
   job now runs `bun run check:dead` (Linux lane) and `bun run verify:drizzle` —
   the latter drives the generated Drizzle resource through

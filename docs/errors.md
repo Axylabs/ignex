@@ -110,6 +110,43 @@ try {
 }
 ```
 
+### How a throw becomes a response
+
+One function is the boundary: `errorToResponse` in
+`packages/core/src/platform/errors.ts`. Everything else hangs off it. A typed
+error states its own status and taxonomy; anything else is classified first, and
+the two consumers — the client envelope and the operator report — are fed from
+the same classification.
+
+```mermaid
+flowchart TD
+  thrown["thrown value (any type)"] --> boundary["errorToResponse()<br/>platform/errors.ts"]
+  boundary -->|"typed AppError / HTTPError"| typed["status + code + origin/kind<br/>platform/app-error.ts<br/>platform/http-errors.ts (4xx)<br/>platform/operational-errors.ts (5xx)"]
+  boundary -->|"anything else"| classify["toFault()<br/>platform/fault.ts"]
+  classify --> introspect["read the throw: cause chain,<br/>code/codeName, stack<br/>platform/fault-throw.ts"]
+  classify --> vocab["origin / kind / code vocabulary<br/>platform/fault-vocabulary.ts"]
+  classify --> hints["summary + what to fix<br/>platform/fault-hints.ts"]
+  typed --> envelope["client-visible headers + body<br/>platform/error-envelope.ts"]
+  classify --> envelope
+  classify --> report["operator report, printed once<br/>platform/fault-report.ts"]
+  report --> redact["mask credentials<br/>platform/redact.ts"]
+  boot["plugin boot failure<br/>platform/boot-failure.ts"] --> classify
+  boot --> report
+```
+
+Two rules keep this honest:
+
+- **Classification never changes a status.** Only a typed error declares its
+  own status; an arbitrary `Error` is still a 500 — masked, unless
+  `exposeErrors` is on.
+- **Exposure is fail-closed.** What may leave the process (security headers,
+  memoized bodies, canonical reason phrases) lives in
+  `error-envelope.ts`; a 5xx is operator-only unless the error opts in, and
+  `redact.ts` masks credentials in every report.
+
+The module-by-module map — which file owns what, and where to look when a
+failure appears — is in [ai/maintaining.md](ai/maintaining.md).
+
 ## What you see when something fails
 
 Every 5xx — from a handler, a hook or the boot of a plugin — prints exactly one

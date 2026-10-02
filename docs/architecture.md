@@ -35,6 +35,17 @@ shared  ←  native  ←  core  ←  compiler  ←  cli / app
 - `cli` imports compiler.
 - **Never** let `core` import from `compiler`, or `shared` from anything.
 
+The rule is **enforced, not aspirational**: `scripts/check-layers.ts`
+(`bun run check:layers`, part of `verify:quick` / `verify` / CI) fails on any
+upward edge that is not a documented exception and on any import cycle inside a
+package. To read the current shape of the monorepo, run
+`bun run check:layers --report` (tier table + who imports whom) or
+`bun run check:layers --mermaid` (a mermaid graph to paste into a diagram tool).
+The tier table and the two sanctioned peer edges (`cli → mcp` as a dynamic
+import; `mcp → cli` reusing the CLI's route parser) live in the script. If the
+gate rejects a dependency, either move the shared piece down a tier, invert the
+dependency, or add a deliberate exception there with a rationale.
+
 **External optional deps** follow the `castrum` pattern: `@ignex/native`
 depends on `castrum` optionally and loads it lazily; the only hand-maintained
 ambient declaration left is `vendor/castrum.d.ts` (the out-of-repo Rust
@@ -217,7 +228,9 @@ has an `index.ts` barrel (pure re-exports) and a `@fileoverview` header:
 surface is `src/index.ts` — a grouped barrel that re-exports from the domain
 folders, so the internal layout never leaks to consumers. Subpath exports:
 `@ignex/core/http` → `src/http/route.ts`, `@ignex/core/config` →
-`src/platform/config.ts`.
+`src/platform/config.ts`. The debug/observatory toolkit is the one deliberate
+exception: it is served only from `@ignex/core/debug` → `src/debug/index.ts`
+(D-015), never re-exported from the root barrel.
 
 ## Maintainability conventions
 

@@ -64,6 +64,10 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   go through `bun scripts/new-package.ts` and are **source-only**: ship
   `src/index.ts` as `main`/`module`/`types` (Bun runs TS natively) — no build
   step (only `packages/app` produces a `dist/`).
+- **Dependencies point one way** (`shared ← native ← core ← compiler ← cli`).
+  `bun run check:layers` (`scripts/check-layers.ts`) enforces it and fails on
+  import cycles too; a new package must be registered in its tier table. Run
+  `bun run check:layers --report` to see the current graph.
 - **Cache-version discipline**: any change to generated-code output bumps
   `COMPILER_CACHE_VERSION` (`packages/compiler/src/cache.ts`) and/or
   `MODULES_CACHE_VERSION` (`frontend/persist.ts`) — enforced by
@@ -77,7 +81,9 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   `@ignex/nova`) before adding ecosystem surface.
 - Public surfaces are barrels (`packages/*/src/index.ts`); the folder layout
   is an internal implementation detail — consumers import from the package
-  root (or documented subpaths like `@ignex/core/http`).
+  root (or documented subpaths like `@ignex/core/http`). The debug/observatory
+  toolkit is **subpath-only** (`@ignex/core/debug`, D-015) so the root barrel
+  stays lean.
 - **JSDoc on every public export** — `jsdoc:check:strict` is part of
   `verify:quick`; new exports ship with a doc block or the gate fails.
 

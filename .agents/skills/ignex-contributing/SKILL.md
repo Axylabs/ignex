@@ -37,9 +37,9 @@ is the human walkthrough; `docs/release-process.md` covers releases.
    tests; native gets parity tests; the app gets smoke coverage.
 3. **Verify** — `bun run verify:quick` (typecheck + typecheck:cli + lint +
    jsdoc:check:strict + check:debug-ui + check:maintainability +
-   check:consistency), then `bun run test:parallel`; native changes add
-   `verify:native:route` / `verify:native:ffi` / `test:native:real`; app/compiler
-   changes add `bun run smoke` + `smoke:fallback`.
+   check:consistency + check:layers), then `bun run test:parallel`; native
+   changes add `verify:native:route` / `verify:native:ffi` / `test:native:real`;
+   app/compiler changes add `bun run smoke` + `smoke:fallback`.
 4. **Bench** — hot paths: `bun run bench:*` before/after; never assume.
 5. **Docs** — update `docs/*.md` if behavior changed, keep
    `AGENTS.md`/`RULES.md`/relevant `SKILL.md` in sync. Keep `CHANGELOG.md`
@@ -49,6 +49,9 @@ is the human walkthrough; `docs/release-process.md` covers releases.
 ## Do NOT
 
 - Import castrum directly outside `packages/native`.
+- Point a dependency up a tier (`core` → `compiler`, `native` → `core`, …).
+  `bun run check:layers` fails on it; the fix is a lower-tier move, an
+  inverted dependency, or a documented exception in `scripts/check-layers.ts`.
 - Make native a hard dependency or break `IGNEX_NATIVE=off` parity.
 - Mutate the `SELECTION` table at runtime.
 - Hand-edit generated artifacts (compiler output, `packages/app/dist/**`, SDK).

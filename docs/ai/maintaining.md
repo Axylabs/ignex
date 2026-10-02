@@ -33,9 +33,35 @@ of truth.
 | 400 `framing-conflict` / 431 `header-too-large` | `packages/core/src/http/framing-guard.ts`, `packages/core/src/http/header-cap.ts` | `packages/core/test/framing-guard.test.ts`, `packages/core/test/header-cap.test.ts` |
 | One job claimed twice on a fresh-read store / a lost session write | `packages/core/src/platform/jobs-store.ts`, `packages/core/src/security/session.ts` | `packages/core/test/enterprise-scalability.test.ts`, `packages/core/test/enterprise-integrity.test.ts`, `packages/core/test/enterprise-hardening.test.ts` |
 | Partial `dist/` left behind after a failed build | `packages/compiler/src/phases/artifacts`, `packages/compiler/src/phases/linker.ts` | `packages/compiler/test/enterprise-isolation.test.ts` |
+| The debugbar dashboard / `TraceStore` still ships in a production artifact, or a prod build keeps its per-request hooks | `packages/compiler/src/phases/analysis/dev-only-plugins.ts` (`analyzeDevOnlyPlugins` decides, `debugbarStubRewrite` strips the import so the bundler tree-shakes the debug graph) | `packages/compiler/test/dev-only-plugins.test.ts` |
 | Plugin boot failure dumping a raw driver object (BSON getters, hundreds of lines) | `packages/core/src/platform/boot-failure.ts` → `fault.ts` / `fault-report.ts` (shared by the generated bootstrap `packages/compiler/src/phases/codegen/header.ts` and the interpreted `lifecycle/plugin/registry.ts`) | `packages/core/test/boot-failure.test.ts`, `packages/compiler/test/hardening.test.ts` |
 | A 500 whose origin/kind is unclear, or an unclassified driver error | `packages/core/src/platform/fault.ts` (classifier; `fault-throw.ts` reads the throw, `fault-hints.ts` words it) + `fault-vocabulary.ts` (origins/kinds/codes) | `packages/core/test/fault.test.ts` |
 
 When a bug report says "it returns a weird 429", start at the Origin column
 (`ingress/terminal.ts`), read D-005/D-008 for the why, and run the pinned
 tests before touching code.
+
+## Fault pipeline — tracing a failure
+
+The error system is deliberately split into small modules under
+`packages/core/src/platform/`. This is the map from "what is this file for" to
+its path; the flow itself is diagrammed in `docs/errors.md` ("How a throw
+becomes a response").
+
+| Stage | Module | Owns |
+| --- | --- | --- |
+| boundary | `packages/core/src/platform/errors.ts` | `errorToResponse` — the one place a throw becomes a response, and the one place a failure is reported |
+| envelope | `packages/core/src/platform/error-envelope.ts` | what may leave the process: security headers, memoized bodies, canonical reason phrases |
+| taxonomy root | `packages/core/src/platform/app-error.ts` | `AppError` — `origin` / `kind` / `code` on every typed error |
+| 4xx family | `packages/core/src/platform/http-errors.ts` | `HTTPError` + the `RequestError` subtree (status, `toResponse` / `toJSON`) |
+| 5xx family | `packages/core/src/platform/operational-errors.ts` | `DBError` / `UpstreamError` / `ConfigError` / `DependencyError` |
+| classifier | `packages/core/src/platform/fault.ts` | `toFault` — structure any throw into a `Fault` |
+| introspection | `packages/core/src/platform/fault-throw.ts` | reading `cause` chains, `code` / `codeName` and stack frames out of any throw |
+| vocabulary | `packages/core/src/platform/fault-vocabulary.ts` | `origin` / `kind` / `code` types + pure mapping helpers (the leaf) |
+| wording | `packages/core/src/platform/fault-hints.ts` | the one-line summary and the "what to fix" hints |
+| reporter | `packages/core/src/platform/fault-report.ts` | render one actionable block, print exactly once per failure |
+| redaction | `packages/core/src/platform/redact.ts` | credential masking + line clipping for every report and log line |
+| boot | `packages/core/src/platform/boot-failure.ts` | startup composition (`reportPluginBootFailure`), shared by the generated bootstrap and the interpreted registry |
+
+The pinning suite is `packages/core/test/fault.test.ts`; exposure defaults are
+covered by the fail-closed assertions there.

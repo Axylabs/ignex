@@ -36,12 +36,13 @@ the error taxonomy and self-contained data structures; see D-010). Tests use
 | Task | Command |
 |------|---------|
 | Typecheck (root + cli) | `bun run typecheck` / `bun run typecheck:cli` |
-| Quick verify gate | `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict + check:debug-ui + check:maintainability + check:consistency) |
+| Quick verify gate | `bun run verify:quick` (typecheck + typecheck:cli + lint + jsdoc:check:strict + check:debug-ui + check:maintainability + check:consistency + check:layers) |
 | Full verify | `bun run verify` (adds tests + check:dead); `bun run verify:full` (adds coverage, build, smoke, smoke:fallback, check:cache-versions) |
 | Tests (all packages, parallel) | `bun run test:parallel` (core/compiler/shared/cli/mcp) |
 | Single package tests | `bunx vitest run packages/<name>/test`; `bun run test:native` / `test:native:real` |
 | Lint / fix | `bun run lint` (oxlint + biome) / `bun run lint:fix` |
 | Dead-code scan | `bun run check:dead` (knip — unused files/deps + duplicate exports; config in `knip.json`; part of `verify` and CI) |
+| Layers gate | `bun run check:layers` (one-way package dependency rule + no import cycles; `--report` / `--mermaid` print the graph) |
 | Build + run app | `bun run build` → `bun run dev` / `bun run start` |
 | App dev server with debugbar | `bun run dev:debug` (debug-shaped build in `packages/app/dist-dev/`; production `dev`/`build` eliminate the debugbar) |
 | Smoke gates | `bun run smoke` (native) + `bun run smoke:fallback` (`IGNEX_NATIVE=off`) |
@@ -56,7 +57,7 @@ the error taxonomy and self-contained data structures; see D-010). Tests use
 
 ```sh
 bun install          # workspace deps (the castrum addon arrives via optionalDependencies)
-bun run verify:quick # typecheck + typecheck:cli + lint + jsdoc + check:debug-ui + maintainability + consistency
+bun run verify:quick # typecheck + typecheck:cli + lint + jsdoc + check:debug-ui + maintainability + consistency + layers
 bun run dev          # start the reference app in packages/app
 ```
 
@@ -74,7 +75,9 @@ the native smoke lanes and cache-version checks.
    drift guards those cannot see: cited `bun run` scripts and `docs/`/`scripts/`
    paths must exist, `SECURITY.md` must track the workspace version, `RULES.md`/
    `AGENTS.md` must not hard-code one, and the published `exports` surface is
-   frozen against `scripts/api-surface.json`.
+   frozen against `scripts/api-surface.json`. `scripts/check-layers.ts` guards
+   the structure those cannot see: the one-way package dependency rule
+   (`shared ← native ← core ← compiler ← cli`) and no import cycles (D-014).
 2. **Why** — `docs/decisions/` (D-001 …): each accepted design choice with a
    Verification clause.
 3. **Where from** — `docs/ai/maintaining.md`: symptom → origin module → pinning

@@ -6,7 +6,8 @@ your feature type, keep the one-way dependency rule, and always run the gates.
 ## Before you start
 
 1. Read [architecture.md](architecture.md) — especially the one-way dependency
-   rule and the `ContextUsage` AOT contract.
+   rule (`bun run check:layers` enforces it; `--report` prints the graph) and
+   the `ContextUsage` AOT contract.
 2. Find the smallest surface that can be tested: the compiler has AST unit
    tests, core has lifecycle/security/features tests, native has a parity
    suite. Add tests alongside your feature.
