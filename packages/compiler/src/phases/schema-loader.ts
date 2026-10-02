@@ -86,12 +86,7 @@ export const loadRouteModule = async (
   }
 };
 
-export const isStandardSchema = (value: unknown): boolean => {
-  return typeof value === "object" && value !== null && "~standard" in value;
-};
-
-/** A 3-digit HTTP status code — used to detect `{ "200": schema }` status maps. */
-export const STATUS_KEY = /^\d{3}$/;
+export { isStandardSchema, STATUS_KEY } from "./schema-marker";
 
 export const cloneSchema = (value: unknown): any => {
   try {

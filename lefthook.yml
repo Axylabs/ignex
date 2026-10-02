@@ -25,6 +25,10 @@ pre-push:
       run: bun run typecheck && bun run typecheck:cli
     jsdoc:
       run: bun run jsdoc:check:strict
+    layers:
+      # The one-way dependency rule + import cycles are cheap to check and
+      # expensive to discover later (see docs/decisions/014-enforced-layers.md).
+      run: bun run check:layers
     test:
       run: bun run test
     cache-versions:

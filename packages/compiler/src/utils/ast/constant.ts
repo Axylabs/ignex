@@ -20,7 +20,7 @@ import {
   type TemplateElement,
   type UnaryExpression,
 } from "./ast-types";
-import { extractHandlerNodeAST } from "./handler";
+import { extractHandlerNodeAST } from "./handler-node";
 
 export type ConstResult = { ok: true; value: unknown } | { ok: false };
 export const constFail: ConstResult = { ok: false };

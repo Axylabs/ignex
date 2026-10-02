@@ -67,8 +67,8 @@
       "rationale": "CLI event command — Tier E"
     },
     "packages/compiler/src/utils/ast/handler.ts": {
-      "lines": 480,
-      "rationale": "AST handler utils — Tier D"
+      "lines": 404,
+      "rationale": "AST handler utils — Tier D (handler-shape primitives split to handler-node.ts)"
     },
     "packages/compiler/src/phases/codegen/helpers.ts": {
       "lines": 476,

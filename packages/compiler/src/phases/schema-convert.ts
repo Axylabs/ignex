@@ -15,7 +15,7 @@
  * RUNTIME`). Conversion is best-effort: failures degrade safely.
  */
 
-import { isStandardSchema, STATUS_KEY } from "./schema-loader";
+import { isStandardSchema, STATUS_KEY } from "./schema-marker";
 
 type JsonSchema = Record<string, unknown>;
 

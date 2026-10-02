@@ -135,6 +135,13 @@ jobs:
       - name: Consistency gate (script/version/export drift)
         run: bun run check:consistency
 
+      # Architecture fitness function: the one-way dependency rule
+      # (`shared ← native ← core ← compiler ← cli`) used to live only in prose,
+      # so a lower tier could import a higher one unnoticed. This also fails on
+      # import cycles inside a package. See `docs/decisions/014-enforced-layers.md`.
+      - name: Layers gate (one-way deps + import cycles)
+        run: bun run check:layers
+
       # Dead-code scan (knip): unused files / deps + duplicate exports. It was
       # previously only reachable through the local `verify` chain, so dead
       # exports and duplicated command exports could accumulate unnoticed.

@@ -12,7 +12,7 @@
  */
 
 import type { CallExpression, FunctionNode, Node } from "./ast-types";
-import { extractHandlerNodeAST } from "./handler";
+import { extractHandlerNodeAST } from "./handler-node";
 import { flattenMember } from "./purity";
 import { walk } from "./walk";
 
