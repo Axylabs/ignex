@@ -18,10 +18,6 @@
       "lines": 687,
       "rationale": "SDK TS client generation — Tier D"
     },
-    "packages/cli/src/templates/ops.ts": {
-      "lines": 658,
-      "rationale": "CLI ops templates — Tier E"
-    },
     "packages/cli/src/commands/create.ts": {
       "lines": 645,
       "rationale": "CLI create command — Tier E"
