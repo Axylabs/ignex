@@ -35,6 +35,7 @@
     "verify:native:route": "bun scripts/verify-native-route.ts",
     "verify:native:ffi": "bun scripts/verify-native-ffi.ts",
     "verify:aot:rbac": "bun scripts/verify-aot-rbac.ts",
+    "verify:aot:abort": "bun scripts/verify-aot-abort.ts",
     "verify:aot:plugin-specialized": "bun scripts/verify-aot-plugin-specialized.ts",
     "verify:cli:resource": "bun scripts/verify-cli-resource.ts",
     "check:cache-versions": "bun scripts/check-cache-versions.ts",
@@ -125,6 +126,9 @@
   },
   "engines": {
     "bun": ">=1.4"
+  },
+  "overrides": {
+    "@parcel/watcher": "2.6.0"
   },
   "dependencies": {}
 }
