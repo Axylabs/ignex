@@ -23,9 +23,12 @@ ignex build --compile --binary-outfile ignex-server
 - **`ignex build` is production-shaped by default**: the debugbar, its
   observatory stack and the per-request tracing instrumentation are eliminated
   at build time, `__IGNEX_PROD_BUILD` is baked in (launching the artifact with
-  `NODE_ENV` unset stays locked), TLS never auto-generates dev certificates,
-  and `exposeErrorDetails` defaults to `false`. Pass `--dev` for a dev-shaped
-  artifact, or set `IGNEX_DEBUG=1` at build time to keep the toolbar in.
+  `NODE_ENV` unset stays locked), Bun's dev error page is pinned off
+  (`development: false` — an error that escapes the request wrapper can never
+  leak stack frames or source lines), TLS never auto-generates dev
+  certificates, and `exposeErrorDetails` defaults to `false`. Pass `--dev` for
+  a dev-shaped artifact, or set `IGNEX_DEBUG=1` at build time to keep the
+  toolbar in.
 - `--compile` builds additionally bake minify + bytecode. The debugbar
   self-disables, the dev error overlay never checks its marker, and
   per-request dev costs are zero.
@@ -56,7 +59,8 @@ Tuning notes:
 - `server.idleTimeout` defaults to 10s (Bun's documented HTTP default) unless
   you set it; keep-alive connections behind a proxy should stay under the
   proxy's idle timeout.
-- `server.maxRequestBodySize` defaults to 128 MiB.
+- `server.maxRequestBodySize` defaults to 64 MiB (`DEFAULT_MAX_REQUEST_BODY_SIZE`
+  — a deliberate ceiling, not Bun's larger implicit default).
 
 ## 3. Multi-instance scaling
 
@@ -269,11 +273,35 @@ otlp.start();            // push on an interval (stop() on shutdown)
 
 ## 7. Graceful shutdown & rolling deploys
 
-The generated server handles SIGTERM/SIGINT: stop accepting, drain active
-requests (`server.stop(true)`), close plugin resources (DB connections,
-stores, nova hub), then exit (10s hard deadline). Send SIGTERM and wait —
-containers / systemd / the LB drain naturally. `queue:work` / `schedule:run`
-drain the same way.
+The generated server handles SIGTERM/SIGINT with the same contract as
+`createApp().serve()` (both delegate to `installGracefulShutdown`):
+
+1. the first signal stops accepting new connections and **awaits the drain** —
+   `server.stop(false)` resolves once in-flight requests have finished (idle
+   keep-alive connections do not hold it open);
+2. plugin resources (DB connections, stores, nova hub) close **after** the
+   drain, so a handler still running never finds its dependency torn down;
+3. the process then exits `0`.
+
+Send SIGTERM and wait — containers / systemd / the LB drain naturally.
+`queue:work` / `schedule:run` drain the same way.
+
+The failure paths are explicit, so a wedged request can never hold a deploy
+hostage: a **second** signal, or the 10s deadline elapsing, forces `exit(1)`
+with a log line, and a drain that rejects also exits `1`. Only a *completed*
+drain exits `0` — so a supervisor (or Kubernetes) can tell a clean stop from a
+forced one.
+
+**WebSocket apps** are the exception: Bun cannot selectively drain sockets, so
+`stop(false)` would wait on connections that never close. A server with any
+`.ws.ts` route calls `stop(true)` instead — terminating sockets and in-flight
+requests immediately — and relies on the deadline. If you need lossless HTTP
+drains *and* realtime sockets, run them as separate deployments.
+
+Startup failures are reported the same way as request failures: a bind error
+(the usual `EADDRINUSE`) prints a classified block (`IGN_INTERNAL_PORT`, "the
+listen port is already in use", with what to fix) and exits `1`, rather than
+dying with a raw stack — see `docs/errors.md`.
 
 ## 8. Kubernetes
 

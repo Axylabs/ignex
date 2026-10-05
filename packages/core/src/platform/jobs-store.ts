@@ -182,13 +182,17 @@ const pruneFinished = (
       }
     }
   }
-  const finished = [...jobs.values()]
-    .filter((j) => j.status === "completed" || j.status === "failed")
-    .sort((a, b) => b.createdAt - a.createdAt);
   if (maxCompleted < 0) maxCompleted = 0;
-  for (const job of finished.slice(maxCompleted)) {
-    jobs.delete(job.id);
-    pruned += 1;
+  // Never more finished jobs than total jobs — skip the build + sort while the
+  // map is within the cap (prune runs on every mutation).
+  if (jobs.size > maxCompleted) {
+    const finished = [...jobs.values()]
+      .filter((j) => j.status === "completed" || j.status === "failed")
+      .sort((a, b) => b.createdAt - a.createdAt);
+    for (const job of finished.slice(maxCompleted)) {
+      jobs.delete(job.id);
+      pruned += 1;
+    }
   }
   return pruned;
 };

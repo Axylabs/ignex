@@ -9,13 +9,8 @@
  * automatically.
  */
 
+import { STOP_DEADLINE_MS } from "./jobs";
 import { type JobStore, newJobId, type StoredJob } from "./jobs-store";
-
-/**
- * Maximum time `stop()` waits for in-flight claims to settle before giving up
- * (a never-resolving task must not hang graceful shutdown forever).
- */
-const STOP_DEADLINE_MS = 5_000;
 
 /** A serializable job to enqueue. */
 export interface DurableJobSpec {
@@ -98,6 +93,8 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
   let pending = 0;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** Overlap guard: only one `tick()` may run at a time. */
+  let ticking = false;
 
   const runClaimed = async (job: StoredJob): Promise<void> => {
     // Ownership token minted by THIS worker's claim — threaded into every
@@ -150,7 +147,11 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
   };
 
   const tick = async (): Promise<void> => {
-    if (stopped) return;
+    // Overlap guard: a tick that outlives `pollIntervalMs` must not run
+    // concurrently with the next one — two ticks would both read `running`
+    // and could jointly claim beyond `concurrency` and double-heartbeat leases.
+    if (stopped || ticking) return;
+    ticking = true;
 
     try {
       const now = Date.now();
@@ -192,6 +193,8 @@ export const createDurableJobQueue = (options: DurableJobQueueOptions): DurableJ
       }
     } catch (error) {
       options.onError?.(error);
+    } finally {
+      ticking = false;
     }
   };
 

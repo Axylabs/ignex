@@ -7,6 +7,7 @@ import { isNativeAvailable } from "@ignex/native";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nativePreflight } from "../src/index.js";
 import { createAppLogger } from "../src/plugins/app-logger.js";
+import { authGuard, optionalAuthPlugin } from "../src/plugins/auth.js";
 import { compression } from "../src/plugins/compression.js";
 import { cors } from "../src/plugins/cors.js";
 import { createLogger, logger } from "../src/plugins/logger.js";
@@ -17,6 +18,34 @@ import { createMemorySessionStore } from "../src/security/session.js";
 
 const req = (path = "/", init: RequestInit = {}) =>
   new Request(`http://localhost:3000${path}`, init);
+
+describe("auth plugin wrappers", () => {
+  it("authGuard rejects unauthenticated requests and admits extracted users", async () => {
+    const denied = createApp({
+      plugins: [authGuard(() => null)],
+      handler: () => new Response("secret"),
+    });
+    expect((await denied.handler(req("/"))).status).toBe(401);
+
+    const admitted = createApp({
+      plugins: [authGuard(() => ({ id: "u1" }))],
+      handler: () => new Response("secret"),
+    });
+    const res = await admitted.handler(req("/"));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("secret");
+  });
+
+  it("optionalAuthPlugin never rejects, even without a user", async () => {
+    const app = createApp({
+      plugins: [optionalAuthPlugin(() => null)],
+      handler: () => new Response("guest-ok"),
+    });
+    const res = await app.handler(req("/"));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("guest-ok");
+  });
+});
 
 describe("cors", () => {
   it("answers preflight OPTIONS with 204 and echo headers", async () => {

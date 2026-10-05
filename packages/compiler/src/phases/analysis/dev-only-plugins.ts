@@ -32,6 +32,7 @@ import type {
 } from "../../utils/ast/ast-types";
 import { propertyName } from "../../utils/ast/ast-types";
 import { parseToAst } from "../../utils/ast/parse/bridge";
+import { unwrapExpression as unwrap } from "../../utils/ast/unwrap";
 import { walk } from "../../utils/ast/walk";
 
 /** Result of scanning the app config's `plugins` export. */
@@ -46,21 +47,6 @@ export interface DevOnlyPluginAnalysis {
 
 /** Sources the `debugbar` plugin may be imported from. */
 const DEBUGBAR_IMPORT_SOURCES = new Set(["@ignex/core", "@ignex/core/index"]);
-
-/** Unwrap TS expression wrappers (`as`, `!`, `<T>`, parens). */
-const unwrap = (e: Expression | undefined): Expression | undefined => {
-  let node = e;
-  while (
-    node &&
-    (node.type === "TSAsExpression" ||
-      node.type === "TSTypeAssertion" ||
-      node.type === "TSNonNullExpression" ||
-      node.type === "ParenthesizedExpression")
-  ) {
-    node = node.expression;
-  }
-  return node;
-};
 
 /**
  * True when this `debugbar(...)` call is provably disabled for the build.

@@ -92,16 +92,16 @@
       "rationale": "native route codegen — Tier D"
     },
     "packages/core/src/platform/jobs-store.ts": {
-      "lines": 413,
-      "rationale": "durable jobs store — per-instance mutation serialization (wave-2 split candidate) — Tier B"
+      "lines": 417,
+      "rationale": "durable jobs store — per-instance mutation serialization (wave-2 split candidate); +4 for the prune cap guard that skips the per-mutation sort — Tier B"
     },
     "packages/compiler/src/phases/codegen/routes/context.ts": {
       "lines": 412,
       "rationale": "context route codegen — Tier D"
     },
     "packages/core/src/http/ws.ts": {
-      "lines": 401,
-      "rationale": "http websocket handler — wc-400 edge (401 by gate count) — Tier B"
+      "lines": 423,
+      "rationale": "http websocket handler — Tier B; +22 for per-socket in-flight release on close so a wedged handler cannot pin the route cap (audit H1)"
     }
   },
   "ignoreGlobs": [

@@ -148,9 +148,8 @@ const __withBody = (payload, type, init) => {
   new ValidationError("Validation failed", errors, on);`,
   __applySet: `const __applySet = (response, set, requestId) => applySet(response, set, requestId, __TRACE);`,
   __finalize: `const __finalize = (result, ctx, serializers, reply) => {
-  // NOTE: set is NOT applied here — the single outer __applySet applies
-  // headers/status/cookies exactly once. Applying set inside __finalize AND
-  // again in the route core fn caused duplicated set-cookie headers.
+  // NOTE: set is NOT applied here — the outer __applySet applies
+  // headers/status/cookies once; doing it in both places duplicated set-cookie.
   const set = ctx?.set;
   // A raw handler Response passthrough (e.g. ctx.sendFile, a direct
   // Response.json, a stream) never went through __withBody, so apply the
@@ -183,8 +182,9 @@ const __withBody = (payload, type, init) => {
       const __hooked = __applySet(r.response, r.ctx?.set ?? ctx?.set);
       return __DEFAULT_HEADERS ? __decorateWithDefaults(__hooked) : __hooked;
     }
-  } catch {
-    // An error-stage hook that throws must not mask the original error.
+  } catch (__hookErr) {
+    // Must not mask the original error — and must not be swallowed either.
+    console.error("[ignex] error-stage hook threw:", __hookErr);
   }
   const __errorResponse = errorToResponse(err, EXPOSE_ERRORS, ctx);
   return __DEFAULT_HEADERS ? __decorateWithDefaults(__errorResponse) : __errorResponse;
@@ -220,8 +220,7 @@ const __withBody = (payload, type, init) => {
       let capture = params && params["*"];
 
       // Bun does not expose wildcard captures in req.params on some versions
-      // (verified on Bun 1.4); derive the captured suffix from the URL by
-      // stripping the route's static prefix when it is known.
+      // (verified on Bun 1.4); derive the suffix from the URL when it is known.
       if (capture == null && prefix) {
         try {
           const pathname = new URL(req.url).pathname;

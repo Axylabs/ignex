@@ -11,6 +11,7 @@ import {
   createDurableJobQueue,
   createFileJobStore,
   createSqliteJobStore,
+  type JobStore,
   type StoredJob,
 } from "../src/platform";
 
@@ -113,6 +114,43 @@ describe("createSqliteJobStore", () => {
 });
 
 describe("createDurableJobQueue", () => {
+  it("never overlaps ticks when the store is slower than the poll interval", async () => {
+    const base = createFileJobStore(tmp());
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    let releaseCalls = 0;
+
+    // Delegating store whose `releaseExpired` is slower than `pollIntervalMs`:
+    // without the overlap guard a second tick enters while the first is still
+    // awaiting the store, so two ticks can jointly claim beyond `concurrency`.
+    const slowStore: JobStore = {
+      enqueue: (job) => base.enqueue(job),
+      claim: (limit, leaseMs, now) => base.claim(limit, leaseMs, now),
+      complete: (id, options) => base.complete(id, options),
+      fail: (id, error, retryAt, options) => base.fail(id, error, retryAt, options),
+      heartbeat: (id, until, options) => base.heartbeat(id, until, options),
+      async releaseExpired(now) {
+        concurrent++;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        releaseCalls++;
+        try {
+          await new Promise((r) => setTimeout(r, 40));
+          return await base.releaseExpired(now);
+        } finally {
+          concurrent--;
+        }
+      },
+      list: () => base.list(),
+    };
+
+    const queue = createDurableJobQueue({ store: slowStore, handlers: {}, pollIntervalMs: 5 });
+    queue.start();
+    await waitFor(() => releaseCalls >= 4, 3000);
+    await queue.stop();
+
+    expect(maxConcurrent).toBe(1);
+  });
+
   it("processes enqueued jobs through the handler registry", async () => {
     const dir = tmp();
     const store = createFileJobStore(dir);

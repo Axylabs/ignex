@@ -326,6 +326,7 @@ export class NatsConnection {
       // PING → PONG keeps the connection alive through proxies/idle timeouts.
       if (this.isConnected) this.socket?.write("PING\r\n");
     }, KEEPALIVE_MS);
+    this.keepalive.unref?.();
   }
 
   private stopKeepalive(): void {
@@ -346,38 +347,22 @@ export class NatsConnection {
       this.status = "reconnecting";
       void this.connect();
     }, RECONNECT_MS * this.reconnectAttempts);
+    this.reconnectTimer.unref?.();
   }
 
   /** Incrementally parse the NATS protocol stream. */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: a linear protocol parser — one branch per control line
   private consume(socket: import("bun").Socket<unknown>): void {
     // NATS protocol lines end with \r\n; MSG/PUB payloads are length-prefixed.
+    // Read with an offset and slice the buffer ONCE at the end — re-slicing per
+    // line made a chunk of k lines O(k · chunk) in buffer copies.
+    let offset = 0;
     for (;;) {
-      const lineEnd = this.buffer.indexOf("\r\n");
-      if (lineEnd === -1) return;
-      const line = this.buffer.slice(0, lineEnd);
-      this.buffer = this.buffer.slice(lineEnd + 2);
-      if (line === "") continue;
+      const lineEnd = this.buffer.indexOf("\r\n", offset);
+      if (lineEnd === -1) break;
+      const line = this.buffer.slice(offset, lineEnd);
+      const next = lineEnd + 2;
 
-      if (line.startsWith("INFO ")) {
-        try {
-          const info = JSON.parse(line.slice(5)) as { version?: string; server_name?: string };
-          this.serverVersion = info.version ?? null;
-        } catch {
-          // ignore malformed INFO
-        }
-        continue;
-      }
-      if (line === "PING") {
-        socket.write("PONG\r\n");
-        continue;
-      }
-      if (line === "PONG") continue;
-      if (line === "+OK") continue;
-      if (line.startsWith("-ERR")) {
-        this.lastError = line.slice(4).trim();
-        continue;
-      }
       if (line.startsWith("MSG ")) {
         const parts = line.split(" ");
         // MSG <subject> <sid> [reply-to] <#bytes> — the size is ALWAYS the
@@ -386,20 +371,31 @@ export class NatsConnection {
         const size = sizeRaw !== undefined ? Number(sizeRaw) : 0;
         if (Number.isNaN(size) || size < 0) {
           this.lastError = "malformed MSG size";
+          offset = next;
           continue;
         }
-        if (this.buffer.length < size + 2) {
-          // Wait for the full payload — restore the line to the buffer.
-          this.buffer = `${line}\r\n${this.buffer}`;
-          return;
-        }
-        const payload = this.buffer.slice(0, size);
-        this.buffer = this.buffer.slice(size + 2);
-        const subject = parts[1] ?? "";
-        this.onMessage(subject, Buffer.from(payload, "utf8"));
+        // Wait for the full payload — leave the MSG line unconsumed at `offset`.
+        if (this.buffer.length - next < size + 2) break;
+        this.onMessage(parts[1] ?? "", Buffer.from(this.buffer.slice(next, next + size), "utf8"));
+        offset = next + size + 2;
+        continue;
       }
-      // Unknown control line — ignore.
+
+      if (line === "PING") socket.write("PONG\r\n");
+      else if (line.startsWith("INFO ")) {
+        try {
+          const info = JSON.parse(line.slice(5)) as { version?: string; server_name?: string };
+          this.serverVersion = info.version ?? null;
+        } catch {
+          // ignore malformed INFO
+        }
+      } else if (line.startsWith("-ERR")) {
+        this.lastError = line.slice(4).trim();
+      }
+      // Blank lines, PONG, +OK and unknown control lines are ignored.
+      offset = next;
     }
+    if (offset > 0) this.buffer = this.buffer.slice(offset);
   }
 }
 

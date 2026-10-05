@@ -35,6 +35,14 @@ const wsClose = (ws: WebSocket, timeoutMs = 2000): Promise<void> =>
     setTimeout(done, timeoutMs).unref?.();
   });
 
+/** Close and resolve with the close code the client observed (-1 on timeout). */
+const wsCloseCode = (ws: WebSocket, timeoutMs = 2000): Promise<number> =>
+  new Promise((resolve) => {
+    if (ws.readyState === WebSocket.CLOSED) return resolve(1005);
+    ws.onclose = (event) => resolve(event.code);
+    setTimeout(() => resolve(-1), timeoutMs).unref?.();
+  });
+
 /** Buffered, FIFO message reader per socket — shared across calls. */
 const readers = new WeakMap<WebSocket, { inbox: string[]; waiters: Array<(v: string) => void> }>();
 
@@ -131,5 +139,36 @@ describe("WebSocket (compiled server)", () => {
     const res = await fetch(`${srv.base}/chat`);
     // A plain GET to a WS-only route must not crash the server; it may 404/426.
     expect([404, 405, 426, 400]).toContain(res.status);
+  });
+
+  it("completes a full lifecycle: open → ordered echo → clean close → reconnect", async () => {
+    const first = newWebsocket();
+    await wsOpen(first);
+    const opened = JSON.parse(await wsMessage(first)) as { connections: number };
+    expect(opened.connections).toBeGreaterThanOrEqual(1);
+
+    // An in-order conversation on one socket.
+    first.send("one");
+    first.send("two");
+    await expect(wsMessage(first)).resolves.toBe("echo:one");
+    await expect(wsMessage(first)).resolves.toBe("echo:two");
+
+    // A normal close is acknowledged with the application's own code.
+    const closing = wsCloseCode(first);
+    first.close(1000, "bye");
+    expect(await closing).toBe(1000);
+
+    // The server's close handler released the connection slot: a reconnect
+    // lands on the SAME count the first socket opened at. (A leaked slot —
+    // the counter never decremented — is what makes a long-lived realtime app
+    // drift upward forever.)
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const second = newWebsocket();
+    await wsOpen(second);
+    const reopened = JSON.parse(await wsMessage(second)) as { connections: number };
+    expect(reopened.connections).toBe(opened.connections);
+
+    second.close(1000, "done");
+    await wsClose(second);
   });
 });

@@ -95,7 +95,7 @@ interface CompileResult {
 | `strictRouteConflicts` | `false` | Throw on duplicate routes. |
 | `maxJsonBytes` / `maxTextBytes` / `maxFormBytes` / `maxFileBytes` | — | Body size limits. |
 | `target` | `bun` | Runtime target for generated output. |
-| `maxRequestBodySize` | `128 MB` | `Bun.serve` max request body size. |
+| `maxRequestBodySize` | `64 MB` | `Bun.serve` max request body size (`DEFAULT_MAX_REQUEST_BODY_SIZE`). |
 | `validateCookies` | `true` | Validate cookies at runtime. |
 | `enableAccessLog` / `enableTraceHeaders` | `false` | Observability: structured access log / trace headers. |
 | `verbose` | `false` | Verbose compiler logging. |

@@ -13,6 +13,7 @@
  *   (and therefore Grafana) can pull live ignex metrics with zero agents.
  */
 
+import { escapeLabel } from "../platform/metrics";
 import type {
   HistogramSnapshot,
   MetricsSnapshot,
@@ -125,10 +126,6 @@ interface RouteStats {
   lastStatus: number;
   lastTs: number;
 }
-
-/** Escape a Prometheus label value (`\`, `"`, newline). */
-const escapeLabel = (value: string): string =>
-  value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 
 /**
  * Aggregate HTTP + system metrics for the observatory. Cheap to feed (one
@@ -295,18 +292,13 @@ export class MetricsRegistry {
   prometheus(): string {
     const lines: string[] = [];
     const keys = [...this.routes.keys()].sort();
-    const route = (key: string): RouteStats =>
-      this.routes.get(key) ?? {
-        key,
-        requests: 0,
-        errors: 0,
-        statuses: { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 },
-        duration: new Histogram(this.durationBucketsMs),
-        dbQueries: 0,
-        dbMs: 0,
-        lastStatus: 0,
-        lastTs: 0,
-      };
+    // `keys` is derived from this map, so every lookup below is guaranteed to
+    // exist — no fallback series is needed.
+    const route = (key: string): RouteStats => {
+      const stats = this.routes.get(key);
+      if (stats === undefined) throw new Error(`[ignex] unknown route series: ${key}`);
+      return stats;
+    };
 
     lines.push("# TYPE ignex_http_requests_total counter");
     for (const key of keys) {

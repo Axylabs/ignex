@@ -13,8 +13,10 @@ import {
   createTemplateRegistry,
   defineConfig,
   envBool,
+  envFloat,
   envInt,
   envJson,
+  envSecret,
   loadEnv,
   negotiateLocale,
   renderTemplate,
@@ -73,14 +75,21 @@ describe("env & config", () => {
     const oldN = process.env.T_N;
     const oldB = process.env.T_B;
     const oldJ = process.env.T_J;
+    const oldF = process.env.T_F;
+    const oldS = process.env.T_S;
     process.env.T_A = "x";
     process.env.T_N = "7";
     process.env.T_B = "true";
     process.env.T_J = '["a"]';
+    process.env.T_F = "1.5";
+    process.env.T_S = "sekret";
     expect(envInt("T_N")).toBe(7);
     expect(envBool("T_B")).toBe(true);
     expect(envJson<string[]>("T_J")).toEqual(["a"]);
+    expect(envFloat("T_F")).toBe(1.5);
+    expect(envSecret("T_S")).toBe("sekret");
     expect(envInt("MISSING_N", 5)).toBe(5);
+    expect(envFloat("MISSING_F", 2.5)).toBe(2.5);
     if (oldA === undefined) delete process.env.T_A;
     else process.env.T_A = oldA;
     if (oldN === undefined) delete process.env.T_N;
@@ -89,6 +98,10 @@ describe("env & config", () => {
     else process.env.T_B = oldB;
     if (oldJ === undefined) delete process.env.T_J;
     else process.env.T_J = oldJ;
+    if (oldF === undefined) delete process.env.T_F;
+    else process.env.T_F = oldF;
+    if (oldS === undefined) delete process.env.T_S;
+    else process.env.T_S = oldS;
   });
 
   it("defineConfig resolves overrides → env → defaults", () => {

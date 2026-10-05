@@ -33,6 +33,24 @@ export interface StreamDownloadOptions {
   size?: number;
 }
 
+/** Real-path cache for `safeJoin` roots — a root resolves once per process. */
+const realRootCache = new Map<string, string>();
+
+const realRootOf = (root: string): string => {
+  const cached = realRootCache.get(root);
+  if (cached !== undefined) return cached;
+  let resolved = resolve(root);
+  try {
+    resolved = realpathSync(resolved);
+  } catch {
+    // Missing root — the lexical path stands; the caller's stat() reports
+    // ENOENT. Not cached, so a root created later still resolves.
+    return resolved;
+  }
+  realRootCache.set(root, resolved);
+  return resolved;
+};
+
 /**
  * Prevent path traversal.
  *
@@ -46,12 +64,7 @@ export interface StreamDownloadOptions {
  * handles them).
  */
 export function safeJoin(root: string, target: string): string {
-  let resolvedRoot = resolve(root);
-  try {
-    resolvedRoot = realpathSync(resolvedRoot);
-  } catch {
-    /* missing root — lexical path stands; the caller's stat() reports ENOENT */
-  }
+  const resolvedRoot = realRootOf(root);
 
   const lexical = resolve(resolvedRoot, normalize(target));
 

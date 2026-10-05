@@ -307,12 +307,18 @@ export const openStream = (handlers: StreamHandlers): (() => void) => {
   let closed = false;
   let attempt = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let resolveRetry: (() => void) | null = null;
 
   const close = (): void => {
     closed = true;
     source?.close();
     source = null;
     if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    // Release a pending backoff wait so `connect()` can observe `closed` and
+    // exit instead of staying suspended forever.
+    resolveRetry?.();
+    resolveRetry = null;
   };
 
   const connect = async (): Promise<void> => {
@@ -348,7 +354,12 @@ export const openStream = (handlers: StreamHandlers): (() => void) => {
       const wait = STREAM_RETRY_MS[attempt] ?? 5000;
       attempt++;
       await new Promise<void>((resolve) => {
-        retryTimer = setTimeout(resolve, wait);
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          resolveRetry = null;
+          resolve();
+        }, wait);
+        resolveRetry = resolve;
       });
     }
   };

@@ -4,7 +4,7 @@
  * table's dispatch/auth contract.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAssetServer } from "../src/debug/server/assets";
 import { createTokenGate } from "../src/debug/server/auth";
 import { createRevisionCounters } from "../src/debug/server/revisions";
@@ -90,6 +90,31 @@ describe("stream hub tickets", () => {
     expect(text).toContain('"epoch"');
     void reader?.cancel().catch(() => {});
     hub.stop();
+  });
+
+  it("clears the poll/beat timers when the stream is cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = createStreamHub(createRevisionCounters());
+      const ticket = hub.mintTicket();
+      // @ts-expect-error minimal ctx stub
+      const res = hub.handle(fakeCtx(), ticket);
+      const reader = res.body?.getReader();
+      expect(reader).toBeDefined();
+      await reader?.read(); // retry hint
+      await reader?.read(); // hello frame
+      expect(vi.getTimerCount()).toBeGreaterThanOrEqual(2); // poll + beat (+ sweeper)
+
+      await reader?.cancel();
+
+      // Advance past the heartbeat and the lazy ticket sweeper: the poll/beat
+      // intervals must be gone (before the fix they ticked forever after a
+      // runtime cancel(), which never fires the request abort signal).
+      await vi.advanceTimersByTimeAsync(16_000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -23,6 +23,7 @@
  * via `__offset`/`__string`).
  */
 
+import { sdkInstallSnippet, sdkPackageJson } from "./package-json";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRouteInfo } from "./types";
 import { emitRoutesDts, emitTypesDts, hasParams } from "./typescript";
 
@@ -524,21 +525,10 @@ export {
 
 /** Emit the package `package.json` (marked kind:client for the debugbar). */
 const emitPackageJson = (ctx: SdkGenerateContext): string => {
-  const { options } = ctx;
-  const name = options.name ?? defaultClientName(ctx);
-  const version = options.version ?? "0.0.0";
-  const description =
-    options.description ??
-    `Generated FlatBuffers frontend client for the \`${ctx.serviceName}\` API (binary envelope transport on the official flatbuffers runtime + .fbs schema).`;
-  const pkg = {
+  const name = ctx.options.name ?? defaultClientName(ctx);
+  const pkg = sdkPackageJson(ctx, {
     name,
-    version,
-    description,
-    type: "module",
-    sideEffects: false,
-    main: "./dist/index.js",
-    module: "./dist/index.js",
-    types: "./dist/index.d.ts",
+    description: `Generated FlatBuffers frontend client for the \`${ctx.serviceName}\` API (binary envelope transport on the official flatbuffers runtime + .fbs schema).`,
     exports: {
       ".": {
         types: "./dist/index.d.ts",
@@ -547,19 +537,16 @@ const emitPackageJson = (ctx: SdkGenerateContext): string => {
       "./schema.fbs": "./schema.fbs",
     },
     files: ["dist", "schema.fbs", "README.md"],
-    dependencies: {
+    extra: {
       // The official FlatBuffers runtime — the same dependency the
       // @ignex/nova realtime transport uses (tiny, dependency-free).
-      flatbuffers: "^25.9.23",
+      dependencies: { flatbuffers: "^25.9.23" },
+      // Debugbar discovery metadata: the Clients panel picks up packages whose
+      // package.json carries these fields (see debugbar's ClientRegistry).
+      kind: "client",
+      platform: "flatbuffers",
     },
-    license: options.license ?? "MIT",
-    engines: { node: ">=18" },
-    // Debugbar discovery metadata: the Clients panel picks up packages whose
-    // package.json carries these fields (see debugbar's ClientRegistry).
-    kind: "client",
-    platform: "flatbuffers",
-    ...(options.repoUrl !== undefined ? { repository: { type: "git", url: options.repoUrl } } : {}),
-  };
+  });
   return `${JSON.stringify(pkg, null, 2)}\n`;
 };
 
@@ -574,12 +561,7 @@ const emitReadme = (ctx: SdkGenerateContext): string => {
   const { options, serviceName } = ctx;
   const name = options.name ?? defaultClientName(ctx);
   const version = options.version ?? "0.0.0";
-  const install =
-    options.repoUrl !== undefined
-      ? `npm install ${name}
-# or install directly from the GitHub release tarball:
-npm install ${options.repoUrl}/releases/download/sdk-v${version}/${name.replace("@", "").replace("/", "-")}-${version}.tgz`
-      : `npm install ${name}`;
+  const install = sdkInstallSnippet(options.repoUrl, name, version);
 
   const local =
     options.localInstallPath !== undefined

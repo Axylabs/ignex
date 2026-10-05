@@ -57,6 +57,18 @@ export interface ServeStaticAppOptions {
 /** Default asset detection: build-hash folders + common static extensions. */
 const DEFAULT_ASSET_PATTERN = `${/^_astro\//.source}|\\.(js|css|svg|png|ico|woff2?)$`;
 
+/** Compiled asset patterns by source — avoids a `new RegExp` per request. */
+const assetPatternCache = new Map<string, RegExp>();
+
+const assetPatternFor = (source: string): RegExp => {
+  let pattern = assetPatternCache.get(source);
+  if (pattern === undefined) {
+    pattern = new RegExp(source);
+    assetPatternCache.set(source, pattern);
+  }
+  return pattern;
+};
+
 /**
  * Serve a request from a built static-frontend directory (see module docs).
  * Returns the file Response, the SPA shell for unknown paths, or a plain
@@ -68,9 +80,7 @@ export const serveStaticApp = async (
 ): Promise<Response> => {
   const index = options.index ?? "index.html";
   const shellName = options.shell ?? "404.html";
-  const assetPattern = new RegExp(
-    options.assetPattern !== undefined ? options.assetPattern.source : DEFAULT_ASSET_PATTERN,
-  );
+  const assetPattern = assetPatternFor(options.assetPattern?.source ?? DEFAULT_ASSET_PATTERN);
   const maxAgeAsset = options.maxAgeAsset ?? 315_36000;
 
   const raw = ctx.params.path;

@@ -338,6 +338,20 @@ export const createWSHandler = <Context, Body, Response>(
 
   const cap = options?.maxInflightMessages ?? DEFAULT_MAX_INFLIGHT_MESSAGES;
   let inFlight = 0;
+  // Outstanding in-flight handlers per socket. The route-wide `inFlight` cap
+  // is only meaningful for LIVE sockets: when a socket closes we release its
+  // slots, so a wedged handler (a promise that never settles) cannot pin the
+  // cap for the whole route and 1013-close every later connection.
+  const inFlightBySocket = new WeakMap<ServerWebSocket<Context>, number>();
+
+  /** Release one in-flight slot for `socket` (idempotent once it has closed). */
+  const releaseSlot = (socket: ServerWebSocket<Context>): void => {
+    const outstanding = inFlightBySocket.get(socket);
+    if (outstanding === undefined) return; // already released by `close`
+    if (outstanding <= 1) inFlightBySocket.delete(socket);
+    else inFlightBySocket.set(socket, outstanding - 1);
+    if (inFlight > 0) inFlight--;
+  };
 
   // Transport limits reach Bun's single websocket handler only when spread
   // here (a plain handler object has no other path to `Bun.serve`).
@@ -377,13 +391,14 @@ export const createWSHandler = <Context, Body, Response>(
         return;
       }
       inFlight++;
+      inFlightBySocket.set(ws, (inFlightBySocket.get(ws) ?? 0) + 1);
       const pending = invoke(() => hook.message?.(wrap(ws), parsed as Body));
       if (pending) {
         void pending.finally(() => {
-          inFlight--;
+          releaseSlot(ws);
         });
       } else {
-        inFlight--;
+        releaseSlot(ws);
       }
     },
 
@@ -393,6 +408,13 @@ export const createWSHandler = <Context, Body, Response>(
 
     close(ws, code, reason) {
       const wrapped = wrap(ws);
+      // Release every in-flight slot this socket still holds so a handler that
+      // never settles cannot pin the route-wide cap after the socket is gone.
+      const outstanding = inFlightBySocket.get(ws);
+      if (outstanding !== undefined) {
+        inFlight = Math.max(0, inFlight - outstanding);
+        inFlightBySocket.delete(ws);
+      }
       invoke(() => hook.close?.(wrapped, code, reason));
       connections?.delete(wrapped);
     },

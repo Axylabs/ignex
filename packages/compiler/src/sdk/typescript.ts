@@ -18,6 +18,7 @@
 
 import { isRecord } from "@ignex/shared";
 import { jsonSchemaToTs } from "./json-schema-to-ts";
+import { sdkInstallSnippet, sdkPackageJson } from "./package-json";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRouteInfo } from "./types";
 
 /** Path/name sanitizer: `/api/orders-ack` → `ApiOrdersAck`. */
@@ -494,21 +495,10 @@ export { createApiClient, ApiClientError } from "./client.js";
 
 /** Emit the SDK `package.json`. */
 const emitPackageJson = (ctx: SdkGenerateContext): string => {
-  const { options } = ctx;
-  const name = options.name ?? defaultPackageName(ctx);
-  const version = options.version ?? "0.0.0";
-  const description =
-    options.description ??
-    `Generated TypeScript SDK for the \`${ctx.serviceName}\` API (self-contained, zero-dependency typed client).`;
-  const pkg = {
+  const name = ctx.options.name ?? defaultPackageName(ctx);
+  const pkg = sdkPackageJson(ctx, {
     name,
-    version,
-    description,
-    type: "module",
-    sideEffects: false,
-    main: "./dist/index.js",
-    module: "./dist/index.js",
-    types: "./dist/index.d.ts",
+    description: `Generated TypeScript SDK for the \`${ctx.serviceName}\` API (self-contained, zero-dependency typed client).`,
     exports: {
       ".": {
         types: "./dist/index.d.ts",
@@ -517,10 +507,7 @@ const emitPackageJson = (ctx: SdkGenerateContext): string => {
       "./openapi.json": "./openapi.json",
     },
     files: ["dist", "openapi.json", "README.md"],
-    license: options.license ?? "MIT",
-    engines: { node: ">=18" },
-    ...(options.repoUrl !== undefined ? { repository: { type: "git", url: options.repoUrl } } : {}),
-  };
+  });
   return `${JSON.stringify(pkg, null, 2)}\n`;
 };
 
@@ -535,12 +522,7 @@ const emitReadme = (ctx: SdkGenerateContext): string => {
   const { options, serviceName } = ctx;
   const name = options.name ?? defaultPackageName(ctx);
   const version = options.version ?? "0.0.0";
-  const install =
-    options.repoUrl !== undefined
-      ? `npm install ${name}
-# or install directly from the GitHub release tarball:
-npm install ${options.repoUrl}/releases/download/sdk-v${version}/${name.replace("@", "").replace("/", "-")}-${version}.tgz`
-      : `npm install ${name}`;
+  const install = sdkInstallSnippet(options.repoUrl, name, version);
 
   const local =
     options.localInstallPath !== undefined

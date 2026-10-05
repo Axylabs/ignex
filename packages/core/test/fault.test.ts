@@ -33,7 +33,7 @@ import {
   UpstreamError,
   ValidationError,
 } from "../src/platform/errors.js";
-import { readMappedError, toFault } from "../src/platform/fault.js";
+import { readMappedError, statusForOrigin, toFault } from "../src/platform/fault.js";
 import {
   faultOf,
   faultRequestInfo,
@@ -43,12 +43,30 @@ import {
   resetFaultDedupe,
   setRequestFrameResolver,
 } from "../src/platform/fault-report.js";
+import { FAULT_KINDS, FAULT_ORIGINS, FAULT_STATUS } from "../src/platform/fault-vocabulary.js";
 import { redactLogText } from "../src/platform/redact.js";
 
 // A failing assertion must never leave a console spy installed for the next
 // test (a leaked spy made an unrelated test fail).
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("fault vocabulary", () => {
+  it("FAULT_ORIGINS enumerates every origin in FAULT_STATUS", () => {
+    expect([...FAULT_ORIGINS].sort()).toEqual(Object.keys(FAULT_STATUS).sort());
+  });
+
+  it("statusForOrigin returns the canonical status for each origin", () => {
+    for (const origin of FAULT_ORIGINS) {
+      expect(statusForOrigin(origin)).toBe(FAULT_STATUS[origin]);
+    }
+  });
+
+  it("FAULT_KINDS has no duplicates and is non-empty", () => {
+    expect(new Set(FAULT_KINDS).size).toBe(FAULT_KINDS.length);
+    expect(FAULT_KINDS.length).toBeGreaterThan(0);
+  });
 });
 
 describe("typed error taxonomy", () => {

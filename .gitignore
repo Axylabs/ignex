@@ -42,8 +42,6 @@ sbom.spdx.json
 # Finder (MacOS) folder config
 .DS_Store
 
-node_modules/
-dist/
 packages/*/dist
 # Debug-shaped build for `bun run dev:debug` (packages/app/builder.ts --debug).
 packages/*/dist-dev

@@ -28,6 +28,7 @@ import {
   type Program,
   propertyName,
 } from "../../utils/ast/ast-types";
+import { unwrapExpression as unwrap } from "../../utils/ast/unwrap";
 import { walk } from "../../utils/ast/walk";
 
 /** Every member a declaration may set — mirrors `keyof ContextUsage`. */
@@ -69,21 +70,6 @@ const resolveModulePath = (spec: string, fromPath: string): string | null => {
     if (existsSync(join(base, `index${ext}`))) return join(base, `index${ext}`);
   }
   return null;
-};
-
-/** Unwrap TS expression wrappers (`as`, `!`, `<T>`, parens). */
-const unwrap = (e: Expression | undefined): Expression | undefined => {
-  let node = e;
-  while (
-    node &&
-    (node.type === "TSAsExpression" ||
-      node.type === "TSTypeAssertion" ||
-      node.type === "TSNonNullExpression" ||
-      node.type === "ParenthesizedExpression")
-  ) {
-    node = node.expression;
-  }
-  return node;
 };
 
 /** True when `e` unwraps to a literal node with value exactly `true`. */

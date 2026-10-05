@@ -43,6 +43,21 @@ export const DEFAULT_UPLOAD_TYPES: UploadTypes = {
   "application/pdf": "pdf",
 };
 
+/** Compiled `<uuid>.<ext>` name patterns by extension list (per-request callers). */
+const uploadPatternCache = new Map<string, RegExp>();
+
+const uploadNamePattern = (exts: readonly string[]): RegExp => {
+  const key = exts.join("|");
+  let pattern = uploadPatternCache.get(key);
+  if (pattern === undefined) {
+    pattern = new RegExp(
+      `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(${key})$`,
+    );
+    uploadPatternCache.set(key, pattern);
+  }
+  return pattern;
+};
+
 /** Options for {@link saveUpload}. */
 export interface SaveUploadOptions {
   /** Storage directory (created on demand). Flat files only. */
@@ -172,9 +187,7 @@ export interface ServeUploadOptions {
  */
 export const serveUpload = async (name: string, options: ServeUploadOptions): Promise<Response> => {
   const exts = options.extensions ?? Object.values(DEFAULT_UPLOAD_TYPES);
-  const pattern = new RegExp(
-    `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(${exts.join("|")})$`,
-  );
+  const pattern = uploadNamePattern(exts);
   if (!pattern.test(name)) throw new NotFoundError();
   const filePath = join(options.dir, name);
   if (!existsSync(filePath)) throw new NotFoundError();

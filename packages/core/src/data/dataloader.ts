@@ -9,6 +9,8 @@
  *
  * Exposed "by default" on every request context as `ctx.loader(...)`.
  */
+import { identity } from "@ignex/shared";
+
 /** The batch function: maps a batch of keys to one value per key. */
 export type BatchLoadFn<Key, Value> = (keys: readonly Key[]) => Promise<readonly Value[]>;
 
@@ -56,8 +58,6 @@ export type DataLoaderFactory = <Key, Value, CacheKey = Key>(
   batchLoadFn: BatchLoadFn<Key, Value>,
   options?: DataLoaderOptions<Key, Value, CacheKey>,
 ) => DataLoader<Key, Value>;
-
-const identity = <K>(key: K): K => key;
 
 interface BatchSubscriber<Value> {
   resolve: (value: Value) => void;

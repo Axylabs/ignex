@@ -8,6 +8,7 @@
  */
 
 import { encoder } from "../util";
+import { ROUTE_FRAME_FLAG_HAS_BODY } from "./constants";
 import { dv } from "./plan";
 
 /** The per-request inputs to the native stack (already sliced by the caller). */
@@ -22,7 +23,7 @@ export interface NativeRouteFrame {
 
 /** Packed byte-length of a request frame (size the pooled buffer exactly). */
 export const packRouteFrameLength = (frame: NativeRouteFrame): number => {
-  const hasBody = frame.body != null && frame.body.byteLength > 0 ? 1 : 0;
+  const hasBody = frame.body != null && frame.body.byteLength > 0 ? ROUTE_FRAME_FLAG_HAS_BODY : 0;
   return (
     4 +
     4 +
@@ -44,7 +45,7 @@ export const packRouteFramePartsLength = (
   cookie: Uint8Array,
   body: Uint8Array | null,
 ): number => {
-  const hasBody = body != null && body.byteLength > 0 ? 1 : 0;
+  const hasBody = body != null && body.byteLength > 0 ? ROUTE_FRAME_FLAG_HAS_BODY : 0;
   return (
     4 + 4 + query.byteLength + 4 + cookie.byteLength + (hasBody ? 4 + (body?.byteLength ?? 0) : 0)
   );
@@ -77,7 +78,7 @@ export const packRouteFramePartsInto = (
   body: Uint8Array | null,
 ): void => {
   const b = body;
-  const hasBody = b != null && b.byteLength > 0 ? 1 : 0;
+  const hasBody = b != null && b.byteLength > 0 ? ROUTE_FRAME_FLAG_HAS_BODY : 0;
 
   const view = dv(out);
   let pos = 0;

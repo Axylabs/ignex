@@ -17,6 +17,7 @@ import type { Fault } from "../platform/fault-vocabulary";
 import { type BunSqliteDatabase, loadBunSqlite } from "../platform/sqlite";
 import { faultMark } from "./fault-capture";
 import { failingOrigin, summarizeFailureFrames } from "./frames";
+import { LEVEL_RANK } from "./logs";
 import { applySchema } from "./persist-schema";
 import type {
   FaultMark,
@@ -71,6 +72,10 @@ export class ObservatoryDb {
   private written = 0;
   private lastFlushAt: number | null = null;
   private lastError: string | null = null;
+  /** Memoized row counts + the timestamp they were taken (see `counts`). */
+  private rowsCache: { traces: number | null; logs: number | null; samples: number | null } | null =
+    null;
+  private rowsCacheAt = 0;
 
   /**
    * Open (and migrate) the database, then prepare flushing.
@@ -113,7 +118,12 @@ export class ObservatoryDb {
   pushTrace(trace: RequestTrace): void {
     if (!this.db) return;
     this.traceQueue.push(trace);
-    if (this.traceQueue.length >= 500) void this.flush();
+    if (this.traceQueue.length >= 500) {
+      // Defer the size-triggered flush off the request-finalize turn: a sync
+      // BEGIN/INSERT/COMMIT over every queued span would otherwise block it.
+      const timer = setTimeout(() => void this.flush(), 0);
+      timer.unref?.();
+    }
   }
 
   /** Queue one structured log record for writing. */
@@ -161,6 +171,8 @@ export class ObservatoryDb {
       }
     }
     this.pruneIfNeeded();
+    // Row counts changed — let the next `status()` recount.
+    this.rowsCacheAt = 0;
   }
 
   private writeTrace(t: RequestTrace): void {
@@ -370,9 +382,10 @@ export class ObservatoryDb {
   }): LogRecord[] {
     const db = this.db;
     if (!db) return [];
-    const ranks: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
-    const minRank = ranks[query.minLevel ?? "debug"] ?? 0;
-    const levels = Object.keys(ranks).filter((l) => (ranks[l] as number) >= minRank);
+    const minRank = (LEVEL_RANK as Record<string, number>)[query.minLevel ?? "debug"] ?? 0;
+    const levels = Object.entries(LEVEL_RANK)
+      .filter(([, rank]) => rank >= minRank)
+      .map(([level]) => level);
     const where: string[] = [`level IN (${levels.map(() => "?").join(",")})`];
     const params: unknown[] = [...levels];
     if (query.since !== undefined) {
@@ -432,6 +445,19 @@ export class ObservatoryDb {
     }
   }
 
+  /** Row counts, memoized for a few seconds (each is a full-table COUNT(*)). */
+  private counts(): { traces: number | null; logs: number | null; samples: number | null } {
+    const now = Date.now();
+    if (this.rowsCache !== null && now - this.rowsCacheAt < 5_000) return this.rowsCache;
+    this.rowsCache = {
+      traces: this.count("traces"),
+      logs: this.count("logs"),
+      samples: this.count("samples"),
+    };
+    this.rowsCacheAt = now;
+    return this.rowsCache;
+  }
+
   /** Current sink status for `/api/meta` + `/api/diagnostics`. */
   status(): PersistStatus {
     const available = this.db !== null;
@@ -444,9 +470,7 @@ export class ObservatoryDb {
       written: this.written,
       lastFlushAt: this.lastFlushAt,
       lastPruneAt: this.lastPruneAt,
-      rows: available
-        ? { traces: this.count("traces"), logs: this.count("logs"), samples: this.count("samples") }
-        : { traces: null, logs: null, samples: null },
+      rows: available ? this.counts() : { traces: null, logs: null, samples: null },
       error: this.lastError,
     };
   }

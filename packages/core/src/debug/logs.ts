@@ -12,7 +12,7 @@ import { currentTrace } from "./tracer";
 import type { LogLevel, LogQuery, LogRecord, LogStats, SpanAttrs } from "./types";
 
 /** Ordered severities — index doubles as the rank for min-level filtering. */
-const LEVEL_RANK: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+export const LEVEL_RANK: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 /** Options for {@link LogStore}. */
 export interface LogStoreOptions {

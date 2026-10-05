@@ -74,6 +74,7 @@ export const createStreamHub = (counters: RevisionCounters): StreamHub => {
     }
     let lastEpoch = counters.snapshot().epoch;
     const encoder = new TextEncoder();
+    let streamCleanup: (() => void) | null = null;
     const stream = new ReadableStream<Uint8Array>({
       start(controller): void {
         let closed = false;
@@ -113,7 +114,14 @@ export const createStreamHub = (counters: RevisionCounters): StreamHub => {
             /* already closed */
           }
         };
+        streamCleanup = cleanup;
         ctx.req.signal?.addEventListener?.("abort", cleanup, { once: true });
+      },
+      // The runtime cancels the stream when the response is aborted or never
+      // read; `cancel()` does not fire `ctx.req.signal`'s abort event, so clear
+      // the poll/beat intervals here too — otherwise they tick forever.
+      cancel(): void {
+        streamCleanup?.();
       },
     });
     return new Response(stream, {

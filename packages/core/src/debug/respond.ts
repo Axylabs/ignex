@@ -31,11 +31,31 @@ export const jsResponse = (body: string, status = 200): Response =>
 /** Standard 404 JSON body for unknown dashboard API paths. */
 export const notFound = (): Response => json({ error: "not_found", status: 404 }, 404);
 
-/** Read a request body preview (bounded). */
+/** Read a request body preview (bounded — never buffers more than `maxBytes`). */
 export const readBodyPreview = async (res: Response, maxBytes: number): Promise<string> => {
   try {
-    const text = await res.clone().text();
-    return text.length > maxBytes ? `${text.slice(0, maxBytes)}\n… (truncated)` : text;
+    const body = res.clone().body;
+    if (body === null) return "";
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let preview = "";
+    let truncated = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      preview += decoder.decode(value, { stream: true });
+      if (preview.length > maxBytes) {
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+    }
+    preview += decoder.decode();
+    if (preview.length > maxBytes) {
+      preview = preview.slice(0, maxBytes);
+      truncated = true;
+    }
+    return truncated ? `${preview}\n… (truncated)` : preview;
   } catch {
     return "";
   }

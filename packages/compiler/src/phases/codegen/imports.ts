@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import type { AppConfigInfo, CompilerOptions, HookDef, ModuleInfo, RouteIR } from "../../types";
 import { SCHEMA_PARTS } from "../../types";
 import { projectPath } from "../../utils/path";
+import { isProductionBuild } from "../analysis/app-config";
 import { toImportPath } from "./config";
 import {
   handlerImportName,
@@ -142,7 +143,12 @@ export const stageImports = (
   state.appConfigActivePlugins = appConfig ? appConfig.hasActivePlugins : false;
   state.appConfigPluginUsage = appConfig?.globalPluginUsage ?? null;
   state.traceDebug = appConfig ? appConfig.hasEnabledDebugbar : false;
-  state.isProductionBuild = appConfig ? appConfig.isProductionBuild : false;
+  // The build shape is a property of the OPTIONS, not the app config: a
+  // config-less production build (`production: true` / `compile` /
+  // `NODE_ENV=production`) must bake the same hardened shape as one with a
+  // config. Falls back to the analyzed app-config value when present so the
+  // two never disagree.
+  state.isProductionBuild = appConfig ? appConfig.isProductionBuild : isProductionBuild(opts);
 
   if (state.hasAppConfig && appConfigAbs) {
     imports.add(

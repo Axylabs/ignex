@@ -175,6 +175,12 @@ jobs:
       - name: AOT RBAC guard-chain verify
         run: bun run verify:aot:rbac
 
+      - name: AOT abort short-circuit verify
+        run: bun run verify:aot:abort
+
+      - name: AOT specialized-plugin tier verify
+        run: bun run verify:aot:plugin-specialized
+
       - name: CLI resource → AOT verify
         run: bun run verify:cli:resource
       # Real-driver contract check: the generated Drizzle resource is driven

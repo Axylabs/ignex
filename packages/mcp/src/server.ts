@@ -22,13 +22,7 @@ import {
   runDebugSummaryTool,
   runDebugSystemTool,
 } from "./debugger.js";
-import type {
-  BuildToolArgs,
-  DevToolArgs,
-  InfoToolArgs,
-  OpenApiToolArgs,
-  RouteToolArgs,
-} from "./tools.js";
+import type { BuildToolArgs, DevToolArgs, RootToolArgs, RouteToolArgs } from "./tools.js";
 import {
   runBuildTool,
   runDevStopTool,
@@ -127,7 +121,7 @@ export const createMcpServer = (): McpServer => {
       inputSchema: { root: z.string().optional().describe("Project root (default: cwd)") },
     },
     async (args) => ({
-      content: [{ type: "text", text: await runInfoTool(args as unknown as InfoToolArgs) }],
+      content: [{ type: "text", text: await runInfoTool(args as unknown as RootToolArgs) }],
     }),
   );
 
@@ -140,7 +134,7 @@ export const createMcpServer = (): McpServer => {
       inputSchema: { root: z.string().optional().describe("Project root (default: cwd)") },
     },
     async (args) => ({
-      content: [{ type: "text", text: await runListRoutesTool(args as unknown as InfoToolArgs) }],
+      content: [{ type: "text", text: await runListRoutesTool(args as unknown as RootToolArgs) }],
     }),
   );
 
@@ -163,7 +157,7 @@ export const createMcpServer = (): McpServer => {
       inputSchema: { root: z.string().optional().describe("Project root (default: cwd)") },
     },
     async (args) => ({
-      content: [{ type: "text", text: await runOpenApiTool(args as unknown as OpenApiToolArgs) }],
+      content: [{ type: "text", text: await runOpenApiTool(args as unknown as RootToolArgs) }],
     }),
   );
 

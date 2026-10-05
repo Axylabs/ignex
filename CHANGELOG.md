@@ -8,6 +8,14 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`createMetrics({ maxSeries })` bounds label cardinality.** The Prometheus
+  registry now drops new series past the cap (default 1000) instead of growing
+  unbounded on high-cardinality label values (user ids, raw paths), returning a
+  no-op view for dropped series.
+- **`bun run verify:aot:abort`** names the previously alias-less AOT abort gate,
+  and both it and `verify:aot:plugin-specialized` now run in CI alongside
+  `verify:aot:rbac`.
+
 - **The dev-only plugin elimination is documented.** `docs/debugbar.md` explains
   how a production build actually removes `debugbar()` — analysis decides, the
   compiler rewrites the app config to drop the import, and the bundler
@@ -85,6 +93,110 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `fault-throw.ts` predicate rather than repeating it — that predicate is
   deliberately different (`Record<PropertyKey, unknown>`, arrays included) and
   is documented as such.
+- **Flow-based user-journey tests for the compiled server.**
+  `packages/app/test/user-journeys.test.ts` drives multi-step journeys through
+  the real AOT artifact — account lifecycle (register → authenticate → refresh
+  → logout → re-login), signed-token report access, cookie-chained sessions,
+  upload → download with revalidation and range, the body-validation pipeline,
+  public content + locale negotiation, JWT/session coexistence, CORS
+  preflight → actual, method negotiation, error recovery, and a 300-request
+  concurrent mixed burst asserting no cross-request bleed. The per-route matrix
+  suites stay as the isolation layer; these cover the cross-request flows they
+  cannot see.
+- **Operational (resilience) journeys.** `packages/app/test/ops-journeys.test.ts`
+  and a new `fixtures/ops` app (production-shaped, non-WebSocket) pin the
+  process-level contract: an in-flight request survives a `SIGTERM` drain and
+  the process then exits `0`; a second signal forces `exit(1)` instead of
+  waiting out the deadline; a bind conflict exits `1` with an actionable
+  classified report; a crashing handler returns the generic envelope with no
+  message leak and the process keeps serving under repeated failures; and a
+  sequential client session reuses one keep-alive connection.
+  `packages/app/test/ws-e2e.test.ts` gains a full socket lifecycle journey
+  (open → ordered echo → clean `1000` close → reconnect, proving the
+  connection slot is released). `packages/core/test/process-guards.test.ts`
+  covers the crash handlers, including a cyclic/primitive rejection.
+
+### Security
+
+- **`bun audit --audit-level=high` is clean again.** A newly published advisory
+  (GHSA-vfj7-8cjw-p6xm — `braces` ≤3.0.3 stack-exhaustion DoS) has **no
+  published fix** and reached the tree through `@tailwindcss/cli` →
+  `@parcel/watcher@2.5.1` → `micromatch` → `braces`. `@tailwindcss/cli` pins
+  `@parcel/watcher` to exactly `2.5.1`, but `2.6.0` replaces `micromatch` with
+  `picomatch` and drops the vulnerable path entirely — a root `overrides` entry
+  now pins `2.6.0`, so the advisory is *removed* rather than allowlisted with
+  `--ignore`. The debug-UI build is byte-identical under the new watcher (a real
+  `gen:debug-ui` run leaves the hash at `c7d85e7a371890f0`), which
+  `check:debug-ui` guards.
+
+### Fixed
+
+- **Graceful shutdown no longer drops in-flight requests.** The generated
+  bootstrap started `close plugin resources` concurrently with the drain and
+  called `process.exit(0)` the moment it finished — terminating the process
+  while a request was still being served, so a plugin app dropped a request on
+  every rolling deploy. The bootstrap now **awaits** `__server.stop()`
+  (`stop(false)` resolves once in-flight requests finish; idle keep-alive
+  connections do not hold it open) *before* closing plugin resources, and
+  delegates the whole signal contract to the shared `installGracefulShutdown`
+  — so `createApp().serve()` and the AOT artifact drain identically. That also
+  restores the documented failure paths the inline copy had lost: a second
+  signal forces `exit(1)`, the 10s deadline logs and exits `1`, and only a
+  completed drain exits `0`. `app.stop()` now awaits the drain too, and the
+  interpreted drain keeps its signal listeners installed
+  (`stop({ disposeSignals: false })`) so a second signal reaches the helper
+  instead of becoming the runtime's default kill — the two server shapes now
+  behave identically under a container stop. Pinned by
+  `packages/app/test/ops-journeys.test.ts`, `packages/compiler/test/compile.test.ts`
+  and `packages/core/test/graceful-shutdown.test.ts`.
+- **`Bun.serve` failure reports instead of dying with a raw stack.** A bind
+  error (`EADDRINUSE`, bad certs, an unusable socket) threw out of the
+  bootstrap and surfaced as `uncaught exception` with a full minified dump. It
+  is now wrapped and routed through the classified fault pipeline — e.g.
+  `✖ ignex failed to start — the server could not listen` with code
+  `IGN_INTERNAL_PORT`, "the listen port is already in use", and what to fix —
+  then exits `1` for the supervisor. Pinned by
+  `packages/compiler/test/serve-error-handler.test.ts`.
+- **Process-level failures are reported, not dumped.** `installProcessGuards`
+  printed the raw rejected value (a driver object or cyclic record expands into
+  unreadable noise). Both backstops now go through `reportFault`, so an
+  unhandled rejection prints one redacted, classified, deduplicated report and
+  keeps serving, and an uncaught exception prints one report and exits `1`.
+  Pinned by `packages/core/test/process-guards.test.ts`.
+- **A throwing error-stage hook is no longer swallowed.** `__handleError`
+  caught it with an empty `catch {}`; the broken hook was invisible and looked
+  like the route simply returning its normal error. It is now logged. Pinned by
+  `packages/compiler/test/serve-error-handler.test.ts`.
+- **`maxRequestBodySize` documented wrongly as 128 MiB.** The real default is
+  64 MiB (`DEFAULT_MAX_REQUEST_BODY_SIZE`); `docs/deployment.md` and
+  `packages/compiler/README.md` now say so.
+- **A production-built server can no longer serve Bun's dev error page.** Bun
+  derives its `development` flag from the RUNTIME `NODE_ENV !== "production"`,
+  so an artifact built with `ignex build`/`--compile` but launched without
+  `NODE_ENV=production` would render Bun's dev error page — leaking the error
+  message, stack frames, file paths and source lines — for any error that
+  escapes the generated wrapper. The compiler now bakes
+  `__serveOptions.development = false` for every production-shaped build
+  (using the same build-shape determination as `__IGNEX_PROD_BUILD`, now also
+  applied to config-less builds); dev-shaped artifacts keep Bun's default.
+  Pinned by `packages/compiler/test/production-development.test.ts`.
+- **A throw that escapes the request wrapper still returns the framework
+  envelope.** `Bun.serve` has exactly one error hook and the generated
+  bootstrap left it unset, so a throw outside the wrapper (a framework-level
+  bug, a route-table edge) fell through to Bun's own page. It is now wired to
+  the same `__handleError` boundary, so the client gets the canonical JSON
+  response — static security headers included — and the failure is reported as
+  a classified Fault, on every build shape. Pinned by
+  `packages/compiler/test/serve-error-handler.test.ts`.
+
+### Performance
+
+- **`GET /page` stops re-scanning the views directory on every request.** The
+  route rebuilt its template registry with `createTemplateDir(...)` inside the
+  handler — a `readdir` plus a read and re-parse of every template per request.
+  It now compiles the registry once and shares the memoized promise (matching
+  `/catalog`'s compile-once pattern); a missing directory still surfaces as a
+  per-request 500 rather than an import-time rejection.
 
 ### Changed
 
@@ -800,6 +912,49 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `hasErrors`.
 
 ### Fixed
+
+- **WebSocket in-flight cap no longer leaks on close.** `createWSHandler` tracked
+  a single route-wide counter incremented per message and only decremented when
+  a handler settled, so a wedged (never-settling) handler pinned the cap and
+  1013-closed every later socket on the route. Slots are now tracked per socket
+  and released on `close` (idempotent against a late settle). Regression:
+  `packages/core/test/ws-limits.test.ts`.
+- **Durable job queue ticks cannot overlap.** A tick slower than `pollIntervalMs`
+  could run concurrently with the next, so two ticks could jointly claim beyond
+  `concurrency` and double-heartbeat leases; a `ticking` guard serializes them.
+  Regression: `packages/core/test/jobs-durable.test.ts`.
+- **Cancelled SSE streams release their timers.** The debug revision stream only
+  cleared its poll/beat intervals from the request-abort listener, so a runtime
+  `cancel()` left both ticking forever; the stream now implements `cancel()`.
+  Regression: `packages/core/test/debug-server.test.ts`.
+- **Rolling sessions write once per request.** The rolling middleware called
+  `touch()` (which persists) and then persisted again, doubling the store write
+  and the `Set-Cookie` work; it now extends the expiry and persists once.
+- **Proxy requests release their fallback timeout and log upstream failures.**
+  The no-`AbortSignal.timeout` path armed a timer that was never cleared on
+  success (and was not unref'd), and a failed upstream returned a bare 502 with
+  the underlying error discarded.
+- **The durable observatory never blocks the request path with sqlite.** The
+  size-triggered flush now defers off the finalize turn, row counts are memoized
+  instead of running three `COUNT(*)` scans per `/api/meta`, and an already-
+  finalized trace is no longer stored/metricized a second time.
+- **Removed dead branches and no-op lines** (`void head` / `void data` /
+  `void labels`, an unreachable `rolling && !isNew` branch in the session
+  middleware, and an unreachable Prometheus series fallback), and **removed the
+  unreferenced `runInfo` export** while adding coverage for the previously
+  untested `FAULT_ORIGINS` / `FAULT_KINDS` / `statusForOrigin`, `envFloat` /
+  `envSecret` and `authGuard` / `optionalAuthPlugin`.
+- **Timers no longer keep the process alive**: the debug NATS keepalive/reconnect
+  timers, the legacy cron matcher and the retry backoff are unref'd, the debug UI
+  stream releases a pending backoff wait on close, and the NATS reader slices its
+  buffer once per chunk instead of once per line.
+- **Per-request work hoisted off the hot path**: static-app and upload regexes
+  are compiled once, `safeJoin` resolves its root once, and the debug body
+  preview streams up to its cap instead of buffering the whole body.
+- **Duplicated helpers replaced with one implementation**: `escapeLabel`,
+  `LEVEL_RANK`, `unwrapExpression` (was three compiler copies), the shared
+  `identity` / `isRecord`, and a single `STOP_DEADLINE_MS`; the native
+  request-frame flag is now written from its declared constant.
 
 - **Flaky `observability` heap-growth fixture.** The leak-analysis test built its
   sample series with a `Date.now()` per sample, so ±ms jitter decided whether the

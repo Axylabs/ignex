@@ -97,15 +97,21 @@ describe("compile (end-to-end)", () => {
     );
   });
 
-  it("emits graceful shutdown on SIGTERM/SIGINT", async () => {
+  it("emits graceful shutdown on SIGTERM/SIGINT via the shared helper", async () => {
     const layout = materializeFixture("basic");
     const result = await buildAsync(baseOptions(layout));
 
     expect(result.errors).toHaveLength(0);
-    // Containers / rolling deploys send SIGTERM; the generated server must
-    // never die abruptly on a signal.
-    expect(result.code).toContain('process.on("SIGTERM"');
-    expect(result.code).toContain('process.on("SIGINT"');
+    // Containers / rolling deploys send SIGTERM/SIGINT; the generated server
+    // must never die abruptly on a signal. Signal wiring (drain, second-signal
+    // force, hard deadline, exit codes) is owned by the shared helper — the
+    // same one `createApp().serve()` uses — so both server shapes drain
+    // identically. The bootstrap therefore has no `process.on` of its own.
+    expect(result.code).toContain("installGracefulShutdown(");
+    expect(result.code).toMatch(
+      /import \{[^}]*\binstallGracefulShutdown\b[^}]*\} from "@ignex\/core"/,
+    );
+    expect(result.code).not.toContain('process.on("SIGTERM"');
   });
 
   it("drains connections on shutdown even WITHOUT an app config", async () => {
@@ -114,12 +120,15 @@ describe("compile (end-to-end)", () => {
 
     expect(result.errors).toHaveLength(0);
     // The old config-less path mapped signals straight to process.exit(0),
-    // killing in-flight requests on every rolling deploy/Ctrl-C. The
-    // generated bootstrap must drain (`stop(false)`) for every app; plugin
-    // closing stays app-config-conditional.
-    expect(result.code).toContain("__server.stop(false)");
+    // killing in-flight requests on every rolling deploy/Ctrl-C. The generated
+    // bootstrap now AWAITS the drain — `__server.stop(false)` resolves once
+    // in-flight requests have finished — for every app; plugin closing stays
+    // app-config-conditional.
+    expect(result.code).toContain("await __server.stop(false)");
+    expect(result.code).not.toContain("__pluginContext.closeAll()");
     expect(result.code).not.toContain('process.on("SIGTERM", () => process.exit(0))');
-    expect(result.code).toMatch(/setTimeout\(\(\) => process\.exit\(0\), 10000\)/);
+    // No bespoke exit timer: the shared helper owns the deadline/exit contract.
+    expect(result.code).not.toMatch(/setTimeout\(\(\) => process\.exit\(0\)/);
   });
 
   it("applies deliberate default limits (body cap + WS frame ceiling)", async () => {
@@ -146,12 +155,18 @@ describe("compile (end-to-end)", () => {
     });
 
     expect(result.errors).toHaveLength(0);
-    // Graceful shutdown: drain active requests (stop(false) — stop(true)
-    // would FORCE-close in-flight requests), then close plugin resources
-    // (DB connections, stores) before exiting.
-    expect(result.code).toContain("__server.stop(false)");
-    expect(result.code).toContain("__pluginContext.closeAll()");
-    expect(result.code).toContain('received " + __signal');
+    // Graceful shutdown: drain active requests FIRST — `stop(false)` resolves
+    // once in-flight requests finish (`stop(true)` would FORCE-close them) —
+    // then close plugin resources (DB connections, stores), so a handler still
+    // running never finds its dependency torn down. The previous emission ran
+    // the close concurrently and exited as soon as it finished, dropping
+    // in-flight requests on every rolling deploy.
+    expect(result.code).toContain("await __server.stop(false)");
+    expect(result.code).toContain("await __pluginContext.closeAll()");
+    const stopAt = result.code.indexOf("await __server.stop(false)");
+    const closeAt = result.code.indexOf("await __pluginContext.closeAll()");
+    expect(stopAt).toBeGreaterThanOrEqual(0);
+    expect(closeAt).toBeGreaterThan(stopAt);
   });
 
   it("is deterministic across builds", async () => {

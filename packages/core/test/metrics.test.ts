@@ -40,6 +40,23 @@ describe("createMetrics", () => {
     expect(snap.counters[0]?.labels).toEqual({ a: "1" });
     expect(snap.counters[0]?.value).toBe(1);
   });
+
+  it("drops new series past maxSeries (bounds label cardinality)", () => {
+    const m = createMetrics({ maxSeries: 2 });
+    m.counter("c", { route: "/a" }).inc();
+    m.counter("c", { route: "/b" }).inc();
+    const dropped = m.counter("c", { route: "/c" });
+    dropped.inc(9); // no-op view — not stored
+    expect(dropped.value).toBe(0);
+    const droppedHistogram = m.histogram("h", { route: "/c" });
+    droppedHistogram.observe(1);
+    expect(droppedHistogram.count).toBe(0);
+
+    const out = m.renderPrometheus();
+    expect(out).toContain('c{route="/a"} 1');
+    expect(out).toContain('c{route="/b"} 1');
+    expect(out).not.toContain('route="/c"');
+  });
 });
 
 describe("metricsPlugin", () => {

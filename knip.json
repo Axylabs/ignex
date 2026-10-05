@@ -4,7 +4,7 @@
     ".": {
       "entry": ["scripts/*.ts", "bench/**/*.ts"],
       "project": ["scripts/**/*.ts", "bench/**/*.ts"],
-      "ignoreDependencies": ["@tailwindcss/cli", "tailwindcss"]
+      "ignoreDependencies": ["@tailwindcss/cli"]
     },
     "packages/compiler": {
       "project": ["src/**/*.ts"],
@@ -25,7 +25,9 @@
       "entry": [
         "src/**/*.ts",
         "test/fixtures/matrix/builder.ts",
-        "test/fixtures/matrix/src/**/*.ts"
+        "test/fixtures/matrix/src/**/*.ts",
+        "test/fixtures/ops/builder.ts",
+        "test/fixtures/ops/src/**/*.ts"
       ],
       "project": ["**/*.ts"]
     },

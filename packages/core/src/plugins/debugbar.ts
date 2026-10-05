@@ -298,9 +298,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
   /** Endpoints that authenticate by mechanism instead of the standard gate. */
   const isPublicApiPath = (apiPath: string): boolean => {
     const head = apiPath.replace(/^\/+/, "").split("/")[0] ?? "";
-    if (head === "stream") return true; // ticket auth inside the table
-    void head;
-    return false;
+    return head === "stream"; // ticket auth inside the table
   };
 
   // ── interpreted mode: register dashboard routes on the router ─────────────
@@ -442,7 +440,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
         : Promise.resolve(response);
       return settled
         .then((res) =>
-          finalizeAndStore(state, deps.data, revisions, trace, {
+          finalizeAndStore(state, revisions, trace, {
             status: res.status,
             responseHeaders: res.headers,
           }).then(() => res),
@@ -468,7 +466,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
         typeof (error as unknown as { status?: unknown }).status === "number"
           ? (error as unknown as { status: number }).status
           : 500;
-      return finalizeAndStore(state, deps.data, revisions, trace, {
+      return finalizeAndStore(state, revisions, trace, {
         status,
         responseHeaders: null,
         error,
@@ -550,12 +548,11 @@ const captureResponseBody = async (trace: Trace, response: Response): Promise<Re
 /** Finalize a trace exactly once; update stores, metrics, persistence. */
 const finalizeAndStore = async (
   state: DebugbarState,
-  data: DataProviders | undefined,
   revisions: ReturnType<typeof createRevisionCounters>,
   trace: Trace,
   input: { status: number; responseHeaders: Headers | null; error?: unknown },
 ): Promise<void> => {
-  void data;
+  const alreadyFinalized = trace.finalized;
   const finished = await trace.finalize({
     status: input.status,
     responseHeaders: input.responseHeaders,
@@ -564,6 +561,9 @@ const finalizeAndStore = async (
   });
   state.active.delete(trace.id);
   state.profiler.setActiveRequests(state.active.size);
+  // The first finalize already stored/counted this trace; a second call (e.g.
+  // an active-map eviction followed by onResponse) must not double-count.
+  if (alreadyFinalized) return;
   if (finished.status !== 0 || finished.error) {
     state.store.push(finished);
     // Metrics + persistence see EVERY finalized request (not just the ones

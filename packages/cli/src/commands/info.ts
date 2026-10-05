@@ -10,7 +10,6 @@ import { defineCommand } from "citty";
 import { loadConfig } from "../utils/config.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { nativeStatus } from "../utils/native.js";
-import { runDef } from "../utils/run-def.js";
 import { metaFor } from "./registry.js";
 
 /** Print app/compiler info as JSON. */
@@ -45,6 +44,3 @@ const infoCmd = defineCommand({
 });
 
 export default infoCmd;
-
-/** Back-compat entry: raw argv → parsed via citty. */
-export const runInfo = (args: string[]): Promise<void> => runDef(infoCmd, args);

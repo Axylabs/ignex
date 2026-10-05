@@ -12,6 +12,7 @@
  * must never leak past this boundary.
  */
 
+import { isRecord } from "@ignex/shared";
 import type { EnvIssue } from "./env-diagnostics";
 import type { FaultCause } from "./fault-vocabulary";
 import { causeOf } from "./fault-vocabulary";
@@ -23,9 +24,8 @@ export const MAX_CHAIN = 5;
 /** Keep a report line readable. */
 export const MAX_LINE = 200;
 
-/** True for a non-null object — the guard every reader below starts from. */
-export const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
-  typeof value === "object" && value !== null;
+/** True for a non-null object — the shared guard, re-exported for this module's readers. */
+export { isRecord };
 
 /** The message of a thrown value (`Error`, string, or `{ message }` record). */
 export const messageOf = (value: unknown): string => {

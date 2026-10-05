@@ -129,12 +129,13 @@ export const runRouteTool = async (args: RouteToolArgs): Promise<string> => {
   });
 };
 
-export interface InfoToolArgs {
+/** Tool args carrying only the optional project root. */
+export interface RootToolArgs {
   root: string | undefined;
 }
 
 /** Environment + config snapshot for the project root. */
-export const runInfoTool = async (args: InfoToolArgs): Promise<string> => {
+export const runInfoTool = async (args: RootToolArgs): Promise<string> => {
   const root = cwd(args.root);
   const configPath = join(root, "ignex.config.mjs");
   const appConfigPath = join(root, "src/app.config.ts");
@@ -185,12 +186,8 @@ export const runDoctorTool = async (): Promise<string> => {
   return safeJson({ ok: failed.length === 0, checks });
 };
 
-export interface ListRoutesToolArgs {
-  root: string | undefined;
-}
-
 /** Enumerate the project's route files (no build required). */
-export const runListRoutesTool = async (args: ListRoutesToolArgs): Promise<string> => {
+export const runListRoutesTool = async (args: RootToolArgs): Promise<string> => {
   const root = cwd(args.root);
   const routesDir = join(root, "src/routes");
   if (!existsSync(routesDir)) {
@@ -223,12 +220,8 @@ export const runListRoutesTool = async (args: ListRoutesToolArgs): Promise<strin
   });
 };
 
-export interface OpenApiToolArgs {
-  root: string | undefined;
-}
-
 /** Build (if needed) and return the generated openapi.json. */
-export const runOpenApiTool = async (args: OpenApiToolArgs): Promise<string> => {
+export const runOpenApiTool = async (args: RootToolArgs): Promise<string> => {
   const root = cwd(args.root);
 
   // Respect the project's ignex.config (read as TEXT — never execute it):
@@ -295,9 +288,11 @@ export const runDevTool = async (args: DevToolArgs): Promise<string> => {
       on(event: string, listener: (...a: unknown[]) => void): void;
     };
 
+    let safety: ReturnType<typeof setTimeout> | undefined;
     const finish = (payload: Record<string, unknown>): void => {
       if (settled) return;
       settled = true;
+      if (safety) clearTimeout(safety);
       resolveResult(safeJson(payload));
     };
 
@@ -318,11 +313,11 @@ export const runDevTool = async (args: DevToolArgs): Promise<string> => {
     });
 
     // Safety net: if neither event fires (unlikely), don't hang the tool.
-    const t = setTimeout(
+    safety = setTimeout(
       () => finish({ ok: false, error: "Timed out waiting for the dev server to spawn." }),
       5000,
     );
-    t.unref?.();
+    safety.unref?.();
   });
 };
 

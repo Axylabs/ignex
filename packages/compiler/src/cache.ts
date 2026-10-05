@@ -79,12 +79,12 @@ import { projectPath } from "./utils/path";
  * constant `new Response(body, init)` (primitive body + static
  * `status`/`statusText`/`headers`) is now hoisted to a pre-built table-bound
  * Response exactly like a constant JSON return. Generated output shape changed.
- * 0.9.25 — error reporting: the emitted boot catch routes through
- * `reportPluginBootFailure` and `__handleError` hands its context to
- * `errorToResponse`. 0.9.26 — docs-only edit on an output-affecting path
- * (`native/src/selection.ts`); no generated shape change.
+ * 0.9.25 — error reporting: boot catch via `reportPluginBootFailure`;
+ * `__handleError` hands context to `errorToResponse`. 0.9.26 — docs-only edit.
+ * 0.9.27 — hardened prod serve: `development=false`, a `Bun.serve` error hook,
+ * a boot-failure report, and a drain that awaits `stop()`.
  */
-export const COMPILER_CACHE_VERSION = "0.9.26";
+export const COMPILER_CACHE_VERSION = "0.9.27";
 
 const CACHE_FILE = ".ignex-cache.json";
 

@@ -173,8 +173,35 @@ report per failure:
 ```
 
 A boot failure adds a `Configuration check (do this first)` section listing the
-`.env` files that exist and the connection variables they define. 4xx responses
-are never reported — a rejected request is the caller's fault, not an incident.
+`.env` files that exist and the connection variables they define.
+
+A **startup failure** — the server could not bind (`EADDRINUSE`, bad certs, an
+unusable socket) — reports through the same pipeline with a fix-oriented title
+(`✖ ignex failed to start — the server could not listen`, code
+`IGN_INTERNAL_PORT` on a busy port) and exits `1`, so a supervisor restarts it
+instead of the process dying with a raw stack:
+
+```
+✖ ignex failed to start — the server could not listen
+  code     IGN_INTERNAL_PORT · internal
+  what     The listen port is already in use
+  message  Failed to start server. Is port 3000 in use?
+  retry    no — fix the cause first
+
+  What to fix
+    • Another process already owns that port.
+    • Set `PORT` in `.env`, or free the port with `ignex dev --kill-port`.
+```
+
+The process-level backstops use the same pipeline: an **unhandled rejection**
+prints one classified report and the server **keeps serving** (the request that
+triggered it was already answered); an **uncaught exception** prints one report
+and exits `1`. Either way the report is redacted and deduplicated under load, so
+a rejection storm cannot flood the log — and an error-stage hook that throws is
+reported too, never swallowed.
+
+4xx responses are never reported — a rejected request is the caller's fault, not
+an incident.
 
 The `where` line names the frame that identifies the failure: **application code
 first**, otherwise the dependency (or core) frame that raised it. Inside a

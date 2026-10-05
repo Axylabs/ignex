@@ -464,7 +464,9 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
       existing: Session,
     ): HookResult | Promise<HookResult> => {
       if (rolling && !existing.isNew) {
-        existing.touch();
+        // Extend the expiry and persist ONCE. (`touch()` would also persist —
+        // a redundant second store + cookie write per rolling request.)
+        existing.expiresAt = expiresAtFor();
         const p = persist(ctx, existing);
         if (p instanceof Promise) {
           return p.then(() => {
@@ -481,17 +483,10 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     const attachMissing = (ctx: IgnexContext): HookResult | Promise<HookResult> => {
       if (createIfMissing === true) {
         const session = createNew(ctx);
+        // A freshly created session is always `isNew`, so the rolling
+        // touch/persist path does not apply here (it is handled for existing
+        // sessions in `attachExisting`).
         const finish = (s: Session): HookResult | Promise<HookResult> => {
-          if (rolling && !s.isNew) {
-            s.touch();
-            const p = persist(ctx, s);
-            if (p instanceof Promise) {
-              return p.then(() => {
-                ctx.setState(SESSION_KEY, s);
-                return continueHook(ctx);
-              });
-            }
-          }
           ctx.setState(SESSION_KEY, s);
           return continueHook(ctx);
         };

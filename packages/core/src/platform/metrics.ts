@@ -34,6 +34,12 @@ export interface Histogram {
 export interface MetricsOptions {
   /** Histogram bucket upper-bounds (ms). Default spans 1ms → 10s. */
   histogramBuckets?: readonly number[];
+  /**
+   * Maximum distinct series (counters + histograms) retained before new label
+   * combinations are dropped (default 1000). Bounds memory when label values
+   * are unbounded (user ids, raw paths, …).
+   */
+  maxSeries?: number;
 }
 
 /** The metrics registry. */
@@ -85,7 +91,9 @@ const labelKey = (labels: Record<string, string>): string => {
   return out;
 };
 
-const escapeLabel = (v: string): string => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+/** Escape a Prometheus label value (`\`, `"`, newline). */
+export const escapeLabel = (value: string): string =>
+  value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 
 /**
  * Create a metrics registry.
@@ -101,6 +109,28 @@ const escapeLabel = (v: string): string => v.replace(/\\/g, "\\\\").replace(/"/g
  */
 export const createMetrics = (options: MetricsOptions = {}): Metrics => {
   const buckets = [...(options.histogramBuckets ?? DEFAULT_BUCKETS)];
+  const maxSeries = options.maxSeries ?? 1000;
+  /** True once the registry holds its maximum distinct series. */
+  const seriesFull = (): boolean => counters.size + histograms.size >= maxSeries;
+  /** Dropped-series sentinels — no-op views handed out past the cap. */
+  const droppedCounter: Counter = {
+    inc: () => {},
+    get value() {
+      return 0;
+    },
+  };
+  const droppedHistogram: Histogram = {
+    observe: () => {},
+    get count() {
+      return 0;
+    },
+    get sum() {
+      return 0;
+    },
+    get buckets() {
+      return [];
+    },
+  };
   const counters = new Map<
     string,
     { name: string; labels: Record<string, string>; value: number }
@@ -136,6 +166,10 @@ export const createMetrics = (options: MetricsOptions = {}): Metrics => {
           const key = `${name}{${labelKey(labels)}}`;
           let entry = counters.get(key);
           if (!entry) {
+            if (seriesFull()) {
+              counterHintViews.set(hint, droppedCounter);
+              return droppedCounter;
+            }
             entry = { name, labels: { ...labels }, value: 0 };
             counters.set(key, entry);
           }
@@ -163,6 +197,7 @@ export const createMetrics = (options: MetricsOptions = {}): Metrics => {
       const key = `${name}{${keySuffix}}`;
       const cached = counterViews.get(key);
       if (cached !== undefined) return cached;
+      if (seriesFull()) return droppedCounter;
 
       const entry = {
         name,
@@ -191,6 +226,10 @@ export const createMetrics = (options: MetricsOptions = {}): Metrics => {
           const key = `${name}{${labelKey(labels)}}`;
           let entry = histograms.get(key);
           if (!entry) {
+            if (seriesFull()) {
+              histogramHintViews.set(hint, droppedHistogram);
+              return droppedHistogram;
+            }
             entry = {
               name,
               labels: { ...labels },
@@ -237,6 +276,7 @@ export const createMetrics = (options: MetricsOptions = {}): Metrics => {
       const key = `${name}{${keySuffix}}`;
       const cached = histogramViews.get(key);
       if (cached !== undefined) return cached;
+      if (seriesFull()) return droppedHistogram;
 
       const nBuckets = buckets.length;
       const entry = {
@@ -275,9 +315,7 @@ export const createMetrics = (options: MetricsOptions = {}): Metrics => {
     renderPrometheus() {
       const lines: string[] = [];
       for (const [key, entry] of counters) {
-        const labels = labelKey(entry.labels);
         lines.push(`${key} ${entry.value}`);
-        void labels;
       }
       for (const [key, entry] of histograms) {
         const base = key.slice(0, key.indexOf("{")) || key;

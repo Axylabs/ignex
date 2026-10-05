@@ -266,6 +266,7 @@ function scheduleWithMatcher(expression: string, onTick: () => void): TickHandle
       onTick();
       arm();
     }, delay);
+    timer.unref?.();
   };
   arm();
   return {

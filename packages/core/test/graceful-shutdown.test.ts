@@ -29,6 +29,29 @@ describe("createApp().serve() wiring", () => {
     await app.stop();
     expect(process.listenerCount("SIGTERM")).toBe(before);
   });
+
+  it("keeps the drain listeners installed when disposeSignals is false, so a second signal reaches the helper", async () => {
+    const before = process.listenerCount("SIGTERM");
+    vi.stubGlobal("Bun", {
+      serve: vi.fn(() => ({ stop: vi.fn() })),
+      which: vi.fn(() => null),
+      spawnSync: vi.fn(() => ({ exitCode: 0, stderr: "" })),
+    });
+
+    const app = createApp({ handler: () => new Response("ok") });
+    app.serve({ https: false, port: 0 });
+    expect(process.listenerCount("SIGTERM")).toBe(before + 1);
+
+    // The drain runs with `disposeSignals: false`: disposing here would turn a
+    // SECOND signal into the runtime's default kill instead of the helper's
+    // log + exit(1) — the AOT bootstrap and createApp().serve() must agree.
+    await app.stop({ disposeSignals: false });
+    expect(process.listenerCount("SIGTERM")).toBe(before + 1);
+
+    // A later manual stop still cleans up (never leak handlers).
+    await app.stop();
+    expect(process.listenerCount("SIGTERM")).toBe(before);
+  });
 });
 
 describe("installGracefulShutdown", () => {

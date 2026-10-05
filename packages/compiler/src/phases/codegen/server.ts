@@ -23,8 +23,10 @@ const STRUCTURAL_CORE = [
   "DEFAULT_SERVER_IDLE_TIMEOUT",
   "DEFAULT_WS_MAX_PAYLOAD_LENGTH",
   "EMPTY_LIFECYCLE",
+  "installGracefulShutdown",
   "installProcessGuards",
   "mergeWSLimits",
+  "reportFault",
   "resolveServeTls",
 ] as const;
 
@@ -147,50 +149,72 @@ __serveOptions.websocket = { ...__wsBase, ...__wsLimits,
   // zero per-request JS (replaces the per-request `security()`/`cors()` hooks).
   functions.push(`if (__serverCfg.headers) __serveOptions.headers = __serverCfg.headers;`);
 
+  // Pin Bun's dev error page OFF for production-built artifacts. Bun derives
+  // `development` from the RUNTIME `NODE_ENV !== "production"`, so a
+  // production-built server launched without `NODE_ENV=production` would serve
+  // Bun's dev error page — leaking error messages, stack frames, file paths
+  // and source lines — for any error that escapes the generated wrapper. The
+  // BUILD shape is authoritative here (the same contract as
+  // `__IGNEX_PROD_BUILD`); dev-shaped artifacts keep Bun's NODE_ENV default.
+  if (state.isProductionBuild) {
+    functions.push(`__serveOptions.development = false;`);
+  }
+
+  // Last-resort error boundary. The generated request wrapper already turns a
+  // handler/pipeline throw into the canonical JSON envelope; this covers a
+  // throw that escapes it (a framework-level bug, a route-table edge) so the
+  // client still gets that envelope — with the static security headers and the
+  // reported Fault — instead of Bun's own page, independent of NODE_ENV.
+  functions.push(`__serveOptions.error = (__err) => __handleError(__err, undefined);`);
+
   // Process-level crash backstop: log unhandled rejections instead of letting
   // Bun terminate the server; exit(1) on an uncaught exception so a supervisor
   // restarts a fresh process. Installed before Bun.serve accepts traffic.
   functions.push(`installProcessGuards();`);
 
-  functions.push(`const __server = Bun.serve(__serveOptions);`);
+  // Boot failure (EADDRINUSE, a bad TLS cert, an unusable socket) must not
+  // surface as a raw uncaught throw: report it through the classified fault
+  // pipeline with a fix-oriented title, then exit non-zero so a supervisor
+  // restarts (or an operator sees the real cause) instead of the process
+  // dying with an opaque stack.
+  functions.push(`let __server;
+try {
+  __server = Bun.serve(__serveOptions);
+} catch (__err) {
+  reportFault(__err, { title: "ignex failed to start — the server could not listen", label: "[ignex] startup failed" });
+  process.exit(1);
+}`);
 
   functions.push(
     `console.log(${JSON.stringify(cfg.serviceName)} + " listening on " + __serveTls.protocol + "://" + (__server.hostname || "localhost") + ":" + __server.port);`,
   );
 
-  // Graceful shutdown on SIGTERM/SIGINT (containers, rolling deploys, Ctrl-C):
-  // stop accepting new connections and DRAIN active requests (`stop(false)` —
-  // `stop(true)` would FORCE-close in-flight requests) — for EVERY app, with
-  // or without an app config. The old config-less path exited immediately,
-  // killing in-flight requests on every rolling deploy/Ctrl-C.
+  // Graceful shutdown on SIGTERM/SIGINT (containers, rolling deploys, Ctrl-C),
+  // delegated to the SAME helper the interpreted `createApp().serve()` uses, so
+  // both server shapes drain identically. It owns the whole contract: drain on
+  // the first signal, force `exit(1)` on a second signal or the 10s deadline,
+  // `exit(0)` only after a COMPLETED drain, and log every step.
+  //
+  // The drain AWAITS `__server.stop(...)`. `stop()` returns a promise that
+  // resolves once in-flight requests have finished (verified against Bun 1.4;
+  // idle keep-alive connections do not hold it open) — the previous emission
+  // fired `process.exit(0)` as soon as plugin close finished, which could
+  // terminate the process while a request was still being served, dropping it
+  // on every rolling deploy.
+  //
   // WebSocket caveat: Bun cannot selectively drain sockets — `stop(false)`
-  // waits for connections that never close, wedging shutdown until the 10s
-  // hard deadline. WS apps therefore `stop(true)` (terminate sockets +
-  // in-flight requests immediately); non-WS apps keep the graceful drain.
-  // With plugins: close plugin resources (DB connections, stores), then exit
-  // as soon as closing finishes. Without: rely on Bun's natural process exit
-  // once the drained event loop empties (no lingering handles), with a 10s
-  // hard deadline (unref'd, so it only fires when something is wedged — a
-  // stuck keep-alive connection must never hang a container stop forever).
+  // waits for connections that never close, wedging shutdown until the
+  // deadline. WS apps therefore `stop(true)` (terminate sockets + in-flight
+  // requests immediately); non-WS apps keep the graceful drain.
+  //
+  // Plugin resources (DB connections, stores) are closed AFTER the drain, so a
+  // handler that is still running never finds its dependency torn down.
   {
-    const drainBody = state.hasAppConfig
-      ? `  Promise.resolve()
-    .then(() => __pluginContext.closeAll())
-    .catch((__err) => console.error("[ignex] plugin close error:", __err))
-    .finally(() => process.exit(0));`
-      : `  // No plugin resources to close — let the drained event loop exit naturally.`;
     const stopArg = state.wsHandlers.length > 0 ? "true" : "false";
-    functions.push(`let __shuttingDown = false;
-const __shutdown = (__signal) => {
-  if (__shuttingDown) return;
-  __shuttingDown = true;
-  console.log("[ignex] received " + __signal + " — draining connections");
-  try { __server.stop(${stopArg}); } catch (__err) { console.error("[ignex] stop error:", __err); }
-${drainBody}
-  setTimeout(() => process.exit(0), 10000).unref?.();
-};
-process.on("SIGTERM", () => __shutdown("SIGTERM"));
-process.on("SIGINT", () => __shutdown("SIGINT"));`);
+    const closePlugins = state.hasAppConfig ? `\n  await __pluginContext.closeAll();` : "";
+    functions.push(`installGracefulShutdown(async () => {
+  await __server.stop(${stopArg});${closePlugins}
+});`);
   }
 
   functions.push(`export default __server;`);

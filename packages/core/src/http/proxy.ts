@@ -57,30 +57,39 @@ const sanitizeResponseHeaders = (headers: Headers): Headers => stripHopByHopHead
  * to the response body stream too, so a slow-drip upstream is cut at the total
  * deadline); falls back to a manual timer + `AbortController` otherwise.
  */
-const createProxySignal = (opts: ProxyOptions): AbortSignal => {
+const createProxySignal = (opts: ProxyOptions): { signal: AbortSignal; dispose: () => void } => {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const caller = opts.signal;
 
   if (typeof AbortSignal.timeout === "function") {
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    if (!caller) return timeoutSignal;
-    return typeof AbortSignal.any === "function"
-      ? AbortSignal.any([caller, timeoutSignal])
-      : timeoutSignal;
+    const signal =
+      !caller || typeof AbortSignal.any !== "function"
+        ? timeoutSignal
+        : AbortSignal.any([caller, timeoutSignal]);
+    return { signal, dispose: () => {} };
   }
 
   // Defensive fallback for runtimes without AbortSignal.timeout.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("Upstream timeout")), timeoutMs);
+  timer.unref?.();
+  let onAbort: (() => void) | undefined;
   if (caller) {
-    const onAbort = (): void => {
+    onAbort = (): void => {
       clearTimeout(timer);
       controller.abort();
     };
     if (caller.aborted) onAbort();
     else caller.addEventListener("abort", onAbort, { once: true });
   }
-  return controller.signal;
+  // Release the fallback timer + listener when the request settles, so a
+  // completed proxy call leaves no live timer behind.
+  const dispose = (): void => {
+    clearTimeout(timer);
+    if (caller && onAbort) caller.removeEventListener("abort", onAbort);
+  };
+  return { signal: controller.signal, dispose };
 };
 
 /**
@@ -143,8 +152,8 @@ export async function proxyRequest(
   target: string | URL,
   opts: ProxyOptions = {},
 ): Promise<Response> {
+  const { signal, dispose } = createProxySignal(opts);
   try {
-    const signal = createProxySignal(opts);
     const init = createProxyInit(opts, signal);
 
     const upstream = await fetch(target.toString(), init);
@@ -171,8 +180,10 @@ export async function proxyRequest(
     if (isTimeoutError(err)) {
       return createGatewayTimeout();
     }
-
+    console.error("[ignex] proxy upstream request failed:", err);
     return createBadGateway();
+  } finally {
+    dispose();
   }
 }
 

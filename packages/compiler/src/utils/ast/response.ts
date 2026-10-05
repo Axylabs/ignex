@@ -14,6 +14,7 @@
 import type { CallExpression, FunctionNode, Node } from "./ast-types";
 import { extractHandlerNodeAST } from "./handler-node";
 import { flattenMember } from "./purity";
+import { unwrapExpression } from "./unwrap";
 import { walk } from "./walk";
 
 export type InferredResponseType = "json" | "text" | "html" | "stream" | "unknown";
@@ -43,22 +44,6 @@ export function inferResponseTypeAST(ast: Node): InferredResponseType {
 
   return type;
 }
-
-/** Unwrap parens / TS type wrappers to reach the underlying expression. */
-const unwrapExpression = (node: Node): Node => {
-  let current = node;
-  while (
-    current.type === "ParenthesizedExpression" ||
-    current.type === "TSAsExpression" ||
-    current.type === "TSTypeAssertion" ||
-    current.type === "TSNonNullExpression"
-  ) {
-    const inner = (current as { expression?: Node }).expression;
-    if (!inner) break;
-    current = inner;
-  }
-  return current;
-};
 
 /** True when `node` is a direct `Response.json(...)` call. */
 export const isResponseJsonCall = (node: Node): node is CallExpression =>
@@ -95,7 +80,7 @@ export const findResponseJsonReturn = (ast: Node): CallExpression | null => {
   // Expression-bodied arrow: `() => Response.json(...)`.
   if (fn.body.type !== "BlockStatement") {
     const expr = unwrapExpression(fn.body);
-    return isResponseJsonCall(expr) ? expr : null;
+    return expr && isResponseJsonCall(expr) ? expr : null;
   }
 
   // Block-bodied: find a direct `return Response.json(...)`.
@@ -104,7 +89,7 @@ export const findResponseJsonReturn = (ast: Node): CallExpression | null => {
     if (found) return;
     if (n.type !== "ReturnStatement" || !n.argument) return;
     const expr = unwrapExpression(n.argument);
-    if (isResponseJsonCall(expr)) found = expr;
+    if (expr && isResponseJsonCall(expr)) found = expr;
   });
   return found;
 };

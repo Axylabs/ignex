@@ -14,6 +14,7 @@ import { resolveServeTls, type ServerProtocolConfig, type ServerTlsConfig } from
 import { reportPluginBootFailure } from "../platform/boot-failure";
 import { errorToResponse } from "../platform/errors";
 import { installGracefulShutdown } from "../platform/graceful-shutdown";
+import { STOP_DEADLINE_MS } from "../platform/jobs";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore } from "../types";
 import { type AppOptions, buildContextOptions } from "./app-context-options";
@@ -28,13 +29,6 @@ import { buildPostStages, buildPreStages, runLifecycle } from "./run";
 import { resolveServeLimits } from "./serve";
 
 export type { AppOptions } from "./app-context-options";
-
-/**
- * Default maximum time `IgnexApp.stop` waits for plugin `close()` hooks
- * before giving up — a stuck close (never-resolving promise, leaked socket)
- * must not hang graceful shutdown forever (matches the job-queue deadline).
- */
-const STOP_DEADLINE_MS = 5_000;
 
 /**
  * Options for {@link createApp}.
@@ -94,7 +88,12 @@ export interface IgnexApp {
   /** Start a `Bun.serve` instance backed by this handler. */
   serve(options?: ServeOptions): unknown;
   /** Run plugin `close` + `stop` hooks and close the server (draining active requests). */
-  stop(options?: { closeActive?: boolean; stopDeadlineMs?: number }): Promise<void>;
+  stop(options?: {
+    closeActive?: boolean;
+    stopDeadlineMs?: number;
+    /** Remove the signal listeners this app installed. Default `true`. */
+    disposeSignals?: boolean;
+  }): Promise<void>;
   readonly lifecycle: LifeCycleStore;
 }
 
@@ -126,7 +125,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
   // Stage chains are composed once at app creation, not per request.
   const preStages = buildPreStages(lifecycle);
   const postStages = buildPostStages(lifecycle);
-  let server: { stop(closeActive?: boolean): void } | null = null;
+  let server: { stop(closeActive?: boolean): void | Promise<void> } | null = null;
   let initialized = false;
   // Disposer for the SIGTERM/SIGINT listeners `serve()` installs; cleared by
   // an explicit `stop()` so nothing leaks onto the shared process.
@@ -285,7 +284,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
             hostname: string;
           },
         ) => {
-          stop(closeActive?: boolean): void;
+          stop(closeActive?: boolean): void | Promise<void>;
         };
       };
 
@@ -332,7 +331,11 @@ export const createApp = (options: AppOptions): IgnexApp => {
         // AOT-generated server emits the same contract inline; `bind()` is the
         // single point where exactly one server exists, so the listener is
         // installed once and never duplicated by a late async `onStart`.
-        disposeShutdown ??= installGracefulShutdown(() => app.stop());
+        // `disposeSignals: false` keeps those listeners installed through the
+        // drain, so a SECOND signal is handled by `installGracefulShutdown`
+        // (log + exit(1)) instead of falling through to the runtime's default
+        // kill — identical to the AOT bootstrap.
+        disposeShutdown ??= installGracefulShutdown(() => app.stop({ disposeSignals: false }));
         return server;
       };
 
@@ -394,11 +397,25 @@ export const createApp = (options: AppOptions): IgnexApp => {
       return bindAfterOnStart();
     },
 
-    async stop(stopOptions: { closeActive?: boolean; stopDeadlineMs?: number } = {}) {
+    async stop(
+      stopOptions: {
+        closeActive?: boolean;
+        stopDeadlineMs?: number;
+        /**
+         * Remove the `SIGTERM`/`SIGINT` listeners this app installed. Default
+         * `true` — a manual stop must never leak handlers onto the shared
+         * process. `installGracefulShutdown` passes `false` so its own
+         * second-signal/deadline contract keeps owning the drain.
+         */
+        disposeSignals?: boolean;
+      } = {},
+    ) {
       // A manual stop (tests, an embedding host) removes the signal listeners
       // it may have installed — never leak handlers onto the shared process.
-      disposeShutdown?.();
-      disposeShutdown = null;
+      if (stopOptions.disposeSignals ?? true) {
+        disposeShutdown?.();
+        disposeShutdown = null;
+      }
       const hooks = [...lifecycle.stop, ...(options.onStop ? [options.onStop] : [])];
       // Run every stop hook even if one throws, so closeAll() always runs and
       // resources (stores, intervals, connections) are not leaked.
@@ -411,7 +428,12 @@ export const createApp = (options: AppOptions): IgnexApp => {
       for (const r of results) {
         if (r.status === "rejected") console.error("[ignex] stop hook failed:", r.reason);
       }
-      server?.stop(stopOptions.closeActive ?? false);
+      // Await the drain: `server.stop(false)` resolves once in-flight requests
+      // have finished (idle keep-alive sockets do not hold it open), so
+      // resources close only after the last request is served — the same
+      // ordering the AOT bootstrap emits. A closeActive stop resolves
+      // immediately, so this adds no latency to a forced stop.
+      if (server) await server.stop(stopOptions.closeActive ?? false);
       server = null;
       // Plugin close() must never hang graceful shutdown forever: give it a
       // hard deadline and resolve anyway (matches the job-queue stop deadline).

@@ -7,8 +7,9 @@
 /**
  * Default maximum time `stop()` waits for in-flight tasks to settle before
  * giving up (a never-resolving task must not hang graceful shutdown forever).
+ * Shared by the in-process queue, the durable queue and `IgnexApp.stop`.
  */
-const STOP_DEADLINE_MS = 5_000;
+export const STOP_DEADLINE_MS = 5_000;
 
 /** Options for {@link createJobQueue}. */
 export interface JobQueueOptions {
@@ -75,7 +76,10 @@ export const withRetry =
       } catch (error) {
         attempt += 1;
         if (attempt > retries) throw error;
-        await new Promise((resolve) => setTimeout(resolve, backoffMs * 2 ** (attempt - 1)));
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, backoffMs * 2 ** (attempt - 1));
+          timer.unref?.();
+        });
       }
     }
   };
