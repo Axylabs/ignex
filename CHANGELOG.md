@@ -110,7 +110,9 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   waiting out the deadline; a bind conflict exits `1` with an actionable
   classified report; a crashing handler returns the generic envelope with no
   message leak and the process keeps serving under repeated failures; and a
-  sequential client session reuses one keep-alive connection.
+  sequential client session reuses one keep-alive connection. (The two
+  signal-driven journeys are POSIX-only — Windows `kill` terminates outright
+  and never runs the handler.)
   `packages/app/test/ws-e2e.test.ts` gains a full socket lifecycle journey
   (open → ordered echo → clean `1000` close → reconnect, proving the
   connection slot is released). `packages/core/test/process-guards.test.ts`

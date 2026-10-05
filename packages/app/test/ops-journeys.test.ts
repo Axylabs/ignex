@@ -30,6 +30,16 @@ import { type BootedServer, bootServer } from "./helpers/boot";
 
 const OPS_FIXTURE = fileURLToPath(new URL("./fixtures/ops", import.meta.url));
 
+/**
+ * POSIX signals are only *deliverable as signals* on POSIX. On Windows
+ * `process.kill(pid, "SIGTERM")` terminates the target outright — the handler
+ * never runs — so the graceful-drain contract cannot be exercised there (the
+ * same reason a Windows container must rely on the orchestrator's own grace
+ * period). The signal-driven journeys are therefore POSIX-only; everything
+ * else in this file is platform-independent.
+ */
+const SIGNALS_DELIVERABLE = process.platform !== "win32";
+
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Poll a child's exit code (null when it has not exited within the deadline). */
@@ -80,44 +90,46 @@ beforeAll(async () => {
 afterAll(() => srv?.close());
 
 describe("operational journeys (compiled server)", () => {
-  it("drains an in-flight request on SIGTERM, then exits 0", async () => {
-    const target = await bootServer(OPS_FIXTURE, { protocol: "http" });
-    try {
-      // `/slow` sleeps 250ms — start it, let it begin serving, then stop.
-      const inflight = fetch(`${target.base}/slow`);
-      await delay(80);
-      target.proc.kill("SIGTERM");
+  describe.runIf(SIGNALS_DELIVERABLE)("signal-driven drain (POSIX)", () => {
+    it("drains an in-flight request on SIGTERM, then exits 0", async () => {
+      const target = await bootServer(OPS_FIXTURE, { protocol: "http" });
+      try {
+        // `/slow` sleeps 400ms — start it, let it begin serving, then stop.
+        const inflight = fetch(`${target.base}/slow`);
+        await delay(80);
+        target.proc.kill("SIGTERM");
 
-      // The whole point: a rolling deploy must not drop this request.
-      const res = await inflight;
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ slow: true });
+        // The whole point: a rolling deploy must not drop this request.
+        const res = await inflight;
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ slow: true });
 
-      // …and the process reports a CLEAN exit once the drain completes.
-      expect(await waitForExit(target.proc)).toBe(0);
-    } finally {
-      target.proc.kill("SIGKILL");
-    }
-  });
+        // …and the process reports a CLEAN exit once the drain completes.
+        expect(await waitForExit(target.proc)).toBe(0);
+      } finally {
+        target.proc.kill("SIGKILL");
+      }
+    });
 
-  it("forces exit(1) on a second signal while draining", async () => {
-    const target = await bootServer(OPS_FIXTURE, { protocol: "http" });
-    try {
-      // A request that is still running when the drain starts.
-      const inflight = fetch(`${target.base}/slow`).catch(() => null);
-      await delay(60);
+    it("forces exit(1) on a second signal while draining", async () => {
+      const target = await bootServer(OPS_FIXTURE, { protocol: "http" });
+      try {
+        // A request that is still running when the drain starts.
+        const inflight = fetch(`${target.base}/slow`).catch(() => null);
+        await delay(60);
 
-      target.proc.kill("SIGTERM");
-      await delay(30);
-      // An operator (or an orchestrator) sending a second stop must not wait
-      // out the deadline — one wedged request may not hold the deploy.
-      target.proc.kill("SIGTERM");
+        target.proc.kill("SIGTERM");
+        await delay(30);
+        // An operator (or an orchestrator) sending a second stop must not wait
+        // out the deadline — one wedged request may not hold the deploy.
+        target.proc.kill("SIGTERM");
 
-      expect(await waitForExit(target.proc)).toBe(1);
-      await inflight;
-    } finally {
-      target.proc.kill("SIGKILL");
-    }
+        expect(await waitForExit(target.proc)).toBe(1);
+        await inflight;
+      } finally {
+        target.proc.kill("SIGKILL");
+      }
+    });
   });
 
   it("reports an actionable failure and exits 1 when the port is already in use", async () => {
