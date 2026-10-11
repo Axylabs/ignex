@@ -120,21 +120,26 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
-- **Five dependency advisories cleared — `bun audit --audit-level=high` is clean
-  again.** The CI audit gate caught them on the first push after they published:
-  critical `proxy-addr@2.0.7` (IP spoofing via an IPv4-mapped IPv6 trust subnet,
-  GHSA-jqcg-44mw-7w3h) and critical `seroval@1.5.6` (`fromJSON()` thenable
-  assimilation bypasses the plugin guard, GHSA-p6vx-979v-rg4c), plus high
-  `@modelcontextprotocol/sdk@1.30.0` (OAuth client could send credentials to an
-  authorization server chosen by the MCP server, GHSA-6qxp-vccf-f47h), high
-  `seroval` (memory exhaustion via an unchecked TypedArray length) and high
-  `source-map-js@1.2.1` (event-loop DoS via indexed source-map section offsets).
+- **Six dependency advisories cleared — both supply-chain gates are green
+  again.** The CI audit gate caught five of them (2 critical, 3 high) on the
+  first push after they published: critical `proxy-addr@2.0.7` (IP spoofing via
+  an IPv4-mapped IPv6 trust subnet, GHSA-jqcg-44mw-7w3h) and critical
+  `seroval@1.5.6` (`fromJSON()` thenable assimilation bypasses the plugin guard,
+  GHSA-p6vx-979v-rg4c), plus high `@modelcontextprotocol/sdk@1.30.0` (OAuth
+  client could send credentials to an authorization server chosen by the MCP
+  server, GHSA-6qxp-vccf-f47h), high `seroval` (memory exhaustion via an
+  unchecked TypedArray length) and high `source-map-js@1.2.1` (event-loop DoS
+  via indexed source-map section offsets). The sixth — medium
+  `smol-toml@1.8.0` (GHSA-r4xh-jqrq-34v2) through `knip` — is below the audit
+  gate's `--audit-level=high`, so it was the OSV scan (unfiltered, fail-on-any)
+  that caught it; both gates are now clean, and the two gates are deliberately
+  not redundant.
   The two direct bumps are `@modelcontextprotocol/sdk` → `1.32.1`
   (`packages/mcp`) and `solid-js` → `1.9.17` (`packages/core`, a devDependency
   whose `~1.6.8` range is what pulls `seroval`/`seroval-plugins` onto the fixed
-  line); `proxy-addr` → `2.0.8` and `source-map-js` → `1.2.2` re-resolved inside
-  their parents' existing ranges, so no `overrides` entry was needed. The Solid
-  bump changes the compiled dashboard bundle, so
+  line); `proxy-addr` → `2.0.8`, `source-map-js` → `1.2.2` and `smol-toml` →
+  `1.9.1` re-resolved inside their parents' existing ranges, so no `overrides`
+  entry was needed. The Solid bump changes the compiled dashboard bundle, so
   `packages/core/src/debug/dashboard-client.gen.ts` is regenerated with
   `bun run gen:debug-ui` (and `check:debug-ui` guards it).
 - **`bun audit --audit-level=high` is clean again.** A newly published advisory
