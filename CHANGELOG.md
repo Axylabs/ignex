@@ -120,6 +120,23 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Five dependency advisories cleared — `bun audit --audit-level=high` is clean
+  again.** The CI audit gate caught them on the first push after they published:
+  critical `proxy-addr@2.0.7` (IP spoofing via an IPv4-mapped IPv6 trust subnet,
+  GHSA-jqcg-44mw-7w3h) and critical `seroval@1.5.6` (`fromJSON()` thenable
+  assimilation bypasses the plugin guard, GHSA-p6vx-979v-rg4c), plus high
+  `@modelcontextprotocol/sdk@1.30.0` (OAuth client could send credentials to an
+  authorization server chosen by the MCP server, GHSA-6qxp-vccf-f47h), high
+  `seroval` (memory exhaustion via an unchecked TypedArray length) and high
+  `source-map-js@1.2.1` (event-loop DoS via indexed source-map section offsets).
+  The two direct bumps are `@modelcontextprotocol/sdk` → `1.32.1`
+  (`packages/mcp`) and `solid-js` → `1.9.17` (`packages/core`, a devDependency
+  whose `~1.6.8` range is what pulls `seroval`/`seroval-plugins` onto the fixed
+  line); `proxy-addr` → `2.0.8` and `source-map-js` → `1.2.2` re-resolved inside
+  their parents' existing ranges, so no `overrides` entry was needed. The Solid
+  bump changes the compiled dashboard bundle, so
+  `packages/core/src/debug/dashboard-client.gen.ts` is regenerated with
+  `bun run gen:debug-ui` (and `check:debug-ui` guards it).
 - **`bun audit --audit-level=high` is clean again.** A newly published advisory
   (GHSA-vfj7-8cjw-p6xm — `braces` ≤3.0.3 stack-exhaustion DoS) has **no
   published fix** and reached the tree through `@tailwindcss/cli` →
@@ -127,8 +144,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `@parcel/watcher` to exactly `2.5.1`, but `2.6.0` replaces `micromatch` with
   `picomatch` and drops the vulnerable path entirely — a root `overrides` entry
   now pins `2.6.0`, so the advisory is *removed* rather than allowlisted with
-  `--ignore`. The debug-UI build is byte-identical under the new watcher (a real
-  `gen:debug-ui` run leaves the hash at `c7d85e7a371890f0`), which
+  `--ignore`. The debug-UI build was byte-identical under the new watcher (a real
+  `gen:debug-ui` run left the hash unchanged at the time), which
   `check:debug-ui` guards.
 
 ### Fixed
