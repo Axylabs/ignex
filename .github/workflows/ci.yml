@@ -33,13 +33,24 @@ env:
   # keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
   CASTRUM_REF: 5b9d445ca1a7353b0fd19c3db2ba5708e1e871e9
 
+# Linux jobs run on a PINNED image label (`ubuntu-24.04`), never
+# `ubuntu-latest`: GitHub starts migrating the `ubuntu-latest` alias to Ubuntu 26
+# on 2026-10-19 (actions/runner-images#14748), which would change the runner
+# class underneath the machine-sensitive `server-bench` gate — its committed
+# `bench/results/server/baseline.json` is only meaningful for ONE runner class
+# (see the job comment below). macOS/Windows stay on `-latest`: those are
+# forward-compatibility lanes (allow-listed via `continue-on-error`), where a new
+# image is signal, not noise. Moving Linux to Ubuntu 26 is therefore a
+# deliberate two-step: bump the label here and in nightly.yml, then re-baseline
+# from a CI run on the new image (`bun run bench:server:check --update-baseline`).
+
 jobs:
   # Fast, dependency-free gate: fail on any tracked file containing a likely
   # credential (npm/GitHub/AWS tokens, PEM private keys). Runs before install —
   # the scanner uses only `git ls-files` + `git show` (see scripts/scan-secrets.ts).
   secret-scan:
     name: Secret scan (no credentials in tracked files)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -63,7 +74,7 @@ jobs:
   # upload for the GitHub Security tab. Mirrors castrum's supply-chain job.
   supply-chain:
     name: Supply-chain scan (OSV)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -94,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -234,8 +245,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    continue-on-error: ${{ !startsWith(matrix.os, 'ubuntu') }}
     steps:
       - name: Checkout ignex
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -304,7 +315,7 @@ jobs:
   # (re-measured ~2% on 2026-08-19), so the perf regression gate can fail CI again.
   server-bench:
     name: Server bench gate (real addon)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout ignex

@@ -133,6 +133,13 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The last oxlint warning is suppressed where it applies.** The deliberate
+  thenable fixture in `packages/core/test/lifecycle-fused.test.ts` stacked an
+  `eslint-disable-next-line` directly above a `biome-ignore` comment, so the
+  oxlint directive pointed at Biome's comment rather than at the `then`
+  property and `unicorn(no-thenable)` leaked into CI as an annotation on every
+  lane. The oxlint suppression is now scoped to the fixture, which both engines
+  respect.
 - **Graceful shutdown no longer drops in-flight requests.** The generated
   bootstrap started `close plugin resources` concurrently with the drain and
   called `process.exit(0)` the moment it finished — terminating the process
@@ -202,6 +209,30 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **CI pins its runner image. Linux lanes now run on `ubuntu-24.04`.** GitHub
+  starts migrating the `ubuntu-latest` alias to Ubuntu 26 on 2026-10-19
+  (`actions/runner-images` #14748), which would have swapped the runner class
+  underneath the machine-sensitive `server-bench` gate — the committed
+  `bench/results/server/baseline.json` is only valid for one runner class, so the
+  gate could have started failing (or, worse, passing) for reasons that have
+  nothing to do with the code. macOS/Windows stay on `-latest`: they are
+  allow-listed forward-compatibility lanes, where a new image is signal rather
+  than noise. To move Linux to Ubuntu 26: bump the label in both workflows and
+  re-baseline from a run on the new image.
+- **The CI Node 20 action pins are gone, and the gap that caused them is
+  documented.** `actions/cache` (v4 → v6.1.0) and `actions/checkout` (v4 →
+  v7.0.1) inside the `.github/actions/**` composites were the source of CI's
+  "Node.js 20 is deprecated" warnings. Dependabot's `github-actions` updates only
+  rewrite `.github/workflows/*.yml`, so `.github/dependabot.yml` now records that
+  the composite-action pins are bumped by hand.
+- **The broken Dependabot `bun` update job is disabled.** Dependabot's bun
+  support only parses `bun.lock` with `lockfileVersion <= 1`, while Bun 1.2+ (this
+  workspace runs 1.4.x) writes 2 — every scheduled run died in the file parser
+  with "Unsupported bun.lock 'lockfileVersion' 2" and opened no PRs. JS
+  dependency updates are therefore manual: `bun update [<pkg>]`, then
+  `bun run verify`, committing `bun.lock` with the bump (an `npm`-ecosystem entry
+  would ignore the lockfile and leave it out of sync with CI's
+  `--frozen-lockfile`).
 - **⚠️ The debug/observatory toolkit left the `@ignex/core` root surface.**
   `export * from "./publ/debug"` is removed and `packages/core/src/publ/debug.ts`
   is deleted; those primitives are served only from the `@ignex/core/debug`

@@ -12,8 +12,11 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # Same pin as the workflows (Node 24 runtime; `# v4` here was the other half
+    # of CI's "Node.js 20 is deprecated" warning) — see the note in
+    # `ci-setup/action.yml` on why this file is not maintained by Dependabot.
     - name: Checkout castrum (pinned revision)
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         # Never the floating default branch — see the CASTRUM_REF comment in the
         # workflows for the bump procedure.

@@ -85,13 +85,20 @@ describe("runFusedPost", () => {
 describe("fused vs runtime parity", () => {
   // Minimal PromiseLike whose `then` returns a real Promise — the shape the
   // runtime's plugin containers require (they chain `.then` off the result).
+  //
+  // Both linters police the fixture and both use *next-line* suppression
+  // semantics, so their directives cannot be stacked above `then`: the oxlint
+  // one would target Biome's comment instead of the property (which is how this
+  // line kept surfacing as a CI annotation). Scope the oxlint directive to the
+  // fixture and leave Biome's adjacent to the property.
+  /* eslint-disable unicorn/no-thenable */
   const thenableOf = (value: unknown): PromiseLike<unknown> => ({
-    // eslint-disable-next-line unicorn/no-thenable
     // biome-ignore lint/suspicious/noThenProperty: deliberate PromiseLike fixture — proves the fused runners await any thenable like the runtime
     then(resolve: (v: unknown) => unknown) {
       return Promise.resolve(value).then(resolve);
     },
   });
+  /* eslint-enable unicorn/no-thenable */
 
   describe("sync plugin set", () => {
     const syncPlugins = [

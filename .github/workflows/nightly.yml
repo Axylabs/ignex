@@ -41,10 +41,14 @@ env:
   # binding (`getIngressBinding`).
   CASTRUM_REF: 5b9d445ca1a7353b0fd19c3db2ba5708e1e871e9
 
+# Linux jobs pin the runner image label (`ubuntu-24.04`, not `ubuntu-latest`) so
+# a GitHub image migration cannot silently change the machine under the perf
+# gate — see the rationale block in ci.yml; keep the two files in step.
+
 jobs:
   native-parity:
     name: Native parity + C-ABI (plain Bun)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout ignex
@@ -74,7 +78,7 @@ jobs:
 
   malformed-input-fuzz:
     name: Malformed-input fuzz (JS side)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout ignex
@@ -95,7 +99,7 @@ jobs:
 
   perf-regression:
     name: Perf regression vs committed baseline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout ignex
@@ -133,7 +137,7 @@ jobs:
     # boot/teardown. That is far too much runner time to spend daily, so the job
     # never runs on the schedule; use `bun run bench:compare:soak` locally.
     if: ${{ inputs.run_soak == true }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - name: Checkout

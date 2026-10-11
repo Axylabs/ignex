@@ -8,7 +8,10 @@
 #
 # GitHub Actions are pinned by commit SHA in the workflows — Dependabot is what
 # keeps those SHAs current, so this entry matters for the secret-scan/supply-chain
-# jobs themselves.
+# jobs themselves. It only rewrites `.github/workflows/*.yml`: the pins inside
+# `.github/actions/**` (the `ci-setup` / `native-prep` composites) are NOT
+# covered, so bump those by hand (they once sat on the deprecated Node 20 runtime
+# for months because of it).
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -20,17 +23,21 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Bun is the workspace package manager (`bun.lock`), so use the `bun`
-  # ecosystem — an `npm` entry would look for `package-lock.json` and find none.
-  - package-ecosystem: "bun"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      production:
-        dependency-type: "production"
-        patterns: ["*"]
-      development:
-        dependency-type: "development"
-        patterns: ["*"]
+  # NO `bun` entry on purpose — it cannot work today.
+  #
+  # Dependabot's bun updater only understands `bun.lock` files with
+  # `lockfileVersion` <= 1, while Bun 1.2+ (the workspace requires >= 1.4, see
+  # root `engines.bun`) writes `lockfileVersion: 2`. Every scheduled run
+  # therefore died in the file parser and produced no PRs at all:
+  #
+  #   Unsupported bun.lock 'lockfileVersion' 2 in /bun.lock.
+  #   The bun version Dependabot runs supports up to 1.
+  #
+  # (visible as the failing "bun in /. - Update …" jobs of the Dependabot
+  # workflow). An `npm`-ecosystem entry is NOT a substitute: it ignores
+  # `bun.lock`, would rewrite only the `package.json` ranges, and leave the
+  # lockfile out of sync — which CI's `bun install --frozen-lockfile` rejects.
+  # Re-add this entry only once Dependabot parses lockfileVersion 2; until then
+  # JS dependency updates are manual: `bun update [<pkg>]`, then `bun run
+  # verify` (the `verify` chain is what catches a lockfile/`api-surface` drift)
+  # and commit the lockfile with the bump.
