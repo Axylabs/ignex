@@ -9,6 +9,9 @@
  */
 
 export { generateOpenAPI } from "./pipeline";
+// Shared with the compiler: `ignex sdk` reads the same manifest paths, and a
+// private copy there drifted from this rule once already.
+export { toOpenApiPath } from "./schema";
 export type {
   OpenAPIDocument,
   OpenAPIInfo,

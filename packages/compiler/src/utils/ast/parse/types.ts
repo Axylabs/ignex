@@ -21,6 +21,8 @@ export interface ParseResult {
   readonly wrappedHandler: boolean;
   /** The route schema declares route-local `before`/`after` chains. */
   readonly localHooks: boolean;
+  /** Statically-readable keys of the route schema object literal, if known. */
+  readonly schemaParts?: readonly string[];
   readonly handler: ExtractedHandler | null;
   readonly config?: Record<string, unknown>;
   /** RBAC guards from a `withGuards(handler, guards)` route wrapper. */

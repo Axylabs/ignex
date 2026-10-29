@@ -30,6 +30,7 @@ import {
   validateIpv4,
   validateUuid,
 } from "../packages/native/src/index";
+import { opsPerSec } from "./lib/throughput";
 
 const MODE = isNativeAvailable() ? "NATIVE" : "FALLBACK";
 console.log(
@@ -55,17 +56,6 @@ const sseData = `line0 ${bigChunk}\nline1 ${bigChunk}`;
 const enc = new TextEncoder();
 
 /** Measure ops/sec for a synchronous fn (warmup + timed loop). */
-function opsPerSec(fn: () => void, durationMs = 250): number {
-  for (let i = 0; i < 1_000; i++) fn(); // warmup
-  const start = performance.now();
-  let count = 0;
-  while (performance.now() - start < durationMs) {
-    fn();
-    count++;
-  }
-  return count / ((performance.now() - start) / 1000);
-}
-
 function report(name: string, native: () => void, fallback: () => void): void {
   const n = opsPerSec(native);
   const f = opsPerSec(fallback);

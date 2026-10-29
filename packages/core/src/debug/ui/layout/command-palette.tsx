@@ -112,7 +112,7 @@ export const CommandPalette = (props: CommandPaletteProps): JSX.Element => {
     const list = filtered();
     if (list.length === 0) return;
     const current = list.findIndex((cmd) => cmd.id === activeId());
-    const next = ((current < 0 ? 0 : current) + delta + list.length) % list.length;
+    const next = (Math.max(current, 0) + delta + list.length) % list.length;
     setActiveId(list[next]?.id ?? null);
   };
 

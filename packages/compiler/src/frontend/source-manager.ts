@@ -100,6 +100,8 @@ export class SourceManager {
       localHooks: parsed.localHooks,
       handler: parsed.handler,
 
+      ...(parsed.schemaParts !== undefined ? { schemaParts: parsed.schemaParts } : {}),
+
       ...(parsed.handlerExportName !== undefined
         ? { handlerExportName: parsed.handlerExportName }
         : {}),

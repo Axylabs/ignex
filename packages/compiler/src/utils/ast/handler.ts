@@ -31,6 +31,8 @@ export type { ExtractedHandler };
 // `./constant`) — that pair used to be an import cycle.
 export { extractHandlerNodeAST, HANDLER_WRAPPERS, HTTP_WRAPPERS, unwrapHandlerFunction };
 
+import { pickNamedHandler } from "./handler-node";
+
 /** True when `node` is a recognized route-handler wrapper call. */
 const isHandlerWrapperCall = (node: Node): boolean =>
   node.type === "CallExpression" &&
@@ -216,8 +218,12 @@ export const extractRouteGuardsAST = (ast: Program): RouteGuards | undefined => 
     }
     if (n.type === "ExportNamedDeclaration" && n.declaration?.type === "VariableDeclaration") {
       for (const d of n.declaration.declarations || []) {
-        if (d.init && isHandlerInitNode(d.init)) {
-          guards = extractGuardsFromInitWithBefore(d.init);
+        if (!d.init || !isHandlerInitNode(d.init)) continue;
+        // A helper export (`export const helper = (x) => …`) shapes like a
+        // handler but carries no guards; keep scanning for the real one.
+        const found = extractGuardsFromInitWithBefore(d.init);
+        if (found) {
+          guards = found;
           return;
         }
       }
@@ -307,38 +313,14 @@ export function extractHandlerExport(source: string, ast: Program): ExtractedHan
     }
   }
 
-  // Priority 2: named handler export.
-  let found: ExtractedHandler | null = null;
-  walk(ast, (n) => {
-    if (found) return;
-    if (n.type !== "ExportNamedDeclaration") return;
-
-    if (n.declaration?.type === "VariableDeclaration") {
-      for (const d of n.declaration.declarations || []) {
-        const name = bindingName(d.id);
-        if (!name || !d.init) continue;
-        const extracted = extractHandlerFunction(d.init);
-        if (extracted) {
-          found = buildExtractedHandler(source, extracted.fn, extracted.isAsync, "named", name);
-          return;
-        }
-      }
-    } else if (n.declaration?.type === "FunctionDeclaration" && n.declaration.id?.name) {
-      const extracted = extractHandlerFunction(n.declaration);
-      if (extracted) {
-        found = buildExtractedHandler(
-          source,
-          extracted.fn,
-          extracted.isAsync,
-          "named",
-          n.declaration.id.name,
-        );
-        return;
-      }
-    }
-  });
-
-  return found;
+  // Priority 2: named handler export (wrapper call first — see
+  // `pickNamedHandler`).
+  const candidate = pickNamedHandler(ast);
+  if (!candidate) return null;
+  const extracted = extractHandlerFunction(candidate.node);
+  return extracted
+    ? buildExtractedHandler(source, extracted.fn, extracted.isAsync, "named", candidate.name)
+    : null;
 }
 
 /**
@@ -380,24 +362,5 @@ export function hasHandlerExportAST(ast: Program): boolean {
  */
 export function extractHandlerExportName(ast: Program): string | undefined {
   if (hasDefaultExportAST(ast)) return undefined;
-
-  let name: string | undefined;
-  walk(ast, (n) => {
-    if (name !== undefined) return;
-    if (n.type !== "ExportNamedDeclaration") return;
-
-    if (n.declaration?.type === "VariableDeclaration") {
-      for (const d of n.declaration.declarations || []) {
-        const idName = bindingName(d.id);
-        if (idName && d.init && isHandlerInitNode(d.init)) {
-          name = idName;
-          return;
-        }
-      }
-    } else if (n.declaration?.type === "FunctionDeclaration" && n.declaration.id?.name) {
-      name = n.declaration.id.name;
-      return;
-    }
-  });
-  return name;
+  return pickNamedHandler(ast)?.name;
 }

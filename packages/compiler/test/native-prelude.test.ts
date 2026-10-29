@@ -9,22 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout, extra: Record<string, unknown> = {}) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-  ...extra,
-});
+import { baseOptions, fixturePath, materializeFixture } from "./helpers";
 
 describe("per-route native prelude (nativeRoutes)", () => {
   it("emits a createNativeRoute plan + native query prelude when enabled", async () => {

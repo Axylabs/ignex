@@ -113,7 +113,60 @@ interface ExportFlags {
   wrappedHandler: boolean;
   /** The route schema declares route-local `before`/`after` chains. */
   localHooks: boolean;
+  /**
+   * Keys of a statically-known route schema object literal (`query`, `body`,
+   * `params`, `headers`, `cookie`, `response`, `before`, …). Lets codegen
+   * decide whether a query schema exists even when schema evaluation is
+   * unavailable (e.g. an unresolved import), instead of assuming every part
+   * is present and shadowing `ctx.query` with a grouped Record.
+   */
+  schemaParts?: string[];
 }
+
+/**
+ * Statically readable keys of a schema object literal, if it is one.
+ *
+ * Returns `undefined` — i.e. "unknown, stay conservative" — when the literal
+ * contains a spread or a computed key: a partial key list would make codegen
+ * skip a real `query`/`body`/`params` part and silently drop validation.
+ */
+const schemaObjectKeys = (arg: Node | null | undefined): string[] | undefined => {
+  if (arg?.type !== "ObjectExpression") return undefined;
+  const keys: string[] = [];
+  for (const prop of arg.properties ?? []) {
+    if (prop.type !== "Property" || !prop.key) return undefined;
+    const key = prop.key;
+    const name =
+      key.type === "Identifier" ? key.name : key.type === "Literal" ? String(key.value) : undefined;
+    if (name === undefined) return undefined;
+    keys.push(name);
+  }
+  return keys;
+};
+
+/**
+ * Apply a handler-shaped initializer's contribution to the classification
+ * flags. Shared by the default and named export paths — a named
+ * `export const httpGet = get(handler, { before: [...] })` must emit the same
+ * route-local hook chain as the default-export form. Missing this for named
+ * exports silently dropped `before`/`after` chains (guards never ran).
+ */
+const applyHandlerInit = (init: Node | null | undefined, flags: ExportFlags): void => {
+  if (init?.type !== "CallExpression" || !isHandlerInitNode(init)) return;
+  if (isSchemaArg(init.arguments?.[1])) flags.schemaExport = true;
+  // A wrapper call (`withGuards(...)`, not an HTTP helper) may attach
+  // route-local hooks at runtime — record it for codegen + hoist gating.
+  const callee = init.callee?.type === "Identifier" ? init.callee.name : "";
+  if (!HTTP_WRAPPERS.has(callee)) flags.wrappedHandler = true;
+  const schemaArg = init.arguments?.[1];
+  if (schemaArg?.type === "ObjectExpression") {
+    const parts = schemaObjectKeys(schemaArg);
+    if (parts !== undefined) flags.schemaParts = parts;
+    // Route-local before/after declared in the schema object (the first-class
+    // guard array) — drives the compiled hook chain.
+    if (schemaHasLocalHooks(schemaArg)) flags.localHooks = true;
+  }
+};
 
 /** Apply a default export's contribution to the classification flags. */
 const applyDefaultExport = (
@@ -125,19 +178,7 @@ const applyDefaultExport = (
   // module (route files are expected to default-export a handler).
   flags.hasHandlerExport = true;
   // Schema-first HTTP: `export default get(handler, { … })`.
-  if (decl?.type === "CallExpression" && isHandlerInitNode(decl)) {
-    if (isSchemaArg(decl.arguments?.[1])) flags.schemaExport = true;
-    // A wrapper call (`withGuards(...)`, not an HTTP helper) may attach
-    // route-local hooks at runtime — record it for codegen + hoist gating.
-    const callee = decl.callee?.type === "Identifier" ? decl.callee.name : "";
-    if (!HTTP_WRAPPERS.has(callee)) flags.wrappedHandler = true;
-    // Route-local before/after declared in the schema object (the
-    // first-class guard array) — drives the compiled hook chain.
-    const schemaArg = decl.arguments?.[1];
-    if (schemaArg?.type === "ObjectExpression" && schemaHasLocalHooks(schemaArg)) {
-      flags.localHooks = true;
-    }
-  }
+  applyHandlerInit(decl, flags);
 };
 
 /** Apply a variable-declaration export's contribution to the flags. */
@@ -153,6 +194,9 @@ const applyVariableDeclarations = (
     if (name === "config") flags.configExport = true;
     if (isHandlerInitNode(init)) flags.hasHandlerExport = true;
     if (hasSchemaSecondArg(init)) flags.schemaExport = true;
+    // Named handler exports carry the same route-local hook chains as the
+    // default-export form (`export const httpGet = get(handler, { before })`).
+    applyHandlerInit(init, flags);
   }
 };
 

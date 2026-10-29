@@ -29,6 +29,7 @@ import {
   jwtVerifyEdDsa,
   jwtVerifyEdDsaFallback,
 } from "../packages/native/src/index";
+import { opsPerSec, opsPerSecAsync } from "./lib/throughput";
 
 const enc = new TextEncoder();
 const b64url = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
@@ -38,30 +39,6 @@ function median(nums: number[]): number {
   const s = [...nums].sort((a, b) => a - b);
   const mid = s.length >> 1;
   return s.length % 2 ? (s[mid] as number) : ((s[mid - 1] as number) + (s[mid] as number)) / 2;
-}
-
-/** Ops/sec for a SYNC fn (warmup + timed loop). */
-function opsPerSecSync(fn: () => unknown, durationMs = 250): number {
-  for (let i = 0; i < 1_000; i++) fn();
-  const start = performance.now();
-  let count = 0;
-  while (performance.now() - start < durationMs) {
-    fn();
-    count++;
-  }
-  return count / ((performance.now() - start) / 1000);
-}
-
-/** Ops/sec for an ASYNC fn (warmup + await-per-op throughput loop). */
-async function opsPerSecAsync(fn: () => Promise<unknown>, durationMs = 250): Promise<number> {
-  for (let i = 0; i < 500; i++) await fn();
-  const start = performance.now();
-  let count = 0;
-  while (performance.now() - start < durationMs) {
-    await fn();
-    count++;
-  }
-  return count / ((performance.now() - start) / 1000);
 }
 
 // ── Fixtures ────────────────────────────────────────────────────
@@ -154,7 +131,7 @@ async function measureRow(row: Row): Promise<number> {
   const samples: number[] = [];
   for (let t = 0; t < TRIALS; t++) {
     if (row.async) samples.push(await opsPerSecAsync(row.async));
-    else if (row.sync) samples.push(opsPerSecSync(row.sync));
+    else if (row.sync) samples.push(opsPerSec(row.sync));
   }
   return median(samples);
 }

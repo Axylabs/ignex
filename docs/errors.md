@@ -60,6 +60,62 @@ export default get(async (ctx) => {
 wins. Every class also takes `{ code, kind, retryable, hint, detail, details,
 cause }` — `hint` and `detail` are **operator-only** and never sent to a client.
 
+### Domain errors: declare once, no mapper, no `try/catch`
+
+A service that throws its own error class does not need an adapter layer. Declare
+the class with {@link defineError} and it *is* an HTTP answer — the boundary
+already maps it, in both the compiled and the interpreted server:
+
+```ts
+// src/modules/billing/errors.ts
+import { defineError } from "@ignex/core";
+
+// NOT_FOUND → 404, FORBIDDEN → 403, INVALID_STATE → 409 by convention.
+export const BillingError = defineError("BillingError");
+```
+
+```ts
+// src/modules/billing/service.ts
+throw new BillingError("invoice not found", "NOT_FOUND");
+//           status 404 · code NOT_FOUND · message verbatim
+```
+
+```ts
+// src/routes/invoices/[id].get.ts — nothing to catch
+export default get(async (ctx) => ctx.json(await loadInvoice(ctx.params.id)));
+```
+
+The conventional table covers the codes applications actually use
+(`NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED`, `INVALID_CREDENTIALS`, `DUPLICATE`,
+`ALREADY_*`, `INVALID_STATE` / `INVALID_STATUS` / `INVALID_TRANSITION`, `GONE`,
+`EXPIRED`, `LOCKED`, `ATTEMPTS_EXCEEDED` / `RATE_LIMITED`). Everything else is a
+one-entry override, and only the unusual codes need configuring:
+
+```ts
+export const CeremonyError = defineError("CeremonyError", {
+  codes: { VENUE_CONFLICT: 409, QUOTA_EXCEEDED: 413 },
+  fallbackStatus: 422, // any other code
+});
+```
+
+| Option | Effect |
+| --- | --- |
+| `codes` | status per domain code (wins over the convention) |
+| `fallbackStatus` | status for a code in neither map (default `400`) |
+| `prefix` | opt-in code namespace: `prefix: "BILLING"` sends `BILLING_NOT_FOUND`; unset (the default) sends the domain code itself, so `error.code === "NOT_FOUND"` keeps working inside your services |
+| `code` | one fixed client code for every domain code (`code: "ACCESS_DENIED"`) |
+| `codeNames` | per-code client-code overrides (`{ DUPLICATE: "CONTACT_DUPLICATE" }`) |
+| `messages` | per-code client message (default: the constructor message) |
+| `origin` | fault-taxonomy origin for reports (default `request`) |
+
+`new BillingError(message, code, details?)` exposes the raw code at
+`error.domainCode` and the wire code at `error.code` (the same value unless the
+module opts into a `prefix`), plus the mapped `error.status`. A single-code
+error can declare `defaultCode` and be thrown as `new QrError("bad")`.
+
+Use `createErrorMapper` only for errors you cannot change (a driver, a
+third-party SDK): it maps foreign throws at the boundary you choose.
+
 ## The taxonomy
 
 Two fields describe every fault, and they are what turns "500 Internal Server

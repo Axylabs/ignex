@@ -112,6 +112,50 @@ describe("compiler features", () => {
     expect(healthWarning).toBeUndefined();
   });
 
+  it("does not re-run the response pipeline for an error thrown by it", async () => {
+    const { routesDir, outDir } = materializeFixture("basic");
+    const result = await buildAsync({
+      routesDir,
+      outDir,
+      outFile: "server.js",
+      incremental: false,
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.code).toContain("let __postRan = false;");
+    expect(result.code).toContain("return __handleError(err, ctx, __postRan);");
+    expect(result.code).toContain("if (ctx && !postRan) {");
+  });
+
+  it("runs the response pipeline (plugin onResponse) for error responses", async () => {
+    const { routesDir, outDir } = materializeFixture("basic");
+    const result = await buildAsync({
+      routesDir,
+      outDir,
+      outFile: "server.js",
+      incremental: false,
+      appConfig: fixturePath("basic", "app.config.ts"),
+    });
+
+    expect(result.errors).toHaveLength(0);
+
+    // A thrown error must still be decorated by plugins (CORS echo,
+    // compression, security headers) and carry `ctx.set` mutations — the old
+    // handler returned errorToResponse() directly, bypassing both.
+    const start = result.code.indexOf("async function __handleError");
+    expect(start).toBeGreaterThan(-1);
+    expect(result.code.slice(start, start + 1200)).toContain(
+      "__finishResponse(response, ctx, postRan)",
+    );
+
+    const finish = result.code.indexOf("async function __finishResponse");
+    expect(finish).toBeGreaterThan(-1);
+    const finishBody = result.code.slice(finish, finish + 4000);
+    expect(finishBody).toContain("__runAfter(ctx, response)");
+    expect(finishBody).toContain("__applySet(response, ctx.set");
+  });
+
   it("never runs plugin afterHandle on raw (non-Response) results (regression)", async () => {
     const { routesDir, outDir } = materializeFixture("basic");
     const result = await buildAsync({

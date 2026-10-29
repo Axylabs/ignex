@@ -11,21 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { type FixtureLayout, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-});
+import { baseOptions, materializeFixture } from "./helpers";
 
 describe("usage-driven validation prelude", () => {
   it("emits no query/header/cookie parsing for a body-only schema route", async () => {

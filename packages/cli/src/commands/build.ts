@@ -9,8 +9,7 @@
  * Pre-flight env validation runs first (warnings/errors non-blocking), then
  * the compiler, then the realtime artifact. `--root <dir>` or auto-discovery.
  */
-import { isAbsolute, join } from "node:path";
-import type { CompilerOptions } from "@ignex/compiler";
+import { resolveBinaryOutPath } from "@ignex/compiler";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { buildProject } from "../utils/compiler.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
@@ -47,16 +46,6 @@ const buildCmd = defineCommand({
 });
 
 export default buildCmd;
-
-/** Mirror of the linker's binary output path resolution (for the status line). */
-const binaryPath = (opts: CompilerOptions): string => {
-  if (opts.binaryOutfile) {
-    return isAbsolute(opts.binaryOutfile)
-      ? opts.binaryOutfile
-      : join(opts.outDir, opts.binaryOutfile);
-  }
-  return join(opts.outDir, opts.serviceName ?? "ignex");
-};
 
 export async function runBuild(args: string[]): Promise<void> {
   const parsed = parseArgs<typeof argsDef>(args, argsDef);
@@ -99,7 +88,7 @@ export async function runBuild(args: string[]): Promise<void> {
     const { opts } = await buildProject(root, buildFlags);
     const status = await nativeStatus();
     info(`Native: ${nativeLabel(status)}`);
-    if (opts.compile) info(`Binary: ${binaryPath(opts)}`);
+    if (opts.compile) info(`Binary: ${resolveBinaryOutPath(opts)}`);
     success("Build complete");
   } catch (err) {
     error(formatError(err));

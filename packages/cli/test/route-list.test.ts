@@ -52,6 +52,30 @@ describe("renderTable", () => {
     expect(table).toContain("json");
   });
 
+  it("surfaces guard + runtime hook wiring in the HOOKS column", () => {
+    const rows = [
+      {
+        method: "GET",
+        path: "/admin",
+        file: "admin.get.ts",
+        kind: "static" as const,
+        guards: ["auth", "can(users:read)"],
+        hooks: ["local"],
+      },
+      {
+        method: "GET",
+        path: "/health",
+        file: "health.get.ts",
+        kind: "static" as const,
+        inline: true,
+      },
+    ];
+    const table = renderTable(rows, "/proj");
+    expect(table).toContain("HOOKS");
+    expect(table).toContain("auth,can(users:read),local");
+    expect(table).toContain("inline");
+  });
+
   it("handles an empty route list", () => {
     expect(renderTable([], "/proj")).toBe("(no routes)");
   });

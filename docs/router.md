@@ -52,6 +52,11 @@ const app = createApp({
   the matching request part at runtime (`validateAsync`): `body`, `query`,
   `params`, `headers`, `cookie`. Invalid input throws a `422
   VALIDATION_ERROR`.
+- **`ctx.query`** — with a `query` schema it is the validated, grouped
+  record (`{ a: "1", b: ["1", "2"] }`). Without one it is a
+  `URLSearchParams`-compatible object (`.get`/`.has`/`.getAll`/iteration), in
+  both interpreted and AOT builds. Use a `query` schema when you want the
+  typed record; otherwise `ctx.query.get("q")` is the stable API.
 - **Handler returns** — same contract as route files: `ctx.json(...)`,
   `ctx.text(...)`, `ctx.html(...)`, a plain value (serialized as JSON), a
   `{ status, body }` wrapper, or a raw `Response` (passthrough).
@@ -71,6 +76,8 @@ Bun native router (path/method match)
   → guarded afterHandle + mapResponse
   → applySet exactly once  (headers / status / cookies)
   → error stage on throw (guarded, never masks the original)
+    ↳ error + guard-halt replies run afterHandle + mapResponse too
+      (plugin onResponse hooks decorate EVERY response)
 ```
 
 ## Response construction (reply path)

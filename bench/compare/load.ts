@@ -301,7 +301,7 @@ const HIST_SIZE = 4096;
 const HIST_MIN_US = 1;
 
 function bucketIndex(us: number): number {
-  const v = us > HIST_MIN_US ? us : HIST_MIN_US;
+  const v = Math.max(us, HIST_MIN_US);
   const idx = (Math.floor(Math.log2(v) * HIST_SUB) + HIST_OFFSET) | 0;
   return idx < 0 ? 0 : idx >= HIST_SIZE ? HIST_SIZE - 1 : idx;
 }

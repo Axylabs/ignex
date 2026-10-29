@@ -86,29 +86,36 @@ guarded directly).
 
 ## 2. Risk register
 
-### 🔴 Native FFI: Rust panic across the `bun:ffi` C-ABI boundary = process abort
+### 🟡 Native FFI: Rust panic across the `bun:ffi` C-ABI boundary = process abort (mitigated upstream)
 
 - **Where:** `packages/native/src/ffi/` (all C-ABI surfaces — scalar ops,
   `getFfiRoute`/`getFfiInstances`/`getFfiIngress`).
 - **Why:** A Rust panic unwinding across a raw C boundary is undefined behavior
   → SIGABRT host crash. JS `try/catch` cannot see it. The NAPI path is protected
-  by napi-rs `catch_unwind`; the C-ABI path is not.
-- **Status:** 🔴 open. Mitigations in place: bind-time parity self-test, JS
-  fallbacks, v3-SIGILL guard in `loader.ts`.
+  by napi-rs `catch_unwind`; the C-ABI path was not (guarded in castrum
+  0.9.11).
+- **Status:** 🟡 mitigated upstream in **castrum 0.9.11** (not yet on npm at
+  the time of writing). Every one of its `#[no_mangle]` C-ABI exports runs
+  its body through the `c_abi!` → `panic_guard` wrapper, so a panic returns the
+  symbol's `0`/`false`/`null` sentinel instead of unwinding into Bun. A
+  source-level contract test fails the castrum build if a new export lacks the
+  guard. Ignex still keeps its local mitigations: bind-time parity self-test, JS
+  fallbacks, v3-SIGILL guard in `loader.ts`. Remaining: publish 0.9.11 and bump
+  `@ignex/native`'s `castrum` range (a `^0.9.10` range already resolves it).
 - **Required (cross-repo, coordinated with `Axylabs/flux-rs`):**
-  1. Castrum: wrap EVERY `extern "C"` export in `catch_unwind` returning the
-     `0`/`null` error sentinel (already done for napi exports; must extend to the
-     C-ABI symbols — `castrum_route_*`, `castrum_ingress_*`, packed parsers,
-     scalar ops, JWT/Ed25519).
-  2. Castrum: add a malformed/oversized-input fuzz pass over packed parsers,
-     route frame, and ingress handle (adversarial `%XX`, truncated wires,
-     over-long lengths) — see Phase 1A-2 below.
+  1. ✅ Castrum 0.9.11: every `extern "C"` export is wrapped in
+     `catch_unwind` returning the `0`/`null` error sentinel (previously only the
+     napi exports were protected).
+  2. ✅ Castrum 0.9.11: `packed_parsers_never_panic_on_hostile_c_abi_input`
+     fuzzes the packed parsers, route frame, and ingress handle with truncated,
+     oversized and adversarial length prefixes (2 000 cases per run).
   3. Ignex JS side (DONE 2026-08-17): `safeJsonParse` for `jwtVerify`/
      `jwtVerifyEddsa`, configurable `MAX_VAR_OUTPUT` cap (default 128 MiB,
      `IGNEX_MAX_VAR_OUTPUT`), bind-time symbol-presence checks on the three
      additive surfaces, `IGNEX_SCRATCH_POISON=1` debug pool poisoning.
-- **Fuzz harness:** not yet built (nightly TODO). When landed, wire into
-  `.github/workflows/nightly.yml`.
+- **Fuzz harness:** JS-side malformed-input fuzz is in `nightly.yml`; the
+  Rust-side half now lives in castrum's `rust/ffi/tests.rs` (guarded-call fuzz +
+  export-contract test).
 
 ### 🔴 No global unhandled-rejection backstop (fixed)
 
@@ -356,7 +363,8 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
    handler `idleTimeout`). Covered by compiler + core tests.
 3. ~~Nightly malformed-FFI fuzz job~~ — JS-side malformed-input fuzz landed
    (`scripts/fuzz-malformed-input.ts`, wired into `nightly.yml` 2026-08-19); the
-   Rust-side catch_unwind/fuzz remains cross-repo with castrum.
+   Rust-side catch_unwind + fuzz landed in castrum 0.9.11 (every C-ABI export
+   guarded, guard-contract + hostile-input fuzz tests).
 4. ~~`/api/big` native-mode overhead investigation~~ ✅ 2026-08-19 (~2% gap;
    server-bench is a hard gate again).
 5. ~~`noUncheckedIndexedAccess` at the root tsconfig (very invasive — staged

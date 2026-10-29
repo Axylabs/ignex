@@ -26,6 +26,10 @@ import type { AnySchema, MaybePromise, StandardSchemaV1 } from "../types";
 import type { LazyBody } from "./body";
 import type { IgnexContext } from "./context";
 
+// Route helpers (UUID schema, paged list, `{ ok: true }`) live in one place so
+// every adapter imports them from the same entry as the method helpers.
+export * from "./route-helpers";
+
 /** Any schema-shaped object accepted by the route helpers. */
 export type SchemaLike = AnySchema | object;
 

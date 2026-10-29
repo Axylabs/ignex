@@ -35,7 +35,7 @@ describe("serve error-boundary codegen", () => {
       "__serveOptions.error = (__err) => __handleError(__err, undefined);",
     );
     // The boundary helper it delegates to must be present in the emission.
-    expect(result.code).toContain("async function __handleError(err, ctx)");
+    expect(result.code).toContain("async function __handleError(err, ctx, postRan = false)");
   });
 
   it("is emitted for production-shaped builds too", async () => {

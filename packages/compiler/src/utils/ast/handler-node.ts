@@ -52,6 +52,84 @@ export function unwrapHandlerFunction(node: Node | null | undefined): FunctionNo
   return null;
 }
 
+/** One named-export handler candidate. */
+export interface NamedHandlerCandidate {
+  readonly name: string;
+  /** The node handed to `unwrapHandlerFunction` (init or function declaration). */
+  readonly node: Node;
+  /**
+   * Selection rank (lower wins): 0 = explicit HTTP wrapper (`get(...)`),
+   * 1 = handler wrapper (`withGuards(...)`), 2 = function declaration,
+   * 3 = bare arrow/function expression.
+   */
+  readonly rank: number;
+}
+
+/** The wrapper kind of a call node, or `null` when it is not a wrapper call. */
+const wrapperKind = (node: Node): "http" | "handler" | null => {
+  if (node.type !== "CallExpression" || node.callee?.type !== "Identifier") return null;
+  const name = node.callee.name;
+  if (HTTP_WRAPPERS.has(name)) return "http";
+  if (HANDLER_WRAPPERS.has(name)) return "handler";
+  return null;
+};
+
+/** Build a candidate for a variable-export initializer, if it is handler-shaped. */
+const toCandidate = (name: string, init: Node): NamedHandlerCandidate | undefined => {
+  const wrapper = wrapperKind(init);
+  if (wrapper === "http") return { name, node: init, rank: 0 };
+  if (wrapper === "handler") return { name, node: init, rank: 1 };
+  if (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression") {
+    return { name, node: init, rank: 3 };
+  }
+  return undefined;
+};
+
+/** Append every handler candidate declared by one export declaration. */
+const collectCandidates = (node: Node, out: NamedHandlerCandidate[]): void => {
+  if (node.type !== "ExportNamedDeclaration" || !node.declaration) return;
+  if (node.declaration.type === "VariableDeclaration") {
+    for (const d of node.declaration.declarations || []) {
+      const name = bindingName(d.id);
+      if (!name || !d.init) continue;
+      const candidate = toCandidate(name, d.init);
+      if (candidate) out.push(candidate);
+    }
+    return;
+  }
+  if (node.declaration.type === "FunctionDeclaration" && node.declaration.id?.name) {
+    out.push({ name: node.declaration.id.name, node: node.declaration, rank: 2 });
+  }
+};
+
+/**
+ * Every handler-shaped named export in the module, in source order.
+ *
+ * A route file may export helpers alongside the handler
+ * (`export const helper = (x) => …; export const httpGet = get(…)`). Selecting
+ * the FIRST arrow function would treat the helper as the route handler — and,
+ * through constant-response analysis, could even hoist a response built from
+ * the helper's return value. `pickNamedHandler` therefore ranks explicit
+ * wrapper calls above declarations above bare functions.
+ */
+export const namedHandlerCandidates = (ast: Program): NamedHandlerCandidate[] => {
+  const out: NamedHandlerCandidate[] = [];
+  walk(ast, (node) => {
+    collectCandidates(node, out);
+    return undefined;
+  });
+  return out;
+};
+
+/** The most likely route handler among a module's named exports. */
+export const pickNamedHandler = (ast: Program): NamedHandlerCandidate | undefined => {
+  let best: NamedHandlerCandidate | undefined;
+  for (const candidate of namedHandlerCandidates(ast)) {
+    if (best === undefined || candidate.rank < best.rank) best = candidate;
+  }
+  return best;
+};
+
 /**
  * Resolve the actual handler function node from a module — default or named
  * (`export const httpGet = get(...)`, `export function httpGet(...)`).
@@ -69,30 +147,7 @@ export function extractHandlerNodeAST(ast: Program): FunctionNode | null {
     if (fn) return fn;
   }
 
-  // Priority 2: named handler export.
-  let found: FunctionNode | null = null;
-  walk(ast, (n) => {
-    if (found) return;
-    if (n.type !== "ExportNamedDeclaration") return;
-
-    if (n.declaration?.type === "VariableDeclaration") {
-      for (const d of n.declaration.declarations || []) {
-        const name = bindingName(d.id);
-        if (!name || !d.init) continue;
-        const fn = unwrapHandlerFunction(d.init);
-        if (fn) {
-          found = fn;
-          return;
-        }
-      }
-    } else if (n.declaration?.type === "FunctionDeclaration" && n.declaration.id?.name) {
-      const fn = unwrapHandlerFunction(n.declaration);
-      if (fn) {
-        found = fn;
-        return;
-      }
-    }
-  });
-
-  return found ?? null;
+  // Priority 2: named handler export (wrapper call first).
+  const candidate = pickNamedHandler(ast);
+  return candidate ? unwrapHandlerFunction(candidate.node) : null;
 }

@@ -39,6 +39,12 @@ export const isInlineEligible = (
   // authenticated-only — keep the wrapper so the real guards run per request.
   if (route.analysis.guards?.opaque) return false;
 
+  // A runtime `before`/`after` chain lives on the imported handler's
+  // `config` (the wrapper call attaches it). Inlining replaces that handler
+  // with a bare function that has no `config`, so the chain would silently
+  // disappear — never inline these routes.
+  if (route.analysis.localHooks || route.analysis.wrappedHandler) return false;
+
   // A handler can only be inlined into the generated server when its body is
   // fully self-contained: imports that the body references would be dropped,
   // no other top-level symbols the body could reference, and no module-scope

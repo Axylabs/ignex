@@ -74,6 +74,8 @@ export interface RouteIRAnalysis {
   readonly config?: Record<string, unknown>;
   readonly cache?: RouteCacheConfig;
   readonly handlerExportName?: string;
+  /** Statically-readable keys of the route schema object literal, if known. */
+  readonly schemaParts?: readonly string[];
 }
 
 /** A handler body transpiled to plain JS, ready to be inlined. */

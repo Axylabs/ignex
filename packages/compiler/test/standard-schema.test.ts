@@ -9,21 +9,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync, DiagnosticCodes } from "../src/index";
-import { type FixtureLayout, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-});
+import { baseOptions, materializeFixture } from "./helpers";
 
 describe("standard-schema build-time codegen", () => {
   it("precompiles a validator from a convertible Standard-Schema body", async () => {

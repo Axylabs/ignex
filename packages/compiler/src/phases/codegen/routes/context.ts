@@ -262,7 +262,7 @@ export const buildFullContextPrelude = (
     // the moment the chain returns. Const-folded away when no debugbar is
     // kept for this build (__TRACE_DEBUG = false).
     if (__TRACE_DEBUG) debugStageEnd("request");
-    if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+    if (__globalPre.response) return __haltResponse(__globalPre.response, ctx);
     ctx = __globalPre.ctx ?? ctx;
   }
 }`
@@ -279,7 +279,7 @@ export const buildFullContextPrelude = (
     // the moment the chain returns. Const-folded away when no debugbar is
     // kept for this build (__TRACE_DEBUG = false).
     if (__TRACE_DEBUG) debugStageEnd("request");
-    if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+    if (__globalPre.response) return __haltResponse(__globalPre.response, ctx);
     ctx = __globalPre.ctx ?? ctx;
   }
 }`,
@@ -395,14 +395,14 @@ export const buildSpecializedContext = (
   if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 1, __r);
   const __globalPre = __r;
   if (__TRACE_DEBUG) debugStageEnd("request");
-  if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+  if (__globalPre.response) return __haltResponse(__globalPre.response, ctx);
   ctx = __globalPre.ctx ?? ctx;
 }`
       : `if (__hasPreParse) {
   const __r = __runPreParse(ctx);
   const __globalPre = __r instanceof Promise ? await __r : __r;
   if (__TRACE_DEBUG) debugStageEnd("request");
-  if (__globalPre.response) return __applySet(__globalPre.response, ctx.set);
+  if (__globalPre.response) return __haltResponse(__globalPre.response, ctx);
   ctx = __globalPre.ctx ?? ctx;
 }`,
   );

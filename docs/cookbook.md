@@ -42,6 +42,32 @@ export default post(async (ctx) => {
 `ctx.body.json()`, `ctx.body.formData()`, `ctx.body.text()` are lazy — the body
 is only parsed when you read it.
 
+### The three things every list/detail route repeats
+
+Import the shapes instead of re-deriving them:
+
+```ts
+import { get, Uuid, OkResponse, pageSchema, readPagination, pageResponse } from "@ignex/core/http";
+
+const params = Type.Object({ id: Uuid });          // was Type.String({ format: "uuid" })
+const response = pageSchema(ItemSchema);           // { items, page, pageSize, total, pageCount }
+
+export default get(async (ctx) => {
+  const page = readPagination(ctx);                // ?page=&pageSize=, clamped, ctx.url-based
+  const { rows, total } = await listRows(page);    // pass page.limit / page.offset to the query
+  return ctx.json(pageResponse(rows, page, total));
+}, { params, response, detail: { summary: "List rows" } });
+```
+
+- `readPagination(ctx)` reads `ctx.url.searchParams` (not `ctx.query`, which is a
+  grouped object in a compiled build), tolerates `?page=abc`, and clamps
+  `pageSize` to 100 (override with `{ defaultPageSize, maxPageSize }`).
+- `pageResponse(items, page, total)` builds the envelope `pageSchema` describes,
+  so the two cannot drift.
+- `OkResponse` is the `{ ok: true }` acknowledgement for deletes/commands.
+
+For a UUID path param, declare it once: `const params = Type.Object({ id: Uuid })`.
+
 ## SQL resources (Drizzle)
 
 For SQL, ignex wraps the **standard approach** — [Drizzle](https://orm.drizzle.team)
@@ -196,6 +222,44 @@ try {
 
 Every 5xx prints one classified report (origin, stable code, retryability,
 hints, cause chain, request id); 4xx stays quiet. See [Errors](errors.md).
+
+### Domain errors → HTTP with no adapter at all
+
+An application service throws its own error class with a stable `code`. Declare
+that class once and it *is* the HTTP answer — no mapper module, no `try/catch` in
+the route, because the framework boundary already reads its status:
+
+```ts
+// src/modules/billing/errors.ts
+import { defineError } from "@ignex/core";
+
+// NOT_FOUND → 404, FORBIDDEN → 403, INVALID_STATE → 409 by convention.
+export const BillingError = defineError("BillingError");
+```
+
+```ts
+// src/modules/billing/service.ts
+throw new BillingError("invoice not found", "NOT_FOUND");
+// 404 · NOT_FOUND · "invoice not found"
+```
+
+```ts
+// src/routes/invoices/[id].get.ts — nothing to map
+export default get(async (ctx) => ctx.json(await loadInvoice(ctx.params.id)));
+```
+
+Only the codes the convention does not know need configuring, and every other
+knob (prefix, per-code client code, message, fallback) is optional:
+
+```ts
+export const CeremonyError = defineError("CeremonyError", {
+  codes: { VENUE_CONFLICT: 409 },
+  fallbackStatus: 422,
+});
+```
+
+`createErrorMapper` stays available for errors you cannot change — a driver, a
+third-party SDK — where the status table has to live outside the class.
 
 ## Plugins & config (`src/app.config.ts`)
 

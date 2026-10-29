@@ -64,27 +64,29 @@ export const emitParamsPrelude = (
 };
 
 /**
- * Query — parsed + exposed as a plain object ONLY when validated or read by
- * the handler (`usage.query`). Unvalidated, unused full-context routes keep
- * the fast Bun-native `url.searchParams` (`ctx.query` getter) instead of the
- * ~10x slower JS split parser. A usage-only part (no query schema) is parsed
- * to restore the Record-shaped `ctx.query` the full-context design promises,
- * but skips the (wasted) runtime `__validatePart` await.
+ * Query — parsed + exposed as a plain object ONLY when validated or declared
+ * in the schema. Without a `query` schema the handler keeps the standard
+ * `URLSearchParams` contract (`ctx.query.get(...)`, iteration) that the
+ * interpreted router and the usage-specialized tier both provide; shadowing it
+ * with a grouped Record here made `.get()` throw in compiled builds only.
  */
 const emitQueryPrelude = (
   route: RouteIR,
   usedCore: Set<string>,
   hasValidator: boolean,
-  hasPart: boolean,
-  usageQuery: boolean,
+  querySchema: boolean | undefined,
 ): string[] => {
-  if (!hasValidator && !hasPart && !usageQuery) return [];
+  // `querySchema === false` is a statically-proven "no query schema": keep the
+  // URLSearchParams getter untouched. `undefined` means the schema shape was
+  // not statically readable — parse/validate conservatively, then decide the
+  // shadow from the runtime schema object.
+  if (!hasValidator && querySchema === false) return [];
   usedCore.add("parseQueryFromURL");
   const lines = [`const __query = parseQueryFromURL(req.url);`];
 
   if (hasValidator) {
     lines.push(emitValidatorThrow(validatorImportName(route, "query"), "query", "__query"));
-  } else if (hasPart) {
+  } else if (querySchema !== false) {
     // Runtime validation only when a query schema actually exists.
     lines.push(`await __validatePart(__schema?.query, __query, "query");`);
   }
@@ -92,8 +94,13 @@ const emitQueryPrelude = (
   // Shadow `ctx.query` with the parsed Record via the context's `query`
   // setter — a plain assignment is ~8x faster than the old per-request
   // `Object.defineProperty` (which forced a hidden-class transition on a fresh
-  // instance). Observable reads are identical.
-  lines.push(`ctx.query = __query;`);
+  // instance). Only a route that actually HAS a query schema gets the Record;
+  // otherwise the lazy URLSearchParams getter stays (stable `.get()` contract).
+  lines.push(
+    hasValidator || querySchema === true
+      ? `ctx.query = __query;`
+      : `if (__schema?.query !== undefined) ctx.query = __query;`,
+  );
   return lines;
 };
 
@@ -177,10 +184,19 @@ export const emitBodyPrelude = (
  * — that was the single biggest redundant cost on validated routes.
  */
 /** Emit the shared `__schema` const consumed by the runtime `__validatePart`. */
-export const emitSchemaConst = (route: RouteIR): string =>
-  `const __schema = ${
-    route.analysis.hasValidation ? `__schemaFor(schema_${route.codegen.handlerRef})` : `undefined`
+export const emitSchemaConst = (route: RouteIR): string => {
+  // Named-export routes attach the schema to the handler export
+  // (`httpGet.schema`), not to the namespace's `default` — tell `__schemaFor`
+  // which binding to fall back to so runtime validation isn't silently skipped
+  // when precompiled validators are off.
+  const named = route.analysis.handlerExportName;
+  const arg = named ? `, ${JSON.stringify(named)}` : "";
+  return `const __schema = ${
+    route.analysis.hasValidation
+      ? `__schemaFor(schema_${route.codegen.handlerRef}${arg})`
+      : `undefined`
   };`;
+};
 
 export const emitFullValidationPrelude = (
   route: RouteIR,
@@ -200,25 +216,23 @@ export const emitFullValidationPrelude = (
 
   // Per-part schemas resolved by the precompile phase. When available
   // (precompileValidators on — the default) we know EXACTLY which parts exist
-  // and emit only those; when unknown (precompilation off) `hasSchemaPart`
-  // stays conservative (true) so runtime `__validatePart` still runs for every
-  // part — preserving the previous behavior.
+  // and emit only those; when precompilation did not run, fall back to the
+  // schema object literal's statically-readable keys. Only when neither is
+  // known do we stay conservative (validate every part).
   const schemaDoc = route.decisions.schemaDoc as Record<string, unknown> | undefined;
-  const hasSchemaPart = (kind: string): boolean =>
-    schemaDoc !== undefined ? schemaDoc[kind] !== undefined : true;
+  const schemaParts = route.analysis.schemaParts;
+  /** `true`/`false` when statically known, `undefined` when the shape is opaque. */
+  const schemaPartOf = (kind: string): boolean | undefined => {
+    if (schemaDoc !== undefined) return schemaDoc[kind] !== undefined;
+    if (schemaParts !== undefined) return schemaParts.includes(kind);
+    return undefined;
+  };
+  const hasSchemaPart = (kind: string): boolean => schemaPartOf(kind) ?? true;
 
   const pre: string[] = [emitSchemaConst(route)];
 
   pre.push(...emitParamsPrelude(route, hasParamsValidator, hasSchemaPart("params")));
-  pre.push(
-    ...emitQueryPrelude(
-      route,
-      usedCore,
-      hasQueryValidator,
-      hasSchemaPart("query"),
-      route.analysis.usage.query,
-    ),
-  );
+  pre.push(...emitQueryPrelude(route, usedCore, hasQueryValidator, hasSchemaPart("query")));
   pre.push(...emitHeadersPrelude(route, usedCore, hasHeadersValidator, hasSchemaPart("headers")));
   if (opts.validateCookies !== false) {
     pre.push(...emitCookiesPrelude(route, usedCore, hasCookieValidator, hasSchemaPart("cookie")));

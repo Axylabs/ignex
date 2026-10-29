@@ -47,6 +47,6 @@
   "devDependencies": {
     "@ignex/test-utils": "workspace:*",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.5"
   }
 }

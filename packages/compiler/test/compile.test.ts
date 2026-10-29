@@ -2,21 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-});
+import { baseOptions, fixturePath, materializeFixture } from "./helpers";
 
 describe("compile (end-to-end)", () => {
   it("compiles the basic fixture and writes artifacts", async () => {

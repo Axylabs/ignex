@@ -9,6 +9,7 @@
 
 import type { IgnexContext } from "../../http/context";
 import { sanitizeHeaderValue } from "../../http/finalize";
+import { asError } from "../../platform/error-mapper";
 import type { HookContainer, LifeCycleStore } from "../../types";
 import type { HookFn } from "../hooks";
 import { createPatternMatcher } from "./composition";
@@ -266,10 +267,7 @@ export const pluginsToLifeCycle = (plugins: unknown[]): Partial<LifeCycleStore> 
     .map((p) => ({
       scope: "global" as const,
       fn: async (ctx: IgnexContext, error: unknown) => {
-        const result = await p.onError?.(
-          error instanceof Error ? error : new Error(String(error)),
-          ctx,
-        );
+        const result = await p.onError?.(asError(error), ctx);
         if (result instanceof Response) {
           return { response: result };
         }

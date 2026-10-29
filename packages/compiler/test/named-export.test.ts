@@ -10,21 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src";
 import { extractHandlerExportName, hasHandlerExportAST, parseModule } from "../src/utils/ast";
-import { type FixtureLayout, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-});
+import { baseOptions, materializeFixture } from "./helpers";
 
 describe("AST: named-export handler extraction", () => {
   it("extracts a named wrapper export (get(...))", () => {
@@ -87,6 +73,44 @@ describe("AST: named-export handler extraction", () => {
     expect(extractHandlerExportName(parsed.ast)).toBeUndefined();
   });
 
+  it("skips helper exports when selecting the named handler", () => {
+    const src = `import { get } from "@ignex/core/http";
+export const helper = (x: number) => x * 2;
+export const httpGet = get((ctx) => ctx.json({ ok: true }));
+`;
+    const parsed = parseModule(src);
+
+    expect(parsed.handlerExportName).toBe("httpGet");
+    expect(parsed.handler?.exportName).toBe("httpGet");
+    expect(parsed.handler?.body).toContain("ctx.json");
+    expect(parsed.handler?.body).not.toContain("x * 2");
+  });
+
+  it("prefers the HTTP wrapper over a withGuards guard-factory export", () => {
+    const src = `import { get } from "@ignex/core/http";
+import { withGuards } from "../../lib/guards";
+export const guard = withGuards({ permissions: ["admin"] });
+export const httpGet = get((ctx) => ctx.json({ ok: true }));
+`;
+    const parsed = parseModule(src);
+
+    expect(parsed.handlerExportName).toBe("httpGet");
+    expect(parsed.handler?.body).toContain("ctx.json");
+  });
+
+  it("extracts guards from the wrapper export behind a helper export", () => {
+    const src = `import { get } from "@ignex/core/http";
+import { withGuards } from "../../lib/guards";
+export const helper = (x: number) => x * 2;
+export const httpGet = get((ctx) => ctx.json({ ok: true }), { before: [withGuards({ permissions: ["users:read"] })] });
+`;
+    const parsed = parseModule(src);
+
+    expect(parsed.handlerExportName).toBe("httpGet");
+    expect(parsed.guards?.permissions).toEqual(["users:read"]);
+    expect(parsed.localHooks).toBe(true);
+  });
+
   it("prefers the default export when both styles are present", () => {
     const src = `export const httpGet = () => "named";\nexport default () => "default";\n`;
     const parsed = parseModule(src);
@@ -97,6 +121,17 @@ describe("AST: named-export handler extraction", () => {
 });
 
 describe("named-export routes (end-to-end compile)", () => {
+  it("never hoists a helper's return value as the route constant", async () => {
+    const layout = materializeFixture("named-export-helper-const");
+    const result = await buildAsync(baseOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // The handler returns `{ ok: true }` — the helper's `"helper"` must not
+    // leak into the constant body (it used to: first named arrow won).
+    expect(result.code).not.toContain('"helper"');
+    expect(result.code).toContain('new Response("{\\"ok\\":true}"');
+  });
+
   it("discovers all named-export modules as routes", async () => {
     const layout = materializeFixture("named-export");
     const result = await buildAsync(baseOptions(layout));

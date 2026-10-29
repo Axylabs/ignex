@@ -40,7 +40,7 @@ const createEntry = <V>(
   staleTtlMs: number,
   now: number,
 ): Entry<V> => {
-  const freshTtl = ttlMs > 0 ? ttlMs : 0;
+  const freshTtl = Math.max(ttlMs, 0);
 
   const staleTtl = staleTtlMs > 0 ? Math.max(staleTtlMs, ttlMs) : freshTtl;
 

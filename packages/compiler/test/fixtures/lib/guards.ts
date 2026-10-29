@@ -16,3 +16,6 @@ export interface RouteGuards {
 
 export const withGuards = (guards: RouteGuards = {}): HookFn =>
   composeGuards(...guardChain(guards));
+
+/** Runtime guard (not statically extractable) — exercises `handler.config`. */
+export const requireAuth = (): HookFn => (ctx) => ({ ok: true, ctx });

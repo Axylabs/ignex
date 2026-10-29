@@ -39,6 +39,7 @@
  */
 
 import { randomToken } from "@ignex/native";
+import { errorMessage } from "@ignex/shared";
 import { createFileStore } from "../data/store/file";
 import { createSqliteStore } from "../data/store/sqlite";
 import type { MaybePromise, Store } from "../data/store/types";
@@ -138,10 +139,6 @@ let jobIdCounter = 0;
  * The random suffix makes ids unique across processes.
  */
 export const newJobId = (): string => `job-${Date.now()}-${++jobIdCounter}-${randomToken(6)}`;
-
-/** Serialize an error to a short, stable string for `lastError`. */
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** The reserved key holding the whole serialized job map. */
 const JOBS_KEY = "__jobs";

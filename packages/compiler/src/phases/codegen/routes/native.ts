@@ -18,6 +18,7 @@
 import type { CompilerOptions, RouteIR } from "../../../types";
 import { nativeRouteVar, validatorImportName } from "../identifiers";
 import type { CodegenState } from "../state";
+import { emitNativeRunBlock, maxBodyLiteral } from "./native-run-block";
 import {
   emitBodyPrelude,
   emitFullValidationPrelude,
@@ -42,12 +43,15 @@ const schemaDocOf = (route: RouteIR): Record<string, unknown> | undefined =>
 
 /** Per-part schema presence. `false` when the route has no schema export at
  *  all (no parts exist) — a conservative `true` would make every schema-less
- *  route compile parseQuery+parseCookies native stages it never reads. */
+ *  route compile parseQuery+parseCookies native stages it never reads.
+ *  Falls back to the schema object literal's statically-readable keys when
+ *  schema evaluation was unavailable. */
 const hasSchemaPart =
   (route: RouteIR) =>
   (kind: string): boolean => {
     const doc = schemaDocOf(route);
-    return doc !== undefined ? doc[kind] !== undefined : false;
+    if (doc !== undefined) return doc[kind] !== undefined;
+    return route.analysis.schemaParts?.includes(kind) ?? false;
   };
 
 const routeNativeNeeds = (
@@ -74,7 +78,6 @@ const routeNativeNeeds = (
 };
 
 /** The emitted numeric body cap — kept identical to the plan's `maxBodyBytes`. */
-const maxBodyLiteral = (opts: CompilerOptions): number => opts.maxJsonBytes ?? 2 * 1024 * 1024;
 
 /**
  * True when this route should get a native prelude: `nativeRoutes` is on and
@@ -232,9 +235,16 @@ export const emitNativeValidationPrelude = (
   }
 
   usedCore.add("createNativeRoute");
+  const queryValidated = flags.hasQueryValidator || hasPart("query");
   if (needsQuery) {
-    usedCore.add("groupQueryPairs");
-    usedCore.add("parseQueryFromURL");
+    // Validated queries become the typed grouped Record; usage-only queries
+    // keep the URLSearchParams contract (`NativeQueryParams` facade).
+    if (queryValidated) {
+      usedCore.add("groupQueryPairs");
+      usedCore.add("parseQueryFromURL");
+    } else {
+      usedCore.add("NativeQueryParams");
+    }
   }
   if (needsCookie) {
     usedCore.add("cookiePairsToRecord");
@@ -249,11 +259,13 @@ export const emitNativeValidationPrelude = (
   if (route.analysis.usage.cookie) usedCore.add("createLazyCookieJar");
 
   const pre: string[] = [emitSchemaConst(route)];
-  if (needsQuery) pre.push(`let __query;`);
+  if (queryValidated) pre.push(`let __query;`);
   if (needsCookie) pre.push(`let __cookies;`);
   if (needsBody) pre.push(`let __bodyValidated = false;`);
-  pre.push(...emitNativeRunBlock(route, opts, flags, needsQuery, needsCookie, needsBody));
-  if (needsQuery) {
+  pre.push(
+    ...emitNativeRunBlock(route, opts, flags, needsQuery, needsCookie, needsBody, queryValidated),
+  );
+  if (queryValidated) {
     pre.push(`if (__query === undefined) {`);
     pre.push(`  __query = parseQueryFromURL(req.url);`);
     pre.push(`}`);
@@ -264,7 +276,7 @@ export const emitNativeValidationPrelude = (
     pre.push(`}`);
   }
   pre.push(...emitParamsPrelude(route, flags.hasParamsValidator, hasPart("params")));
-  if (needsQuery) pre.push(...emitNativeQueryValidation(route, flags, hasPart));
+  if (queryValidated) pre.push(...emitNativeQueryValidation(route, flags, hasPart));
   pre.push(...emitHeadersPrelude(route, usedCore, flags.hasHeadersValidator, hasPart("headers")));
   if (needsCookie) pre.push(...emitNativeCookieValidation(route, flags, hasPart));
   if (needsBody) {
@@ -327,91 +339,4 @@ const emitNativeUsagePrelude = (
   pre.push(`  }`);
   pre.push(`}`);
   return pre;
-};
-
-/**
- * The `if (__native) { … }` block: pack the frame (raw body bytes pass through
- * zero-copy), run the pre-baked stack once, seed query/cookie records on
- * success, and — for body-validating routes — throw on a native body verdict
- * (400 = not valid JSON, 422 = failed its schema) BEFORE any JS parse. A
- * failed/thrown native run leaves everything undefined so the JS prelude
- * below remains the parity fallback.
- *
- * Runtime body-schema routes skip body work on GET/HEAD/OPTIONS — exactly
- * matching the `emitBodyPrelude` guard (a precompiled body validator always
- * parses, so its routes get no method guard).
- */
-const emitNativeRunBlock = (
-  route: RouteIR,
-  opts: CompilerOptions,
-  flags: ValidationFlags,
-  needsQuery: boolean,
-  needsCookie: boolean,
-  needsBody: boolean,
-): string[] => {
-  const out: string[] = [];
-  const bodyGuard =
-    needsBody && !flags.hasBodyValidator
-      ? `req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS"`
-      : null;
-
-  out.push(`const __native = ${nativeRouteVar(route)};`);
-  out.push(`if (__native) {`);
-  out.push(`  const __qIdx = req.url.indexOf("?");`);
-  out.push(`  let __nr;`);
-  if (needsBody) {
-    // Bounded read (content-length pre-check + incremental chunked cap) —
-    // NEVER an unconditional `req.arrayBuffer()`: that buffers up to Bun's
-    // server cap per in-flight request on routes whose real limit is
-    // `maxBodyBytes`. A 413 here propagates exactly like the JS body prelude's
-    // size guard (same BodyParseError shape).
-    out.push(
-      `  const __bodyBytes = ${
-        bodyGuard
-          ? `${bodyGuard} ? await readBodyBounded(req, ${maxBodyLiteral(opts)}) : new Uint8Array(0)`
-          : `await readBodyBounded(req, ${maxBodyLiteral(opts)})`
-      };`,
-    );
-  }
-  out.push(`  try {`);
-  // runParts(query, cookie, body) — the pre-encoded frame pack + ONE native
-  // call, no per-request frame object (synced from castrum's
-  // `native-route.ts` `run(query, cookie, body)` shape).
-  out.push(
-    `    __nr = __native.runParts(__qIdx < 0 ? "" : req.url.slice(__qIdx + 1), req.headers.get("cookie") ?? "", ${needsBody ? "__bodyBytes" : "null"});`,
-  );
-  out.push(`  } catch {`);
-  out.push(`    __nr = null;`);
-  out.push(`  }`);
-  out.push(`  if (__nr) {`);
-  if (needsBody) {
-    // First-failure-wins: 400 = not valid JSON, 422 = failed its schema,
-    // 413 = oversized body. All throw BEFORE any JS parse — matching the JS
-    // prelude's error precedence for the same conditions.
-    out.push(`    ${bodyGuard ? `if (${bodyGuard}) {` : "if (true) {"}`);
-    out.push(`      if (!__nr.ok) {`);
-    out.push(`        if (__nr.errorCode === 400) {`);
-    out.push(`          throw new BodyParseError("Invalid JSON body");`);
-    out.push(`        }`);
-    out.push(`        if (__nr.errorCode === 422) {`);
-    out.push(`          throw validationError(__schema?.body ?? {}, "body");`);
-    out.push(`        }`);
-    out.push(`        if (__nr.errorCode === 413) {`);
-    out.push(`          throw new BodyParseError("Payload too large", 413);`);
-    out.push(`        }`);
-    out.push(`      }`);
-    out.push(`    }`);
-  }
-  out.push(`    if (__nr.ok) {`);
-  if (needsQuery) out.push(`      __query = groupQueryPairs(__nr.query);`);
-  if (needsCookie) out.push(`      __cookies = cookiePairsToRecord(__nr.cookie);`);
-  if (needsBody) {
-    out.push(
-      `      ${bodyGuard ? `if (${bodyGuard}) { __bodyValidated = true; }` : "__bodyValidated = true;"}`,
-    );
-  }
-  out.push(`    }`);
-  out.push(`  }`);
-  out.push(`}`);
-  return out;
 };

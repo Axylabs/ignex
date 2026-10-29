@@ -35,6 +35,11 @@ interface RouteRow {
   constant?: boolean;
   responseType?: string;
   hotness?: number;
+  /** Route-local hook wiring (runtime `before`/`after`, wrapper, config). */
+  hooks?: string[];
+  /** Statically-emitted RBAC guard summary (e.g. `can(users:read)`). */
+  guards?: string[];
+  inline?: boolean;
 }
 
 /** A compiled manifest entry (subset of the compiler's manifest shape). */
@@ -46,6 +51,31 @@ interface ManifestRoute {
   isConstantResponse?: boolean;
   responseType?: string;
   hotnessScore?: number;
+  hooks?: string[];
+  localHooks?: boolean;
+  wrappedHandler?: boolean;
+  configExport?: boolean;
+  shouldInline?: boolean;
+  guards?: {
+    roles?: string[];
+    permissions?: string[];
+    all?: boolean;
+    authenticated?: boolean;
+    opaque?: boolean;
+  };
+}
+
+/** Human summary of a manifest guard object. */
+function guardLabels(g: ManifestRoute["guards"]): string[] {
+  if (!g) return [];
+  const out: string[] = [];
+  if (g.authenticated) out.push("auth");
+  if (g.roles?.length) out.push(`role:${g.roles.join("|")}`);
+  if (g.permissions?.length) {
+    out.push(`${g.all ? "canAll" : "can"}(${g.permissions.join(",")})`);
+  }
+  if (g.opaque) out.push("opaque");
+  return out;
 }
 
 /** Parse `products/[id].get.ts` → { method: "GET", path: "products/:id" }. */
@@ -95,6 +125,16 @@ function rowsFromFiles(routesDir: string): RouteRow[] {
   return rows.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
 }
 
+/** Route-local hook wiring shown in the table (dash when none). */
+export function hookLabels(r: ManifestRoute): string[] {
+  const out: string[] = [];
+  if (r.localHooks) out.push("local");
+  if (r.wrappedHandler) out.push("wrapped");
+  if (r.configExport) out.push("config");
+  for (const h of r.hooks ?? []) out.push(h);
+  return out;
+}
+
 /** Read + shape rows from the compiled manifest. */
 function rowsFromManifest(manifestPath: string): RouteRow[] {
   let manifest: { routes?: ManifestRoute[] };
@@ -114,6 +154,9 @@ function rowsFromManifest(manifestPath: string): RouteRow[] {
     constant: r.isConstantResponse,
     responseType: r.responseType,
     hotness: r.hotnessScore,
+    hooks: hookLabels(r),
+    guards: guardLabels(r.guards),
+    inline: r.shouldInline,
   }));
 }
 
@@ -130,6 +173,13 @@ function findManifest(root: string, config: { outDir?: string }): string | null 
   return null;
 }
 
+/** The table's HOOKS cell: guards first, then runtime hook wiring. */
+function hookCell(r: RouteRow): string {
+  const parts = [...(r.guards ?? []), ...(r.hooks ?? [])];
+  if (r.inline) parts.push("inline");
+  return parts.length > 0 ? parts.join(",") : "—";
+}
+
 /** Render a padded ASCII table (display-width aware via Bun.stringWidth). */
 export function renderTable(rows: RouteRow[], root: string): string {
   if (rows.length === 0) return "(no routes)";
@@ -141,13 +191,14 @@ export function renderTable(rows: RouteRow[], root: string): string {
   const mw = width((r) => r.method);
   const pw = width((r) => r.path);
   const fw = width((r) => r.file);
-  const head = `${padAnsi("METHOD", mw)}  ${padAnsi("PATH", pw)}  ${padAnsi("FILE", fw)}  KIND      RESPONSE   HOT`;
+  const hw = Math.max(...rows.map((r) => stringWidth(hookCell(r))), stringWidth("HOOKS"));
+  const head = `${padAnsi("METHOD", mw)}  ${padAnsi("PATH", pw)}  ${padAnsi("FILE", fw)}  ${padAnsi("HOOKS", hw)}  KIND      RESPONSE   HOT`;
   const lines = [head, "-".repeat(stringWidth(head))];
   for (const r of rows) {
     const kind = r.kind === "dynamic" ? "dynamic" : "static";
     const resp = r.constant ? "constant" : (r.responseType ?? "—");
     lines.push(
-      `${padAnsi(r.method, mw)}  ${padAnsi(r.path, pw)}  ${padAnsi(relative(root, r.file), fw)}  ${padAnsi(kind, 10)} ${padAnsi(resp, 9)} ${String(r.hotness ?? "—")}`,
+      `${padAnsi(r.method, mw)}  ${padAnsi(r.path, pw)}  ${padAnsi(relative(root, r.file), fw)}  ${padAnsi(hookCell(r), hw)}  ${padAnsi(kind, 10)} ${padAnsi(resp, 9)} ${String(r.hotness ?? "—")}`,
     );
   }
   return lines.join("\n");

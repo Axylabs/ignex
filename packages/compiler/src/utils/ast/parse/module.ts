@@ -225,6 +225,8 @@ export function parseModule(
     localHooks: flags.localHooks,
     handler: extractHandlerExport(source, ast),
 
+    ...(flags.schemaParts !== undefined ? { schemaParts: flags.schemaParts } : {}),
+
     ...(guards !== undefined ? { guards } : {}),
     ...(routeConfig !== undefined ? { config: routeConfig as Record<string, unknown> } : {}),
     ...(handlerExportName !== undefined ? { handlerExportName } : {}),

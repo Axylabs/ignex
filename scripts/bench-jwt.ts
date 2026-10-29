@@ -37,6 +37,7 @@ import {
   jwtVerifyEdDsaFallback,
   jwtVerifyFallback,
 } from "../packages/native/src/index";
+import { opsPerSec } from "./lib/throughput";
 
 const enc = new TextEncoder();
 
@@ -48,17 +49,6 @@ function median(nums: number[]): number {
 }
 
 /** Ops/sec for a sync fn (warmup + timed loop). */
-function opsPerSec(fn: () => void, durationMs = 250): number {
-  for (let i = 0; i < 1_000; i++) fn();
-  const start = performance.now();
-  let count = 0;
-  while (performance.now() - start < durationMs) {
-    fn();
-    count++;
-  }
-  return count / ((performance.now() - start) / 1000);
-}
-
 // ── Fixtures ────────────────────────────────────────────────────
 const pair = generateEd25519Keypair();
 // Raw DER bytes for the low-level fallback/ffi rows (the wrappers decode the

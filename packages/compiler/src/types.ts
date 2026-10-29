@@ -110,8 +110,8 @@ export interface AppConfigInfo {
    * `null` is the safe default and is returned whenever the requirement cannot
    * be fully established: the plugin list did not resolve, a plugin is not one
    * of the framework's own, or an internal plugin carries no audited
-   * declaration. It is ALSO the current answer for any app using `cors()`, whose
-   * hook reads `ctx.method` — a member the specialized context cannot yet emit.
+   * declaration. (Every internal plugin in `INTERNAL_PLUGIN_USAGE` — including
+   * `cors()`, which reads `ctx.method` — now has a sound declaration.)
    *
    * NOTE: this is the requirement of the PLUGIN layer alone. A non-`null` value
    * is necessary but not sufficient to specialize a route — the lifecycle hook

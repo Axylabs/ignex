@@ -4,104 +4,103 @@
   "knownOver": {
     "packages/compiler/src/sdk/realtime.ts": {
       "lines": 795,
-      "rationale": "SDK realtime client surface — Tier D"
+      "rationale": "SDK realtime client surface \u2014 Tier D"
     },
     "packages/core/src/http/router.ts": {
       "lines": 695,
-      "rationale": "interpreted router + AOT path — Tier B"
+      "rationale": "interpreted router + AOT path \u2014 Tier B"
     },
     "packages/compiler/src/sdk/flatbuffers.ts": {
       "lines": 687,
-      "rationale": "SDK flatbuffers codegen — Tier D"
+      "rationale": "SDK flatbuffers codegen \u2014 Tier D"
     },
     "packages/compiler/src/sdk/typescript.ts": {
       "lines": 687,
-      "rationale": "SDK TS client generation — Tier D"
+      "rationale": "SDK TS client generation \u2014 Tier D"
     },
     "packages/cli/src/commands/create.ts": {
       "lines": 645,
-      "rationale": "CLI create command — Tier E"
+      "rationale": "CLI create command \u2014 Tier E"
     },
     "packages/core/src/debug/server/handlers/app-panels.ts": {
       "lines": 658,
-      "rationale": "debug server app-panels handler — Tier C"
+      "rationale": "debug server app-panels handler \u2014 Tier C"
     },
     "packages/core/src/debug/persist.ts": {
       "lines": 629,
-      "rationale": "debug persistence + history — Tier C"
+      "rationale": "debug persistence + history \u2014 Tier C"
     },
     "packages/cli/src/templates/routes.ts": {
       "lines": 621,
-      "rationale": "CLI routes templates — Tier E"
+      "rationale": "CLI routes templates \u2014 Tier E"
     },
     "packages/core/src/debug/kt.ts": {
       "lines": 619,
-      "rationale": "debug knowledge-tree engine — Tier C"
+      "rationale": "debug knowledge-tree engine \u2014 Tier C"
     },
-    "packages/mcp/src/server.ts": { "lines": 605, "rationale": "MCP server — Tier E" },
+    "packages/mcp/src/server.ts": {
+      "lines": 605,
+      "rationale": "MCP server \u2014 Tier E"
+    },
     "packages/core/src/plugins/debugbar.ts": {
       "lines": 584,
-      "rationale": "debugbar plugin — Tier C"
+      "rationale": "debugbar plugin \u2014 Tier C"
     },
     "packages/core/src/debug/nats-tracker.ts": {
       "lines": 572,
-      "rationale": "debug NATS tracker — Tier C"
+      "rationale": "debug NATS tracker \u2014 Tier C"
     },
-    "packages/core/src/debug/tracer.ts": { "lines": 566, "rationale": "debug tracer — Tier C" },
+    "packages/core/src/debug/tracer.ts": {
+      "lines": 566,
+      "rationale": "debug tracer \u2014 Tier C"
+    },
     "packages/compiler/src/cache.ts": {
       "lines": 546,
-      "rationale": "AOT cache + COMPILER_CACHE_VERSION — Tier D (cache-version contract — split with care)"
+      "rationale": "AOT cache + COMPILER_CACHE_VERSION \u2014 Tier D (cache-version contract \u2014 split with care)"
     },
-    "packages/cli/src/commands/ops.ts": { "lines": 539, "rationale": "CLI ops command — Tier E" },
+    "packages/cli/src/commands/ops.ts": {
+      "lines": 539,
+      "rationale": "CLI ops command \u2014 Tier E"
+    },
     "packages/core/src/security/session.ts": {
       "lines": 535,
-      "rationale": "session security — Tier B"
+      "rationale": "session security \u2014 Tier B"
     },
-    "packages/cli/src/commands/dev.ts": { "lines": 527, "rationale": "CLI dev command — Tier E" },
+    "packages/cli/src/commands/dev.ts": {
+      "lines": 527,
+      "rationale": "CLI dev command \u2014 Tier E"
+    },
     "packages/cli/src/commands/event.ts": {
       "lines": 510,
-      "rationale": "CLI event command — Tier E"
-    },
-    "packages/compiler/src/utils/ast/handler.ts": {
-      "lines": 404,
-      "rationale": "AST handler utils — Tier D (handler-shape primitives split to handler-node.ts)"
+      "rationale": "CLI event command \u2014 Tier E"
     },
     "packages/compiler/src/phases/codegen/helpers.ts": {
       "lines": 476,
-      "rationale": "codegen helpers — Tier D"
+      "rationale": "codegen helpers \u2014 Tier D"
     },
-    "packages/compiler/src/types.ts": { "lines": 471, "rationale": "compiler types — Tier D" },
+    "packages/compiler/src/types.ts": {
+      "lines": 471,
+      "rationale": "compiler types \u2014 Tier D"
+    },
     "packages/core/src/lifecycle/app-factory.ts": {
       "lines": 461,
-      "rationale": "AOT app factory (wave-1 split byproduct) — Tier B"
+      "rationale": "AOT app factory (wave-1 split byproduct) \u2014 Tier B"
     },
     "packages/compiler/src/phases/analysis/dev-only-plugins.ts": {
       "lines": 454,
-      "rationale": "dev-only plugin analysis — Tier D"
-    },
-    "packages/compiler/src/phases/linker.ts": {
-      "lines": 450,
-      "rationale": "linker phase — Tier D"
-    },
-    "packages/core/src/lifecycle/run.ts": {
-      "lines": 435,
-      "rationale": "lifecycle run (wave-1 split byproduct) — Tier B"
-    },
-    "packages/compiler/src/phases/codegen/routes/native.ts": {
-      "lines": 418,
-      "rationale": "native route codegen — Tier D"
+      "rationale": "dev-only plugin analysis \u2014 Tier D"
     },
     "packages/core/src/platform/jobs-store.ts": {
-      "lines": 417,
-      "rationale": "durable jobs store — per-instance mutation serialization (wave-2 split candidate); +4 for the prune cap guard that skips the per-mutation sort — Tier B"
+      "lines": 414,
+      "rationale": "durable jobs store \u2014 per-instance mutation serialization (wave-2 split candidate); +4 for the prune cap guard that skips the per-mutation sort \u2014 Tier B"
     },
     "packages/compiler/src/phases/codegen/routes/context.ts": {
       "lines": 412,
-      "rationale": "context route codegen — Tier D"
+      "rationale": "context route codegen \u2014 Tier D"
     },
     "packages/core/src/http/ws.ts": {
       "lines": 423,
-      "rationale": "http websocket handler — Tier B; +22 for per-socket in-flight release on close so a wedged handler cannot pin the route cap (audit H1)"
+      "rationale": "http websocket handler \u2014 Tier B; +22 for per-socket in-flight release on close so a wedged handler cannot pin the route cap (audit H1)"
     }
   },
   "ignoreGlobs": [

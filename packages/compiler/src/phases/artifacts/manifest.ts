@@ -34,5 +34,16 @@ export const generateManifest = (
     paramNames: r.source.paramNames,
     hooks: r.analysis.hooks,
     usage: r.analysis.usage,
+    // Hook wiring + optimization decisions: `ignex route:list` surfaces these
+    // so a silent "my guard never ran" report is diagnosable from the build
+    // output alone (runtime `before` chains live on handler.config; static
+    // guards are emitted as __guard_* consts; inlined handlers cannot carry
+    // runtime hooks).
+    localHooks: r.analysis.localHooks,
+    wrappedHandler: r.analysis.wrappedHandler,
+    configExport: r.analysis.configExport,
+    shouldInline: r.decisions.shouldInline,
+    ...(r.analysis.guards ? { guards: r.analysis.guards } : {}),
+    ...(r.analysis.schemaParts ? { schemaParts: r.analysis.schemaParts } : {}),
   })),
 });

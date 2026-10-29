@@ -69,7 +69,10 @@ export function suggest(token: string, candidates: readonly string[], limit = 3)
       else score = 2 + editDistance(t, lower, 3);
       return { candidate: c, score };
     })
-    .filter((s) => s.score <= 3)
+    // Prefix (0) and substring (1) matches win outright; an edit-distance match
+    // is only offered within TWO edits (2 + 2), which is what makes the
+    // documented `routlist` → `route:list` case reachable.
+    .filter((s) => s.score <= 4)
     .sort((a, b) => a.score - b.score || a.candidate.localeCompare(b.candidate));
 
   const seen = new Set<string>();

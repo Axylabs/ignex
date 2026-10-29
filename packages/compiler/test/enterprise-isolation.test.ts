@@ -16,21 +16,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { materializeFixture } from "./helpers";
-
-const baseOptions = (layout: ReturnType<typeof materializeFixture>) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-  precompileValidators: true,
-  precompileSerializers: true,
-});
+import { baseOptions, materializeFixture } from "./helpers";
 
 const handler = 'export default () => new Response("ok");\n';
 

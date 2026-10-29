@@ -121,6 +121,111 @@ describe("runLifecycle", () => {
     expect(await res.text()).toBe("caught:boom");
   });
 
+  it("does not re-run afterHandle when it throws on the success path", async () => {
+    // The error came FROM the response pipeline; feeding it back through the
+    // same pipeline would double a non-idempotent hook's side effects.
+    let calls = 0;
+    const lc = lifecycle({
+      afterHandle: [
+        () => {
+          calls += 1;
+          throw new Error("post boom");
+        },
+      ],
+    });
+
+    const res = await runLifecycle(
+      lc,
+      buildPreStages(lc),
+      buildPostStages(lc),
+      createContext(req(), {}),
+      async () => new Response("ok"),
+    );
+
+    expect(res.status).toBe(500);
+    expect(calls).toBe(1);
+  });
+
+  it("runs post stages on a halted (guard) response", async () => {
+    const lc = lifecycle({
+      beforeHandle: [() => new Response("halt", { status: 403 })],
+      afterHandle: [
+        (_ctx, res) => {
+          res.headers.set("x-after", "1");
+          return res;
+        },
+      ],
+    });
+
+    const res = await runLifecycle(
+      lc,
+      buildPreStages(lc),
+      buildPostStages(lc),
+      createContext(req(), {}),
+      async () => new Response("never"),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("halt");
+    expect(res.headers.get("x-after")).toBe("1");
+  });
+
+  it("runs post stages and applies set mutations on error responses", async () => {
+    // Plugins (CORS/compression) compose into afterHandle; they must decorate
+    // error replies too, and `set` mutations from pre-handler hooks must still
+    // be delivered (both were silently dropped by the old `return errorStage`).
+    const lc = lifecycle({
+      beforeHandle: [
+        (ctx) => {
+          ctx.set.headers["x-from-hook"] = "1";
+          return { ok: true, ctx };
+        },
+      ],
+      afterHandle: [
+        (_ctx, res) => {
+          res.headers.set("access-control-allow-origin", "*");
+          return res;
+        },
+      ],
+    });
+
+    const res = await runLifecycle(
+      lc,
+      buildPreStages(lc),
+      buildPostStages(lc),
+      createContext(req(), {}),
+      async () => {
+        throw new Error("boom");
+      },
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("x-from-hook")).toBe("1");
+  });
+
+  it("does not let a throwing post stage mask the error response", async () => {
+    const lc = lifecycle({
+      afterHandle: [
+        () => {
+          throw new Error("post boom");
+        },
+      ],
+    });
+
+    const res = await runLifecycle(
+      lc,
+      buildPreStages(lc),
+      buildPostStages(lc),
+      createContext(req(), {}),
+      async () => {
+        throw new Error("handler boom");
+      },
+    );
+
+    expect(res.status).toBe(500);
+  });
+
   it("does not let afterResponse replace the response", async () => {
     const lc = lifecycle({
       afterResponse: [async () => new Response("ignored", { status: 418 })],

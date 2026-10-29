@@ -19,6 +19,12 @@ export {
 } from "../platform/boot-failure";
 export type { Config, ConfigField, ConfigFieldType, ConfigSchema } from "../platform/config";
 export { defineConfig } from "../platform/config";
+export type {
+  DefineErrorOptions,
+  DomainError,
+  DomainErrorClass,
+} from "../platform/define-error";
+export { DOMAIN_CODE_STATUS, defineError } from "../platform/define-error";
 export { env, envBool, envFloat, envInt, envJson, envSecret, loadEnv } from "../platform/env";
 export type {
   DefineEnvOptions,
@@ -38,6 +44,13 @@ export {
 } from "../platform/env-config";
 export type { EnvConnectionVar, EnvFileReport } from "../platform/env-report";
 export { readEnvFileReport } from "../platform/env-report";
+export type {
+  CodedError,
+  CodedErrorClass,
+  ErrorMapperOptions,
+  HttpErrorRule,
+} from "../platform/error-mapper";
+export { asError, createErrorMapper } from "../platform/error-mapper";
 export type {
   ConfigErrorOptions,
   DBErrorOptions,

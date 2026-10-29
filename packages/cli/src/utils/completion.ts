@@ -72,7 +72,7 @@ export function tokenizeLine(line: string, cursor: number): TokenizedLine {
   let inToken = false;
 
   const bounded = Math.max(0, Math.min(cursor, line.length));
-  const end = bounded > line.length ? line.length : bounded;
+  const end = Math.min(bounded, line.length);
 
   // A fresh-token position: at the very start, just after whitespace, or when
   // the cursor is past the text we were given (truncated trailing space).

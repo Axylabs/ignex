@@ -6,14 +6,15 @@
  * - Generated import paths are relative to opts.outDir.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { DiagnosticCodes, errorMessage } from "../diagnostics";
 import type { CompilerContext, CompilerOptions } from "../types";
+import { resolveBinaryOutPath } from "../utils/binary-path";
 import { projectPath } from "../utils/path";
 import { isProductionBuild } from "./analysis/app-config";
-import { debugbarStubRewrite } from "./analysis/dev-only-plugins";
 import { writeIfChanged } from "./artifacts/write";
+import { prodShapeBunPlugin, runtimeDepPlugin } from "./build-plugins";
 
 /** Minimal Bun.build log shape (message + optional source position). */
 interface BunBuildLog {
@@ -107,46 +108,6 @@ const unresolvedSpecifiers = (logs: readonly BunBuildLog[]): string[] => {
 };
 
 /**
- * Bun.build loader plugin that PREPENDS `globalThis.__IGNEX_PROD_BUILD = true`
- * to the app-config module in production-shaped builds, and rewrites the
- * module's `debugbar` import bindings to inert local stubs so the bundler
- * treeshakes the entire debug graph (dashboard SPA, observatory endpoints,
- * TraceStore) out of the artifact.
- *
- * The assignment must live inside the app-config module itself (not the
- * generated entry header): ESM import hoisting evaluates the plugins array —
- * and with it every `debugbar(...)` factory call — before any entry-level
- * statement runs, so a header flag would always be set too late. Returns
- * `undefined` when the build is not production-shaped or no app config exists,
- * so the linker emits no plugin at all.
- */
-const prodShapeBunPlugin = (
-  appConfigAbs: string,
-  isProdBuild: boolean,
-): {
-  name: string;
-  setup: (build: { onLoad: (o: unknown, cb: unknown) => void }) => void;
-} | null => {
-  if (!isProdBuild || !existsSync(appConfigAbs)) return null;
-  return {
-    name: "ignex-prod-shape",
-    setup(build) {
-      build.onLoad({ filter: /\.(ts|js|tsx|jsx|mts|mjs)$/ }, (args: { path: string }) => {
-        if (args.path !== appConfigAbs) return undefined;
-        const contents = readFileSync(args.path, "utf8");
-        // Stub the dev-only plugin FIRST (offsets are relative to the raw
-        // file), then prepend the runtime shape flag.
-        const rewritten = debugbarStubRewrite(contents) ?? contents;
-        return {
-          contents: `globalThis.__IGNEX_PROD_BUILD = true;\n${rewritten}`,
-          loader: "ts",
-        };
-      });
-    },
-  };
-};
-
-/**
  * Bundle with externalization retry: when route code references packages that
  * cannot be resolved at build time (optional/uninstalled deps), externalize
  * exactly those specifiers and retry. Bun.build surfaces resolution failures
@@ -210,6 +171,7 @@ const buildWithFallback = async (
       : projectPath("./src/app.config.ts");
   const prodShapePlugin = prodShapeBunPlugin(appConfigAbs, isProductionBuild(opts));
 
+  const plugins = [runtimeDepPlugin(), prodShapePlugin].filter((p) => p !== null);
   const base: Record<string, unknown> = {
     entrypoints: [entryPath],
     outdir: opts.outDir,
@@ -217,7 +179,7 @@ const buildWithFallback = async (
     format: "esm",
     minify: opts.minify,
     sourcemap: opts.sourceMap ? "external" : "none",
-    ...(prodShapePlugin ? { plugins: [prodShapePlugin] } : {}),
+    ...(plugins.length > 0 ? { plugins } : {}),
   };
 
   // `runLinkerAsync` guards `bun?.build` before calling us — capture the
@@ -299,19 +261,6 @@ const cleanupEntry = (entryPath: string, outPath: string): void => {
 };
 
 /**
- * Resolve the output path for a standalone executable. `binaryOutfile` is
- * rooted under `outDir` when relative; defaults to `join(outDir, serviceName)`.
- */
-const binaryOutPath = (opts: CompilerOptions): string => {
-  if (opts.binaryOutfile) {
-    return isAbsolute(opts.binaryOutfile)
-      ? opts.binaryOutfile
-      : join(opts.outDir, opts.binaryOutfile);
-  }
-  return join(opts.outDir, opts.serviceName ?? "ignex");
-};
-
-/**
  * Build the standalone executable (`Bun.build` with `compile`) from the temp
  * entry. Pins production defaults: minify, bytecode, linked sourcemap, and
  * `NODE_ENV=production` (inlined, enabling dead-code elimination). Returns
@@ -387,7 +336,7 @@ export const runLinkerAsync = async (
   // be deployed without installing Bun. `compile` has no `outdir` — output is
   // pinned to `binaryOutfile ?? join(outDir, serviceName)`.
   if (opts.compile) {
-    const compileOut = binaryOutPath(opts);
+    const compileOut = resolveBinaryOutPath(opts);
     const entryPath = join(opts.outDir, `.${opts.outFile}.entry.js`);
     await bun.write(entryPath, code);
     const result = await buildCompiled(entryPath, compileOut, opts, ctx);

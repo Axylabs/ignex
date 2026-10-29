@@ -105,6 +105,10 @@ export type {
   SdkRouteInfo,
 } from "./sdk/types";
 export type { CompileResult, CompilerOptions, RouteIR } from "./types";
+// The linker owns this rule; the CLI prints the same path in its status line,
+// so it is exported rather than mirrored (a private copy already drifted once).
+export type { BinaryOutPathOptions } from "./utils/binary-path";
+export { resolveBinaryOutPath } from "./utils/binary-path";
 export { DEFAULT_OPTS, mergeOptions };
 
 /** Build a fresh per-compile context (logger + diagnostic collector). */

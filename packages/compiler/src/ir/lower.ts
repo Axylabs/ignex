@@ -102,11 +102,19 @@ export const parseRouteFilename = (
 export const buildHandlerRef = (routeIndex: number): string => `_h${routeIndex}`;
 
 /**
- * Find the handler export symbol of a route module (default export, or the
- * first symbol when no default is present).
+ * Find the handler export symbol of a route module: the default export, the
+ * named handler binding chosen by the frontend, or the first symbol.
  */
-export const findHandlerSymbol = (mod: ModuleInfo): SymbolInfo | undefined =>
-  mod.symbols.find((s) => s.name === "default") || mod.symbols[0];
+export const findHandlerSymbol = (mod: ModuleInfo): SymbolInfo | undefined => {
+  const byDefault = mod.symbols.find((s) => s.name === "default");
+  if (byDefault) return byDefault;
+  const named = mod.handlerExportName;
+  if (named) {
+    const match = mod.symbols.find((s) => s.name === named);
+    if (match) return match;
+  }
+  return mod.symbols[0];
+};
 
 /**
  * Normalize exported route cache config.
@@ -272,6 +280,7 @@ export const lowerRoute = (
       ...(mod.config !== undefined ? { config: mod.config } : {}),
       ...(mod.guards !== undefined ? { guards: mod.guards } : {}),
       ...(mod.handlerExportName !== undefined ? { handlerExportName: mod.handlerExportName } : {}),
+      ...(mod.schemaParts !== undefined ? { schemaParts: mod.schemaParts } : {}),
     },
     decisions: {
       shouldInline: false,

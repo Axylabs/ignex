@@ -47,6 +47,8 @@ export interface SourceFile {
   readonly wrappedHandler: boolean;
   /** The route schema declares route-local `before`/`after` chains. */
   readonly localHooks: boolean;
+  /** Statically-readable keys of the route schema object literal, if known. */
+  readonly schemaParts?: readonly string[];
   /** Extracted route handler (default or named export), if any. */
   readonly handler: ExtractedHandler | null;
   /** Route-level `config` export, if present. */

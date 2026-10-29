@@ -15,27 +15,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
 import { heatContribution, loadRouteHeat } from "../src/phases/analysis/heat";
-import { type FixtureLayout, fixturePath, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout, extra: Record<string, unknown> = {}) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: false,
-  generateOpenAPI: false,
-  generateClient: false,
-  precompileValidators: false,
-  precompileSerializers: false,
-  ...extra,
-});
+import { fixturePath, materializeFixture, minimalOptions } from "./helpers";
 
 describe("dispatch shell specialization", () => {
   it("binds the pre-built static Response for constant GET routes", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     // Constant `/` route is bound as a pre-built Response VALUE — Bun serves
     // it natively in Rust (zero per-request JS, native auto-HEAD).
@@ -54,7 +39,7 @@ describe("dispatch shell specialization", () => {
 
   it("binds the static async wrapper for param routes", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     // `users/[id].get.ts` is dynamic (`:id`) but NOT a wildcard — no
     // `new URL` fallback block, promise funnel retained.
@@ -64,14 +49,14 @@ describe("dispatch shell specialization", () => {
 
   it("keeps the generic __wrap for wildcard routes and WS routes", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     expect(result.code).toMatch(/__wrap\((?:GET|WS)_\w+(?:, \["path"\], "\/files\/")?\)/);
   });
 
   it("emits the HEAD strip helpers exactly once each", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     expect(result.code.match(/function __stripForHead\(/g)).toHaveLength(1);
     expect(result.code.match(/function __headStatic\(/g)).toHaveLength(1);
@@ -81,7 +66,7 @@ describe("dispatch shell specialization", () => {
 describe("dev heat capture (heatCapture)", () => {
   it("emits the counter module + per-route increments when enabled", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout, { heatCapture: true }));
+    const result = await buildAsync(minimalOptions(layout, { heatCapture: true }));
 
     expect(result.code).toContain("hot-routes.json");
     expect(result.code).toContain("__heatFlush");
@@ -90,7 +75,7 @@ describe("dev heat capture (heatCapture)", () => {
 
   it("emits nothing when heatCapture is off (default)", async () => {
     const layout = materializeFixture("dispatch");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     expect(result.code).not.toContain("__heat[");
     expect(result.code).not.toContain("hot-routes.json");
@@ -102,7 +87,7 @@ describe("route heat analysis (hot-routes.json)", () => {
     const layout = materializeFixture("dispatch");
 
     // Baseline build without heat data.
-    await buildAsync(baseOptions(layout));
+    await buildAsync(minimalOptions(layout));
     const manifestPath = join(layout.outDir, "manifest.json");
     expect(existsSync(manifestPath)).toBe(true);
     const base = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
@@ -120,7 +105,7 @@ describe("route heat analysis (hot-routes.json)", () => {
         routes: { "GET /": 4096 },
       }),
     );
-    await buildAsync(baseOptions(layout));
+    await buildAsync(minimalOptions(layout));
     const heated = JSON.parse(readFileSync(manifestPath, "utf-8")) as typeof base;
     const heatedRoot = heated.routes.find((r) => r.path === "/");
     if (!heatedRoot) throw new Error("fixture route '/' missing from heated manifest");

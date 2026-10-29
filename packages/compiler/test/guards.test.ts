@@ -11,27 +11,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildAsync } from "../src/index";
-import { type FixtureLayout, materializeFixture } from "./helpers";
-
-const baseOptions = (layout: FixtureLayout, extra: Record<string, unknown> = {}) => ({
-  routesDir: layout.routesDir,
-  outDir: layout.outDir,
-  outFile: "server.js",
-  minify: false,
-  sourceMap: false,
-  incremental: false,
-  generateTypes: false,
-  generateOpenAPI: false,
-  generateClient: false,
-  precompileValidators: false,
-  precompileSerializers: false,
-  ...extra,
-});
+import { materializeFixture, minimalOptions } from "./helpers";
 
 describe("RBAC guards (withGuards) AOT codegen", () => {
   it("emits guard hooks + imports and wires them into the route hook chain", async () => {
     const layout = materializeFixture("guards");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     expect(result.errors).toHaveLength(0);
 
@@ -62,11 +47,23 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     expect(coreImport).toContain("canAll");
   });
 
+  it("routes guard halts through the response pipeline (CORS/security apply)", async () => {
+    const layout = materializeFixture("guards");
+    const result = await buildAsync(minimalOptions(layout));
+
+    expect(result.errors).toHaveLength(0);
+    // A guard's 401/403 used to `return __applySet(response, …)` directly,
+    // skipping plugin onResponse (CORS echo) — halt responses now go through
+    // __haltResponse so every decorating plugin sees them.
+    expect(result.code).toContain("return __haltResponse(");
+    expect(result.code).not.toMatch(/response\)\s*return __applySet\(\w+\.response/);
+  });
+
   it("guarded routes are not constant-hoisted (guards must run)", async () => {
     // The guarded handlers return constant JSON — without guards the compiler
     // would hoist them to frozen bodies. Guards force the normal path.
     const layout = materializeFixture("guards");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
     expect(result.code).toContain("__guard_");
     // No frozen constant body for the guarded routes (they are not hoisted).
     expect(result.code).not.toContain("__finalize({ body:");
@@ -77,7 +74,7 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     // compiler hoists it to a frozen body. The guard array must prevent that
     // AND still statically emit the guard.
     const layout = materializeFixture("guards");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
     expect(result.code).toContain('can("hoist:read")');
     // The hoisted form uses a frozen body const — absent for the route.
     expect(result.code).not.toContain("Object.freeze({ ok: true })");
@@ -86,14 +83,14 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
 
   it("an after-only route emits the route.after stage on the full-context path", async () => {
     const layout = materializeFixture("guards");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
     expect(result.code).toContain('runTimed("route.after"');
     expect(result.code).toContain("handler__h4?.config?.after");
   });
 
   it("without withGuards the output has no guard emission", async () => {
     const layout = materializeFixture("named-export");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
     expect(result.code).not.toContain("__guard_");
     expect(result.code).not.toContain("hasRole(");
     expect(result.code).not.toContain("canAll(");
@@ -105,7 +102,7 @@ describe("RBAC guards (withGuards) AOT codegen", () => {
     // silently downgrade authorization to authenticated-only, so the route
     // must keep its runtime module import instead.
     const layout = materializeFixture("guards");
-    const result = await buildAsync(baseOptions(layout));
+    const result = await buildAsync(minimalOptions(layout));
 
     expect(result.errors).toHaveLength(0);
 

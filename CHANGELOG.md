@@ -8,6 +8,73 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`@ignex/core/store` is resolvable from the test run, and the invariant is
+  enforced.** The subpath is published in `package.json` but had no alias in the
+  root `vitest.config.ts`, so importing it from a test would have failed with
+  "Cannot find package" while `tsc` and a real install resolved it fine.
+  `packages/core/test/exports.test.ts` now asserts that every published
+  `@ignex/core` subpath has a matching alias.
+- **Coverage for four previously untested modules.** `phases/build-plugins.ts`
+  (13% → 100% lines) — both `Bun.build` plugins driven through their
+  `onResolve`/`onLoad` callbacks, including the production flag landing as the
+  app-config module's FIRST statement and the debugbar binding being stubbed;
+  `utils/suggest.ts` (0% → 100%), `debug/ui/format.ts` (0% → 100%) and
+  `debug/ui/api.ts` (0% → 94%, including the stream's ticket/backoff/`onDown`
+  budget). `cli/utils/suggest.ts` regression tests pin the docblock examples.
+- **`errorMessage`, `toOpenApiPath` and `resolveBinaryOutPath` each have ONE
+  definition.** The unknown-throw normaliser `errorMessage` existed as four
+  private copies (`core/platform/jobs-store`, `compiler/diagnostics`,
+  `compiler/sdk/load`, `cli/utils/realtime-artifact`); it now lives in
+  `@ignex/shared` (following the `isRecord` precedent) and `compiler/diagnostics`
+  re-exports it, so the nine internal importers are unchanged. `compiler/sdk/load`
+  also re-implemented the already-exported `@ignex/shared` `toOpenApiPath` —
+  it now imports it, and the helper is on shared's public barrel. The CLI's
+  `ignex build` status line carried a literal "Mirror of the linker's binary
+  output path resolution" copy of the linker's rule; the linker now owns
+  `resolveBinaryOutPath` (exported from `@ignex/compiler`) and the CLI imports
+  it, so the printed path cannot diverge from the written one again. Pinned by
+  `packages/shared/test/errors.test.ts`, `packages/compiler/test/binary-path.test.ts`
+  and `packages/cli/test/build-binary-path.test.ts`.
+- **Compiler test suites share one `baseOptions`.** Nine suites carried a
+  private copy of the same `CompilerOptions` literal — six byte-identical, two
+  an all-generators-off variant, one the canonical set plus an override.
+  `packages/compiler/test/helpers.ts` now exports `baseOptions(layout, extra?)`
+  and `minimalOptions(layout, extra?)`; a copy that gained a flag no longer
+  quietly diverges from its siblings.
+- **The benchmark scripts share one throughput loop.** `opsPerSec` was
+  copy-pasted into `bench-ffi`, `bench-jwt`, `bench-jwt-compare` (as
+  `opsPerSecSync`) and `native-bench` with differing warm-up counts, which made
+  the reported ops/sec numbers incomparable between benches. It lives in
+  `scripts/lib/throughput.ts` (next to the other shared script logic) and takes
+  duration/warm-up as parameters; `bench-ffi` keeps its historical 200 ms window
+  by passing it explicitly.
+- **Route helpers for the boilerplate every JSON API repeats.** `@ignex/core/http`
+  now exports `Uuid` (the `format: "uuid"` schema), `OkResponse` (`{ ok: true }`),
+  and the paged-list trio — `readPagination(ctx)` (reads `ctx.url.searchParams`,
+  tolerates garbage, clamps `pageSize`), `pageResponse(items, page, total)`, and
+  `pageSchema(item)` for the matching response schema. A list route drops from
+  ~20 lines of query parsing + hand-written envelope schema to three calls; the
+  `Pagination` type is exported too. `readPagination` sidesteps the
+  `ctx.query`-is-grouped-in-AOT footgun by reading the URL directly.
+- **`defineError(name, options?)` — a domain error that is already an HTTP
+  answer.** Applications had to write one `*-http-mapper.ts` per module plus a
+  `try/catch` in every route just to translate a domain `code` into a status.
+  Now the class carries its own contract:
+  ```ts
+  export const BillingError = defineError("BillingError"); // NOT_FOUND→404, FORBIDDEN→403, INVALID_STATE→409
+  ```
+  Instances extend the framework's `HTTPError`, so `errorToResponse` (compiled
+  and interpreted) answers with the declared status, code and message with no
+  adapter, no mapper import and no `try/catch`. A conventional code→status table
+  (`DOMAIN_CODE_STATUS`: `NOT_FOUND`→404, `FORBIDDEN`→403, `INVALID_*`/`*_STATE`
+  →422/409, `DUPLICATE`/`ALREADY_*`→409, `EXPIRED`→410, `*_EXCEEDED`→429, …)
+  covers the common codes; `codes`, `fallbackStatus`, `code`, `codeNames`,
+  `messages`, `prefix` and `origin` override it, so only the unusual codes are
+  configured. The domain code IS the client code by default (`NOT_FOUND`), so a
+  service can keep branching on `error.code`; `prefix` opts into a namespace and
+  `error.domainCode` always carries the raw code. `createErrorMapper` remains for
+  errors you cannot change (drivers, third-party SDKs).
+
 - **`createMetrics({ maxSeries })` bounds label cardinality.** The Prometheus
   registry now drops new series past the cap (default 1000) instead of growing
   unbounded on high-cardinality label values (user ids, raw paths), returning a
@@ -118,6 +185,19 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   connection slot is released). `packages/core/test/process-guards.test.ts`
   covers the crash handlers, including a cyclic/primitive rejection.
 
+- **`ignex route:list` explains hook/guard wiring.** The build manifest now
+  records per-route `localHooks`, `wrappedHandler`, `configExport`,
+  `shouldInline`, the statically-emitted guards and the schema literal's parts;
+  the table gained a `HOOKS` column (e.g. `auth,can(users:read),local`) so
+  "why did my guard not run / why was this route not inlined" is answerable
+  from the build output. Pinned by `packages/cli/test/route-list.test.ts`.
+- **`createErrorMapper()` turns domain-error → HTTP mapping into data.**
+  Every app re-implemented the same `if (error instanceof X) { status = code === … }`
+  ladder per module. The new table-driven helper (with `asError`) supports
+  ordered rules, multiple classes per rule, per-code statuses with a fallback,
+  code prefixes, fixed codes and per-code message/code overrides; unmatched
+  errors pass through and non-`Error` throws are normalised. Documented in
+  `docs/cookbook.md`; pinned by `packages/core/test/error-mapper.test.ts`.
 ### Security
 
 - **Six dependency advisories cleared — both supply-chain gates are green
@@ -155,6 +235,22 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Unknown-command hints can finally suggest a two-edit typo.** `suggest`'s
+  ranking is prefix (0) / substring (1) / `2 + editDistance`, but the cut-off was
+  `score <= 3`, i.e. at most ONE edit — so the very example its own docblock
+  advertises (`ignex routlist` → `route:list`, two insertions) could never be
+  produced, and neither could a dropped separator in a longer command
+  (`queuwork` → `queue:work`). The bound is now `<= 4` (two edits); prefix and
+  substring matches still outrank it, and unrelated tokens still produce no
+  hint. Pinned by `packages/cli/test/suggest.test.ts`.
+- **Biome no longer lints files outside the repository.** `.qlty/out`, `.qlty/logs`,
+  `.qlty/results` and `.qlty/plugin_cachedir` are symlinks into the qlty cache
+  directory; Biome 2.6 follows them, so `biome check .` reported ~800 format
+  errors against the user's cache instead of the repo. `.qlty` is excluded.
+- **Markdown is explicitly out of the formatter's scope.** Biome 2.6 formats
+  Markdown for the first time, which would have rewrapped every hand-wrapped doc
+  and normalised every table separator. `markdown.formatter.enabled` is `false`,
+  preserving the pre-2.6 behaviour deliberately rather than by accident.
 - **The last oxlint warning is suppressed where it applies.** The deliberate
   thenable fixture in `packages/core/test/lifecycle-fused.test.ts` stacked an
   `eslint-disable-next-line` directly above a `biome-ignore` comment, so the
@@ -220,6 +316,60 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   a classified Fault, on every build shape. Pinned by
   `packages/compiler/test/serve-error-handler.test.ts`.
 
+- **Named-export routes silently dropped their `before`/`after` chains.**
+  `export const httpGet = get(handler, { before: [requireAuth()] })` discovered
+  the handler and the schema but never set `localHooks`/`wrappedHandler`, so
+  codegen emitted no route hook chain and the guard never ran in the compiled
+  server (the default-export form worked). Both export forms now share one
+  classifier, and routes with a runtime chain are never inlined (inlining
+  replaces the wrapper and would drop `handler.config`). Pinned by
+  `packages/compiler/test/named-export-hooks.test.ts`.
+- **`ctx.query` had two incompatible shapes.** Without a `query` schema the
+  interpreted router and the usage-specialized tier expose `URLSearchParams`,
+  but the full-context AOT prelude shadowed it with a grouped Record, so
+  `ctx.query.get("q")` threw only in compiled builds. The prelude now parses a
+  Record **only** when the route declares a query schema; otherwise the
+  standard `URLSearchParams` contract is preserved. When schema evaluation is
+  unavailable the compiler falls back to the schema literal's keys instead of
+  assuming every part exists. Pinned by
+  `packages/compiler/test/named-export-hooks.test.ts`.
+- **Error and halt responses now run the response pipeline.** A thrown
+  `HTTPError` and a guard's 401/403 were returned directly
+  (`__applySet`/`errorToResponse`), bypassing plugin `onResponse` hooks — so
+  CORS echo, compression and any user `afterHandle`/`mapResponse` never
+  decorated them, and browser clients saw an opaque network error. Error and
+  halt replies now flow through `__finishResponse` (compiled) / the shared post
+  stages (interpreted), with each hook contained so a throwing hook cannot mask
+  the original response. `ctx.set` mutations from pre-handler hooks are
+  delivered too. Pinned by `packages/core/test/lifecycle.test.ts` and
+  `packages/compiler/test/features.test.ts`.
+
+- **Compiled apps no longer depend on the app hoisting the compiler's runtime
+  deps.** Generated serializer modules import `fast-json-stringify`, which the
+  linker could not resolve from the app's output dir and therefore externalized
+  — so a production build crashed at boot (`Cannot find package
+  'fast-json-stringify'`) unless the app happened to hoist it. The linker now
+  resolves compiler-owned runtime deps from the compiler's own install via an
+  `onResolve` plugin and bundles them, keeping `@ignex/core` the artifact's only
+  package dependency. Pinned by `packages/app/test/response-pipeline.test.ts`
+  (boots the matrix fixture from a clean `dist/`).
+- **A route file's exported helpers could be mistaken for the handler.** In
+  the named-export form, `export const helper = (x) => …` appearing before
+  `export const httpGet = get(…)` won the "first handler-shaped export"
+  selection: the route called the helper, guard extraction stopped before the
+  real handler, and constant-response analysis could even hoist the helper's
+  return value as the response body (`export const helper = () => "helper"`
+  served `"helper"`). Selection now ranks explicit wrapper calls (`get`/`post`/
+  `withGuards`) above function declarations above bare functions, shared by
+  handler extraction, guard extraction and constant analysis. Pinned by
+  `packages/compiler/test/named-export.test.ts`.
+- **A response hook that throws is not run twice.** Error/halt replies now go
+  through the response pipeline, so an exception raised *by* `afterHandle`/
+  `mapResponse` was fed back into that same pipeline — double-running a
+  non-idempotent hook. Both the compiled core fn (`__postRan`) and the
+  interpreted lifecycle skip the post stages when the error came from them.
+  Pinned by `packages/core/test/lifecycle.test.ts` and
+  `packages/compiler/test/features.test.ts`.
 ### Performance
 
 - **`GET /page` stops re-scanning the views directory on every request.** The
@@ -231,6 +381,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Dev-dependency refresh, including three majors.** `vitest` /
+  `@vitest/coverage-v8` / `@vitest/ui` 4.1 → 5.0, `happy-dom` 20 → 21 and
+  `oxc-parser` 0.140 → 0.156 (the AOT AST parser) all land together; the suite
+  runs unchanged on them. `@biomejs/biome` 2.5 → 2.6 (config schema migrated,
+  and the four new `useMathMinMax` findings are now `Math.min`/`Math.max`),
+  `oxlint` 1.81 → 1.90, `knip` 6.34 → 6.43, `lefthook` 2.1 → 2.2,
+  `@babel/*` 8.0.1 → 8.0.9, `@types/bun` 1.3/1.4 → 1.4.4, `jose` 6.2.11 → 6.2.14,
+  `fast-check` 4.9 → 4.10, `drizzle-orm` 0.45.2 → 0.45.4 and
+  `babel-preset-solid` 1.9.15 → 1.9.16. Runtime dependencies were already
+  current.
 - **CI pins its runner image. Linux lanes now run on `ubuntu-24.04`.** GitHub
   starts migrating the `ubuntu-latest` alias to Ubuntu 26 on 2026-10-19
   (`actions/runner-images` #14748), which would have swapped the runner class

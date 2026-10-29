@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CompilerOptions } from "../src/types";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -58,3 +59,54 @@ export const materializeFixture = (name: string): FixtureLayout => {
 
 /** Absolute path of a committed fixture file (e.g. an app config). */
 export const fixturePath = (name: string, file: string): string => join(fixturesDir, name, file);
+
+/**
+ * The default `CompilerOptions` the end-to-end suites build fixtures with:
+ * nothing enabled that would make assertions depend on minification, source
+ * maps or incremental caching, and every precompile step ON so the compiled
+ * validator/serializer paths are exercised rather than the runtime fallbacks.
+ *
+ * Shared by the six suites that materialize a fixture and compile it — the copy
+ * that used to live in each of them silently diverged whenever one suite gained
+ * a flag.
+ */
+export const baseOptions = (
+  layout: FixtureLayout,
+  extra: Partial<CompilerOptions> = {},
+): Partial<CompilerOptions> => ({
+  routesDir: layout.routesDir,
+  outDir: layout.outDir,
+  outFile: "server.js",
+  minify: false,
+  sourceMap: false,
+  incremental: false,
+  generateTypes: true,
+  generateOpenAPI: true,
+  generateClient: true,
+  precompileValidators: true,
+  precompileSerializers: true,
+  ...extra,
+});
+
+/**
+ * `baseOptions` with every generator AND both precompile steps switched off —
+ * the shape the codegen-shape suites use when they assert on the emitted server
+ * text alone (no artifacts, no precompiled validator/serializer modules).
+ */
+export const minimalOptions = (
+  layout: FixtureLayout,
+  extra: Partial<CompilerOptions> = {},
+): Partial<CompilerOptions> => ({
+  routesDir: layout.routesDir,
+  outDir: layout.outDir,
+  outFile: "server.js",
+  minify: false,
+  sourceMap: false,
+  incremental: false,
+  generateTypes: false,
+  generateOpenAPI: false,
+  generateClient: false,
+  precompileValidators: false,
+  precompileSerializers: false,
+  ...extra,
+});

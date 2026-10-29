@@ -32,6 +32,7 @@ import {
   validateUuidFallback,
 } from "../packages/native/src/index";
 import { readPairsPacked } from "../packages/native/src/packed";
+import { opsPerSec } from "./lib/throughput";
 
 const ffi = getFfi();
 // Non-null typed handles — the native closures below only ever run under the
@@ -66,17 +67,6 @@ function median(nums: number[]): number {
 }
 
 /** Ops/sec for a sync fn (warmup + timed loop). */
-function opsPerSec(fn: () => void, durationMs = 200): number {
-  for (let i = 0; i < 1_000; i++) fn();
-  const start = performance.now();
-  let count = 0;
-  while (performance.now() - start < durationMs) {
-    fn();
-    count++;
-  }
-  return count / ((performance.now() - start) / 1000);
-}
-
 interface BenchOp {
   name: string;
   native: () => unknown;
@@ -181,7 +171,7 @@ function run(): void {
       rows.push({
         name: op.name,
         native: Number.NaN,
-        js: opsPerSec(op.fallback),
+        js: opsPerSec(op.fallback, 200),
         ratio: Number.NaN,
       });
       continue;
@@ -189,8 +179,8 @@ function run(): void {
     const nSamples: number[] = [];
     const jSamples: number[] = [];
     for (let t = 0; t < TRIALS; t++) {
-      nSamples.push(opsPerSec(op.native));
-      jSamples.push(opsPerSec(op.fallback));
+      nSamples.push(opsPerSec(op.native, 200));
+      jSamples.push(opsPerSec(op.fallback, 200));
     }
     const n = median(nSamples);
     const j = median(jSamples);

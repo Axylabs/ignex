@@ -35,7 +35,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isRecord } from "@ignex/shared";
+import { errorMessage, isRecord } from "@ignex/shared";
 
 /**
  * Validate an optional directional event-name list. Entries must be strings
@@ -76,9 +76,6 @@ interface RealtimeArtifact {
   /** Optional: events the SERVER may send (`emit*` / client `on`). Defaults to all events. */
   serverToClient?: string[];
 }
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * Default subject prefix: the package.json "name" without its npm scope,

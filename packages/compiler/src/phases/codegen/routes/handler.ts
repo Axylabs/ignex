@@ -77,7 +77,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
       const __r = __TRACE_DEBUG ? runTimed("beforeHandle", "lifecycle", () => runHooks(__lc.beforeHandle, ctx)) : runHooks(__lc.beforeHandle, ctx);
       const gBefore = __r instanceof Promise ? await __r : __r;
       ctx = gBefore.ctx ?? ctx;
-      if (gBefore.response) return __applySet(gBefore.response, ctx.set);
+      if (gBefore.response) return __haltResponse(gBefore.response, ctx);
     }`;
 
   const routeHooksStage = hasRouteHooks
@@ -85,13 +85,14 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
       const __r = __TRACE_DEBUG ? runTimed("route hooks", "lifecycle", () => runHooks(${routeHookVar}, ctx)) : runHooks(${routeHookVar}, ctx);
       const rBefore = __r instanceof Promise ? await __r : __r;
       ctx = rBefore.ctx ?? ctx;
-      if (rBefore.response) return __applySet(rBefore.response, ctx.set);
+      if (rBefore.response) return __haltResponse(rBefore.response, ctx);
     }`
     : "";
 
   return `${sync ? "" : "async "}function ${coreName}(req, params, server) {
   if (req.signal.aborted) return __abortedResponse;
   let ctx;
+  let __postRan = false;
   try {
     ${pre.join("\n")}
     ${beforeHandleStage}
@@ -110,6 +111,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
 `
         : ""
     }
+    __postRan = true;
     if (__hasAfterHandle && !__ABL_HOOKS) {
       const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response);
       const after = __r1 instanceof Promise ? await __r1 : __r1;
@@ -138,7 +140,7 @@ export const assembleCoreFn = (input: CoreFnInput): string => {
     }
     ${needsFull ? `return __ABL_APPLYSET ? response : __applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined);` : compact ? `return response;` : `return __applySet(response, ctx.set);`}
   } catch (err) {
-    return __handleError(err, ctx);
+    return __handleError(err, ctx, __postRan);
   }
 }`;
 };
@@ -174,7 +176,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
       if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 3, __r);
       const rBefore = __r;
       ctx = rBefore.ctx ?? ctx;
-      if (rBefore.response) return __applySet(rBefore.response, ctx.set, __TRACE ? ctx.requestId : undefined);
+      if (rBefore.response) return __haltResponse(rBefore.response, ctx);
     }
 `
     : "";
@@ -182,6 +184,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
   const syncBody = `function ${coreName}(req, params, server) {
   if (req.signal.aborted) return __abortedResponse;
   let ctx;
+  let __postRan = false;
   try {
     ${pre.join("\n")}
     if (__hasBeforeHandle) {
@@ -189,7 +192,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
       if (__r instanceof Promise) return ${resumeName}(ctx, undefined, 2, __r);
       const gBefore = __r;
       ctx = gBefore.ctx ?? ctx;
-      if (gBefore.response) return __applySet(gBefore.response, ctx.set, __TRACE ? ctx.requestId : undefined);
+      if (gBefore.response) return __haltResponse(gBefore.response, ctx);
     }
     ${routeHooksStage}
     const __result0 = __TRACE_DEBUG ? runTimed("handler", "lifecycle", () => ${callExpr}) : ${callExpr};
@@ -207,6 +210,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
 `
         : ""
     }
+    __postRan = true;
     if (__hasAfterHandle) {
       const __r1 = __TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response);
       if (__r1 instanceof Promise) return ${resumeName}(ctx, response, 6, __r1);
@@ -235,7 +239,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
     }
     return ${compact ? "response" : "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)"};
   } catch (err) {
-    return __handleError(err, ctx);
+    return __handleError(err, ctx, __postRan);
   }
 }`;
 
@@ -245,18 +249,19 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
   // `stage` ran in the sync core; stages > `stage` run here (awaited). Cold,
   // correctness-only path.
   const resumeBody = `async function ${resumeName}(ctx, response, stage, value) {
+  let __postRan = false;
   try {
     if (stage === 1) {
       const __globalPre = await value;
       if (__TRACE_DEBUG) debugStageEnd("request");
-      if (__globalPre.response) return __applySet(__globalPre.response, ctx.set, __TRACE ? ctx.requestId : undefined);
+      if (__globalPre.response) return __haltResponse(__globalPre.response, ctx);
       ctx = __globalPre.ctx ?? ctx;
     }
     if (stage <= 2 && __hasBeforeHandle) {
       const __r = stage === 2 ? await value : await (__TRACE_DEBUG ? runTimed("beforeHandle", "lifecycle", () => runHooks(__lc.beforeHandle, ctx)) : runHooks(__lc.beforeHandle, ctx));
       const gBefore = __r;
       ctx = gBefore.ctx ?? ctx;
-      if (gBefore.response) return __applySet(gBefore.response, ctx.set, __TRACE ? ctx.requestId : undefined);
+      if (gBefore.response) return __haltResponse(gBefore.response, ctx);
     }
     ${
       hasRouteHooks
@@ -264,7 +269,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
       const __r = stage === 3 ? await value : await (__TRACE_DEBUG ? runTimed("route hooks", "lifecycle", () => runHooks(${routeHookVar}, ctx)) : runHooks(${routeHookVar}, ctx));
       const rBefore = __r;
       ctx = rBefore.ctx ?? ctx;
-      if (rBefore.response) return __applySet(rBefore.response, ctx.set, __TRACE ? ctx.requestId : undefined);
+      if (rBefore.response) return __haltResponse(rBefore.response, ctx);
     }
 `
         : ""
@@ -284,6 +289,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
 `
         : ""
     }
+    __postRan = true;
     if (stage <= 6 && __hasAfterHandle) {
       const __r1 = stage === 6 ? await value : await (__TRACE_DEBUG ? runTimed("afterHandle", "lifecycle", () => __runAfter(ctx, response)) : __runAfter(ctx, response));
       const after = __r1;
@@ -308,7 +314,7 @@ const assembleSyncCoreFn = (input: CoreFnInput): string => {
     }
     return ${compact ? "response" : "__applySet(response, ctx.set, __TRACE ? ctx.requestId : undefined)"};
   } catch (err) {
-    return __handleError(err, ctx);
+    return __handleError(err, ctx, __postRan);
   }
 }`;
 

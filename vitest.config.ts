@@ -19,6 +19,7 @@ export default defineConfig({
       "@ignex/core/http": alias("packages/core/src/http/route.ts"),
       "@ignex/core/jobs": alias("packages/core/src/jobs.ts"),
       "@ignex/core/content": alias("packages/core/src/content/index.ts"),
+      "@ignex/core/store": alias("packages/core/src/data/store/index.ts"),
       "@ignex/core/openapi": alias("packages/core/src/openapi.ts"),
       "@ignex/core/config": alias("packages/core/src/platform/config.ts"),
       "@ignex/core/debug": alias("packages/core/src/debug/index.ts"),

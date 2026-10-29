@@ -12,7 +12,10 @@
  * Source of each generated runtime helper. Emitted unconditionally into the
  * server entry; the linker's bundler removes whatever no route references.
  */
+import { RESPONSE_PIPELINE_HELPERS } from "./response-pipeline";
+
 export const HELPER_SOURCES: Record<string, string> = {
+  ...RESPONSE_PIPELINE_HELPERS,
   __withBody: `const __staticBaseHeaders = new Map();
 const __staticBaseFor = (type) => {
   let __base = __staticBaseHeaders.get(type);
@@ -174,22 +177,8 @@ const __withBody = (payload, type, init) => {
   if (ser) return __withBody(String(ser(body)), "application/json; charset=utf-8", { status });
   return reply(body, status === 200 ? undefined : { status });
 };`,
-  __handleError: `async function __handleError(err, ctx) {
-  try {
-    const __r = __TRACE_DEBUG ? runTimed("error", "lifecycle", () => runHooks(__lc.error, ctx, err)) : runHooks(__lc.error, ctx, err);
-    const r = __r instanceof Promise ? await __r : __r;
-    if (r.response) {
-      const __hooked = __applySet(r.response, r.ctx?.set ?? ctx?.set);
-      return __DEFAULT_HEADERS ? __decorateWithDefaults(__hooked) : __hooked;
-    }
-  } catch (__hookErr) {
-    // Must not mask the original error — and must not be swallowed either.
-    console.error("[ignex] error-stage hook threw:", __hookErr);
-  }
-  const __errorResponse = errorToResponse(err, EXPOSE_ERRORS, ctx);
-  return __DEFAULT_HEADERS ? __decorateWithDefaults(__errorResponse) : __errorResponse;
-}`,
-  __schemaFor: `const __schemaFor = (m) => m?.schema ?? m?.default?.schema ?? undefined;`,
+  __schemaFor: `const __schemaFor = (m, named) =>
+  m?.schema ?? m?.default?.schema ?? (named ? m?.[named]?.schema : undefined);`,
   __validatePart: `async function __validatePart(schemaPart, input, on) {
   if (schemaPart !== undefined && schemaPart !== null) {
     await validateAsync(schemaPart, input, on);

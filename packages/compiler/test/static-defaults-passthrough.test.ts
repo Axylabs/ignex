@@ -53,8 +53,11 @@ describe("static default header passthrough codegen", () => {
     expect(code).toContain("? __decorateWithDefaults(__shortCircuit) : __shortCircuit;");
     // OPTIONS preflight (short-circuits before the post-handler stages).
     expect(code).toContain("return __decorateWithDefaults(new Response(response.body, {");
-    // Error responses (hook + framework).
-    expect(code).toContain("__decorateWithDefaults(__errorResponse)");
+    // Error responses (hook + framework) — the single decorated return now
+    // covers both the error-hook reply and `errorToResponse`'s default.
+    expect(code).toContain(
+      "return __DEFAULT_HEADERS ? __decorateWithDefaults(response) : response;\n}\n",
+    );
   });
 
   it("keeps the hot __withBody path on the memoized base (no per-header merge)", async () => {
