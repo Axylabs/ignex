@@ -128,7 +128,10 @@
     "bun": ">=1.4"
   },
   "overrides": {
-    "@parcel/watcher": "2.6.0"
+    "@parcel/watcher": "2.6.0",
+    "vite": "8.2.4",
+    "body-parser": "2.4.0",
+    "zod": "4.6.7"
   },
   "dependencies": {}
 }

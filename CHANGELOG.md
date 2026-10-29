@@ -206,9 +206,19 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   collections). `@modelcontextprotocol/sdk@1.32.1` declares
   `zod: ^3.25 || ^4.0`, so zod 4 is the supported path; the package only uses
   `z.string/number/boolean/unknown` plus `.optional()`/`.describe()`, all
-  unchanged in v4. The tree now resolves a single hoisted `zod@4.6.7`, and the
-  protocol-level `tools/list` + `call` tests cover the zod→JSON-Schema
+  unchanged in v4. Declaring `^4.6.6` was NOT enough on its own: the MCP SDK's
+  `^3.25 || ^4.0` resolved its own nested `zod@4.5.4`, which the audit gate still
+  flagged, so the root `overrides` map now pins `zod@4.6.7` for the whole tree.
+  The protocol-level `tools/list` + `call` tests cover the zod→JSON-Schema
   conversion that a major bump could break.
+- **Two more advisories pinned out of the resolved tree**, both reported by
+  `bun audit --audit-level=high` (the CI "JS dependency audit" step) and by the
+  OSV lane: `vite@8.2.2` (launch-editor `fs.existsSync()` existence check
+  bypassable on Windows, GHSA-587h-7wmj-h5pm, patched 8.2.4) — pulled in
+  transitively by vitest — and `body-parser@2.3.0` (DoS via trailing bytes after
+  a compressed body, GHSA-27r3-jxmh-p828, patched 2.4.0) — pulled in by the MCP
+  SDK's express. Both are pinned through the existing root `overrides` map
+  (beside `@parcel/watcher`), which keeps the fix auditable in one place.
 - **Six dependency advisories cleared — both supply-chain gates are green
   again.** The CI audit gate caught five of them (2 critical, 3 high) on the
   first push after they published: critical `proxy-addr@2.0.7` (IP spoofing via
