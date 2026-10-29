@@ -219,6 +219,18 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   a compressed body, GHSA-27r3-jxmh-p828, patched 2.4.0) — pulled in by the MCP
   SDK's express. Both are pinned through the existing root `overrides` map
   (beside `@parcel/watcher`), which keeps the fix auditable in one place.
+- **The OSV lane is green again: the remaining 13 advisories were all patched
+  upstream.** The OSV scan has no severity threshold, so it kept failing on the
+  medium/low set that `bun audit --audit-level=high` deliberately ignores —
+  `@hono/node-server@2.1.1` (GHSA-rmxm-3fg6-px4f), `fast-uri@3.1.8`/`4.2.1`
+  (four advisories, fixed at 3.1.9 and 4.2.3), `ip-address@10.7.2`
+  (GHSA-rxp7-6hxx-x8q5), `qs@6.16.0` (GHSA-6pq8-jhm2-2vcw) and
+  `seroval@1.6.9` (GHSA-9wx9-5pv9-3349, GHSA-f86p-h4j2-7qgj). Every fix is a
+  patch bump inside the dependents' declared ranges, so they join the same
+  `overrides` map; `fast-uri` uses nested keys (`ajv>fast-uri`,
+  `fast-json-stringify>fast-uri`) because the tree legitimately holds two major
+  lines. `bun audit` now reports "No vulnerabilities found (checked 458
+  packages)".
 - **Six dependency advisories cleared — both supply-chain gates are green
   again.** The CI audit gate caught five of them (2 critical, 3 high) on the
   first push after they published: critical `proxy-addr@2.0.7` (IP spoofing via
