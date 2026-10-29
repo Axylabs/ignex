@@ -6,6 +6,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-10-29
+
 ### Added
 
 - **`@ignex/core/store` is resolvable from the test run, and the invariant is
