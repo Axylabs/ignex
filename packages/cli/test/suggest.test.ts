@@ -96,7 +96,9 @@ describe("suggest", () => {
   });
 
   it("deduplicates equal candidates that differ only by case", () => {
+    // Ordering between equal-scoring candidates goes through `localeCompare`,
+    // which is locale-dependent — compare as a set, not as a sequence.
     const out = suggest("rout", ["route", "route", "Route"]);
-    expect(out).toEqual(["route", "Route"]);
+    expect([...out].sort()).toEqual(["Route", "route"]);
   });
 });

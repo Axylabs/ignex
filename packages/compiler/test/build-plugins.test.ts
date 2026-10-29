@@ -15,7 +15,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { prodShapeBunPlugin, runtimeDepPlugin } from "../src/phases/build-plugins";
 
@@ -68,7 +68,9 @@ describe("runtimeDepPlugin", () => {
     const resolved = cap.resolve?.({ path: "fast-json-stringify" });
     expect(resolved).toBeTypeOf("object");
     const path = (resolved as { path: string }).path;
-    expect(path.startsWith("/")).toBe(true);
+    // Absolute in the host's own convention — `startsWith("/")` would fail on
+    // Windows, where the resolved path is drive-rooted.
+    expect(isAbsolute(path)).toBe(true);
     expect(path).not.toMatch(/^file:/);
   });
 
