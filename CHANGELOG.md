@@ -200,6 +200,15 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   `docs/cookbook.md`; pinned by `packages/core/test/error-mapper.test.ts`.
 ### Security
 
+- **`@ignex/mcp` moves to zod 4, clearing GHSA-mrhx-c7xc-m3w5.** The MCP
+  server pinned `zod: ^3.24.0`, which resolved to 3.25.76 — inside the advisory's
+  `< 4.6.6` range (memory exhaustion while validating oversized constrained
+  collections). `@modelcontextprotocol/sdk@1.32.1` declares
+  `zod: ^3.25 || ^4.0`, so zod 4 is the supported path; the package only uses
+  `z.string/number/boolean/unknown` plus `.optional()`/`.describe()`, all
+  unchanged in v4. The tree now resolves a single hoisted `zod@4.6.7`, and the
+  protocol-level `tools/list` + `call` tests cover the zod→JSON-Schema
+  conversion that a major bump could break.
 - **Six dependency advisories cleared — both supply-chain gates are green
   again.** The CI audit gate caught five of them (2 critical, 3 high) on the
   first push after they published: critical `proxy-addr@2.0.7` (IP spoofing via
