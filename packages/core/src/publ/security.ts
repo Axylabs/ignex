@@ -48,7 +48,7 @@ export {
   signCookie,
   verifyCookie,
 } from "../security/crypto";
-export type { CsrfGuardOptions } from "../security/csrf";
+export type { CsrfGuardOptions, CsrfOriginMode } from "../security/csrf";
 export { createCsrfGuard } from "../security/csrf";
 export { devSessionSecret } from "../security/dev-secret";
 export type { SecretInput } from "../security/keyring";

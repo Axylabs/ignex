@@ -27,6 +27,18 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **CSRF guard hardening: Origin enforcement, session binding, `__Host-`
+  prefix.** `createCsrfGuard` now validates `Origin`/`Referer` on
+  state-changing requests against the request's own origin (default
+  `origin: "same-origin"`; an array allowlist covers multi-domain frontends,
+  `origin: false` restores token-only behavior) — cross-site posts are
+  rejected even if a token cookie ever leaks to a sibling subdomain.
+  `bindSession: "sid"` derives the verify key as HMAC(secret, sid) so tokens
+  are not replayable across sessions, and `hostPrefix: true` ships the token
+  as `__Host-<name>` with `secure: true, path: "/"` forced. Header-less
+  clients (curl, server-to-server) are unaffected — the token layer applies
+  unchanged; both additions carry pinning tests (`csrf-origin.test.ts`).
+
 - **Secret key rotation (`SecretInput` rings) across the crypto stack.**
   `createJwt`, `createEd25519Jwt` (`publicKey`), `createCookieSigner`,
   `createCsrf`, `createCsrfGuard` and `createSessionManager` now accept a

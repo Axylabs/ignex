@@ -1,5 +1,6 @@
 /**
- * Template rendering (native minijinja when available).
+ * @fileoverview Template rendering — native minijinja when available, with a
+ * byte-compatible pure-TS fallback engine.
  *
  * The fallback is a small Jinja-like engine supporting the common subset:
  * `{{ expr }}` interpolation with dot/bracket access + filters, `{% if %}`
