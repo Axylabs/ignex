@@ -124,6 +124,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
   const lifecycle = mergeLifeCycle(pluginLifecycle as LifeCycleStore, options.lifecycle ?? {});
 
   const exposeErrors = options.exposeErrors ?? false;
+  const handlerTimeout = options.handlerTimeoutMs ?? 0;
   // Stage chains are composed once at app creation, not per request.
   const preStages = buildPreStages(lifecycle);
   const postStages = buildPostStages(lifecycle);
@@ -202,6 +203,7 @@ export const createApp = (options: AppOptions): IgnexApp => {
       afterResponse: lifecycle.afterResponse ?? [],
       error: lifecycle.error ?? [],
       exposeErrors,
+      handlerTimeoutMs: handlerTimeout,
       ctx: ctxOptions,
     });
   }
@@ -227,7 +229,15 @@ export const createApp = (options: AppOptions): IgnexApp => {
     // Without this, interpreted `ctx.ip` always fell back to "anonymous"
     // (skipping the ~375ns `server.requestIP` socket lookup entirely).
     if (serverArg) ctx.server = serverArg;
-    return runLifecycle(lifecycle, preStages, postStages, ctx, baseHandler, exposeErrors);
+    return runLifecycle(
+      lifecycle,
+      preStages,
+      postStages,
+      ctx,
+      baseHandler,
+      exposeErrors,
+      handlerTimeout,
+    );
   };
 
   const app: IgnexApp = {

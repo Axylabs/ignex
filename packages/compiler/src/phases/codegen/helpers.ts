@@ -243,7 +243,7 @@ const __withBody = (payload, type, init) => {
 
     try {
       const __r = handler(req, params ?? EMPTY_PARAMS, server);
-      return __r instanceof Promise ? __r.catch(onError) : __r;
+      return __r instanceof Promise ? __raceHandler(__r, onError) : __r;
     } catch (err) {
       return onError(err);
     }
@@ -255,6 +255,27 @@ const __withBody = (payload, type, init) => {
    * \`new URL(req.url)\` parse) disappears from the generated artifact instead
    * of being branch-checked at runtime.
    */
+  /**
+   * Handler-execution timeout race (emitted runtime): off unless
+   * `__HANDLER_TIMEOUT_MS > 0`. The race covers the handler's returned
+   * Response promise only — streaming responses return immediately and are
+   * exempt. The underlying work is not cancelled; handlers should honor
+   * `req.signal` for cooperative cancellation.
+   */
+  __raceHandler: `function __raceHandler(promise, onError) {
+  if (!__HANDLER_TIMEOUT_MS) return promise.catch(onError);
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      const res = new Response(JSON.stringify({ error: "Handler timeout", code: HANDLER_TIMEOUT_CODE }), {
+        status: 503,
+        headers: { "content-type": "application/json", "x-ignex-reason": HANDLER_TIMEOUT_REASON },
+      });
+      resolve(res);
+    }, __HANDLER_TIMEOUT_MS);
+  });
+  return Promise.race([promise.catch(onError).finally(() => clearTimeout(timer)), timeout]);
+}`,
   __wrapStatic: `function __wrapStatic(handler) {
   return function (req, a, b) {
     const params = __extractParams(req, a, b) ?? EMPTY_PARAMS;
@@ -265,7 +286,7 @@ const __withBody = (payload, type, init) => {
     };
     try {
       const r = handler(req, params, __extractServer(a, b));
-      return r instanceof Promise ? r.catch(onError) : r;
+      return r instanceof Promise ? __raceHandler(r, onError) : r;
     } catch (err) {
       return onError(err);
     }

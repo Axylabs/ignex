@@ -5,6 +5,10 @@
  * move-only; `export` statements verbatim).
  */
 
+export {
+  HANDLER_TIMEOUT_CODE,
+  HANDLER_TIMEOUT_REASON,
+} from "../lifecycle/handler-timeout";
 // ── platform ────────────────────────────────────────────────────
 export type { AppErrorOptions } from "../platform/app-error";
 export { AppError, ApplicationError, isAppError, statusOf } from "../platform/app-error";

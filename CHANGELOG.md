@@ -57,6 +57,17 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-handler execution timeout (opt-in).** The request path previously had
+  no wall-clock cap on handler execution — a handler awaiting a slow-drip
+  upstream could hold its connection indefinitely (Bun's `idleTimeout` bounds
+  INACTIVITY, not activity). `handlerTimeoutMs` (app option and per-build
+  compiler option, baked into AOT artifacts as `__HANDLER_TIMEOUT_MS`) races
+  each handler invocation: over the cap the client gets 503 with
+  `x-ignex-reason: handler-timeout` and code `IGN_HANDLER_TIMEOUT`. Streaming
+  responses (SSE, WS upgrades, chunked downloads) are naturally exempt — they
+  return their `Response` immediately. Default off; the underlying work is
+  not cancelled (handlers should honor `ctx.req.signal`).
+
 - **Rejection-storm sink: `onFaultSuppressed`.** The production fault-dedupe
   window now exposes its suppression counts programmatically — subscribe via
   `onFaultSuppressed` (platform barrel) to bridge storms into metrics or

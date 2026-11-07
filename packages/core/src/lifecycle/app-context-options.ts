@@ -54,6 +54,15 @@ export interface AppOptions {
    * socket-level header limits stay the authority unless an app opts in.
    */
   maxHeaderBytes?: number;
+  /**
+   * Wall-clock cap per handler invocation in ms; `0`/unset disables it (the
+   * default — enabling is an explicit operator decision). The race covers
+   * the handler's returned `Response` promise only: streaming responses
+   * return immediately and are exempt. Timed-out handlers resolve 503 with
+   * `x-ignex-reason: handler-timeout`; the underlying work is not cancelled
+   * (handlers should honor `ctx.req.signal` for cooperative cancellation).
+   */
+  handlerTimeoutMs?: number;
 }
 
 /**

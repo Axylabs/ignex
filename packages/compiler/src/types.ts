@@ -160,6 +160,13 @@ export interface CompilerOptions {
   readonly maxRequestBodySize?: number;
 
   /**
+   * Per-handler wall-clock cap (ms) baked into the artifact; 0/unset
+   * disables it. Timed-out handlers resolve 503 `handler-timeout` (see
+   * `@ignex/core` `withHandlerTimeout`). Streaming responses are exempt.
+   */
+  readonly handlerTimeoutMs?: number;
+
+  /**
    * Throw on duplicate or ambiguous routes.
    */
   readonly strictRouteConflicts?: boolean;

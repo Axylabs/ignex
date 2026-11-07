@@ -23,6 +23,8 @@ const STRUCTURAL_CORE = [
   "DEFAULT_SERVER_IDLE_TIMEOUT",
   "DEFAULT_WS_MAX_PAYLOAD_LENGTH",
   "EMPTY_LIFECYCLE",
+  "HANDLER_TIMEOUT_CODE",
+  "HANDLER_TIMEOUT_REASON",
   "installGracefulShutdown",
   "installProcessGuards",
   "mergeWSLimits",
@@ -79,6 +81,12 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   // Emit server bootstrap. `maxRequestBodySize` defaults to the core constant
   // (64MB — a deliberate ceiling) instead of Bun's larger implicit default;
   // an explicit compiler option still wins.
+  // Per-handler wall-clock cap (0 = off): the operator opts in via the
+  // compiler option or the app config `server.handlerTimeoutMs`.
+  functions.push(
+    `const __HANDLER_TIMEOUT_MS = __serverCfg.handlerTimeoutMs ?? ${opts.handlerTimeoutMs ?? 0};`,
+  );
+
   functions.push(`const __serveOptions = {
   port: Number(process.env.PORT ?? __serverCfg.port ?? 3000),
   hostname: __serverCfg.hostname,

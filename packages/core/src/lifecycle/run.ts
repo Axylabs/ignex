@@ -17,6 +17,7 @@ import type { IgnexContext } from "../http/context";
 import { applySet } from "../http/headers";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, LifeCycleStore, MaybePromise } from "../types";
+import { withHandlerTimeout } from "./handler-timeout";
 import { lifecycleTracing, type RunHooksResult, runHooks, runTimed } from "./hook-engine";
 
 export { lifecycleTracing, runHooks, runTimed } from "./hook-engine";
@@ -145,6 +146,7 @@ export const runLifecycle = async (
   ctx: IgnexContext,
   handler: (ctx: IgnexContext) => MaybePromise<Response>,
   exposeErrors = false,
+  handlerTimeoutMs = 0,
 ): Promise<Response> => {
   // A request that was ALREADY aborted before the pipeline ran is
   // short-circuited: hooks and the handler never run (the client is gone).
@@ -251,7 +253,9 @@ export const runLifecycle = async (
       // `await` (not an instanceof branch) so a synchronous handler still
       // crosses the same microtask boundary as before (the union from
       // `runTimed` is awaitable either way).
-      response = await runTimed("handler", "lifecycle", () => handler(current));
+      response = await runTimed("handler", "lifecycle", () =>
+        withHandlerTimeout(() => handler(current), handlerTimeoutMs),
+      );
     }
 
     // Post-handler stages — may replace the response. These run for HALTS too

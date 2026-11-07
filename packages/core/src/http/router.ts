@@ -15,6 +15,7 @@
  */
 
 import { debugStageEnd } from "../debug/tracer";
+import { withHandlerTimeout } from "../lifecycle/handler-timeout";
 import { runHooks, runTimed } from "../lifecycle/lifecycle";
 import { errorToResponse } from "../platform/errors";
 import type { HookContainer, MaybePromise } from "../types";
@@ -57,6 +58,8 @@ export interface RouterBindOptions {
   readonly afterResponse?: readonly HookContainer[];
   readonly error?: readonly HookContainer[];
   readonly exposeErrors?: boolean;
+  /** Per-handler wall-clock cap (ms; 0 = off) — see `AppOptions.handlerTimeoutMs`. */
+  readonly handlerTimeoutMs?: number;
   readonly ctx?: ContextOptions;
 }
 
@@ -184,6 +187,7 @@ export const createRouter = (): IgnexRouter => {
   let stages: BoundStages | undefined;
   let ctxOptions: ContextOptions | undefined;
   let exposeErrors = false;
+  let handlerTimeoutMs = 0;
   let allowedStatic: Record<string, string> = Object.create(null);
   let allowedDynamic: AllowedEntry[] = [];
   /** Dynamic-path allow entries, addressable by pattern for in-place updates. */
@@ -264,7 +268,13 @@ export const createRouter = (): IgnexRouter => {
       ctx = local.ctx;
     }
 
-    const __raw = runTimed("handler", "lifecycle", () => reg.handler(ctx));
+    // `reg.handler` may return non-Response values (the framework maps them
+    // in `finalizeResponse`), so the timeout race runs on the RAW value and
+    // only converts a timeout to the 503 envelope.
+    const __raw = runTimed("handler", "lifecycle", () => {
+      const work = reg.handler(ctx) as MaybePromise<Response>;
+      return withHandlerTimeout(() => work, handlerTimeoutMs);
+    });
     const result = __raw instanceof Promise ? await __raw : __raw;
     let response = finalizeResponse(result, ctx, undefined, jsonReply);
 
@@ -628,6 +638,7 @@ export const createRouter = (): IgnexRouter => {
       };
       ctxOptions = options.ctx;
       exposeErrors = options.exposeErrors ?? false;
+      handlerTimeoutMs = options.handlerTimeoutMs ?? 0;
       return router;
     },
     buildRoutes: () => {
