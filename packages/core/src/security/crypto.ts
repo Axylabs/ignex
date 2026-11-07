@@ -24,11 +24,19 @@ import {
   verifyCookie,
   verifyPasswordAsync,
 } from "@ignex/native";
+import {
+  normalizeSecrets,
+  type SecretInput,
+  signSecret,
+  verifyBoolWithRing,
+  verifyWithRing,
+} from "./keyring";
 
 export type {
   JwtVerifyOptions,
   PasswordHashOptions,
 } from "@ignex/native";
+export type { SecretInput } from "./keyring";
 
 // Low-level primitives (re-exported for direct use).
 export {
@@ -63,7 +71,11 @@ function assertSecret(secret: string | Uint8Array, what: string): void {
 
 /** Options for {@link createJwt}. */
 export interface JwtServiceOptions {
-  secret: string | Uint8Array;
+  /**
+   * HS256 secret — or a rotation ring (current first, previous after).
+   * Signs with the current secret; verifies against every ring entry.
+   */
+  secret: SecretInput;
   /** Fixed TTL in seconds (injects `iat`/`exp` when positive). */
   ttlSeconds?: number;
   /** `iss` claim injected on sign and enforced on verify. */
@@ -104,9 +116,9 @@ const warnNoTtl = (): void => {
  * @throws TypeError when `options.secret` is empty.
  */
 export const createJwt = (options: JwtServiceOptions): JwtService => {
-  assertSecret(options.secret, "createJwt");
+  const secrets = normalizeSecrets(options.secret);
   if (options.ttlSeconds === undefined) warnNoTtl();
-  const { secret, ttlSeconds, issuer, audience } = options;
+  const { ttlSeconds, issuer, audience } = options;
 
   const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
     const out = { ...claims };
@@ -129,7 +141,7 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
 
   return {
     sign(claims, nowSeconds = Math.floor(Date.now() / 1000)): string {
-      return jwtSign(withMeta(claims), secret, {
+      return jwtSign(withMeta(claims), signSecret(secrets), {
         ...(ttlSeconds !== undefined ? { ttlSeconds } : {}),
         nowSeconds,
       });
@@ -143,7 +155,7 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
       if (verifyOptions.requireExp !== undefined) {
         verifyOpts.requireExp = verifyOptions.requireExp;
       }
-      return validate(jwtVerify(token, secret, verifyOpts));
+      return validate(verifyWithRing(secrets, (secret) => jwtVerify(token, secret, verifyOpts)));
     },
   };
 };
@@ -152,8 +164,11 @@ export const createJwt = (options: JwtServiceOptions): JwtService => {
 export interface Ed25519JwtOptions {
   /** PKCS#8 v1 DER private key, base64url (or raw DER bytes). */
   privateKey: string | Uint8Array;
-  /** SPKI DER public key, base64url (or raw DER bytes). */
-  publicKey: string | Uint8Array;
+  /**
+   * SPKI DER public key — or a rotation ring (current first, previous after).
+   * Signs with the current key; verifies against every ring entry.
+   */
+  publicKey: SecretInput;
   /** Fixed TTL in seconds (injects `iat`/`exp` when positive). */
   ttlSeconds?: number;
   /** `iss` claim injected on sign and enforced on verify. */
@@ -182,9 +197,9 @@ export interface Ed25519JwtService {
  */
 export const createEd25519Jwt = (options: Ed25519JwtOptions): Ed25519JwtService => {
   assertSecret(options.privateKey, "createEd25519Jwt");
-  assertSecret(options.publicKey, "createEd25519Jwt");
+  const publicKeys = normalizeSecrets(options.publicKey);
   if (options.ttlSeconds === undefined) warnNoTtl();
-  const { privateKey, publicKey, ttlSeconds, issuer, audience } = options;
+  const { privateKey, ttlSeconds, issuer, audience } = options;
 
   const withMeta = (claims: Record<string, unknown>): Record<string, unknown> => {
     const out = { ...claims };
@@ -221,7 +236,9 @@ export const createEd25519Jwt = (options: Ed25519JwtOptions): Ed25519JwtService 
       if (verifyOptions.requireExp !== undefined) {
         verifyOpts.requireExp = verifyOptions.requireExp;
       }
-      return validate(jwtVerifyEdDsa(token, publicKey, verifyOpts));
+      return validate(
+        verifyWithRing(publicKeys, (publicKey) => jwtVerifyEdDsa(token, publicKey, verifyOpts)),
+      );
     },
   };
 };
@@ -235,14 +252,15 @@ export interface CookieSigner {
 /**
  * Create a reusable signed-cookie signer/verifier.
  *
- * @param secret - HMAC key; must be non-empty.
+ * @param secret - HMAC key, or a rotation ring (current first, previous
+ *   after): signs with the current, verifies against every entry.
  * @throws TypeError when `secret` is empty.
  */
-export const createCookieSigner = (secret: string | Uint8Array): CookieSigner => {
-  assertSecret(secret, "createCookieSigner");
+export const createCookieSigner = (secret: SecretInput): CookieSigner => {
+  const secrets = normalizeSecrets(secret);
   return {
-    sign: (value) => signCookie(value, secret),
-    verify: (signed) => verifyCookie(signed, secret),
+    sign: (value) => signCookie(value, signSecret(secrets)),
+    verify: (signed) => verifyWithRing(secrets, (entry) => verifyCookie(signed, entry)),
   };
 };
 
@@ -257,14 +275,15 @@ export interface Csrf {
 /**
  * Create a reusable CSRF token generator/verifier.
  *
- * @param secret - HMAC key; must be non-empty.
+ * @param secret - HMAC key, or a rotation ring (current first, previous
+ *   after): mints with the current, verifies against every entry.
  * @throws TypeError when `secret` is empty.
  */
-export const createCsrf = (secret: string | Uint8Array): Csrf => {
-  assertSecret(secret, "createCsrf");
+export const createCsrf = (secret: SecretInput): Csrf => {
+  const secrets = normalizeSecrets(secret);
   return {
-    token: () => csrfToken(secret),
-    verify: (token) => csrfVerify(token, secret),
+    token: () => csrfToken(signSecret(secrets)),
+    verify: (token) => verifyBoolWithRing(secrets, (entry) => csrfVerify(token, entry)),
   };
 };
 

@@ -26,6 +26,7 @@ import { loadEnv, writeEnvKeys } from "../platform/env";
 import type { MaybePromise } from "../types";
 import { type AuthUser, bearerAuth, setUser } from "./auth";
 import { createEd25519Jwt, createJwt, type Ed25519JwtService, type JwtService } from "./crypto";
+import type { SecretInput } from "./keyring";
 
 /** How the JWT claim set is shaped at issue time. */
 export type AuthMode = "role" | "permission" | "both";
@@ -51,8 +52,12 @@ export interface AuthModuleOptions {
   issuer?: string;
   /** `aud` claim(s) injected on sign and enforced on verify. */
   audience?: string | string[];
-  /** HS256 shared secret (only for `algorithm: "HS256"`). */
-  secret?: string | Uint8Array;
+  /**
+   * HS256 shared secret — or a rotation ring (current first, previous after).
+   * Signs with the current entry; verifies against every entry, so rotating
+   * `JWT_SECRET` with a grace window does not invalidate live tokens.
+   */
+  secret?: SecretInput;
   /** `.env` key name for the Ed25519 private key (default `JWT_PRIVATE_KEY`). */
   privateKeyEnv?: string;
   /** `.env` key name for the Ed25519 public key (default `JWT_PUBLIC_KEY`). */
@@ -117,19 +122,21 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
   let jwt!: Ed25519JwtService | JwtService;
   let initialised = false;
 
-  /** Ensure keys exist (generating + writing to `.env` when allowed). */
-  const ensureKeys = (): { privateKey: string; publicKey: string } => {
+  /** Ensure the HS256 secret exists (options or env) — may be a rotation ring. */
+  const ensureHs256Secret = (): SecretInput => {
     loadEnv();
-    if (algorithm === "HS256") {
-      const secret = options.secret !== undefined ? options.secret : process.env.JWT_SECRET;
-      if (!secret) {
-        throw new Error(
-          "[ignex] auth: HS256 requires options.secret or JWT_SECRET in the environment",
-        );
-      }
-      return { privateKey: String(secret), publicKey: String(secret) };
+    const secret = options.secret !== undefined ? options.secret : process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error(
+        "[ignex] auth: HS256 requires options.secret or JWT_SECRET in the environment",
+      );
     }
+    return secret;
+  };
 
+  /** Ensure the Ed25519 keypair exists (generating + writing to `.env` when allowed). */
+  const ensureEd25519Keys = (): { privateKey: string; publicKey: string } => {
+    loadEnv();
     let privateKey = process.env[privateKeyEnv];
     let publicKey = process.env[publicKeyEnv];
     if (privateKey && publicKey) return { privateKey, publicKey };
@@ -160,9 +167,9 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
       ...(options.audience !== undefined ? { audience: options.audience } : {}),
     };
     if (algorithm === "HS256") {
-      return createJwt({ secret: ensureKeys().privateKey, ...common });
+      return createJwt({ secret: ensureHs256Secret(), ...common });
     }
-    const { privateKey, publicKey } = ensureKeys();
+    const { privateKey, publicKey } = ensureEd25519Keys();
     return createEd25519Jwt({ privateKey, publicKey, ...common });
   };
 

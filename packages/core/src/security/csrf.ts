@@ -10,10 +10,12 @@ import type { IgnexContext } from "../http/context";
 import { writeCookie } from "../http/cookies";
 import { continueHook, type HookFn, haltHook } from "../lifecycle/hooks";
 import type { HttpMethod } from "../types";
+import { normalizeSecrets, type SecretInput, signSecret, verifyBoolWithRing } from "./keyring";
 
 /** Options for {@link createCsrfGuard}. */
 export interface CsrfGuardOptions {
-  secret: string | Uint8Array;
+  /** HMAC key — or a rotation ring (current first, previous after). */
+  secret: SecretInput;
   cookieName?: string;
   headerName?: string;
   /** Methods protected by the guard (defaults to all state-changing ones). */
@@ -48,6 +50,7 @@ export const createCsrfGuard = (options: CsrfGuardOptions): HookFn => {
     cookieOptions = { httpOnly: false, sameSite: "strict", path: "/" },
     ignore,
   } = options;
+  const secrets = normalizeSecrets(secret);
 
   return async (ctx) => {
     if (ignore?.(ctx)) return continueHook(ctx);
@@ -55,7 +58,7 @@ export const createCsrfGuard = (options: CsrfGuardOptions): HookFn => {
     // Ensure the client has a token cookie (set once, reused across requests).
     const existing = ctx.cookie[cookieName]?.value;
     if (!existing) {
-      writeCookie(ctx.cookie, cookieName, csrfToken(secret), cookieOptions);
+      writeCookie(ctx.cookie, cookieName, csrfToken(signSecret(secrets)), cookieOptions);
     }
 
     if (!methods.includes(ctx.method)) return continueHook(ctx);
@@ -63,7 +66,12 @@ export const createCsrfGuard = (options: CsrfGuardOptions): HookFn => {
     const cookie = ctx.cookie[cookieName]?.value;
     const header = ctx.headers.get(headerName);
 
-    if (!cookie || !header || !safeEqual(header, cookie) || !csrfVerify(header, secret)) {
+    const valid =
+      cookie !== undefined &&
+      header !== null &&
+      safeEqual(header, cookie) &&
+      verifyBoolWithRing(secrets, (entry) => csrfVerify(header, entry));
+    if (!valid) {
       return haltHook(Response.json({ error: "CSRF token validation failed" }, { status: 403 }));
     }
 

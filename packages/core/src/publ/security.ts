@@ -51,6 +51,13 @@ export {
 export type { CsrfGuardOptions } from "../security/csrf";
 export { createCsrfGuard } from "../security/csrf";
 export { devSessionSecret } from "../security/dev-secret";
+export type { SecretInput } from "../security/keyring";
+export {
+  normalizeSecrets,
+  signSecret,
+  verifyBoolWithRing,
+  verifyWithRing,
+} from "../security/keyring";
 export type {
   Session,
   SessionManager,

@@ -17,6 +17,7 @@ import { err, ok, type Result } from "@ignex/shared";
 import type { IgnexContext } from "../http/context";
 import { readRequestCookie, writeCookie } from "../http/cookies";
 import { continueHook, type HookFn, type HookResult } from "../lifecycle/hooks";
+import { normalizeSecrets, type SecretInput, signSecret, verifyWithRing } from "./keyring";
 import type { SessionData, SessionStore, SessionStoreOptions } from "./session-store";
 import {
   createMemorySessionStore,
@@ -57,7 +58,12 @@ export interface Session {
 
 /** Options for {@link createSessionManager}. */
 export interface SessionManagerOptions {
-  secret: string | Uint8Array;
+  /**
+   * HMAC secret — or a rotation ring (current first, previous after): seals
+   * with the current, opens seals from every ring entry, so rotating a
+   * session secret does not invalidate live sessions.
+   */
+  secret: SecretInput;
   /** Backing store. When omitted, sessions are fully stateless signed cookies. */
   store?: SessionStore;
   cookieName?: string;
@@ -187,36 +193,37 @@ const isStrictSecretMode = (): boolean => {
  *   (`NODE_ENV=development|test`) — unless `IGNEX_ALLOW_WEAK_SECRET=1`.
  */
 export const createSessionManager = (options: SessionManagerOptions): SessionManager => {
-  if (options.secret.length === 0) {
-    throw new TypeError("createSessionManager requires a non-empty secret");
-  }
+  // Rotation ring: entry 0 seals new envelopes; every entry opens old ones.
+  const secrets = normalizeSecrets(options.secret);
   // Strength hardening: a weak or well-known dev default secret must never
   // ship. Strict everywhere except explicit local dev/test so a staging or
   // preview deploy without NODE_ENV wiring cannot boot with forgeable session
   // cookies. Local iteration stays frictionless; the escape hatch exists for
-  // deliberate experiments and warns loudly when used.
-  if (isStrictSecretMode()) {
-    const asString = typeof options.secret === "string" ? options.secret : "";
-    if (options.secret.length < 16 || KNOWN_DEV_DEFAULTS.has(asString)) {
-      if (process.env[WEAK_SECRET_BYPASS_ENV] === "1") {
-        console.warn(
-          "[ignex] IGNEX_ALLOW_WEAK_SECRET=1 — running with a weak session secret; " +
-            "NEVER enable this outside local development.",
-        );
-      } else {
-        const reason =
-          options.secret.length < 16
-            ? "of at least 16 characters"
-            : "that is not a known dev default";
-        throw new TypeError(
-          `createSessionManager requires a secret ${reason} outside local development ` +
-            `(NODE_ENV=${process.env.NODE_ENV ?? "<unset>"}). Generate one, e.g.: ` +
-            "`openssl rand -hex 32`, or use devSessionSecret() for local apps.",
-        );
+  // deliberate experiments and warns loudly when used. Every ring entry is
+  // gated — a previous (verify-only) key is still a forgeable session.
+  const gateSecret = (entry: string | Uint8Array): void => {
+    if (isStrictSecretMode()) {
+      const asString = typeof entry === "string" ? entry : "";
+      if (entry.length < 16 || KNOWN_DEV_DEFAULTS.has(asString)) {
+        if (process.env[WEAK_SECRET_BYPASS_ENV] === "1") {
+          console.warn(
+            "[ignex] IGNEX_ALLOW_WEAK_SECRET=1 — running with a weak session secret; " +
+              "NEVER enable this outside local development.",
+          );
+        } else {
+          const reason =
+            entry.length < 16 ? "of at least 16 characters" : "that is not a known dev default";
+          throw new TypeError(
+            `createSessionManager requires a secret ${reason} outside local development ` +
+              `(NODE_ENV=${process.env.NODE_ENV ?? "<unset>"}). Generate one, e.g.: ` +
+              "`openssl rand -hex 32`, or use devSessionSecret() for local apps.",
+          );
+        }
       }
     }
-  }
-  const secret = options.secret;
+  };
+  secrets.forEach(gateSecret);
+  const secret = signSecret(secrets);
   const store = options.store;
   const cookieName = options.cookieName ?? "sid";
   const ttlSeconds = options.ttlSeconds ?? 3600;
@@ -256,7 +263,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
 
   /** Fused fast path: ONE native crossing verifies HMAC + extracts fields. */
   const decodeFused = (raw: string): Result<Envelope, DecodeError> | null => {
-    const opened = sessionOpen(raw, secret);
+    const opened = verifyWithRing(secrets, (entry) => sessionOpen(raw, entry));
     if (!opened) return null; // ffi/addon unavailable → caller uses the fallback
     const exp = typeof opened.exp === "number" ? Math.floor(opened.exp) : 0;
     if (opened.id.length === 0) return err("invalid-id");
@@ -267,7 +274,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
 
   /** Two-step fallback: verifyCookie + JSON.parse (byte-compatible contract). */
   const decodeFallback = (raw: string): Result<Envelope, DecodeError> => {
-    const unsigned = verifyCookie(raw, secret);
+    const unsigned = verifyWithRing(secrets, (entry) => verifyCookie(raw, entry));
     if (!unsigned) return err("invalid-signature");
     try {
       const payload = JSON.parse(unsigned) as { id?: unknown; data?: unknown; exp?: unknown };

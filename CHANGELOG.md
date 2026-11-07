@@ -25,6 +25,22 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   renders stay byte-identical; parity is a new hard gate:
   `bun run verify:native:template` (CI native-parity lane).
 
+### Added
+
+- **Secret key rotation (`SecretInput` rings) across the crypto stack.**
+  `createJwt`, `createEd25519Jwt` (`publicKey`), `createCookieSigner`,
+  `createCsrf`, `createCsrfGuard` and `createSessionManager` now accept a
+  secret RING — an array where `secrets[0]` is the current signing key and the
+  remaining entries are previous keys kept for the grace window. Verify paths
+  try every entry, so rotating `JWT_SECRET`/session secrets no longer
+  invalidates every live token/cookie/session at once; drop the old entry
+  after the window to finish rotation (procedure in `SECURITY.md`). The
+  session secret-strength gate applies to every ring entry — a previous key
+  is still forgeable-session material. New public helpers:
+  `normalizeSecrets` / `signSecret` / `verifyWithRing` / `verifyBoolWithRing`
+  (`@ignex/core` security barrel); the auth module's `secret` option accepts
+  a ring for HS256.
+
 ### Changed
 
 - The fallback `| escape` filter now emits minijinja's exact entities
@@ -33,6 +49,10 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   auto-escape is on.
 - Boolean context values render Python-style (`True`/`False`) in the fallback,
   matching native minijinja byte for byte (previously `true`/`false`).
+- **Scaffolding supports executable files.** `writeFileEnsuringDir` takes an
+  optional mode, `writeScaffold` gained `mode`, and `ignex create`'s file plan
+  gained an `executable` flag — `setup.sh` and generated `deploy.sh` land
+  with `0755` instead of requiring a manual `chmod`.
 
 ### Added
 
@@ -46,6 +66,35 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   address passes through verbatim, so a Caddy env placeholder
   (`--domain '{$SITE_ADDRESS}'`) lets one committed Caddyfile serve every
   environment.
+- **Every scaffolded project is turnkey: `bash setup.sh` takes a fresh machine
+  to a running, smoke-tested server.** `ignex create` now emits a bootstrap
+  trio alongside the app: `setup.sh` (POSIX sh, macOS/Linux) and `setup.bat`
+  (Windows, CRLF) install Bun through the official installers when it is
+  missing — including a best-effort curl install through the detected system
+  package manager — then hand off to `scripts/setup.ts`, a Bun-shell
+  (`import { $ } from "bun"`) provisioner that works unchanged on macOS, Linux
+  and Windows: it detects the OS (`/etc/os-release` on Linux) and package
+  manager (apt/apk/dnf/pacman/zypper/brew/winget/choco/scoop), copies
+  `.env.example` → `.env`, runs `bun install` (frozen against `bun.lock`),
+  builds, and smoke-tests the compiled server by booting it on a free port and
+  polling `GET /health`. Opt-in stages: `--docker` and `--caddy` (official
+  repository installs per distro family, never half-applied), `--systemd`
+  (generates the units below), and `--check` (detection-only JSON report).
+  The generated `package.json` wires `bun run setup`, the README documents the
+  flow, and the scaffolder's next-steps print suggests `bash setup.sh`.
+- **`ignex ops systemd` — host/VPS deployment without containers.** Emits
+  `deploy/<name>.service` (sandboxed unit tuned to the runtime contract:
+  `TimeoutStopSec=20s` above the 10s SIGTERM drain, `Restart=on-failure`,
+  `IGNEX_HTTPS=0`, `ProtectSystem=strict` with only `.ignex` writable,
+  `StateDirectory`), optionally `<name>-infra.service` (`--with-infra`: oneshot
+  `docker compose up -d --wait` at boot — `--wait` is what gates the app unit
+  on fresh boots), `deploy/deploy.sh` (sudo redeploy: deps → infra → optional
+  `--migrate` → build → restart → poll `/health` → rollback to the previous
+  artifact when a deploy comes up unhealthy), and
+  `deploy/env.production.example` (loopback, `HTTPS=false`, real
+  `PUBLIC_BASE_URL`). Flags: `--user`, `--app-dir`, `--bun`, `--port`,
+  `--health-path`, `--domain` (feeds the env template). Provisioning the
+  machine itself is the scaffold's `setup.sh --docker --caddy --systemd`.
 
 ### Fixed
 
