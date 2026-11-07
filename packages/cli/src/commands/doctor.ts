@@ -2,8 +2,10 @@
  * @fileoverview `ignex doctor` — project health diagnostics.
  *
  * Reports runtime, native acceleration, config, routes directory, and compiled
- * server status. Sets a non-zero exit code when blocking issues are found
- * (e.g. a missing routes directory), so it can gate CI or onboarding scripts.
+ * server status. `--golive` runs the read-only production pre-flight instead
+ * (see `utils/golive.ts`). Sets a non-zero exit code when blocking issues are
+ * found (e.g. a missing routes directory), so it can gate CI or onboarding
+ * scripts.
  */
 
 import { join } from "node:path";
@@ -12,7 +14,14 @@ import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { CONFIG_FILES, loadConfig } from "../utils/config.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { checkProjectEnv } from "../utils/env-check.js";
+import { parseEnvAssignments } from "../utils/env-fill.js";
 import { exists, readTextFile } from "../utils/fs.js";
+import {
+  collectGoliveChecks,
+  type GoliveItem,
+  hasBlocking,
+  renderGolive,
+} from "../utils/golive.js";
 import { error, success } from "../utils/logger.js";
 import { nativeLabel, nativeStatus } from "../utils/native.js";
 import { metaFor } from "./registry.js";
@@ -77,6 +86,14 @@ const DEFAULT_OUT_FILE = "server.js";
 /** Typed CLI surface shared by parsing and usage rendering. */
 const argsDef = {
   root: { type: "string", valueHint: "dir", description: "Project root" },
+  golive: {
+    type: "boolean",
+    description: "Run the go-live pre-flight checklist (read-only)",
+  },
+  probe: {
+    type: "boolean",
+    description: "Probe GET /health during --golive (--no-probe to skip)",
+  },
 } satisfies ArgsDef;
 
 /**
@@ -117,12 +134,19 @@ export async function collectDoctorReport(args: string[]): Promise<DoctorReport>
   }
 
   // The scaffold's session secret (`|| "dev-secret-change-me"`) is fine for
-  // local dev but a production footgun — flag it once NODE_ENV=production.
+  // local dev but a production footgun — block when the PROJECT's .env says
+  // NODE_ENV=production (not when the doctor process happens to run in prod).
   const appConfigPath = join(root, "src", "app.config.ts");
   const defaultSecret =
     (await exists(appConfigPath)) &&
     (await readTextFile(appConfigPath)).includes("dev-secret-change-me");
-  if (process.env.NODE_ENV === "production" && defaultSecret) {
+  const envPath = join(root, ".env");
+  const projectIsProd =
+    (await exists(envPath)) &&
+    parseEnvAssignments((await readTextFile(envPath)).replace(/\r\n/g, "\n").split("\n")).get(
+      "NODE_ENV",
+    ) === "production";
+  if (projectIsProd && defaultSecret) {
     issues.push(
       "security: app.config uses the default session secret — set SESSION_SECRET before deploying",
     );
@@ -203,12 +227,31 @@ const doctorCmd = defineCommand({
 export default doctorCmd;
 
 /**
- * Run `ignex doctor`: print the report and set a non-zero exit code when
- * blocking issues are found.
+ * Run `ignex doctor`: print the report (or the `--golive` pre-flight
+ * checklist) and set a non-zero exit code when blocking issues are found.
  *
  * @param args - Raw CLI args forwarded to {@link collectDoctorReport}.
  */
 export async function runDoctor(args: string[]): Promise<void> {
+  const parsed = parseArgs<typeof argsDef>(args, argsDef);
+
+  if (parsed.golive) {
+    const root = await resolveProjectRoot(parsed.root);
+    const items: readonly GoliveItem[] = await collectGoliveChecks({
+      root,
+      probe: parsed.probe !== false,
+    });
+    for (const line of renderGolive(items)) {
+      console.log(line);
+    }
+    if (hasBlocking(items)) {
+      process.exitCode = 1;
+      return;
+    }
+    success("Go-live pre-flight passed");
+    return;
+  }
+
   const report = await collectDoctorReport(args);
 
   for (const line of renderDoctor(report)) {

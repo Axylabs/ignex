@@ -52,6 +52,7 @@ import {
   vitestConfigTemplate,
   wsExampleTemplate,
 } from "../templates/routes.js";
+import { readyRouteTemplate } from "../templates/routes-prod.js";
 import { setupBatTemplate, setupShTemplate, setupTsTemplate } from "../templates/setup.js";
 import { FEATURE_NAMES, type Feature } from "../types.js";
 import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
@@ -227,6 +228,8 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
     { path: ".env.example", content: () => envExampleTemplate() },
     { path: "src/routes/index.get.ts", content: () => indexRouteTemplate(opts.name) },
     { path: "src/routes/health.get.ts", content: () => healthRouteTemplate() },
+    // Readiness probe — LB/orchestrator contract (503 while checks fail).
+    { path: "src/routes/ready.get.ts", content: () => readyRouteTemplate() },
     { path: "src/hooks/README.md", content: () => `# Hooks\n\nPlace shared hooks here.\n` },
     // Bootstrap trio: setup.sh/setup.bat install Bun if missing, then run the
     // cross-platform provisioner (scripts/setup.ts) — OS/package-manager

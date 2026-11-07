@@ -54,6 +54,12 @@ export interface ComposeOptions {
   natsImage?: string;
   /** Env var for the app→nats URL (default "NATS_URL"). */
   natsUriVar?: string;
+  /**
+   * `SESSION_SECRET` value for `.env.docker` (default: left as a placeholder
+   * for `ignex ship` / hand-filling). The caller generates it — templates
+   * stay deterministic.
+   */
+  sessionSecret?: string;
 }
 
 /** Resolve which infra services a compose file includes (default: mongo). */

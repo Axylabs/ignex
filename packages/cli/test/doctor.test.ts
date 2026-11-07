@@ -166,20 +166,18 @@ export const env = defineEnv(envSchema, { loadEnv: false });
 
   it("flags the default session secret as a blocking issue in production", async () => {
     const dir = tmpProject();
-    const previous = process.env.NODE_ENV;
     try {
       mkdirSync(join(dir, "src"), { recursive: true });
       writeFileSync(
         join(dir, "src/app.config.ts"),
         'session({ secret: env.SESSION_SECRET || "dev-secret-change-me" })\n',
       );
-      process.env.NODE_ENV = "production";
+      // The project's own .env decides — not the doctor process's NODE_ENV.
+      writeFileSync(join(dir, ".env"), "NODE_ENV=production\n");
       const report = await collectDoctorReport(["--root", dir]);
       expect(report.security.defaultSecret).toBe(true);
       expect(report.issues.some((issue) => issue.startsWith("security:"))).toBe(true);
     } finally {
-      if (previous === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previous;
       rmSync(dir, { recursive: true, force: true });
     }
   });

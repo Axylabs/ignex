@@ -198,6 +198,18 @@ export const commands: readonly CommandRow[] = [
     examples: ["ignex schedule:run", "ignex schedule:run --once"],
   },
   {
+    name: "ship",
+    aliases: ["golive", "go-live"],
+    group: "Ship",
+    description: "Guided go-live: deploy artifacts, generated secrets, pre-flight checklist",
+    examples: [
+      "ignex ship",
+      "ignex ship --check",
+      "ignex ship --style systemd --domain api.acme.com",
+      "ignex ship --style docker --yes",
+    ],
+  },
+  {
     name: "ops",
     aliases: ["devops", "deploy"],
     group: "Ship",
@@ -336,6 +348,7 @@ ${bold("QUICKSTART")}
   ${cyan("$")} ignex create my-app              ${dim("# scaffold an app (feature wizard)")}
   ${cyan("$")} cd my-app && ignex dev --open    ${dim("# watch + run, opens your browser")}
   ${cyan("$")} ignex resource Post              ${dim("# model + CRUD routes wired to the DB")}
+  ${cyan("$")} ignex ship                       ${dim("# guided go-live: artifacts + secrets + checks")}
 
 ${bold("COMMANDS")}
 ${renderGroupedCommands()}

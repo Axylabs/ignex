@@ -23,7 +23,6 @@
  * ...) or `--yes` to run non-interactively.
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
@@ -38,10 +37,11 @@ import {
   envProductionTemplate,
   systemdDeployTemplate,
   systemdInfraUnitTemplate,
+  systemdInstallTemplate,
   systemdUnitTemplate,
 } from "../templates/ops.js";
-import { secureRandomBytes } from "../utils/bun-compat.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
+import { resolveProjectName } from "../utils/golive.js";
 import { error, info, step, warn } from "../utils/logger.js";
 import {
   PromptCancelError,
@@ -52,6 +52,7 @@ import {
   promptText,
 } from "../utils/prompt.js";
 import { writeScaffold } from "../utils/scaffold.js";
+import { generateSecret } from "../utils/secrets.js";
 import { metaFor } from "./registry.js";
 
 export const OPS_TARGETS = ["dockerfile", "compose", "caddy", "ci", "docker", "systemd"] as const;
@@ -172,6 +173,8 @@ interface OpsOptions {
   redisUriVar: string;
   natsImage: string;
   natsUriVar: string;
+  /** SESSION_SECRET written into .env.docker (generated when composing). */
+  sessionSecret: string | undefined;
   domain: string;
   upstream: string;
   maxBodySize: string | undefined;
@@ -228,21 +231,6 @@ async function writeOpsFile(
   return writeScaffold(join(root, filename), content, { force, overwrite: true, mode });
 }
 
-/**
- * Read the project name from the target root's package.json — the systemd
- * unit name default. Falls back to the directory basename.
- */
-function resolveProjectName(root: string): string {
-  try {
-    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name?: string };
-    if (typeof pkg.name === "string" && pkg.name.length > 0) return pkg.name;
-  } catch {
-    // no/unreadable package.json — fall through to the directory name
-  }
-  const base = root.split(/[\\/]/).filter(Boolean).pop() ?? "ignex-app";
-  return base;
-}
-
 async function generateDockerfile(root: string, opts: OpsOptions): Promise<void> {
   step("Generating Dockerfile");
   if (
@@ -286,6 +274,7 @@ async function generateCompose(root: string, opts: OpsOptions): Promise<void> {
     redisUriVar: opts.redisUriVar,
     natsImage: opts.natsImage,
     natsUriVar: opts.natsUriVar,
+    sessionSecret: opts.sessionSecret,
   };
   step(
     `Generating docker-compose.yml (services: ${opts.services.length > 0 ? opts.services.join(", ") : "app only"})`,
@@ -334,7 +323,13 @@ async function generateSystemd(root: string, opts: OpsOptions): Promise<void> {
   await writeOpsFile(
     root,
     join("deploy", `${name}.service`),
-    systemdUnitTemplate({ name, user: opts.user, appDir: opts.appDir, bunPath: opts.bunPath }),
+    systemdUnitTemplate({
+      name,
+      user: opts.user,
+      appDir: opts.appDir,
+      bunPath: opts.bunPath,
+      withInfra: opts.withInfra,
+    }),
     opts.force,
   );
   if (opts.withInfra) {
@@ -368,13 +363,23 @@ async function generateSystemd(root: string, opts: OpsOptions): Promise<void> {
     envProductionTemplate({ publicBaseUrl: `https://${opts.domain}` }),
     opts.force,
   );
+  await writeOpsFile(
+    root,
+    join("deploy", "install.sh"),
+    systemdInstallTemplate({
+      name,
+      user: opts.user,
+      appDir: opts.appDir,
+      port: opts.port,
+      healthPath: opts.healthPath,
+      domain: opts.domain,
+    }),
+    opts.force,
+    0o755,
+  );
   info("Install on the target host (run from the checkout):");
-  info(`  sudo cp deploy/*.service /etc/systemd/system/`);
-  info(`  sudo systemctl daemon-reload && sudo systemctl enable --now ${name}.service`);
+  info(`  sudo ./deploy/install.sh           # user + units + enable (+ --caddy)`);
   info(`  sudo ./deploy/deploy.sh            # first deploy (deps → build → start → verify)`);
-  if (opts.withInfra) {
-    info(`  (add Wants=${name}-infra.service / After=${name}-infra.service to the [Unit] section)`);
-  }
 }
 
 function printNextSteps(target: OpsTarget): void {
@@ -393,8 +398,7 @@ function printNextSteps(target: OpsTarget): void {
     console.log("  git push                        # runs typecheck/lint/test/build in CI");
   }
   if (target === "systemd") {
-    console.log("  sudo cp deploy/*.service /etc/systemd/system/");
-    console.log("  sudo systemctl daemon-reload && sudo systemctl enable --now <name>.service");
+    console.log("  sudo deploy/install.sh          # user + units + enable (+ --caddy)");
     console.log("  sudo deploy/deploy.sh           # deps → build → restart → health-verified");
   }
   console.log();
@@ -569,7 +573,7 @@ async function resolveComposeFields(values: Record<string, unknown>): Promise<Co
       ? await wizard(() => promptPassword({ message: "MongoDB root password" }), "")
       : "");
   if (!dbPassword) {
-    dbPassword = secureRandomBytes(18).toString("base64url");
+    dbPassword = generateSecret();
     warn(
       "[ignex] no --db-password provided; generated a random MongoDB root password (saved to .env.docker).",
     );
@@ -598,7 +602,7 @@ async function resolveComposeFields(values: Record<string, unknown>): Promise<Co
     (values["redis-password"] as string | undefined) ??
     (wantsRedis ? await wizard(() => promptPassword({ message: "Redis password" }), "") : "");
   if (wantsRedis && !redisPassword) {
-    redisPassword = secureRandomBytes(18).toString("base64url");
+    redisPassword = generateSecret();
     warn(
       "[ignex] no --redis-password provided; generated a random Redis password (saved to .env.docker).",
     );
@@ -663,6 +667,13 @@ export async function runOps(args: string[]): Promise<void> {
       };
   if (wantsCompose && db.services.length === 0 && process.exitCode !== 0) return;
 
+  // App session secret for .env.docker — generated like the infra passwords
+  // (the session manager refuses known-default secrets in production).
+  const sessionSecret = wantsCompose ? generateSecret(32) : undefined;
+  if (sessionSecret !== undefined) {
+    warn("[ignex] generated a random SESSION_SECRET (saved to .env.docker).");
+  }
+
   const domain = wantsDomain
     ? (parsed.domain ??
       (await wizard(
@@ -691,6 +702,7 @@ export async function runOps(args: string[]): Promise<void> {
     redisUriVar: parsed["redis-uri-var"] ?? "REDIS_URL",
     natsImage: parsed["nats-image"] ?? "nats:2-alpine",
     natsUriVar: parsed["nats-uri-var"] ?? "NATS_URL",
+    sessionSecret,
     domain,
     upstream: parsed.upstream ?? "127.0.0.1:3000",
     maxBodySize: parsed["max-body"],

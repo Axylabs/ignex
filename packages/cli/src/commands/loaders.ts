@@ -38,6 +38,7 @@ export const loaders: Record<string, () => Promise<LoadableCommand>> = {
   "queue:work": () => import("./queue-work.js"),
   "schedule:run": () => import("./schedule-run.js"),
   ops: () => import("./ops.js"),
+  ship: () => import("./ship.js"),
   sdk: () => import("./sdk.js"),
   help: () => import("./help.js"),
   completions: () => import("./completions.js"),

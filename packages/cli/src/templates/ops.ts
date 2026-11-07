@@ -1,6 +1,7 @@
 /**
  * @fileoverview `ignex ops` deployment templates — pure functions returning
- * Dockerfile / docker-compose / Caddyfile / env / dockerignore / CI contents.
+ * Dockerfile / docker-compose / Caddyfile / env / dockerignore / CI /
+ * systemd unit + host-install script contents.
  *
  * Everything here targets the ignex runtime contract:
  *   - `PORT` env (default 3000) and the `GET /health` liveness probe.
@@ -19,3 +20,4 @@ export * from "./ops-compose.js";
 export * from "./ops-docker.js";
 export * from "./ops-proxy.js";
 export * from "./ops-systemd.js";
+export * from "./ops-systemd-install.js";
