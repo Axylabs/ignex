@@ -85,6 +85,11 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **SSE backpressure waits adaptively back off.** The pause loop between
+  enqueues now doubles its poll delay from 1 ms to 16 ms (~one frame) while a
+  consumer is stalled — many concurrently backpressured SSE streams cost ~60
+  wakes/s each instead of ~1000/s, with the same 1 s wall-clock teardown.
+
 - **DataLoader value caches are bounded by default.** `createDataLoader` (and
   `ctx.loader`) caps the value cache at 10 000 entries with oldest-eviction —
   a module-scope loader with high-cardinality keys previously grew without

@@ -84,9 +84,16 @@ export const sse = (
       const BACKPRESSURE_GRACE_MS = 1000;
       const waitDrained = async (): Promise<boolean> => {
         const deadline = Date.now() + BACKPRESSURE_GRACE_MS;
+        // Adaptive poll: start tight (sub-tick responsiveness for a fast
+        // consumer blip), back off to 16ms (~one frame) while stalled — many
+        // concurrently backpressured streams then cost ~60 wakes/s each
+        // instead of ~1000 timer churns/s each. Wall-clock deadline keeps the
+        // teardown promise exact under coarse OS timers.
+        let delayMs = 1;
         while (!stopped && !signal?.aborted && (controller.desiredSize ?? 1) <= 0) {
           if (Date.now() >= deadline) return false;
-          await new Promise((r) => setTimeout(r, 1));
+          await new Promise((r) => setTimeout(r, delayMs));
+          delayMs = Math.min(delayMs * 2, 16);
         }
         return true;
       };
