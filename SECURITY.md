@@ -83,6 +83,9 @@ covered by a pinning test — see [docs/stability.md](docs/stability.md) §1.1.
 | 7 | Error path → client | Stack traces, driver objects and credentials reaching a response | `errorToResponse` (`platform/errors.ts`): a 5xx message/detail is never sent (canonical phrase + stable `code` instead), sanitized `cause` chain, fail-closed redaction |
 | 8 | Dev tooling → production | Debugbar / observatory / source maps reachable in prod | Build-time elimination — `ignex build` is prod-shaped, `__IGNEX_PROD_BUILD` is baked in, `exposeErrorDetails` defaults to `false`; keep `--dev` artifacts out of production |
 | 9 | Supply chain → build | Dependency compromise, leaked credentials, untraceable artifacts | `bun run scan:secrets`, OSV scan (SARIF), `bun audit --audit-level=high`, SPDX SBOM, SHA-pinned Actions + Dependabot, frozen `exports` surface |
+| 10 | Context → view rendering | Stored/reflected XSS through template interpolation | HTML auto-escape ON by default in BOTH engines with the identical minijinja `AutoEscape::Html` table — native `createTemplate` (castrum ≥ 0.9.12) and the pure-TS fallback (`native/src/template.ts`); `| safe` opts a value out, `{ autoescape: false }` disables per renderer; byte-parity is the hard gate `bun run verify:native:template` |
+| 11 | Browser → state-changing routes | Cross-site request forgery (token theft via subdomain, token replay across sessions) | Double-submit + HMAC (`security/csrf.ts`) NOW WITH default same-origin `Origin`/`Referer` enforcement, optional session binding (`bindSession`, HMAC(secret, sid)) and the `__Host-` cookie prefix (`hostPrefix`) — pinning tests in `csrf-origin.test.ts` |
+| 12 | Credential lifecycle | Secret rotation invalidating every live token/session at once; weak secrets reaching production | Rotation rings (`SecretInput`, `security/keyring.ts`) on JWT/cookies/CSRF/session verify paths with per-entry strength gates; prod boot advisories (`lifecycle/advisories.ts`) for missing security headers / cookie sessions without CSRF; RFC 6265 cookie-name validation on write |
 
 **Not covered by the framework.** Identity federation (OIDC/SAML) is not
 implemented — the shipped auth suite is JWT (HS256/Ed25519), signed cookies and
@@ -104,7 +107,14 @@ consuming application's responsibility today.
 5. Run `ignex build` for production (never ship `--dev` output) and keep
    `/metrics` and `/ready` behind the proxy or a token.
 6. Rotate `JWT_SECRET`, session secrets and datastore credentials per
-   environment; never reuse a development secret in production.
+   environment; never reuse a development secret in production. Rotation is
+   now zero-downtime: pass a RING (`secrets: [current, previous, ...]`) to
+   `createJwt` / `createSessionManager` / `createCsrfGuard` /
+   `createCookieSigner` — the first entry signs, every entry verifies — and
+   drop the previous entry after your grace window (one deploy) elapses.
+7. Check the boot log on first production deploy: the framework warns when it
+   serves without the `security()` headers plugin or with cookie sessions and
+   no CSRF guard (`IGNEX_SILENCE_ADVISORIES=1` mutes deliberate shapes).
 
 ## Supported versions
 

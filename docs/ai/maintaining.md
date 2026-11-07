@@ -13,6 +13,11 @@ of truth.
 
 | Symptom (log/telemetry/response) | Origin | Pinning test / fix |
 | --- | --- | --- |
+| Template renders `&lt;b&gt;` where raw HTML used to appear | Template auto-escape is ON by default (both engines, minijinja table) — use `\| safe` for trusted markup or `{ autoescape: false }` per renderer | `packages/native/test/template-autoescape.test.ts`; native↔fallback parity: `bun run verify:native:template` |
+| 503 `x-ignex-reason: handler-timeout` | Opt-in per-handler wall-clock cap (`handlerTimeoutMs`), interpreted (`lifecycle/handler-timeout.ts`) and AOT (`__raceHandler`) | `packages/core/test/handler-timeout.test.ts` + `packages/compiler/test/handler-timeout-emission.test.ts` |
+| CSRF 403 `origin validation failed` | Default same-origin Origin/Referer enforcement — allowlist extra origins via `origin: [...]`, disable with `origin: false` | `packages/core/test/csrf-origin.test.ts` |
+| `[ignex] security advisory:` at boot | Production boot advisories (`lifecycle/advisories.ts`) — fix the shape or set `IGNEX_SILENCE_ADVISORIES=1` | `packages/core/test/security-advisories.test.ts` |
+| `[ignex] config: invalid number value for …` | Config coercion warnings (availability-first fallback retained) | `packages/core/test/config-coercion-warning.test.ts` |
 | `call-failed → ingress.handle` / "native ingress returned 0" | `packages/native/src/ingress/factory.ts` fault path | `packages/native/test/ingress-binding.test.ts` (fail-closed subprocess) |
 | 429 `rate_limited` body | `packages/native/src/ingress/terminal.ts` + `ingress/errors.ts` | rate-limit tests; `retry_after_ms` inline |
 | `U32_MAX` "rate limiting disabled" | `packages/native/src/ingress/constants.ts` | `packages/native/test/ingress-stages.test.ts` parity tests |

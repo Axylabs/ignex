@@ -77,6 +77,14 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 | `SessionStore.update` | `packages/core/src/security/session.ts` | Atomic per-id mutation on the backing store | Concurrent-writer integrity |
 | `hasErrors` gates | `packages/compiler/src/phases/*` | No artifacts on a failing build | Build failure hygiene |
 | `SELECTION` deep-freeze | `packages/native/src/selection.ts` | Immutable golden data | Read-only invariant |
+| Template auto-escape | `packages/native/src/template.ts` + castrum `payload/template.rs` | `{{ }}` HTML-escaped by default (identical minijinja table both engines); `\| safe` opts out; byte-parity gate `verify:native:template` | XSS (OWASP WSTG-CLNT-01) |
+| CSRF origin/session layers | `packages/core/src/security/csrf.ts` | Default same-origin Origin/Referer check, optional `bindSession` (HMAC(secret, sid)), `__Host-` prefix | CSRF (OWASP WSTG-CLNT-05) |
+| Secret rotation rings | `packages/core/src/security/keyring.ts` | `secrets[0]` signs, every entry verifies (JWT/cookie/CSRF/session); per-entry strength gates | Credential lifecycle |
+| Handler execution timeout | `packages/core/src/lifecycle/handler-timeout.ts` (+ AOT `__raceHandler`) | Opt-in wall-clock race per handler → 503 `handler-timeout`; streaming exempt | Resource exhaustion / slow-drip upstreams |
+| Null-proto parser records | `data/query.ts`, `http/body/form-data.ts`, `http/cookies.ts` | `Object.create(null)` — hostile keys can never reach `Object.prototype` | Prototype pollution |
+| Boot security advisories | `packages/core/src/lifecycle/advisories.ts` | Prod-only one-line warnings: no security headers / cookie sessions without CSRF (`IGNEX_SILENCE_ADVISORIES=1` mutes) | Misconfiguration detection |
+| Config coercion warnings | `packages/core/src/platform/config.ts` | Invalid typed env values warn once per var instead of silently defaulting | Silent-misconfiguration |
+| `onFaultSuppressed` sink | `packages/core/src/platform/fault-report.ts` | Suppression counts exposed to metrics/notifiers | Rejection-storm observability |
 
 Note the native parse path: Bun parses headers in Rust, so the framing and
 header-cap guards are the framework-level defense (the interpreted path is
@@ -85,6 +93,39 @@ guarded directly).
 ---
 
 ## 2. Risk register
+
+### 🟡 Template rendering had no auto-escape (fixed 2026-11-07)
+
+- **Status:** ✅ resolved — `{{ }}` interpolation is HTML auto-escaped by
+  default in BOTH engines with the exact minijinja `AutoEscape::Html` table
+  (castrum 0.9.12 `set_auto_escape_callback`; the TS fallback mirrors it byte
+  for byte). `| safe` opts one value out (the mark survives string
+  transforms), `{ autoescape: false }` disables per renderer. The fallback
+  also gained minijinja's scalar/container repr (`True`/`False`,
+  `[1, "a"]`, `{"k": "v"}`), closing pre-existing native↔fallback divergence.
+  Parity is the hard gate `bun run verify:native:template` (CI native lane);
+  pinning tests in `packages/native/test/template-autoescape.test.ts`.
+- **Migration:** layouts composing framework-generated page HTML must mark it
+  trusted (`{{ content | safe }}`).
+
+### 🟡 Secret rotation invalidated every live credential (fixed 2026-11-07)
+
+- **Status:** ✅ resolved — rotation rings (`SecretInput`) on every HMAC /
+  Ed25519 verify path (`packages/core/src/security/keyring.ts`): entry 0
+  signs, all entries verify. Session secret-strength gate applies per entry.
+  Pinning tests in `packages/core/test/keyring.test.ts`; procedure in
+  `SECURITY.md` hardening checklist step 6.
+
+### 🟡 Config coercion was silent; DataLoader caches unbounded; no handler timeout (fixed 2026-11-07)
+
+- **Status:** ✅ resolved — invalid typed env values now warn once per var
+  (`platform/config.ts`); DataLoader value caches default to 10 000 entries
+  with oldest-eviction (`data/dataloader.ts`, `max: false` escapes);
+  `handlerTimeoutMs` (opt-in, interpreted + AOT) races handler execution →
+  503 `handler-timeout` with streaming responses exempt
+  (`lifecycle/handler-timeout.ts`). SSE backpressure polling backs off
+  adaptively (1→16 ms). Suppression counts are observable via
+  `onFaultSuppressed`.
 
 ### 🟡 Native FFI: Rust panic across the `bun:ffi` C-ABI boundary = process abort (mitigated upstream)
 
