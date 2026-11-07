@@ -52,7 +52,7 @@ import {
   promptText,
 } from "../utils/prompt.js";
 import { writeScaffold } from "../utils/scaffold.js";
-import { generateSecret } from "../utils/secrets.js";
+import { generateHexSecret, generateSecret } from "../utils/secrets.js";
 import { metaFor } from "./registry.js";
 
 export const OPS_TARGETS = ["dockerfile", "compose", "caddy", "ci", "docker", "systemd"] as const;
@@ -669,7 +669,7 @@ export async function runOps(args: string[]): Promise<void> {
 
   // App session secret for .env.docker — generated like the infra passwords
   // (the session manager refuses known-default secrets in production).
-  const sessionSecret = wantsCompose ? generateSecret(32) : undefined;
+  const sessionSecret = wantsCompose ? generateHexSecret() : undefined;
   if (sessionSecret !== undefined) {
     warn("[ignex] generated a random SESSION_SECRET (saved to .env.docker).");
   }

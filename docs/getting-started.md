@@ -26,8 +26,9 @@ bash setup.sh          # Windows: setup.bat  (installs Bun if missing, then prov
 bun run dev
 ```
 
-`setup.sh` runs `scripts/setup.ts` — a Bun-shell provisioner that detects your
-OS and package manager and makes the machine ready without manual steps:
+`setup.sh` hands off to the scaffold's provisioner (`bun run setup`) — a
+Bun-shell script that detects your OS and package manager and makes the
+machine ready without manual steps:
 
 1. copies `.env.example` → `.env` (skipped when one exists),
 2. installs missing tooling (`git` by default; `--docker` / `--caddy` add
@@ -36,10 +37,25 @@ OS and package manager and makes the machine ready without manual steps:
 4. smoke test: boots the compiled server on a free port and polls
    `GET /health` — proof the scaffold works on this machine.
 
-`bun scripts/setup.ts --check` prints a JSON report of what it detected
+`bun run setup --check` prints a JSON report of what it detected
 (OS, package manager, tools) without installing anything. `--systemd`
 generates hardened service units + a deploy script — see
 [deployment](deployment.md#11-reference-ignex-ops).
+
+When it's time to deploy, one command walks you through it — picks a style
+(Docker Compose / systemd + Caddy / CI), generates whatever artifacts are
+missing, fills the declared secrets into `.env`, and prints a readiness
+checklist with the exact fix for every gap:
+
+```sh
+ignex ship            # guided; ignex ship --check re-runs the readiness gate
+```
+
+New modules are one command too — `ignex add metrics,ready,durableJobs,
+mailer,realtime,rpc` installs the production bundles (env vars wired into
+`src/config/env.ts` + `.env.example` automatically). See
+[deployment](deployment.md#110-the-guided-flow-ignex-ship) and
+`ignex add --help` for the full vocabulary.
 
 What you get:
 

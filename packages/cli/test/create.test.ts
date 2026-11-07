@@ -33,11 +33,48 @@ describe("ignex create --root", () => {
       const target = join(base, "demo");
       expect(existsSync(join(target, "package.json"))).toBe(true);
       expect(existsSync(join(target, "src/routes/index.get.ts"))).toBe(true);
+      // Baseline readiness probe (503 contract) ships with every scaffold.
+      expect(existsSync(join(target, "src/routes/ready.get.ts"))).toBe(true);
+      expect(readFileSync(join(target, "src/routes/ready.get.ts"), "utf8")).toContain(
+        "runReadinessChecks",
+      );
       // The `openapi` feature now installs the `openapi()` plugin (app.config)
       // instead of a broken `openapi.json.get.ts` route that served an empty spec.
       expect(existsSync(join(target, "src/routes/openapi.json.get.ts"))).toBe(false);
       expect(existsSync(join(target, "src/app.config.ts"))).toBe(true);
       expect(readFileSync(join(target, "src/app.config.ts"), "utf8")).toContain("openapi()");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("emits feature env vars into the scaffolded schema and .env.example", async () => {
+    const base = tmpParent();
+    try {
+      await runCreate([
+        "demo",
+        "--root",
+        base,
+        "--features",
+        "metrics,mailer",
+        "--yes",
+        "--no-install",
+        "--no-git",
+      ]);
+
+      const target = join(base, "demo");
+      const envTs = readFileSync(join(target, "src/config/env.ts"), "utf8");
+      expect(envTs).toContain(
+        "METRICS_TOKEN: Type.Optional(Type.String({ metadata: { secret: true } }))",
+      );
+      expect(envTs).toContain("SMTP_HOST: Type.Optional(Type.String())");
+      const example = readFileSync(join(target, ".env.example"), "utf8");
+      expect(example).toContain("METRICS_TOKEN=");
+      expect(example).toContain("SMTP_PASS=");
+      // The metrics registry lib + customized plugins wiring land too.
+      expect(existsSync(join(target, "src/lib/metrics.ts"))).toBe(true);
+      const plugins = readFileSync(join(target, "src/plugins/index.ts"), "utf8");
+      expect(plugins).toContain("metricsPlugin({ metrics");
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

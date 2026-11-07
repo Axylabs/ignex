@@ -451,15 +451,51 @@ The **ordering** matters more than the tooling:
 that older version still runs correctly against the new schema — which is exactly
 what makes the rollback safe.
 
-## 11. Reference: `ignex ops`
+## 11. Reference: `ignex ship` and `ignex ops`
+
+The go-live surface is two commands: **`ignex ship`** is the guided flow
+(picks a style, generates what's missing, fills secrets, checks readiness);
+**`ignex ops`** is the per-artifact generator underneath it (stable flags,
+scriptable).
 
 | Command | Emits |
 | --- | --- |
+| `ignex ship` | guided go-live: style picker → artifacts + `.env` secrets + `/ready` → checklist |
+| `ignex ship --check` | read-only pre-flight checklist (exit 1 = blocking) |
 | `ignex ops dockerfile` | Dockerfile + .dockerignore (multi-stage, standalone binary) |
-| `ignex ops compose` | docker-compose.yml + .env.docker (MongoDB/Redis/NATS) |
+| `ignex ops compose` | docker-compose.yml + .env.docker (MongoDB/Redis/NATS + generated `SESSION_SECRET`) |
 | `ignex ops caddy` | Caddyfile (TLS, HTTP/2/3, `/health` probe) |
 | `ignex ops ci` | CI workflow that builds + tests the container |
-| `ignex ops systemd` | hardened service unit(s), `deploy/deploy.sh`, env template |
+| `ignex ops systemd` | hardened service unit(s), `deploy/deploy.sh`, `deploy/install.sh`, env template |
+| `ignex doctor --golive` | the same pre-flight as `ship --check`, no generation |
+
+### 11.0 The guided flow (`ignex ship`)
+
+```sh
+ignex ship                    # interactive: style → domain → artifacts → checklist
+ignex ship --style systemd --domain api.acme.com --yes
+ignex ship --check            # re-run anytime: the readiness gate
+```
+
+What one run does, per style (`docker` / `systemd` / `ci`):
+
+1. **Generates the missing artifacts** — the `ops` targets below — WITHOUT
+   clobbering: files that already exist are left untouched (use `--force` to
+   regenerate, `--dry-run` to preview).
+2. **Fills the project's declared secrets** into `.env`: every variable
+   marked `metadata.secret` in `src/config/env.ts` that is missing or empty
+   gets a generated value (`openssl rand -hex 32` shape). Values you already
+   set are never overwritten; the generated names are printed.
+3. **Scaffolds `src/routes/ready.get.ts`** when missing (§3 readiness), and
+   optionally runs `bun run build` (`--build`).
+4. **Prints the go-live checklist** — `.env` present, secrets filled, build
+   artifact on disk, `/health` answering on loopback, systemd units
+   installed, Caddyfile placed — each non-passing row with the exact command
+   that fixes it. `ignex ship --check` (and `ignex doctor --golive`) is the
+   gating run: exit 1 while anything blocks.
+
+Ship never touches `/etc` or runs sudo itself — host provisioning stays a
+deliberate act through the generated `deploy/install.sh` (§11.1).
 
 ### 11.1 Host/VPS deployment (`ignex ops systemd`)
 
@@ -478,7 +514,9 @@ Emits into `deploy/`:
   `IGNEX_HTTPS=0` (TLS belongs to the proxy), and sandboxing
   (`ProtectSystem=strict` + `ReadWritePaths=.ignex` — the compiled server
   flushes hot-route heat there). No hard infra dependency: the app boots
-  lazily and answers `/health` while dependencies are down.
+  lazily and answers `/health` while dependencies are down. With
+  `--with-infra` the `Wants=`/`After=` ordering for `<name>-infra.service` is
+  baked into the unit — no manual edit.
 - **`<name>-infra.service`** (`--with-infra`) — oneshot `docker compose up -d
   --wait` at boot; `--wait` blocks until every service is healthy, which is
   what makes the app unit safe to start after it on a fresh boot.
@@ -487,8 +525,15 @@ Emits into `deploy/`:
   build → `systemctl restart` → poll `/health` → **rollback** to the previous
   artifact if the new build does not come up healthy (migrations are
   additive-first, so the old build keeps working against the new schema).
+- **`deploy/install.sh`** — sudo host installer, idempotent, `--dry-run`
+  aware: creates the system user (`useradd --system`), fixes ownership,
+  installs + enables the units, starts the service when a build already
+  exists (otherwise it points at `deploy/deploy.sh`), and `--caddy` also
+  validates + installs `./Caddyfile` into `/etc/caddy/` (timestamped backup,
+  reload) with the DNS reminder.
 - **`deploy/env.production.example`** — loopback bind, `HTTPS=false`,
-  `NODE_ENV=production`, real `PUBLIC_BASE_URL`.
+  `NODE_ENV=production`, real `PUBLIC_BASE_URL`, empty `SESSION_SECRET=`
+  placeholder (`ignex ship` fills declared-but-empty vars in `.env`).
 
 Flags: `--user` (default: project name), `--app-dir` (default: the project
 root), `--bun` (default `/usr/local/bin/bun`), `--port`/`--health-path`

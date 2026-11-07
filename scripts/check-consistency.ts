@@ -56,6 +56,8 @@ const USER_APP_SCRIPTS = new Set([
   "format",
   "typecheck",
   "test",
+  "setup",
+  "db:migrate",
 ]);
 
 /**

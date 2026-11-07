@@ -113,6 +113,68 @@ describe("planInstall", () => {
     expect(paths.length).toBe(new Set(paths).size);
     expect(paths.length).toBeGreaterThan(15);
   });
+
+  it("plans the readiness bundle as the 503-contract probe route", () => {
+    const plan = planInstall(features("ready"));
+    expect(plan.files.map((f) => f.path)).toEqual(["src/routes/ready.get.ts"]);
+    const ready = plan.files[0]?.content();
+    expect(ready).toContain("runReadinessChecks");
+    expect(ready).toContain("503");
+  });
+
+  it("plans metrics as a shared registry + custom plugin emission + env vars", () => {
+    const plan = planInstall(features("metrics"));
+    expect(plan.files.map((f) => f.path)).toEqual(["src/lib/metrics.ts"]);
+    const lib = plan.files[0]?.content();
+    expect(lib).toContain("createMetrics()");
+    expect(lib).toContain("createOtlpExporter(metrics");
+    // The plugins file uses the shared registry + env token, not a bare call.
+    expect(plan.pluginsFile?.content()).toContain(
+      'metricsPlugin({ metrics, path: "/metrics", token: env.METRICS_TOKEN })',
+    );
+    expect(plan.pluginsFile?.content()).toContain('{ metrics } from "../lib/metrics.js"');
+    expect(plan.envVars.map((v) => v.key)).toEqual(["METRICS_TOKEN", "OTLP_ENDPOINT"]);
+    expect(plan.envVars[0]?.schemaLine).toContain("metadata: { secret: true }");
+  });
+
+  it("plans durable jobs as a self-bootstrapping SQLite queue", () => {
+    const plan = planInstall(features("durableJobs"));
+    const lib = plan.files.find((f) => f.path === "src/lib/jobs.ts")?.content();
+    expect(lib).toContain("createDurableJobQueue");
+    expect(lib).toContain('createSqliteJobStore("./data/jobs.db")');
+    expect(lib).toContain('mkdirSync("./data", { recursive: true })');
+    expect(plan.notes.join("\n")).toContain("ignex queue:work");
+  });
+
+  it("pulls realtime in for rpc and declares the nova env var", () => {
+    const plan = planInstall(features("rpc"));
+    expect(plan.features).toEqual(["realtime", "rpc"]);
+    expect(plan.files.map((f) => f.path)).toEqual(["src/lib/realtime.ts", "src/rpc/kit.ts"]);
+    expect(plan.envVars.map((v) => v.key)).toEqual(["NOVA_PORT"]);
+    const kit = plan.files.find((f) => f.path === "src/rpc/kit.ts")?.content();
+    expect(kit).toContain("createRpcKit");
+  });
+
+  it("plans the mailer with the SMTP env vocabulary", () => {
+    const plan = planInstall(features("mailer"));
+    const lib = plan.files.find((f) => f.path === "src/lib/mailer.ts")?.content();
+    expect(lib).toContain("createMailer");
+    expect(lib).toContain('driver: "log"');
+    expect(plan.envVars.map((v) => v.key)).toEqual([
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+    ]);
+    expect(plan.envVars.find((v) => v.key === "SMTP_PASS")?.schemaLine).toContain("secret: true");
+  });
+
+  it("resolves the new production aliases", () => {
+    expect([
+      ...parseFeatureTokens("metrics,readiness,durable-jobs,nova,rpc-kit,email").features,
+    ]).toEqual(["metrics", "ready", "durableJobs", "realtime", "rpc", "mailer"]);
+  });
 });
 
 describe("addPluginsToModule", () => {

@@ -5,12 +5,8 @@ import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
-import {
-  FEATURE_LABELS,
-  featureEnvExampleSections,
-  featureEnvSchemaLines,
-  parseFeatureTokens,
-} from "../templates/features.js";
+import { featureEnvExampleSections, featureEnvSchemaLines } from "../templates/feature-env.js";
+import { FEATURE_LABELS, parseFeatureTokens } from "../templates/features.js";
 import {
   durableJobsLibTemplate,
   mailerLibTemplate,

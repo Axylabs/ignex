@@ -25,6 +25,7 @@ ignex seed [options]                Run (or scaffold) the DB seed script (src/se
 ignex dev [root] [options]          Compile + run the dev server (watch; --kill-port)
 ignex build [root] [options]        AOT-compile an app with diagnostics
 ignex doctor [root]                 Check project health (runtime, native, config, build)
+ignex ship [options]                Guided go-live: deploy artifacts + generated secrets + pre-flight checklist
 ignex ops <target> [options]        Generate deployment files (dockerfile/compose/caddy/ci/systemd) — compose wizard
 ignex sdk [options]                 Generate + distribute the app SDK (typed client)
 ignex info [root]                   Dump cwd / runtime / native / config as JSON
@@ -76,9 +77,16 @@ ignex add auth --dry-run           # list the plan, write nothing
 ```
 
 The rest of the vocabulary is `files` (`upload`), `ws` (`websocket`), `cache`,
-`proxy`, `i18n`, `templates`, `env`, `examples`, `tests`, `logger` and
-`rateLimit` (`rate-limit`). `ignex add` with no arguments opens the multi-select
-wizard.
+`proxy`, `i18n`, `templates`, `env`, `examples`, `tests`, `logger`,
+`rateLimit` (`rate-limit`), and the production bundles: `metrics` (shared
+registry + `/metrics` + optional OTLP), `ready` (readiness probe with the
+503 contract), `durableJobs` (`durable-jobs` — SQLite queue processed by
+`ignex queue:work`), `mailer` (log driver until SMTP vars are set),
+`realtime` (`nova` — typed WS pub/sub hub), and `rpc` (typed RPC kit over
+the hub; pulls `realtime` in automatically). Bundle env vars
+(`METRICS_TOKEN`, `SMTP_*`, `NOVA_PORT`, …) are wired into
+`src/config/env.ts` + `.env.example` by the install.
+`ignex add` with no arguments opens the multi-select wizard.
 
 Behavior worth knowing:
 
@@ -205,6 +213,9 @@ New resources are merged into an existing `src/db.ts` automatically (import,
 - `sessions`, `cors`, `rateLimit`, `security`, `compression`, `logger`,
   `openapi`, `files`, `ws`, `sse`, `cache`, `proxy`, `templates`,
   `env`, `jobs`, `i18n`, `examples`, `tests` — the remaining toggles.
+- Production bundles (same names as `ignex add`): `metrics`, `ready`,
+  `durableJobs`, `mailer`, `realtime`, `rpc` — their env vars are emitted
+  into the scaffolded `src/config/env.ts` + `.env.example`.
 
 ## Diagnostics (`ignex doctor`)
 
@@ -217,6 +228,11 @@ New resources are merged into an existing `src/db.ts` automatically (import,
 - **Routes** — whether the configured routes directory exists.
 - **Server** — whether the compiled server entry exists (else: run
   `ignex build`).
+- **`--golive`** — instead of the health report, run the read-only production
+  pre-flight: `.env` present, declared secrets filled, build artifact on
+  disk, `/health` answering on loopback (`--no-probe` to skip), systemd
+  units installed, Caddyfile placed — each non-passing row with the exact
+  fixing command. Exit 1 while anything blocks.
 
 It exits non-zero when blocking issues are found, so it can gate CI or
 onboarding scripts.
@@ -257,6 +273,22 @@ self-contained Bun executable (runtime embedded, minified, bytecode-compiled,
 `NODE_ENV=production`) that runs without installing Bun. Output defaults to
 `outDir/<serviceName>`; the path is printed on success.
 
+## Going live (`ignex ship`)
+
+`ignex ship` is the guided flow over the generators below: pick a deployment
+style (Docker Compose / systemd + Caddy / CI), answer two questions, and it
+generates the missing artifacts (never clobbering), fills the project's
+declared secrets into `.env` (generated values — never overwriting yours),
+scaffolds the `/ready` probe, and prints a go-live checklist where every
+non-passing row carries the exact command that fixes it.
+
+```sh
+ignex ship                                   # interactive picker
+ignex ship --style systemd --domain api.acme.com --yes
+ignex ship --check                           # readiness gate (exit 1 = blocking)
+ignex ship --style docker --dry-run          # print the plan, write nothing
+```
+
 ## Deployment files (`ignex ops`)
 
 `ignex ops <target>` generates deployment files for an ignex backend, targeting
@@ -268,14 +300,19 @@ ignex ops dockerfile          Dockerfile (multi-stage standalone binary) + .dock
 ignex ops compose             docker-compose.yml + .env.docker — interactive service wizard
 ignex ops caddy               Caddyfile (optimized reverse proxy)
 ignex ops ci                  GitHub Actions workflow (typecheck/lint/test/build + deploy)
-ignex ops systemd             hardened service units + health-gated deploy.sh + env template
+ignex ops systemd             hardened service units + deploy.sh + install.sh + env template
 ignex ops docker              all of the above (interactive)
 ```
 
 Run `ignex ops compose` (or `ignex ops docker`) with no flags to get the
 **compose wizard**: pick which infra services to include with checkboxes, then
 answer the per-service questions. Every prompt falls back to its default when
-stdin isn't a TTY, so CI stays scriptable.
+stdin isn't a TTY, so CI stays scriptable. Infra passwords AND the app
+`SESSION_SECRET` are generated into `.env.docker` when you don't supply them.
+The `systemd` target additionally emits `deploy/install.sh` — an idempotent
+sudo installer (system user, units, enable, optional `--caddy` Caddyfile
+placement with backup) so host setup is `sudo ./deploy/install.sh` instead of
+a hand-run command sequence.
 
 Services (each optimized for ignex):
 

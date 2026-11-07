@@ -59,8 +59,12 @@
       "rationale": "AOT cache + COMPILER_CACHE_VERSION — Tier D (cache-version contract — split with care)"
     },
     "packages/cli/src/commands/ops.ts": {
-      "lines": 558,
-      "rationale": "CLI ops command — Tier E (caddy --max-body/--lb-retry flags)"
+      "lines": 722,
+      "rationale": "CLI ops command — Tier E (systemd target + install.sh + generated secrets)"
+    },
+    "packages/cli/src/templates/setup.ts": {
+      "lines": 570,
+      "rationale": "turnkey bootstrap provisioner (setup trio) — Tier E"
     },
     "packages/core/src/security/session.ts": {
       "lines": 537,

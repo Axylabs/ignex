@@ -6,6 +6,64 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`ignex ship` — the guided go-live flow** (aliases `golive`/`go-live`). One
+  command from scaffold to deploy-ready: pick a style (Docker Compose /
+  systemd + Caddy / CI), and it generates the missing `ops` artifacts without
+  clobbering existing files, fills the project's declared secrets into `.env`
+  (generated values — operator-set values are never overwritten), scaffolds
+  the `/ready` probe, optionally builds (`--build`), and finishes with a
+  go-live checklist where every non-passing row carries the exact fixing
+  command. `ignex ship --check` is the read-only gating run (exit 1 while
+  anything blocks); `--dry-run` previews the plan; non-TTY runs are
+  flag-driven.
+
+- **Go-live pre-flight (`ignex doctor --golive`).** The same checklist as
+  `ship --check` — `.env` present, declared secrets filled, production build
+  on disk, `/health` answering on loopback (`--no-probe` to skip), systemd
+  units installed, Caddyfile placed — rendered read-only with per-item fix
+  commands (`utils/golive.ts`, shared with ship).
+
+- **App-secret generation story.** `utils/secrets.ts` (base64url + hex
+  generators) backs all generated credentials; `ignex ops compose` now also
+  generates `SESSION_SECRET` into `.env.docker` (like the infra passwords);
+  `utils/env-fill.ts` patches env files line-wise using the project's
+  `metadata.secret` env-schema contract (import with a conservative
+  source-scan fallback); `deploy/env.production.example` carries the
+  placeholder for `ignex ship` to fill.
+
+- **`deploy/install.sh` (systemd host installer).** `ignex ops systemd`
+  additionally emits an idempotent, `--dry-run`-aware sudo installer: system
+  user (`useradd --system`), ownership, unit installation + enable,
+  health-gated start when a build exists, and `--caddy` for validated
+  Caddyfile placement with a timestamped backup. `Wants=`/`After=` infra
+  ordering is now baked into the app unit with `--with-infra` (no manual
+  edit). Every scaffold also ships `src/routes/ready.get.ts` (readiness
+  probe, 503 contract).
+
+- **Six production feature bundles.** `ignex add`/`ignex create --features`
+  gain `metrics` (shared registry + `/metrics` + optional OTLP, wired as
+  `metricsPlugin({ metrics, token })`), `ready` (readiness probe),
+  `durableJobs` (`durable-jobs` — self-bootstrapping SQLite queue processed
+  by `ignex queue:work`), `mailer` (log driver until SMTP vars are set),
+  `realtime` (`nova` — typed WS pub/sub hub), and `rpc` (typed RPC kit;
+  pulls `realtime` in automatically). Bundle env vars
+  (`METRICS_TOKEN`, `SMTP_*`, `NOVA_PORT`) are one vocabulary for both
+  commands: `create` emits them into the scaffolded env schema +
+  `.env.example`; `add` wires them post-hoc idempotently.
+
+### Changed
+
+- **`ignex doctor`'s default-session-secret check keys off the project, not
+  the process.** It now blocks when the project's own `.env` says
+  `NODE_ENV=production` instead of depending on the doctor process happening
+  to run with `NODE_ENV=production` set — the check used to be a no-op in
+  every realistic invocation.
+- **`ignex ops systemd` next-steps point at `deploy/install.sh`** instead of
+  the manual `sudo cp` + `daemon-reload` sequence (and no longer instruct a
+  manual unit edit for infra ordering).
+
 ### Security
 
 - **Caddyfile inputs are validated (injection guard).** Every value `ignex ops

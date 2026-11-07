@@ -7,12 +7,11 @@
  * the feature vocabulary (names, aliases, labels), which files each feature
  * contributes — reusing the `ignex create` templates so the two scaffolds can
  * never drift — and the `src/app.config.ts` wiring the plugin/middleware
- * bundles need.
- *
- * `ignex create` imports the vocabulary from here as well, so a new feature is
- * declared once and is immediately available to both commands.
+ * bundles need. `ignex create` imports the vocabulary too, so a new feature
+ * is declared once and immediately available to both commands.
  */
 import { FEATURE_NAMES, type Feature } from "../types.js";
+import { FEATURE_ENV_VARS, type FeatureEnvVar } from "./feature-env.js";
 import {
   durableJobsLibTemplate,
   mailerLibTemplate,
@@ -88,8 +87,8 @@ export const FEATURE_LABELS: Record<Feature, string> = {
 
 /**
  * Accepted spellings for every feature — the `--features` / `add` vocabulary.
- * Keep the canonical name on the right; aliases exist so muscle memory from
- * other frameworks (`upload`, `websocket`, `rate-limit`) still works.
+ * Canonical name on the right; aliases preserve muscle memory from other
+ * frameworks (`upload`, `websocket`, `rate-limit`).
  */
 export const FEATURE_ALIASES: Record<string, Feature> = {
   cors: "cors",
@@ -140,12 +139,10 @@ export const FEATURE_ALIASES: Record<string, Feature> = {
 };
 
 /**
- * Parse comma-separated feature tokens into the canonical feature set.
- *
- * Accepts `all` (every feature) and `none` (empty set), tolerates whitespace
- * and repeated tokens, and collects unknown names instead of throwing so
- * callers decide between a warning (`ignex create`) and a hard error
- * (`ignex add`).
+ * Parse comma-separated feature tokens into the canonical feature set —
+ * `all`/`none`, whitespace- and repetition-tolerant. Unknown names are
+ * collected, not thrown, so callers decide between a warning (`ignex create`)
+ * and a hard error (`ignex add`).
  *
  * @param input - Raw token(s), e.g. `"auth,refresh"` or `["auth", "sessions"]`.
  * @returns The resolved feature set plus any unrecognized tokens, in order.
@@ -177,11 +174,10 @@ export function parseFeatureTokens(input: string | string[] | undefined): {
 }
 
 /**
- * Close the feature set over its dependencies.
- *
- * `refresh` is meaningless without `auth` (the refresh manager is emitted into
- * `src/lib/auth.ts`), so selecting it pulls `auth` in — the same rule
- * `ignex create` applies.
+ * Close the feature set over its dependencies: `refresh` needs `auth` (the
+ * refresh manager is emitted into `src/lib/auth.ts`), `rpc` needs `realtime`
+ * (the kit dispatches over the nova hub) — the same rule `ignex create`
+ * applies.
  *
  * @param features - The requested feature set (not mutated).
  * @returns A new set with every implied feature included.
@@ -191,45 +187,6 @@ export function withFeatureDependencies(features: ReadonlySet<Feature>): Set<Fea
   if (resolved.has("refresh")) resolved.add("auth");
   if (resolved.has("rpc")) resolved.add("realtime");
   return resolved;
-}
-
-/**
- * Schema entry lines (for `envConfigTemplate`) declared by the selected
- * features — the `ignex create` counterpart of {@link wireFeatureEnvVars}.
- *
- * @param features - The resolved feature selection.
- * @returns Indented schema entry lines, feature-canonical order, deduped.
- */
-export function featureEnvSchemaLines(features: ReadonlySet<Feature>): string[] {
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  for (const feature of FEATURE_NAMES) {
-    if (!features.has(feature)) continue;
-    for (const envVar of FEATURE_ENV_VARS[feature] ?? []) {
-      if (seen.has(envVar.key)) continue;
-      seen.add(envVar.key);
-      lines.push(envVar.schemaLine);
-    }
-  }
-  return lines;
-}
-
-/**
- * `.env.example` sections (for `envExampleTemplate`) declared by the
- * selected features — mirrors {@link featureEnvSchemaLines}.
- */
-export function featureEnvExampleSections(features: ReadonlySet<Feature>): string[] {
-  const seen = new Set<string>();
-  const sections: string[] = [];
-  for (const feature of FEATURE_NAMES) {
-    if (!features.has(feature)) continue;
-    for (const envVar of FEATURE_ENV_VARS[feature] ?? []) {
-      if (seen.has(envVar.key)) continue;
-      seen.add(envVar.key);
-      sections.push(envVar.example);
-    }
-  }
-  return sections;
 }
 
 /** One file an `ignex add` run writes, with a project-root-relative path. */
@@ -254,12 +211,10 @@ export interface FeaturePlanContext {
 }
 
 /**
- * Files each feature adds to an existing app.
- *
- * Exhaustive by construction (`Record<Feature, …>`), so adding a feature to
- * `FEATURE_NAMES` fails to compile until it is declared here. Plugin-only
- * features contribute no files of their own — they are wired through
- * `src/plugins/index.ts`, produced once by {@link planInstall}.
+ * Files each feature adds to an existing app. Exhaustive by construction
+ * (`Record<Feature, …>`): adding to `FEATURE_NAMES` fails to compile until
+ * it is declared here. Plugin-only features wire through `src/plugins/
+ * index.ts`, produced once by {@link planInstall}.
  */
 const FEATURE_FILES: Record<Feature, (ctx: FeaturePlanContext) => readonly FeatureFile[]> = {
   // Plugin-only features: their wiring lives in `src/plugins/index.ts`.
@@ -325,9 +280,8 @@ const FEATURE_FILES: Record<Feature, (ctx: FeaturePlanContext) => readonly Featu
 };
 
 /**
- * Follow-ups that are not file writes: an extra dependency or how to use what
- * was just installed. Wiring notes are emitted by the command itself (they
- * depend on whether the app config could be patched).
+ * Follow-ups that are not file writes: an extra dependency or how to use
+ * what was just installed (wiring notes are emitted by the command itself).
  */
 const FEATURE_NOTES: Partial<Record<Feature, readonly string[]>> = {
   auth: [
@@ -360,76 +314,6 @@ const FEATURE_NOTES: Partial<Record<Feature, readonly string[]>> = {
     "Enqueue from any route: await jobs.enqueue({ name, payload }).",
   ],
   mailer: ["Uses the log driver until SMTP_HOST is set — sends never throw on the request path."],
-};
-
-/**
- * An env var a feature bundle contributes: the exact `src/config/env.ts`
- * schema entry (indented, with trailing comma) and the matching
- * `.env.example` section — the same shapes `utils/db-env.ts` writes.
- */
-export interface FeatureEnvVar {
-  /** Env var name (also the idempotency key). */
-  readonly key: string;
-  /** Indented schema entry line, e.g. `  KEY: Type.Optional(Type.String()),`. */
-  readonly schemaLine: string;
-  /** `.env.example` section appended when the var is new. */
-  readonly example: string;
-}
-
-/**
- * Env vars each feature declares. `ignex add` wires them into the project's
- * env config (via {@link planInstall} → `utils/env-vars.ts`); `ignex create`
- * emits them into the scaffolded schema + `.env.example` — one vocabulary,
- * both commands.
- */
-export const FEATURE_ENV_VARS: Partial<Record<Feature, readonly FeatureEnvVar[]>> = {
-  metrics: [
-    {
-      key: "METRICS_TOKEN",
-      schemaLine: "  METRICS_TOKEN: Type.Optional(Type.String({ metadata: { secret: true } })),",
-      example:
-        "# OPTIONAL (secret) — METRICS_TOKEN · Bearer token protecting GET /metrics\nMETRICS_TOKEN=",
-    },
-    {
-      key: "OTLP_ENDPOINT",
-      schemaLine: "  OTLP_ENDPOINT: Type.Optional(Type.String()),",
-      example: "# OPTIONAL — OTLP_ENDPOINT · OTLP/HTTP endpoint for metrics push\nOTLP_ENDPOINT=",
-    },
-  ],
-  realtime: [
-    {
-      key: "NOVA_PORT",
-      schemaLine: "  NOVA_PORT: Type.Integer({ default: 3001 }),",
-      example: "# OPTIONAL — NOVA_PORT (default: 3001) · realtime hub WS port\nNOVA_PORT=3001",
-    },
-  ],
-  mailer: [
-    {
-      key: "SMTP_HOST",
-      schemaLine: "  SMTP_HOST: Type.Optional(Type.String()),",
-      example: "# OPTIONAL — SMTP_HOST · empty = log driver (no real sends)\nSMTP_HOST=",
-    },
-    {
-      key: "SMTP_PORT",
-      schemaLine: "  SMTP_PORT: Type.Integer({ default: 587 }),",
-      example: "# OPTIONAL — SMTP_PORT (default: 587)\nSMTP_PORT=587",
-    },
-    {
-      key: "SMTP_USER",
-      schemaLine: "  SMTP_USER: Type.Optional(Type.String()),",
-      example: "# OPTIONAL — SMTP_USER\nSMTP_USER=",
-    },
-    {
-      key: "SMTP_PASS",
-      schemaLine: "  SMTP_PASS: Type.Optional(Type.String({ metadata: { secret: true } })),",
-      example: "# OPTIONAL (secret) — SMTP_PASS\nSMTP_PASS=",
-    },
-    {
-      key: "SMTP_FROM",
-      schemaLine: "  SMTP_FROM: Type.Optional(Type.String()),",
-      example: "# OPTIONAL — SMTP_FROM · default From address\nSMTP_FROM=",
-    },
-  ],
 };
 
 /** The `src/app.config.ts` edits an install plan needs. */
