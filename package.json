@@ -39,6 +39,7 @@
     "verify:aot:abort": "bun scripts/verify-aot-abort.ts",
     "verify:aot:plugin-specialized": "bun scripts/verify-aot-plugin-specialized.ts",
     "verify:cli:resource": "bun scripts/verify-cli-resource.ts",
+    "verify:scaffold": "bun scripts/verify-scaffold-e2e.ts",
     "check:cache-versions": "bun scripts/check-cache-versions.ts",
     "check:native:surface": "bun scripts/check-native-surface.ts",
     "scan:secrets": "bun scripts/scan-secrets.ts",

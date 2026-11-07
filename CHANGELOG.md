@@ -57,6 +57,14 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **End-to-end gates for the full lifecycle.** `bun run verify:scaffold` runs
+  `create-ignex` → AOT build → boot → `/health` against the current workspace
+  (offline-safe: the scaffold resolves @ignex/* from the workspace's installed
+  packages) — the gate that proves `ignex create` output stays buildable and
+  runnable. A new `client-regen` suite regenerates the typed SDK client from
+  freshly compiled artifacts via `writeSdk` and drives it against the live
+  server, catching generation drift the committed-client test cannot see.
+
 - **Per-handler execution timeout (opt-in).** The request path previously had
   no wall-clock cap on handler execution — a handler awaiting a slow-drip
   upstream could hold its connection indefinitely (Bun's `idleTimeout` bounds
