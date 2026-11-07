@@ -8,6 +8,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Caddyfile inputs are validated (injection guard).** Every value `ignex ops
+  caddy` splices into the generated infrastructure file is now validated
+  fail-fast in `caddyfileTemplate` itself: domains (hostname shape, optional
+  `*.` wildcard, Caddy `{$VAR}` placeholders), upstream (`host:port`, port
+  1-65535, bracketed IPv6), `--max-body` (Caddy size units) and `--lb-retry`
+  (Caddy durations). These are operator flags, not client input — but a
+  newline or brace in a flag used to inject arbitrary Caddy directives into a
+  config an operator then deploys; malformed values now fail the command with
+  the expected format in the message. Injection-guard tests in `ops.test.ts`.
+
 - **Boot-time security advisories.** In production, serving now warns once when
   the app ships without the security-headers plugin (`security()`) or with
   cookie sessions but no CSRF guard — the most common misconfigurations that

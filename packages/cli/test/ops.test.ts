@@ -3,7 +3,7 @@
  * `runOps` command wiring (file writes, prompts-as-flags, error paths).
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -236,6 +236,60 @@ describe("caddyfileTemplate", () => {
   it("keeps env placeholders in the site address verbatim", () => {
     const caddy = caddyfileTemplate({ domains: ["{$SITE_ADDRESS}"] });
     expect(caddy).toContain("{$SITE_ADDRESS} {");
+  });
+
+  // Caddyfile injection guard: every value spliced into the generated
+  // infrastructure file is validated — a crafted flag value (newline/brace)
+  // must fail the command, never land in a deployed config.
+  describe("input validation (injection guard)", () => {
+    it("accepts valid hostnames, wildcards, placeholders and sizes", () => {
+      expect(() =>
+        caddyfileTemplate({
+          domains: ["*.example.com", "api.example.com", "{$SITE_ADDRESS}", "*.{$env}"],
+          upstream: "app:3000",
+          maxBodySize: "512KiB",
+          lbRetry: "1h30m",
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects Caddy directive injection via a domain (newline)", () => {
+      expect(() =>
+        caddyfileTemplate({ domains: ["example.com\n\thandle /admin {\n\t\trespond 403"] }),
+      ).toThrow(/invalid domain/);
+    });
+
+    it("rejects brace injection via a domain", () => {
+      expect(() => caddyfileTemplate({ domains: ["example.com { respond 500 }"] })).toThrow(
+        /invalid domain/,
+      );
+    });
+
+    it("rejects a path-ish or empty domain", () => {
+      expect(() => caddyfileTemplate({ domains: ["https://example.com/x"] })).toThrow(
+        /invalid domain/,
+      );
+      expect(() => caddyfileTemplate({ domains: [""] })).toThrow(/invalid domain/);
+    });
+
+    it("rejects an upstream without a valid port", () => {
+      expect(() => caddyfileTemplate({ upstream: "127.0.0.1" })).toThrow(/invalid upstream/);
+      expect(() => caddyfileTemplate({ upstream: "127.0.0.1:0" })).toThrow(/invalid upstream/);
+      expect(() => caddyfileTemplate({ upstream: "127.0.0.1:99999" })).toThrow(/invalid upstream/);
+      expect(() => caddyfileTemplate({ upstream: "host\nextra:3000" })).toThrow(/invalid upstream/);
+    });
+
+    it("rejects a malformed body size", () => {
+      expect(() => caddyfileTemplate({ maxBodySize: "64 MB; respond 500" })).toThrow(
+        /invalid max-body size/,
+      );
+      expect(() => caddyfileTemplate({ maxBodySize: "64XB" })).toThrow(/invalid max-body size/);
+    });
+
+    it("rejects a malformed retry duration", () => {
+      expect(() => caddyfileTemplate({ lbRetry: "5 minutes" })).toThrow(/invalid lb-retry/);
+      expect(() => caddyfileTemplate({ lbRetry: "s5" })).toThrow(/invalid lb-retry/);
+    });
   });
 });
 
@@ -535,6 +589,19 @@ describe("ignex ops (command wiring)", () => {
     }
   });
 
+  it("generates a random SESSION_SECRET into .env.docker non-interactively", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps(["compose", "--root", dir]);
+      const env = readFileSync(join(dir, ".env.docker"), "utf8");
+      const match = env.match(/^SESSION_SECRET=(.+)$/m);
+      // 32-byte hex from the shared secret generator.
+      expect(match?.[1]).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("exposes ops targets as shell-completion values", async () => {
     expect(findCommand("ops")).toBeDefined();
     const { loadCommand } = await import("../src/commands/loaders.js");
@@ -690,6 +757,28 @@ describe("systemd templates (host/VPS deployment)", () => {
     expect(env).toContain("HOST=127.0.0.1");
     expect(env).toContain("HTTPS=false");
     expect(env).toContain("PUBLIC_BASE_URL=https://acme.example.com");
+    // Secret placeholder — `ignex ship` fills declared-but-empty vars.
+    expect(env).toContain("SESSION_SECRET=");
+    expect(env).toContain("ignex ship");
+  });
+
+  it("app unit bakes Wants/After infra ordering when --with-infra", () => {
+    const wired = systemdUnitTemplate({
+      name: "acme",
+      user: "acme",
+      appDir: "/srv/acme",
+      bunPath: "/usr/local/bin/bun",
+      withInfra: true,
+    });
+    expect(wired).toContain("Wants=acme-infra.service");
+    expect(wired).toContain("After=network-online.target acme-infra.service");
+    const plain = systemdUnitTemplate({
+      name: "acme",
+      user: "acme",
+      appDir: "/srv/acme",
+      bunPath: "/usr/local/bin/bun",
+    });
+    expect(plain).not.toContain("acme-infra");
   });
 
   it("generates units, deploy.sh (executable) and env template via the --target flag", async () => {
@@ -722,16 +811,43 @@ describe("systemd templates (host/VPS deployment)", () => {
       // deploy.sh must be runnable as ./deploy.sh — mode 0755.
       const { statSync } = await import("node:fs");
       expect(statSync(join(dir, "deploy", "deploy.sh")).mode & 0o111).toBe(0o111);
-      const units = listDeploy(dir);
-      expect(units).toContain("-infra.service");
-      expect(units).toContain(".service");
+      const units = readdirSync(join(dir, "deploy"));
+      expect(units.some((name) => name.endsWith("-infra.service"))).toBe(true);
+      // Infra ordering is baked into the emitted APP unit (no manual edit):
+      // its [Unit] section orders itself after <name>-infra.service.
+      const appUnit = readFileSync(
+        join(
+          dir,
+          "deploy",
+          units.find((n) => n.endsWith(".service") && !n.includes("-infra")) ?? "",
+        ),
+        "utf8",
+      );
+      expect(appUnit).toMatch(/Wants=\S+-infra\.service/);
+      expect(appUnit).toMatch(/After=network-online\.target \S+-infra\.service/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits install.sh (executable host installer) for the systemd target", async () => {
+    const dir = tmpTarget();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "acme-api" }));
+      await runOps(["systemd", "--root", dir, "--force", "--user", "svc-acme"]);
+
+      const installPath = join(dir, "deploy", "install.sh");
+      expect(existsSync(installPath)).toBe(true);
+      const { statSync } = await import("node:fs");
+      expect(statSync(installPath).mode & 0o111).toBe(0o111);
+      const script = readFileSync(installPath, "utf8");
+      expect(script).toContain('SERVICE="acme-api"');
+      expect(script).toContain("useradd --system");
+      expect(script).toContain("systemctl daemon-reload");
+      expect(script).toContain("--caddy");
+      expect(script).toContain("--dry-run");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
-
-/** List the generated deploy/ entries (unit names + scripts) as one string. */
-function listDeploy(dir: string): string {
-  return readdirSync(join(dir, "deploy")).join(",");
-}
