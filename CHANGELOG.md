@@ -85,6 +85,12 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **DataLoader value caches are bounded by default.** `createDataLoader` (and
+  `ctx.loader`) caps the value cache at 10 000 entries with oldest-eviction —
+  a module-scope loader with high-cardinality keys previously grew without
+  limit. `max: false` restores unbounded semantics; `prime()` honors the
+  bound too.
+
 - **Invalid typed config env values now warn.** `defineConfig` keeps its
   availability-first fallback (invalid `number`/`boolean`/`json` env values
   resolve to the schema default) but logs a loud once-per-var warning naming

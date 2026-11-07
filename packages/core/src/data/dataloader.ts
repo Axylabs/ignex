@@ -20,6 +20,12 @@ export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
   maxBatchSize?: number;
   /** Cache instance, or `false` to disable caching. Default: `new Map()`. */
   cache?: Map<CacheKey, Value> | false;
+  /**
+   * Bound the value cache (oldest-eviction) — a module-scope loader with
+   * high-cardinality keys otherwise leaks. Default 10 000 entries; `false`
+   * restores the unbounded `Map` semantics (per-request `ctx.loader` usage).
+   */
+  max?: number | false;
   /** Map a key to a cache key. Default: identity. */
   cacheKeyFn?: (key: Key) => CacheKey;
   /** Schedule a batch dispatch. Default: `queueMicrotask`. */
@@ -82,6 +88,10 @@ const batchError = (expected: number, got: number): Error =>
   );
 
 /**
+/** Default value-cache bound (see {@link DataLoaderOptions.max}). */
+export const DEFAULT_DATALOADER_MAX = 10_000;
+
+/**
  * Create a DataLoader around a `batchLoadFn`.
  *
  * Concurrent `load(key)` calls within one microtask are batched into a single
@@ -97,7 +107,19 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   options: DataLoaderOptions<Key, Value, CacheKey> = {},
 ): DataLoader<Key, Value> => {
   const maxBatchSize = options.maxBatchSize ?? Number.POSITIVE_INFINITY;
+  const max = options.max === undefined ? DEFAULT_DATALOADER_MAX : options.max;
   const cache = options.cache === false ? null : (options.cache ?? new Map<CacheKey, Value>());
+  // Oldest-eviction bound over the cache: a module-scope loader with
+  // high-cardinality keys previously grew without limit. Insertion-ordered
+  // `Map` makes oldest = first key; delete-then-set refreshes recency.
+  const evictOver = (limit: number): void => {
+    if (cache === null || limit === Number.POSITIVE_INFINITY) return;
+    while (cache.size > limit) {
+      const oldest = cache.keys().next();
+      if (oldest.done) break;
+      cache.delete(oldest.value);
+    }
+  };
   const cacheKeyFn = options.cacheKeyFn ?? (identity as (key: Key) => CacheKey);
   const batchScheduleFn =
     options.batchScheduleFn ?? ((callback: () => void): void => queueMicrotask(callback));
@@ -126,6 +148,7 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
       return;
     }
     cache?.set(cacheKey, value);
+    if (typeof max === "number") evictOver(max);
     for (const subscriber of cb?.subscribers ?? []) subscriber.resolve(value as Value);
   };
 
@@ -212,7 +235,10 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
     load,
     loadMany,
     prime(key, value) {
-      if (cache) cache.set(cacheKeyFn(key), value);
+      if (cache) {
+        cache.set(cacheKeyFn(key), value);
+        if (typeof max === "number") evictOver(max);
+      }
       return api;
     },
     clear(key) {
