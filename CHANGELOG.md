@@ -8,6 +8,12 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Static/download filenames are header-safe.** `Content-Disposition`
+  filenames (from `sendFile({ download })` and `streamDownload({ filename })`)
+  strip CR/LF/backslash/DQUOTE — RFC 6266 quoted-string framing — so a
+  user-controlled download name can no longer produce a malformed header (the
+  Headers API would turn a CRLF name into a 500).
+
 - **Request-parser records are null-prototype.** Query (`parseQuery` /
   `groupQueryPairs`), form-data (`formDataToObject`) and cookie
   (`cookiePairsToRecord`) records are built with `Object.create(null)`, so
@@ -64,6 +70,12 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   a ring for HS256.
 
 ### Changed
+
+- 206 Range responses are streamed (`Bun.file().slice().stream()`) instead of
+  materialized — a suffix range (`bytes=-N`) on a large static file no longer
+  buffers N bytes in memory. The re-wrapping guarantee is preserved: the body
+  is a plain `ReadableStream`, which plugins that rebuild the `Response` pass
+  through without re-streaming the full file.
 
 - The fallback `| escape` filter now emits minijinja's exact entities
   (`'` → `&#x27;`, plus `/` → `&#x2f;`) instead of the old `&#39;` table, and

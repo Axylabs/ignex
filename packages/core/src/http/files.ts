@@ -82,6 +82,15 @@ export function safeJoin(root: string, target: string): string {
   return resolved;
 }
 
+/**
+ * Sanitize a Content-Disposition filename (RFC 6266 quoted-string safety):
+ * strip CR/LF (header injection), backslash and DQUOTE (quoting escapes) —
+ * the Headers API rejects raw CRLF in values, but a malformed value would
+ * turn a user-controlled download name into a 500 instead of a clean header.
+ */
+const sanitizeDispositionFilename = (filename: string): string =>
+  filename.replace(/[\r\n\\"]/g, "");
+
 const rangeNotSatisfiable = (size: number): Response =>
   new Response("Range Not Satisfiable", {
     status: 416,
@@ -125,8 +134,12 @@ async function serveRange(
   headers.set("content-range", `bytes ${start}-${end}/${size}`);
   headers.set("content-length", String(end - start + 1));
 
-  const sliced = await file.slice(start, end + 1).arrayBuffer();
-  return new Response(sliced, { status: 206, headers });
+  // Stream the bounded slice instead of materializing it: a suffix range
+  // (`bytes=-N`) on a large file would otherwise buffer N bytes in memory.
+  // A ReadableStream body keeps the re-wrapping guarantee the old
+  // arrayBuffer() materialization existed for (plugins that rebuild the
+  // Response never re-stream the full file — they pass `res.body` through).
+  return new Response(file.slice(start, end + 1).stream(), { status: 206, headers });
 }
 
 /**
@@ -184,7 +197,10 @@ export async function sendFile(path: string, opts: SendFileOptions = {}): Promis
   if (opts.download) {
     const filename = typeof opts.download === "string" ? opts.download : basename(path);
 
-    headers.set("content-disposition", `attachment; filename="${filename.replace(/"/g, "")}"`);
+    headers.set(
+      "content-disposition",
+      `attachment; filename="${sanitizeDispositionFilename(filename)}"`,
+    );
   }
 
   if (opts.req && isNotModified(opts.req, etag, lastModified)) {
@@ -224,7 +240,10 @@ export function streamDownload(stream: ReadableStream, opts: StreamDownloadOptio
   });
 
   if (opts.filename) {
-    headers.set("content-disposition", `attachment; filename="${opts.filename.replace(/"/g, "")}"`);
+    headers.set(
+      "content-disposition",
+      `attachment; filename="${sanitizeDispositionFilename(opts.filename)}"`,
+    );
   }
 
   if (opts.size != null) {
