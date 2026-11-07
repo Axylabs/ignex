@@ -4,7 +4,8 @@
  * Enables the full plugin stack (cors / compression / security / session /
  * rate-limit) plus the i18n request middleware so the suites exercise plugin
  * behaviour end-to-end. The rate limiter is scoped to `/ratelimit` only, so
- * the other suites are never throttled.
+ * the other suites are never throttled. (`/ratelimit-strict` carries its own
+ * route-local limiter — see `routes/ratelimit-strict.get.ts`.)
  */
 import {
   compression,

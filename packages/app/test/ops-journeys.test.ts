@@ -112,11 +112,22 @@ describe("operational journeys (compiled server)", () => {
     });
 
     it("forces exit(1) on a second signal while draining", async () => {
-      const target = await bootServer(OPS_FIXTURE, { protocol: "http" });
+      const target = await bootServer(OPS_FIXTURE, { protocol: "http", rebuild: true });
       try {
-        // A request that is still running when the drain starts.
+        // A request that is still running when the drain starts. Wait for the
+        // handler-entry marker on stdout — a SIGTERM sent BEFORE the handler
+        // enters would drain instantly and the second signal would land on an
+        // already-exited process (the flake this pin used to have).
+        let markerSeen = false;
+        target.proc.stdout?.on("data", (chunk: Buffer) => {
+          if (chunk.toString().includes("[slow-start]")) markerSeen = true;
+        });
         const inflight = fetch(`${target.base}/slow`).catch(() => null);
-        await delay(60);
+        const markerDeadline = Date.now() + 5000;
+        while (!markerSeen && Date.now() < markerDeadline) {
+          await delay(10);
+        }
+        expect(markerSeen).toBe(true);
 
         target.proc.kill("SIGTERM");
         await delay(30);

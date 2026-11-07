@@ -25,8 +25,10 @@
  * certificate is accepted when BASE is pointed at an `https://` server (the
  * TLS option is ignored for plain HTTP).
  */
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { type AddressInfo, createServer as createNetServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -44,6 +46,10 @@ const PORT = Number(process.env.PORT ?? 3000);
 const BASE = process.env.BASE ?? `http://127.0.0.1:${PORT}`;
 const APP_DIR = fileURLToPath(new URL("../packages/app/", import.meta.url));
 const UPLOAD_DIR = join(APP_DIR, "uploads");
+/** Matrix fixture app — hosts the SSE / CSRF runtime journeys (no such routes in the app). */
+const MATRIX_FIXTURE_DIR = fileURLToPath(
+  new URL("../packages/app/test/fixtures/matrix/", import.meta.url),
+);
 
 /** Seed file content (10 bytes — used by the range/ETag/304 assertions). */
 const SAMPLE = "0123456789";
@@ -196,6 +202,137 @@ const cleanupUploads = async (): Promise<void> => {
   } catch {
     // best-effort — never let cleanup mask a real failure
   }
+};
+
+/* ------------------------------------------------------------------ *
+ * Second-server helpers (SSE / CSRF fixture + the SIGTERM drain       *
+ * child — the MAIN server above is never signaled mid-run).           *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Minimal shape of a port probe — the EventEmitter surface @types/node
+ * exposes on `net.Server` varies by version (v26 switched from `extends` to
+ * `implements` without redeclaring `once`).
+ */
+interface PortProbe {
+  once(event: "error", listener: (err: Error) => void): void;
+  listen(port: number, host: string, callback: () => void): void;
+  address(): AddressInfo | string | null;
+  close(callback?: () => void): void;
+}
+
+/** Ask the OS for a currently-free TCP port, then release it. */
+const freePort = async (): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const probe = createNetServer() as unknown as PortProbe;
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close(() => resolve(port));
+    });
+  });
+
+/** Terminate a spawned server child (SIGTERM, then SIGKILL after a grace). */
+const killChild = (child: ChildProcess): void => {
+  child.kill("SIGTERM");
+  setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }, 400).unref?.();
+};
+
+/** Poll a child's exit code (-1 when it died by signal or hung past the deadline). */
+const waitForExitCode = async (child: ChildProcess, timeoutMs: number): Promise<number> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) return child.exitCode;
+    if (child.signalCode !== null) return -1;
+    await delay(25);
+  }
+  return -1;
+};
+
+interface SpawnedServer {
+  proc: ChildProcess;
+  base: string;
+  /** Everything the child printed so far (for drain-log assertions). */
+  output(): string;
+}
+
+/** Spawn a compiled app dir on a free port (plain HTTP) and wait for /health. */
+const spawnServer = async (dir: string, label: string): Promise<SpawnedServer> => {
+  const port = await freePort();
+  const child = spawn("bun", ["dist/__server.js"], {
+    cwd: dir,
+    env: { ...process.env, PORT: String(port), IGNEX_HTTPS: "0" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (d: Buffer) => (output += d.toString()));
+  child.stderr.on("data", (d: Buffer) => (output += d.toString()));
+
+  const base = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`${label} exited during boot.\n${output || "(no output)"}`);
+    }
+    try {
+      const res = await fetch(`${base}/health`);
+      if (res.status === 200) return { proc: child, base, output: () => output };
+    } catch {
+      // not up yet — keep polling
+    }
+    if (Date.now() > deadline) {
+      killChild(child);
+      throw new Error(`${label} did not become ready within 15s`);
+    }
+    await delay(150);
+  }
+};
+
+/**
+ * Boot the matrix fixture for the SSE / CSRF journeys, compiling it first
+ * when its dist is absent (mirrors the vitest boot harness's ensureBuilt).
+ */
+const spawnFixtureServer = async (): Promise<SpawnedServer> => {
+  if (!existsSync(join(MATRIX_FIXTURE_DIR, "dist", "__server.js"))) {
+    const build = spawnSync("bun", ["builder.ts"], { cwd: MATRIX_FIXTURE_DIR, stdio: "ignore" });
+    if (build.status !== 0) throw new Error(`matrix fixture build failed (exit ${build.status})`);
+  }
+  return spawnServer(MATRIX_FIXTURE_DIR, "matrix fixture");
+};
+
+/** Read from an SSE stream until the first `data:` payload arrives. */
+const readFirstSSEData = async (res: Response): Promise<string> => {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("SSE response has no body");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const line = buffer.split("\n").find((l) => l.startsWith("data:"));
+    if (line) {
+      reader.releaseLock();
+      return line.slice(5).trim();
+    }
+  }
+  reader.releaseLock();
+  throw new Error(`no SSE data frame arrived; got: ${JSON.stringify(buffer.slice(0, 120))}`);
+};
+
+/** Extract the `csrf-token` cookie value from a response's set-cookie set. */
+const csrfTokenFrom = (res: Response): string => {
+  const jars =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie") ?? ""];
+  for (const jar of jars) {
+    const pair = jar.split(";")[0] ?? "";
+    if (pair.startsWith("csrf-token=")) return pair.slice("csrf-token=".length);
+  }
+  throw new Error(`no csrf-token cookie minted (set-cookie: ${jars.join(" | ")})`);
 };
 
 let booted = false;
@@ -786,6 +923,107 @@ try {
     const responses = await Promise.all(Array.from({ length: 20 }, () => fetch(`${BASE}/health`)));
     for (const res of responses) expectStatus(res, 200);
   });
+
+  /* ---------- SSE + CSRF runtime journeys (matrix fixture) ---------- */
+  // The shipped app has no SSE or CSRF-protected routes; those runtime
+  // features are driven against the compiled matrix fixture (compiled on
+  // demand) so the smoke lane still covers them end-to-end.
+  await (async () => {
+    const fixture = await spawnFixtureServer();
+    try {
+      await check(
+        "SSE (fixture): read first event → client abort → server stays healthy",
+        async () => {
+          const controller = new AbortController();
+          const timeout = AbortSignal.timeout(5_000);
+          const signal = AbortSignal.any([controller.signal, timeout]);
+          const res = await fetch(`${fixture.base}/sse-slow`, { signal });
+          expectStatus(res, 200);
+          expectHeaderContains(res, "content-type", "text/event-stream");
+          const first = await readFirstSSEData(res);
+          if (first !== "1") throw new Error(`first SSE data ${JSON.stringify(first)}`);
+
+          // Client abort mid-stream, then prove the server is unharmed.
+          controller.abort();
+          const health = await fetch(`${fixture.base}/health`);
+          expectStatus(health, 200);
+          const healthBody = (await health.json()) as { status?: string };
+          if (healthBody.status !== "ok")
+            throw new Error(`health body ${JSON.stringify(healthBody)}`);
+        },
+      );
+
+      await check(
+        "CSRF (fixture): header-less POST → 403, cookie + header POST → 200",
+        async () => {
+          // GET through the guard mints the csrf-token cookie.
+          const mint = await fetch(`${fixture.base}/csrf`);
+          expectStatus(mint, 200);
+          const token = csrfTokenFrom(mint);
+
+          // Header-less POST (curl-like: no Origin header → origin layer passes;
+          // the missing double-submit header is what must be rejected).
+          const denied = await fetch(`${fixture.base}/csrf-submit`, {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie: `csrf-token=${token}` },
+            body: JSON.stringify({ n: 1 }),
+          });
+          expectStatus(denied, 403);
+          const deniedBody = (await denied.json()) as { error?: string };
+          if (deniedBody.error !== "CSRF token validation failed") {
+            throw new Error(`denial body ${JSON.stringify(deniedBody)}`);
+          }
+
+          // Double-submit pair present → the mutation goes through.
+          const ok = await fetch(`${fixture.base}/csrf-submit`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              cookie: `csrf-token=${token}`,
+              "x-csrf-token": token,
+            },
+            body: JSON.stringify({ n: 1 }),
+          });
+          expectStatus(ok, 200);
+          const echoed = (await ok.json()) as { echoed?: { n?: number } };
+          if (echoed.echoed?.n !== 1) throw new Error(`echo body ${JSON.stringify(echoed)}`);
+        },
+      );
+    } finally {
+      killChild(fixture.proc);
+    }
+  })();
+
+  /* ---------- graceful SIGTERM drain (POSIX) ---------- */
+  // Signals are only deliverable as signals on POSIX; on Windows
+  // process.kill(pid, "SIGTERM") terminates outright. A dedicated child is
+  // spawned so the MAIN server above is never signaled mid-run.
+  if (process.platform !== "win32") {
+    await check("SIGTERM drain: in-flight request completes 200, exit 0, drain log", async () => {
+      const child = await spawnServer(APP_DIR, "drain server");
+      try {
+        // /products/3 sleeps 35ms in its handler — SIGTERM lands mid-flight.
+        const inflight = fetch(`${child.base}/products/3`);
+        await delay(15);
+        child.proc.kill("SIGTERM");
+
+        // A rolling deploy must not drop the in-flight request…
+        const res = await inflight;
+        expectStatus(res, 200);
+
+        // …and the process must report a CLEAN exit after draining.
+        const code = await waitForExitCode(child.proc, 10_000);
+        if (code !== 0) throw new Error(`exit code ${code} (expected 0)`);
+        if (!child.output().includes("draining connections")) {
+          throw new Error(
+            `no drain log line; output: ${JSON.stringify(child.output().slice(-300))}`,
+          );
+        }
+      } finally {
+        killChild(child.proc);
+      }
+    });
+  }
 } catch (err) {
   failed += 1;
   failures.push("(harness)");

@@ -57,6 +57,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Runtime HTTP e2e journeys (compiled server).** Six new suites drive the
+  AOT-compiled matrix fixture over real HTTP: HTTPS/TLS boot round-trip, SSE
+  pacing + client-abort/disconnect storms, the full CSRF journey (mint →
+  missing-header 403 → cookie+header 200 → cross-site-origin 403), the
+  rate-limit 429 journey with `X-RateLimit-*` header semantics, proxy
+  upstream failure/timeout envelopes (502/504), and jobs completion/retry
+  observation via a status rig. `scripts/smoke.ts` gained SSE, CSRF and a
+  POSIX-guarded mid-flight SIGTERM drain check (in-flight request completes,
+  exit 0, drain log).
+
 - **End-to-end gates for the full lifecycle.** `bun run verify:scaffold` runs
   `create-ignex` → AOT build → boot → `/health` against the current workspace
   (offline-safe: the scaffold resolves @ignex/* from the workspace's installed
