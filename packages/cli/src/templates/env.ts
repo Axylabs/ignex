@@ -26,7 +26,11 @@ export const SCAFFOLD_ENV_SCHEMA = Type.Object({
 });
 
 /** The project's `src/config/env.ts` (source form of {@link SCAFFOLD_ENV_SCHEMA}). */
-export function envConfigTemplate(): string {
+export function envConfigTemplate(extraSchemaLines: readonly string[] = []): string {
+  const extras =
+    extraSchemaLines.length > 0
+      ? `  SESSION_SECRET: Type.Optional(Type.String({ metadata: { secret: true } })),\n${extraSchemaLines.join("\n")}`
+      : "  SESSION_SECRET: Type.Optional(Type.String({ metadata: { secret: true } })),";
   return `import { Type, defineEnv } from "@ignex/core/env";
 
 /**
@@ -47,7 +51,7 @@ export const envSchema = Type.Object({
     { default: "info" },
   ),
   DEBUG: Type.Boolean({ default: false }),
-  SESSION_SECRET: Type.Optional(Type.String({ metadata: { secret: true } })),
+${extras}
 });
 
 /** Validated, frozen, fully-typed environment. */
@@ -56,6 +60,8 @@ export const env = defineEnv(envSchema);
 }
 
 /** The project's `.env.example`, derived from {@link SCAFFOLD_ENV_SCHEMA}. */
-export function envExampleTemplate(): string {
-  return envExampleFromSchema(SCAFFOLD_ENV_SCHEMA);
+export function envExampleTemplate(extraSections: readonly string[] = []): string {
+  const base = envExampleFromSchema(SCAFFOLD_ENV_SCHEMA);
+  if (extraSections.length === 0) return base;
+  return `${base.trimEnd()}\n\n${extraSections.join("\n\n")}\n`;
 }

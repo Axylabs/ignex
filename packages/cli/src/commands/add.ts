@@ -31,6 +31,7 @@ import { FEATURE_NAMES, type Feature } from "../types.js";
 import { wireAppConfig } from "../utils/app-config-merge.js";
 import { bunWriteFile } from "../utils/bun-compat.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
+import { wireFeatureEnvVars } from "../utils/env-vars.js";
 import { exists, readTextFile } from "../utils/fs.js";
 import { cyan, dim, error, info, step, success, warn } from "../utils/logger.js";
 import { addPluginsToModule } from "../utils/plugins-module-merge.js";
@@ -198,7 +199,10 @@ function printPlan(plan: InstallPlan, label: string): void {
   step(`${plan.features.join(", ")} → ${label} (dry run, nothing written)`);
   for (const file of plan.files) console.log(`  ${cyan("+")} ${file.path}`);
   if (plan.pluginsFile) console.log(`  ${cyan("+")} ${plan.pluginsFile.path}`);
-  if (plan.files.length === 0 && !plan.pluginsFile) {
+  for (const envVar of plan.envVars) {
+    console.log(`  ${cyan("+")} env: ${envVar.key} (src/config/env.ts + .env.example)`);
+  }
+  if (plan.files.length === 0 && !plan.pluginsFile && plan.envVars.length === 0) {
     console.log(`  ${dim("(no files — this feature is already part of the baseline app)")}`);
   }
   printNotes(plan);
@@ -281,6 +285,7 @@ export async function runAdd(args: string[]): Promise<void> {
 
   step(`Adding ${plan.features.join(", ")} to ${label}`);
   const { skipped } = await writePlan(root, plan, parsed.force === true);
+  await wireFeatureEnvVars(root, plan.envVars);
   if (parsed.wire === false) printWiringHint(plan);
   else await applyWiring(root, plan);
   printSummary(plan, skipped);

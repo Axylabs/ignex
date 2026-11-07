@@ -52,7 +52,7 @@ export const DB_ENV_VAR: Record<DbKind, string> = {
  * the file doesn't match the generated shape (hand-edited) — callers then hint
  * instead of mangling it.
  */
-const insertIntoEnvSchema = (envTs: string, entry: string): string | null => {
+export const insertIntoEnvSchema = (envTs: string, entry: string): string | null => {
   const lines = envTs.split("\n");
   const openIdx = lines.findIndex(
     (line) => line.includes("export const envSchema") && line.includes("Type.Object({"),

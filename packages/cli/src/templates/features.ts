@@ -13,6 +13,13 @@
  * declared once and is immediately available to both commands.
  */
 import { FEATURE_NAMES, type Feature } from "../types.js";
+import {
+  durableJobsLibTemplate,
+  mailerLibTemplate,
+  metricsLibTemplate,
+  realtimeLibTemplate,
+  rpcKitTemplate,
+} from "./libs.js";
 import { loggerLibTemplate } from "./logger.js";
 import {
   middlewareIndexTemplate,
@@ -46,6 +53,7 @@ import {
   vitestConfigTemplate,
   wsExampleTemplate,
 } from "./routes.js";
+import { readyRouteTemplate } from "./routes-prod.js";
 
 /** Human labels for the feature multi-select shared by `create` and `add`. */
 export const FEATURE_LABELS: Record<Feature, string> = {
@@ -54,11 +62,14 @@ export const FEATURE_LABELS: Record<Feature, string> = {
   security: "Security headers",
   compression: "Compression",
   logger: "Logging (access logs + global log)",
+  metrics: "Metrics (/metrics + OTLP)",
   middleware: "Global middleware",
   openapi: "OpenAPI docs",
   files: "File uploads",
   ws: "WebSockets",
   sse: "Server-Sent Events",
+  realtime: "Realtime hub (nova pub/sub)",
+  rpc: "Typed RPC kit (needs realtime)",
   cache: "Browser cache",
   proxy: "HTTP proxy",
   auth: "Auth (register / login / me)",
@@ -66,7 +77,10 @@ export const FEATURE_LABELS: Record<Feature, string> = {
   sessions: "Sessions",
   templates: "HTML templates",
   env: "Env route",
+  ready: "Readiness probe (/ready)",
   jobs: "Jobs route",
+  durableJobs: "Durable jobs (SQLite queue)",
+  mailer: "Mailer (SMTP / log driver)",
   i18n: "i18n",
   examples: "Example routes",
   tests: "Tests (vitest)",
@@ -86,6 +100,7 @@ export const FEATURE_ALIASES: Record<string, Feature> = {
   compression: "compression",
   logger: "logger",
   logs: "logger",
+  metrics: "metrics",
   middleware: "middleware",
   "global-hooks": "middleware",
   openapi: "openapi",
@@ -94,6 +109,11 @@ export const FEATURE_ALIASES: Record<string, Feature> = {
   ws: "ws",
   websocket: "ws",
   sse: "sse",
+  realtime: "realtime",
+  nova: "realtime",
+  "ws-cluster": "realtime",
+  rpc: "rpc",
+  "rpc-kit": "rpc",
   cache: "cache",
   proxy: "proxy",
   auth: "auth",
@@ -103,7 +123,16 @@ export const FEATURE_ALIASES: Record<string, Feature> = {
   session: "sessions",
   templates: "templates",
   env: "env",
+  ready: "ready",
+  readiness: "ready",
   jobs: "jobs",
+  durablejobs: "durableJobs",
+  "durable-jobs": "durableJobs",
+  durable_jobs: "durableJobs",
+  mailer: "mailer",
+  mail: "mailer",
+  email: "mailer",
+  smtp: "mailer",
   i18n: "i18n",
   examples: "examples",
   tests: "tests",
@@ -160,7 +189,47 @@ export function parseFeatureTokens(input: string | string[] | undefined): {
 export function withFeatureDependencies(features: ReadonlySet<Feature>): Set<Feature> {
   const resolved = new Set(features);
   if (resolved.has("refresh")) resolved.add("auth");
+  if (resolved.has("rpc")) resolved.add("realtime");
   return resolved;
+}
+
+/**
+ * Schema entry lines (for `envConfigTemplate`) declared by the selected
+ * features — the `ignex create` counterpart of {@link wireFeatureEnvVars}.
+ *
+ * @param features - The resolved feature selection.
+ * @returns Indented schema entry lines, feature-canonical order, deduped.
+ */
+export function featureEnvSchemaLines(features: ReadonlySet<Feature>): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const feature of FEATURE_NAMES) {
+    if (!features.has(feature)) continue;
+    for (const envVar of FEATURE_ENV_VARS[feature] ?? []) {
+      if (seen.has(envVar.key)) continue;
+      seen.add(envVar.key);
+      lines.push(envVar.schemaLine);
+    }
+  }
+  return lines;
+}
+
+/**
+ * `.env.example` sections (for `envExampleTemplate`) declared by the
+ * selected features — mirrors {@link featureEnvSchemaLines}.
+ */
+export function featureEnvExampleSections(features: ReadonlySet<Feature>): string[] {
+  const seen = new Set<string>();
+  const sections: string[] = [];
+  for (const feature of FEATURE_NAMES) {
+    if (!features.has(feature)) continue;
+    for (const envVar of FEATURE_ENV_VARS[feature] ?? []) {
+      if (seen.has(envVar.key)) continue;
+      seen.add(envVar.key);
+      sections.push(envVar.example);
+    }
+  }
+  return sections;
 }
 
 /** One file an `ignex add` run writes, with a project-root-relative path. */
@@ -202,6 +271,7 @@ const FEATURE_FILES: Record<Feature, (ctx: FeaturePlanContext) => readonly Featu
   openapi: () => [],
 
   logger: () => [{ path: "src/lib/logger.ts", content: () => loggerLibTemplate() }],
+  metrics: () => [{ path: "src/lib/metrics.ts", content: () => metricsLibTemplate() }],
   middleware: () => [
     { path: "src/middleware/README.md", content: () => middlewareReadmeTemplate() },
     { path: "src/middleware/index.ts", content: () => middlewareIndexTemplate() },
@@ -226,13 +296,18 @@ const FEATURE_FILES: Record<Feature, (ctx: FeaturePlanContext) => readonly Featu
     { path: "src/routes/auth/logout.post.ts", content: () => logoutRouteTemplate() },
   ],
   sessions: () => [{ path: "src/routes/session.get.ts", content: () => sessionRouteTemplate() }],
+  realtime: () => [{ path: "src/lib/realtime.ts", content: () => realtimeLibTemplate() }],
+  rpc: () => [{ path: "src/rpc/kit.ts", content: () => rpcKitTemplate() }],
   templates: () => [
     { path: "src/views/layout.html", content: () => layoutTemplate() },
     { path: "src/views/home.html", content: () => homeTemplate() },
     { path: "src/routes/page.get.ts", content: () => pageRouteTemplate() },
   ],
   env: () => [{ path: "src/routes/env.get.ts", content: () => envRouteTemplate() }],
+  ready: () => [{ path: "src/routes/ready.get.ts", content: () => readyRouteTemplate() }],
   jobs: () => [{ path: "src/routes/jobs.get.ts", content: () => jobsRouteTemplate() }],
+  durableJobs: () => [{ path: "src/lib/jobs.ts", content: () => durableJobsLibTemplate() }],
+  mailer: () => [{ path: "src/lib/mailer.ts", content: () => mailerLibTemplate() }],
   i18n: () => [{ path: "src/routes/i18n.get.ts", content: () => i18nRouteTemplate() }],
   examples: () => [
     { path: "src/routes/products/[id].get.ts", content: () => productByIdRouteTemplate() },
@@ -265,6 +340,96 @@ const FEATURE_NOTES: Partial<Record<Feature, readonly string[]>> = {
     "openapi() is part of the baseline src/app.config.ts — nothing to wire.",
     "For the generated client: bun add -D @hey-api/openapi-ts",
   ],
+  metrics: [
+    "Scrape GET /metrics from Prometheus — protect it with METRICS_TOKEN (generated by `ignex ship`).",
+    "Optional OTLP push: set OTLP_ENDPOINT (requires the @opentelemetry SDK packages).",
+  ],
+  realtime: [
+    "Install the peer: bun add @ignex/nova",
+    "The hub listens on NOVA_PORT (default 3001) — expose it via your proxy, sticky sessions when scaled.",
+  ],
+  rpc: [
+    "Define methods in src/rpc/kit.ts, then `await rpc.registerDispatcher()` after the hub boots.",
+    "The SDK-facing manifest lands in .ignex/rpc-manifest.json.",
+  ],
+  ready: [
+    "Add one check per real dependency to the checks array — 503 pulls the replica from the LB.",
+  ],
+  durableJobs: [
+    "Process the queue with: ignex queue:work (run 2+ workers for redundancy).",
+    "Enqueue from any route: await jobs.enqueue({ name, payload }).",
+  ],
+  mailer: ["Uses the log driver until SMTP_HOST is set — sends never throw on the request path."],
+};
+
+/**
+ * An env var a feature bundle contributes: the exact `src/config/env.ts`
+ * schema entry (indented, with trailing comma) and the matching
+ * `.env.example` section — the same shapes `utils/db-env.ts` writes.
+ */
+export interface FeatureEnvVar {
+  /** Env var name (also the idempotency key). */
+  readonly key: string;
+  /** Indented schema entry line, e.g. `  KEY: Type.Optional(Type.String()),`. */
+  readonly schemaLine: string;
+  /** `.env.example` section appended when the var is new. */
+  readonly example: string;
+}
+
+/**
+ * Env vars each feature declares. `ignex add` wires them into the project's
+ * env config (via {@link planInstall} → `utils/env-vars.ts`); `ignex create`
+ * emits them into the scaffolded schema + `.env.example` — one vocabulary,
+ * both commands.
+ */
+export const FEATURE_ENV_VARS: Partial<Record<Feature, readonly FeatureEnvVar[]>> = {
+  metrics: [
+    {
+      key: "METRICS_TOKEN",
+      schemaLine: "  METRICS_TOKEN: Type.Optional(Type.String({ metadata: { secret: true } })),",
+      example:
+        "# OPTIONAL (secret) — METRICS_TOKEN · Bearer token protecting GET /metrics\nMETRICS_TOKEN=",
+    },
+    {
+      key: "OTLP_ENDPOINT",
+      schemaLine: "  OTLP_ENDPOINT: Type.Optional(Type.String()),",
+      example: "# OPTIONAL — OTLP_ENDPOINT · OTLP/HTTP endpoint for metrics push\nOTLP_ENDPOINT=",
+    },
+  ],
+  realtime: [
+    {
+      key: "NOVA_PORT",
+      schemaLine: "  NOVA_PORT: Type.Integer({ default: 3001 }),",
+      example: "# OPTIONAL — NOVA_PORT (default: 3001) · realtime hub WS port\nNOVA_PORT=3001",
+    },
+  ],
+  mailer: [
+    {
+      key: "SMTP_HOST",
+      schemaLine: "  SMTP_HOST: Type.Optional(Type.String()),",
+      example: "# OPTIONAL — SMTP_HOST · empty = log driver (no real sends)\nSMTP_HOST=",
+    },
+    {
+      key: "SMTP_PORT",
+      schemaLine: "  SMTP_PORT: Type.Integer({ default: 587 }),",
+      example: "# OPTIONAL — SMTP_PORT (default: 587)\nSMTP_PORT=587",
+    },
+    {
+      key: "SMTP_USER",
+      schemaLine: "  SMTP_USER: Type.Optional(Type.String()),",
+      example: "# OPTIONAL — SMTP_USER\nSMTP_USER=",
+    },
+    {
+      key: "SMTP_PASS",
+      schemaLine: "  SMTP_PASS: Type.Optional(Type.String({ metadata: { secret: true } })),",
+      example: "# OPTIONAL (secret) — SMTP_PASS\nSMTP_PASS=",
+    },
+    {
+      key: "SMTP_FROM",
+      schemaLine: "  SMTP_FROM: Type.Optional(Type.String()),",
+      example: "# OPTIONAL — SMTP_FROM · default From address\nSMTP_FROM=",
+    },
+  ],
 };
 
 /** The `src/app.config.ts` edits an install plan needs. */
@@ -287,6 +452,11 @@ export interface InstallPlan {
   readonly wire: InstallWiring;
   /** False when `src/plugins/index.ts` is needed but wiring was not requested. */
   readonly notes: readonly string[];
+  /**
+   * Env vars to wire into `src/config/env.ts` + `.env.example`
+   * (`utils/env-vars.ts`). Order: feature-canonical, deduped by key.
+   */
+  readonly envVars: readonly FeatureEnvVar[];
 }
 
 /**
@@ -318,6 +488,14 @@ export function planInstall(requested: ReadonlySet<Feature>, appName = "ignex-ap
 
   const wirePlugins = hasPluginFeatures(features);
   const notes = [...new Set(selected.flatMap((feature) => FEATURE_NOTES[feature] ?? []))];
+  const seenEnvKeys = new Set<string>();
+  const envVars = selected.flatMap((feature) =>
+    (FEATURE_ENV_VARS[feature] ?? []).filter((envVar) => {
+      if (seenEnvKeys.has(envVar.key)) return false;
+      seenEnvKeys.add(envVar.key);
+      return true;
+    }),
+  );
 
   return {
     features: selected,
@@ -332,5 +510,6 @@ export function planInstall(requested: ReadonlySet<Feature>, appName = "ignex-ap
       : {}),
     wire: { plugins: wirePlugins, middleware: features.has("middleware") },
     notes,
+    envVars,
   };
 }

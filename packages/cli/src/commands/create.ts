@@ -5,7 +5,19 @@ import { spawnSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
-import { FEATURE_LABELS, parseFeatureTokens } from "../templates/features.js";
+import {
+  FEATURE_LABELS,
+  featureEnvExampleSections,
+  featureEnvSchemaLines,
+  parseFeatureTokens,
+} from "../templates/features.js";
+import {
+  durableJobsLibTemplate,
+  mailerLibTemplate,
+  metricsLibTemplate,
+  realtimeLibTemplate,
+  rpcKitTemplate,
+} from "../templates/libs.js";
 import { loggerLibTemplate } from "../templates/logger.js";
 import {
   middlewareIndexTemplate,
@@ -224,8 +236,17 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
     { path: ".gitignore", content: () => gitignoreTemplate() },
     { path: "README.md", content: () => readmeTemplate(opts) },
     // Validated env config + .env.example (base — src/app.config.ts imports it).
-    { path: "src/config/env.ts", content: () => envConfigTemplate() },
-    { path: ".env.example", content: () => envExampleTemplate() },
+    // Validated env config + .env.example (base — src/app.config.ts imports
+    // it); feature-selected bundles append their declared vars so the
+    // scaffolded schema matches what the generated libs read.
+    {
+      path: "src/config/env.ts",
+      content: () => envConfigTemplate(featureEnvSchemaLines(features)),
+    },
+    {
+      path: ".env.example",
+      content: () => envExampleTemplate(featureEnvExampleSections(features)),
+    },
     { path: "src/routes/index.get.ts", content: () => indexRouteTemplate(opts.name) },
     { path: "src/routes/health.get.ts", content: () => healthRouteTemplate() },
     // Readiness probe — LB/orchestrator contract (503 while checks fail).
@@ -266,6 +287,12 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
       when: "logger",
       content: () => loggerLibTemplate(),
     },
+    // Production module bundles — module-scope singletons under src/lib.
+    { path: "src/lib/metrics.ts", when: "metrics", content: () => metricsLibTemplate() },
+    { path: "src/lib/jobs.ts", when: "durableJobs", content: () => durableJobsLibTemplate() },
+    { path: "src/lib/realtime.ts", when: "realtime", content: () => realtimeLibTemplate() },
+    { path: "src/lib/mailer.ts", when: "mailer", content: () => mailerLibTemplate() },
+    { path: "src/rpc/kit.ts", when: "rpc", content: () => rpcKitTemplate() },
     { path: "src/ws.example.ts", when: "ws", content: () => wsExampleTemplate() },
     {
       path: "src/middleware/README.md",

@@ -19,7 +19,20 @@ export const PLUGIN_FEATURES: readonly Feature[] = [
   "security",
   "compression",
   "logger",
+  "metrics",
 ];
+
+/**
+ * Plugin wiring that departs from the bare `${feature}()` call: the extra
+ * import lines (beyond `@ignex/core`) and the exact call expression.
+ * Features absent here keep the default factory call.
+ */
+const PLUGIN_EMISSIONS: Partial<Record<Feature, { imports: readonly string[]; call: string }>> = {
+  metrics: {
+    imports: ['{ metrics } from "../lib/metrics.js"', '{ env } from "../config/env.js"'],
+    call: 'metricsPlugin({ metrics, path: "/metrics", token: env.METRICS_TOKEN })',
+  },
+};
 
 /** True when any selected feature contributes a plugin to `src/plugins/index.ts`. */
 export function hasPluginFeatures(features: ReadonlySet<Feature>): boolean {
@@ -247,16 +260,21 @@ Examples:
 
 export function pluginsTemplate(opts: { features: ReadonlySet<Feature> }): string {
   const selected = PLUGIN_FEATURES.filter((feature) => opts.features.has(feature));
-  const calls = selected.map((feature) => `${feature}()`);
 
-  if (calls.length === 0) {
+  if (selected.length === 0) {
     return `export const plugins: never[] = [];\n`;
   }
+
+  const imports = ["{ " + selected.join(", ") + ' } from "@ignex/core"'];
+  for (const feature of selected) {
+    for (const extra of PLUGIN_EMISSIONS[feature]?.imports ?? []) imports.push(extra);
+  }
+  const calls = selected.map((feature) => PLUGIN_EMISSIONS[feature]?.call ?? `${feature}()`);
 
   // Emit an ARRAY (not composePlugins(...)) — the compiler and
   // pluginsToLifeCycle iterate the plugins array; a composed single object is
   // non-iterable and would crash at build time.
-  return `import { ${selected.join(", ")} } from "@ignex/core";
+  return `import ${imports.join(";\nimport ")};
 
 export const plugins = [
   ${calls.join(",\n  ")}
