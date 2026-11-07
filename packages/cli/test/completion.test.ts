@@ -111,6 +111,7 @@ describe("flagsFromArgs", () => {
       "caddy",
       "ci",
       "docker",
+      "systemd",
     ]);
   });
 });

@@ -21,6 +21,11 @@ export interface ScaffoldWriteOptions {
    * on. Default `false` (silent skip).
    */
   overwrite?: boolean;
+  /**
+   * File mode applied after writing (e.g. `0o755` for generated shell
+   * scripts). Skipped files keep their existing mode — the gate runs first.
+   */
+  mode?: number;
 }
 
 /**
@@ -35,7 +40,7 @@ export async function writeScaffold(
   content: string,
   options: ScaffoldWriteOptions = {},
 ): Promise<boolean> {
-  const { force = false, overwrite = false } = options;
+  const { force = false, overwrite = false, mode } = options;
   if ((await exists(path)) && !force) {
     if (overwrite) {
       error(`${relative(process.cwd(), path)} already exists. Use --force to overwrite.`);
@@ -43,7 +48,7 @@ export async function writeScaffold(
     }
     return false;
   }
-  await writeFileEnsuringDir(path, content);
+  await writeFileEnsuringDir(path, content, mode);
   success(`Created ${relative(process.cwd(), path)}`);
   return true;
 }

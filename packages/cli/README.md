@@ -25,7 +25,7 @@ ignex seed [options]                Run (or scaffold) the DB seed script (src/se
 ignex dev [root] [options]          Compile + run the dev server (watch; --kill-port)
 ignex build [root] [options]        AOT-compile an app with diagnostics
 ignex doctor [root]                 Check project health (runtime, native, config, build)
-ignex ops <target> [options]        Generate deployment files (dockerfile/compose/caddy/ci) — compose wizard
+ignex ops <target> [options]        Generate deployment files (dockerfile/compose/caddy/ci/systemd) — compose wizard
 ignex sdk [options]                 Generate + distribute the app SDK (typed client)
 ignex info [root]                   Dump cwd / runtime / native / config as JSON
 ignex mcp                           Run the Model Context Protocol server (stdio)
@@ -51,6 +51,14 @@ HTTP)**, and feature set (checkbox multi-select) instead of typing
 comma-separated features. Non-interactive runs default to HTTPS; pass
 `--protocol https2` for HTTPS + HTTP/2 over TLS or `--protocol http` for plain
 HTTP/1.
+
+Every scaffold ships a **turnkey bootstrap**: `setup.sh` (macOS/Linux) and
+`setup.bat` (Windows) install Bun if it is missing, then run
+`scripts/setup.ts` — a Bun-shell provisioner that detects your OS and package
+manager, copies `.env.example` → `.env`, installs dependencies, builds, and
+smoke-tests the compiled server against `GET /health`. Optional stages:
+`--docker`, `--caddy` (official-repository installs), `--systemd` (service
+units), and `--check` for a detection-only JSON report.
 
 ## Adding a feature to an existing app (`ignex add`)
 
@@ -260,6 +268,7 @@ ignex ops dockerfile          Dockerfile (multi-stage standalone binary) + .dock
 ignex ops compose             docker-compose.yml + .env.docker — interactive service wizard
 ignex ops caddy               Caddyfile (optimized reverse proxy)
 ignex ops ci                  GitHub Actions workflow (typecheck/lint/test/build + deploy)
+ignex ops systemd             hardened service units + health-gated deploy.sh + env template
 ignex ops docker              all of the above (interactive)
 ```
 
@@ -306,6 +315,13 @@ Highlights:
   while the app restarts so a single-instance deploy doesn't surface 502s.
   The domain may be a Caddy env placeholder (`--domain '{$SITE_ADDRESS}'`) so
   one committed Caddyfile serves every environment.
+- **systemd** — host/VPS deployment without containers: a sandboxed app unit
+  tuned to the runtime contract (`TimeoutStopSec` above the 10s SIGTERM drain,
+  `IGNEX_HTTPS=0`, `ProtectSystem=strict` + writable `.ignex`), an optional
+  compose-at-boot unit (`docker compose up -d --wait` gates the app on fresh
+  boots), and a sudo `deploy.sh` that builds, restarts, polls `/health` and
+  rolls back to the previous artifact when a deploy comes up unhealthy.
+  `--with-infra --migrate --user <u> --app-dir /srv/<name>` for the full story.
 
 Run `ignex ops --help` for the full flag reference.
 

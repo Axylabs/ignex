@@ -64,6 +64,9 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
     build: "ignex build",
     start: "bun .ignex/server.js",
     route: "ignex route",
+    // The cross-platform provisioner — see scripts/setup.ts (entry points:
+    // ./setup.sh / setup.bat install Bun first when it is missing).
+    setup: "bun scripts/setup.ts",
     lint: "biome check .",
     format: "biome format --write .",
     typecheck: "tsc --noEmit",
@@ -206,6 +209,8 @@ ${features}
 
 ## Scripts
 
+- \`./setup.sh\` (macOS/Linux) or \`setup.bat\` (Windows) - install Bun if missing, then provision this machine: tooling, .env, dependencies, build and a smoke test of the compiled server. Flags: \`--check\` (detection report), \`--docker\`, \`--caddy\`, \`--systemd\`
+- \`${opts.pm} run setup\` - same provisioner without the Bun bootstrap
 - \`${opts.pm} run dev\` - build, watch, and restart the generated server
 - \`${opts.pm} run build\` - compile the app
 - \`${opts.pm} run start\` - run the compiled server

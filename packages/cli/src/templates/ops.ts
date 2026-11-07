@@ -18,3 +18,4 @@ export * from "./ops-ci.js";
 export * from "./ops-compose.js";
 export * from "./ops-docker.js";
 export * from "./ops-proxy.js";
+export * from "./ops-systemd.js";

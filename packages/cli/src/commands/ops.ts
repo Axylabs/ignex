@@ -4,6 +4,11 @@
  *   ignex ops dockerfile   → Dockerfile + .dockerignore
  *   ignex ops compose      → docker-compose.yml + .env.docker (secrets)
  *   ignex ops caddy        → Caddyfile (optimized reverse proxy)
+ *   ignex ops ci           → GitHub Actions workflow
+ *   ignex ops systemd      → hardened service units + deploy script + prod env
+ *                            (host/VPS deployment: SIGTERM-drain-aware unit,
+ *                            sandboxing, optional compose-at-boot unit, health-
+ *                            gated deploy with rollback)
  *   ignex ops docker       → all of the above (interactive)
  *
  * Generated files target the ignex runtime contract: `PORT` (default 3000),
@@ -18,6 +23,7 @@
  * ...) or `--yes` to run non-interactively.
  */
 
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
 import {
@@ -29,6 +35,10 @@ import {
   dockerEnvTemplate,
   dockerfileTemplate,
   dockerignoreTemplate,
+  envProductionTemplate,
+  systemdDeployTemplate,
+  systemdInfraUnitTemplate,
+  systemdUnitTemplate,
 } from "../templates/ops.js";
 import { secureRandomBytes } from "../utils/bun-compat.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
@@ -44,7 +54,7 @@ import {
 import { writeScaffold } from "../utils/scaffold.js";
 import { metaFor } from "./registry.js";
 
-export const OPS_TARGETS = ["dockerfile", "compose", "caddy", "ci", "docker"] as const;
+export const OPS_TARGETS = ["dockerfile", "compose", "caddy", "ci", "docker", "systemd"] as const;
 export type OpsTarget = (typeof OPS_TARGETS)[number];
 
 /** Default infra services for `ignex ops compose` (kept scriptable). */
@@ -55,7 +65,7 @@ const argsDef = {
   root: { type: "string", valueHint: "dir", description: "Project root" },
   target: {
     type: "string",
-    valueHint: "dockerfile|compose|caddy|ci|docker",
+    valueHint: "dockerfile|compose|caddy|ci|docker|systemd",
     description: "Ops target (also accepted as the first positional)",
   },
   binary: { type: "string", valueHint: "name", description: "Binary name for the Dockerfile" },
@@ -102,6 +112,29 @@ const argsDef = {
     valueHint: "duration",
     description: "Caddy upstream retry window while the app restarts (e.g. 5s; default: none)",
   },
+  user: {
+    type: "string",
+    valueHint: "user",
+    description: "System user for the systemd unit (default: the project name)",
+  },
+  "app-dir": {
+    type: "string",
+    valueHint: "dir",
+    description: "Absolute checkout path baked into the systemd unit (default: --root)",
+  },
+  bun: {
+    type: "string",
+    valueHint: "path",
+    description: "Bun binary path on the target host (default: /usr/local/bin/bun)",
+  },
+  "with-infra": {
+    type: "boolean",
+    description: "Also emit <name>-infra.service (docker compose up -d --wait at boot)",
+  },
+  migrate: {
+    type: "boolean",
+    description: "Deploy script applies migrations (bun run db:migrate) before building",
+  },
   image: { type: "string", valueHint: "image", description: "CI deploy image" },
   "deploy-host": { type: "string", valueHint: "user@host", description: "CI deploy target" },
   "deploy-dir": { type: "string", valueHint: "dir", description: "CI deploy directory" },
@@ -143,6 +176,18 @@ interface OpsOptions {
   upstream: string;
   maxBodySize: string | undefined;
   lbRetry: string | undefined;
+  /** Systemd unit user (default: the project name). */
+  user: string;
+  /** Absolute checkout path baked into the unit (default: --root). */
+  appDir: string;
+  /** Bun binary path on the target host. */
+  bunPath: string;
+  /** Also emit <name>-infra.service (compose at boot). */
+  withInfra: boolean;
+  /** Deploy script applies migrations before building. */
+  migrate: boolean;
+  /** Project name from the target root's package.json (unit name fallback). */
+  projectName: string;
   image: string;
   deployHost: string;
   deployDir: string;
@@ -178,8 +223,24 @@ async function writeOpsFile(
   filename: string,
   content: string,
   force: boolean,
+  mode?: number,
 ): Promise<boolean> {
-  return writeScaffold(join(root, filename), content, { force, overwrite: true });
+  return writeScaffold(join(root, filename), content, { force, overwrite: true, mode });
+}
+
+/**
+ * Read the project name from the target root's package.json — the systemd
+ * unit name default. Falls back to the directory basename.
+ */
+function resolveProjectName(root: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name?: string };
+    if (typeof pkg.name === "string" && pkg.name.length > 0) return pkg.name;
+  } catch {
+    // no/unreadable package.json — fall through to the directory name
+  }
+  const base = root.split(/[\\/]/).filter(Boolean).pop() ?? "ignex-app";
+  return base;
 }
 
 async function generateDockerfile(root: string, opts: OpsOptions): Promise<void> {
@@ -265,6 +326,57 @@ async function generateCi(root: string, opts: OpsOptions): Promise<void> {
   );
 }
 
+/** Emit the hardened systemd units, the deploy script and the prod env template. */
+async function generateSystemd(root: string, opts: OpsOptions): Promise<void> {
+  const name = opts.projectName;
+  const composeFile = join(opts.appDir, "docker-compose.yml");
+  step("Generating systemd units");
+  await writeOpsFile(
+    root,
+    join("deploy", `${name}.service`),
+    systemdUnitTemplate({ name, user: opts.user, appDir: opts.appDir, bunPath: opts.bunPath }),
+    opts.force,
+  );
+  if (opts.withInfra) {
+    await writeOpsFile(
+      root,
+      join("deploy", `${name}-infra.service`),
+      systemdInfraUnitTemplate({ name, workDir: opts.appDir, composeFile }),
+      opts.force,
+    );
+  }
+  await writeOpsFile(
+    root,
+    join("deploy", "deploy.sh"),
+    systemdDeployTemplate({
+      name,
+      appDir: opts.appDir,
+      bunPath: opts.bunPath,
+      user: opts.user,
+      port: opts.port,
+      healthPath: opts.healthPath,
+      withInfra: opts.withInfra,
+      composeFile,
+      migrate: opts.migrate,
+    }),
+    opts.force,
+    0o755,
+  );
+  await writeOpsFile(
+    root,
+    join("deploy", "env.production.example"),
+    envProductionTemplate({ publicBaseUrl: `https://${opts.domain}` }),
+    opts.force,
+  );
+  info("Install on the target host (run from the checkout):");
+  info(`  sudo cp deploy/*.service /etc/systemd/system/`);
+  info(`  sudo systemctl daemon-reload && sudo systemctl enable --now ${name}.service`);
+  info(`  sudo ./deploy/deploy.sh            # first deploy (deps → build → start → verify)`);
+  if (opts.withInfra) {
+    info(`  (add Wants=${name}-infra.service / After=${name}-infra.service to the [Unit] section)`);
+  }
+}
+
 function printNextSteps(target: OpsTarget): void {
   console.log();
   console.log("Next steps:");
@@ -279,6 +391,11 @@ function printNextSteps(target: OpsTarget): void {
   }
   if (target === "ci" || target === "docker") {
     console.log("  git push                        # runs typecheck/lint/test/build in CI");
+  }
+  if (target === "systemd") {
+    console.log("  sudo cp deploy/*.service /etc/systemd/system/");
+    console.log("  sudo systemctl daemon-reload && sudo systemctl enable --now <name>.service");
+    console.log("  sudo deploy/deploy.sh           # deps → build → restart → health-verified");
   }
   console.log();
 }
@@ -325,6 +442,11 @@ async function resolveTarget(
             },
             { value: "caddy", label: "Caddyfile", hint: "TLS reverse proxy" },
             { value: "ci", label: "CI workflow", hint: "GitHub Actions quality gate + deploy" },
+            {
+              value: "systemd",
+              label: "systemd units",
+              hint: "service unit + deploy script (host/VPS)",
+            },
           ],
           initial: "docker",
         }),
@@ -332,7 +454,9 @@ async function resolveTarget(
     );
     if (isTarget(answered)) return answered;
   }
-  error("Ops target is required. Use: ignex ops dockerfile | compose | caddy | ci | docker");
+  error(
+    "Ops target is required. Use: ignex ops dockerfile | compose | caddy | ci | docker | systemd",
+  );
   process.exitCode = 1;
   return undefined;
 }
@@ -346,6 +470,26 @@ function resolvePort(values: Record<string, unknown>): number | undefined {
     return undefined;
   }
   return port;
+}
+
+/**
+ * Resolve the systemd-target fields from flags — no prompts: provisioning a
+ * host/VPS unit is a deliberate, scriptable act, so every default is fixed
+ * (user/project name, --root as the checkout, the well-known bun install
+ * path) and overridable per flag.
+ */
+function resolveSystemdFields(
+  values: Record<string, unknown>,
+  root: string,
+  projectName: string,
+): Pick<OpsOptions, "user" | "appDir" | "bunPath" | "withInfra" | "migrate"> {
+  return {
+    user: (values.user as string | undefined) ?? projectName,
+    appDir: (values["app-dir"] as string | undefined) ?? root,
+    bunPath: (values.bun as string | undefined) ?? "/usr/local/bin/bun",
+    withInfra: Boolean(values["with-infra"]),
+    migrate: Boolean(values.migrate),
+  };
 }
 
 /** Resolve the selected infra services from flags or an interactive picker. */
@@ -484,6 +628,9 @@ async function runTarget(target: OpsTarget, root: string, opts: OpsOptions): Pro
       await generateCaddyfile(root, opts);
       await generateCi(root, opts);
       break;
+    case "systemd":
+      await generateSystemd(root, opts);
+      break;
   }
 }
 
@@ -498,8 +645,11 @@ export async function runOps(args: string[]): Promise<void> {
   const port = resolvePort(parsed);
   if (port === undefined) return;
 
+  const projectName = resolveProjectName(root);
+
   const wantsCompose = target === "compose" || target === "docker";
-  const wantsDomain = target === "caddy" || target === "docker";
+  // systemd's env.production template derives PUBLIC_BASE_URL from --domain.
+  const wantsDomain = target === "caddy" || target === "docker" || target === "systemd";
 
   const db = wantsCompose
     ? await resolveComposeFields(parsed)
@@ -545,6 +695,8 @@ export async function runOps(args: string[]): Promise<void> {
     upstream: parsed.upstream ?? "127.0.0.1:3000",
     maxBodySize: parsed["max-body"],
     lbRetry: parsed["lb-retry"],
+    ...resolveSystemdFields(parsed, root, projectName),
+    projectName,
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
     image: parsed.image ?? "ghcr.io/${{ github.repository }}",
     deployHost: parsed["deploy-host"] ?? "",

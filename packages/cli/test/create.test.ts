@@ -3,7 +3,8 @@
  * (defaults, traversal guard) rather than the full scaffold surface.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -177,5 +178,81 @@ describe("ignex create --root", () => {
       process.exitCode = originalExitCode;
       rmSync(base, { recursive: true, force: true });
     }
+  });
+
+  describe("setup trio (bootstrap + provisioner)", () => {
+    it("scaffolds setup.sh (executable), setup.bat and scripts/setup.ts", async () => {
+      const base = tmpParent();
+      try {
+        await runCreate([
+          "demo",
+          "--root",
+          base,
+          "--features",
+          "none",
+          "--yes",
+          "--no-install",
+          "--no-git",
+        ]);
+
+        const target = join(base, "demo");
+        expect(existsSync(join(target, "setup.sh"))).toBe(true);
+        expect(existsSync(join(target, "setup.bat"))).toBe(true);
+        expect(existsSync(join(target, "scripts/setup.ts"))).toBe(true);
+        // The bootstrap must be runnable as ./setup.sh — the scaffolder has to
+        // preserve the executable bit (default write mode would be 0644).
+        const mode = statSync(join(target, "setup.sh")).mode & 0o777;
+        expect(mode & 0o111).toBe(0o111);
+        // The generated package.json wires the provisioner as a script.
+        const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as {
+          scripts: Record<string, string>;
+        };
+        expect(pkg.scripts.setup).toBe("bun scripts/setup.ts");
+        // The .bat ships CRLF line endings (cmd.exe mis-parses LF-only files).
+        const bat = readFileSync(join(target, "setup.bat"), "utf8");
+        expect(bat.includes("\r\n")).toBe(true);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+
+    it("emitted scripts/setup.ts --check prints a hermetic detection report", async () => {
+      const base = tmpParent();
+      try {
+        await runCreate([
+          "demo",
+          "--root",
+          base,
+          "--features",
+          "none",
+          "--yes",
+          "--no-install",
+          "--no-git",
+        ]);
+
+        const target = join(base, "demo");
+        // Run the EMITTED script — this proves the embedded source (escaped
+        // into the template) parses and its detection logic works on this
+        // machine. --check installs nothing, so the test stays hermetic.
+        const result = spawnSync("bun", [join("scripts", "setup.ts"), "--check"], {
+          cwd: target,
+          encoding: "utf8",
+          timeout: 60_000,
+        });
+        expect(result.status).toBe(0);
+        const report = JSON.parse(result.stdout) as {
+          os: { platform: string; family: string };
+          packageManager: string | null;
+          tools: Record<string, boolean | string>;
+          project: Record<string, boolean>;
+        };
+        expect(report.os.platform).toBe(process.platform);
+        expect(["linux", "mac", "windows"]).toContain(report.os.family);
+        expect(report.tools.bun).toContain("v");
+        expect(report.project.envExample).toBe(true);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
   });
 });

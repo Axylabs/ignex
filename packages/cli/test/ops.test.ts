@@ -3,7 +3,7 @@
  * `runOps` command wiring (file writes, prompts-as-flags, error paths).
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,6 +16,10 @@ import {
   dockerEnvTemplate,
   dockerfileTemplate,
   dockerignoreTemplate,
+  envProductionTemplate,
+  systemdDeployTemplate,
+  systemdInfraUnitTemplate,
+  systemdUnitTemplate,
 } from "../src/templates/ops.js";
 import { flagsFromArgs } from "../src/utils/completion.js";
 
@@ -537,7 +541,7 @@ describe("ignex ops (command wiring)", () => {
     const cmd = await loadCommand("ops");
     const flags = flagsFromArgs((cmd?.args ?? {}) as never);
     const target = flags.find((f) => f.flag === "--target");
-    expect(target?.values).toEqual(["dockerfile", "compose", "caddy", "ci", "docker"]);
+    expect(target?.values).toEqual(["dockerfile", "compose", "caddy", "ci", "docker", "systemd"]);
   });
 
   it("generates compose with redis + nats via --services", async () => {
@@ -622,3 +626,112 @@ describe("ignex ops (command wiring)", () => {
     }
   });
 });
+
+describe("systemd templates (host/VPS deployment)", () => {
+  it("app unit: SIGTERM-drain-aware, sandboxed, loopback contract", () => {
+    const unit = systemdUnitTemplate({
+      name: "acme",
+      user: "acme",
+      appDir: "/srv/acme",
+      bunPath: "/usr/local/bin/bun",
+    });
+    // The server drains on SIGTERM with a 10s deadline — SIGKILL must wait longer.
+    expect(unit).toContain("TimeoutStopSec=20s");
+    expect(unit).toContain("Restart=on-failure");
+    // TLS terminates at the proxy; the unit backstops the env with IGNEX_HTTPS=0.
+    expect(unit).toContain("Environment=IGNEX_HTTPS=0");
+    // Sandboxing: read-only checkout, only .ignex writable, private state dir.
+    expect(unit).toContain("ProtectSystem=strict");
+    expect(unit).toContain("ReadWritePaths=-/srv/acme/.ignex");
+    expect(unit).toContain("StateDirectory=acme");
+    expect(unit).toContain("ExecStart=/usr/local/bin/bun .ignex/server.js");
+  });
+
+  it("infra unit: compose up -d --wait is what gates the app at boot", () => {
+    const unit = systemdInfraUnitTemplate({
+      name: "acme",
+      workDir: "/srv/acme",
+      composeFile: "/srv/acme/docker-compose.yml",
+    });
+    expect(unit).toContain("Type=oneshot");
+    expect(unit).toContain("RemainAfterExit=true");
+    expect(unit).toContain("ExecStart=docker compose -f /srv/acme/docker-compose.yml up -d --wait");
+    expect(unit).toContain("Requires=docker.service");
+  });
+
+  it("deploy script: health-gated with rollback; migrate step only when asked", () => {
+    const base = {
+      name: "acme",
+      appDir: "/srv/acme",
+      bunPath: "/usr/local/bin/bun",
+      user: "acme",
+      port: 3000,
+      healthPath: "/health",
+      withInfra: false,
+      composeFile: "/srv/acme/docker-compose.yml",
+      migrate: false,
+    };
+    const plain = systemdDeployTemplate(base);
+    expect(plain).toContain('HEALTH_URL="http://127.0.0.1:3000/health"');
+    expect(plain).toContain("server.js.prev");
+    expect(plain).toContain("IGNEX_HTTPS=0");
+    expect(plain).not.toContain("db:migrate");
+    expect(plain).not.toContain("docker compose");
+    expect(systemdDeployTemplate({ ...base, migrate: true })).toContain("bun run db:migrate");
+    expect(systemdDeployTemplate({ ...base, withInfra: true })).toContain("up -d --wait");
+    expect(systemdDeployTemplate({ ...base, healthPath: "/healthz", port: 4000 })).toContain(
+      'HEALTH_URL="http://127.0.0.1:4000/healthz"',
+    );
+  });
+
+  it("production env template: loopback, HTTPS off, real origin placeholder", () => {
+    const env = envProductionTemplate({ publicBaseUrl: "https://acme.example.com" });
+    expect(env).toContain("NODE_ENV=production");
+    expect(env).toContain("HOST=127.0.0.1");
+    expect(env).toContain("HTTPS=false");
+    expect(env).toContain("PUBLIC_BASE_URL=https://acme.example.com");
+  });
+
+  it("generates units, deploy.sh (executable) and env template via the --target flag", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps([
+        "systemd",
+        "--root",
+        dir,
+        "--force",
+        "--user",
+        "svc-acme",
+        "--app-dir",
+        "/srv/acme",
+        "--with-infra",
+        "--migrate",
+        "--domain",
+        "acme.example.com",
+      ]);
+
+      // No package.json in the bare target → the unit name falls back to the
+      // directory basename.
+      const files = readFileSync(join(dir, "deploy", "deploy.sh"), "utf8");
+      expect(files).toContain("runuser -u svc-acme --");
+      expect(files).toContain("bun run db:migrate");
+      expect(existsSync(join(dir, "deploy", "env.production.example"))).toBe(true);
+      expect(readFileSync(join(dir, "deploy", "env.production.example"), "utf8")).toContain(
+        "https://acme.example.com",
+      );
+      // deploy.sh must be runnable as ./deploy.sh — mode 0755.
+      const { statSync } = await import("node:fs");
+      expect(statSync(join(dir, "deploy", "deploy.sh")).mode & 0o111).toBe(0o111);
+      const units = listDeploy(dir);
+      expect(units).toContain("-infra.service");
+      expect(units).toContain(".service");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** List the generated deploy/ entries (unit names + scripts) as one string. */
+function listDeploy(dir: string): string {
+  return readdirSync(join(dir, "deploy")).join(",");
+}

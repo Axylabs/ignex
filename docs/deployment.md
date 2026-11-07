@@ -459,6 +459,41 @@ what makes the rollback safe.
 | `ignex ops compose` | docker-compose.yml + .env.docker (MongoDB/Redis/NATS) |
 | `ignex ops caddy` | Caddyfile (TLS, HTTP/2/3, `/health` probe) |
 | `ignex ops ci` | CI workflow that builds + tests the container |
+| `ignex ops systemd` | hardened service unit(s), `deploy/deploy.sh`, env template |
+
+### 11.1 Host/VPS deployment (`ignex ops systemd`)
+
+For a single server without containers: Caddy (or any proxy) terminates TLS,
+the compiled server runs under systemd on loopback, `deploy.sh` redeploys.
+
+```sh
+ignex ops systemd --with-infra --migrate --user acme --app-dir /srv/acme
+```
+
+Emits into `deploy/`:
+
+- **`<name>.service`** — the app unit. Contract notes that matter:
+  `TimeoutStopSec=20s` (the server drains in-flight requests on SIGTERM with a
+  10s deadline — SIGKILL must wait longer), `Restart=on-failure`,
+  `IGNEX_HTTPS=0` (TLS belongs to the proxy), and sandboxing
+  (`ProtectSystem=strict` + `ReadWritePaths=.ignex` — the compiled server
+  flushes hot-route heat there). No hard infra dependency: the app boots
+  lazily and answers `/health` while dependencies are down.
+- **`<name>-infra.service`** (`--with-infra`) — oneshot `docker compose up -d
+  --wait` at boot; `--wait` blocks until every service is healthy, which is
+  what makes the app unit safe to start after it on a fresh boot.
+- **`deploy/deploy.sh`** — sudo redeploy: pull → `bun install
+  --frozen-lockfile` → infra → (`--migrate` runs `bun run db:migrate`) →
+  build → `systemctl restart` → poll `/health` → **rollback** to the previous
+  artifact if the new build does not come up healthy (migrations are
+  additive-first, so the old build keeps working against the new schema).
+- **`deploy/env.production.example`** — loopback bind, `HTTPS=false`,
+  `NODE_ENV=production`, real `PUBLIC_BASE_URL`.
+
+Flags: `--user` (default: project name), `--app-dir` (default: the project
+root), `--bun` (default `/usr/local/bin/bun`), `--port`/`--health-path`
+(deploy-script polling). Provision the machine itself — Bun, Docker, Caddy —
+with the scaffold's `setup.sh --docker --caddy --systemd`.
 
 See also: [docs/sdk.md] (distributing the typed client), [docs/stability.md]
 (risk register + gates), [docs/cookbook.md] (recipes), [docs/architecture.md]

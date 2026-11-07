@@ -11,7 +11,9 @@ client.
 
 ## 1. Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.4 (`curl -fsSL https://bun.sh/install | bash`)
+- [Bun](https://bun.sh) ≥ 1.4 — or nothing at all: every scaffolded project
+  ships `setup.sh` (macOS/Linux) and `setup.bat` (Windows) that install Bun
+  for you, then provision the rest.
 
 That's it — there's nothing to install globally. The CLI is fetched on demand.
 
@@ -20,9 +22,24 @@ That's it — there's nothing to install globally. The CLI is fetched on demand.
 ```sh
 bunx @ignex/cli@latest create my-api --features auth,openapi,examples
 cd my-api
-bun install
+bash setup.sh          # Windows: setup.bat  (installs Bun if missing, then provisions)
 bun run dev
 ```
+
+`setup.sh` runs `scripts/setup.ts` — a Bun-shell provisioner that detects your
+OS and package manager and makes the machine ready without manual steps:
+
+1. copies `.env.example` → `.env` (skipped when one exists),
+2. installs missing tooling (`git` by default; `--docker` / `--caddy` add
+   Docker Engine / Caddy from their official repositories),
+3. `bun install` (frozen against `bun.lock`), `bun run build`,
+4. smoke test: boots the compiled server on a free port and polls
+   `GET /health` — proof the scaffold works on this machine.
+
+`bun scripts/setup.ts --check` prints a JSON report of what it detected
+(OS, package manager, tools) without installing anything. `--systemd`
+generates hardened service units + a deploy script — see
+[deployment](deployment.md#11-reference-ignex-ops).
 
 What you get:
 

@@ -52,6 +52,7 @@ import {
   vitestConfigTemplate,
   wsExampleTemplate,
 } from "../templates/routes.js";
+import { setupBatTemplate, setupShTemplate, setupTsTemplate } from "../templates/setup.js";
 import { FEATURE_NAMES, type Feature } from "../types.js";
 import { exists, isDirEmpty, writeFileEnsuringDir } from "../utils/fs.js";
 import { error, step, success, warn } from "../utils/logger.js";
@@ -201,6 +202,11 @@ interface PlannedFile {
    * when omitted.
    */
   readonly when?: Feature | Feature[] | ((features: Set<Feature>) => boolean);
+  /**
+   * Set the executable bit after writing (`0o755`) — scaffolded shell scripts
+   * (`setup.sh`, generated `deploy.sh`) must run as `./setup.sh`.
+   */
+  readonly executable?: boolean;
   readonly content: () => string;
 }
 
@@ -222,6 +228,12 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
     { path: "src/routes/index.get.ts", content: () => indexRouteTemplate(opts.name) },
     { path: "src/routes/health.get.ts", content: () => healthRouteTemplate() },
     { path: "src/hooks/README.md", content: () => `# Hooks\n\nPlace shared hooks here.\n` },
+    // Bootstrap trio: setup.sh/setup.bat install Bun if missing, then run the
+    // cross-platform provisioner (scripts/setup.ts) — OS/package-manager
+    // detection, tooling, .env, install, build, smoke test.
+    { path: "setup.sh", executable: true, content: () => setupShTemplate() },
+    { path: "setup.bat", content: () => setupBatTemplate() },
+    { path: "scripts/setup.ts", content: () => setupTsTemplate() },
 
     // Feature-conditional routes/plugins/hooks.
     {
@@ -338,7 +350,7 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
 
 /** Write every scaffolded file (feature-conditional routes/plugins/hooks). */
 async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Promise<void> {
-  for (const { path, when, content } of plannedFiles(opts)) {
+  for (const { path, when, executable, content } of plannedFiles(opts)) {
     let enabled = true;
     if (when !== undefined) {
       if (typeof when === "function") {
@@ -350,7 +362,7 @@ async function scaffoldFiles(target: string, opts: ProjectTemplateOptions): Prom
       }
     }
     if (!enabled) continue;
-    await writeFileEnsuringDir(join(target, path), content());
+    await writeFileEnsuringDir(join(target, path), content(), executable ? 0o755 : undefined);
   }
 }
 
@@ -386,6 +398,9 @@ function printNextSteps(rel: string, install: boolean, pm: string, name: string)
   if (!install) {
     console.log(`  ${pm} install`);
   }
+  console.log(
+    `  bash setup.sh   # provision this machine (git/docker/caddy) + smoke-test the build`,
+  );
   console.log(`  ${pm} run dev`);
   console.log();
 }
