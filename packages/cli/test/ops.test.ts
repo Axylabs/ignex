@@ -208,6 +208,31 @@ describe("caddyfileTemplate", () => {
     expect(caddy).toContain("api.example.com, www.example.com");
     expect(caddy).toContain("reverse_proxy app:3000");
   });
+
+  it("always pins X-Real-IP to the real peer (trustProxy prefers that header)", () => {
+    const caddy = caddyfileTemplate();
+    expect(caddy).toContain("reverse_proxy 127.0.0.1:3000 {");
+    expect(caddy).toContain("header_up X-Real-IP {remote_host}");
+  });
+
+  it("omits the body ceiling and upstream retry by default", () => {
+    const caddy = caddyfileTemplate();
+    expect(caddy).not.toContain("request_body");
+    expect(caddy).not.toContain("lb_try_duration");
+  });
+
+  it("emits request_body max_size and the upstream retry window when asked", () => {
+    const caddy = caddyfileTemplate({ maxBodySize: "64MiB", lbRetry: "5s" });
+    expect(caddy).toContain("request_body {\n\t\tmax_size 64MiB\n\t}");
+    expect(caddy).toContain("reverse_proxy 127.0.0.1:3000 {");
+    expect(caddy).toContain("lb_try_duration 5s");
+    expect(caddy).toContain("lb_try_interval 250ms");
+  });
+
+  it("keeps env placeholders in the site address verbatim", () => {
+    const caddy = caddyfileTemplate({ domains: ["{$SITE_ADDRESS}"] });
+    expect(caddy).toContain("{$SITE_ADDRESS} {");
+  });
 });
 
 describe("dockerEnvTemplate", () => {
@@ -341,6 +366,33 @@ describe("ignex ops (command wiring)", () => {
 
       expect(existsSync(join(dir, "Caddyfile"))).toBe(true);
       expect(readFileSync(join(dir, "Caddyfile"), "utf8")).toContain("api.example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes --max-body and --lb-retry through to the Caddyfile", async () => {
+    const dir = tmpTarget();
+    try {
+      await runOps([
+        "caddy",
+        "--root",
+        dir,
+        "--force",
+        "--domain",
+        "api.example.com",
+        "--upstream",
+        "127.0.0.1:4000",
+        "--max-body",
+        "64MiB",
+        "--lb-retry",
+        "5s",
+      ]);
+
+      const caddy = readFileSync(join(dir, "Caddyfile"), "utf8");
+      expect(caddy).toContain("max_size 64MiB");
+      expect(caddy).toContain("reverse_proxy 127.0.0.1:4000 {");
+      expect(caddy).toContain("lb_try_duration 5s");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

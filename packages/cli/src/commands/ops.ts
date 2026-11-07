@@ -92,6 +92,16 @@ const argsDef = {
   "nats-uri-var": { type: "string", valueHint: "VAR", description: "NATS_URL env var name" },
   domain: { type: "string", valueHint: "domain", description: "Public domain for Caddy" },
   upstream: { type: "string", valueHint: "host:port", description: "Upstream for Caddy" },
+  "max-body": {
+    type: "string",
+    valueHint: "size",
+    description: "Caddy request body ceiling (e.g. 64MiB; default: unlimited)",
+  },
+  "lb-retry": {
+    type: "string",
+    valueHint: "duration",
+    description: "Caddy upstream retry window while the app restarts (e.g. 5s; default: none)",
+  },
   image: { type: "string", valueHint: "image", description: "CI deploy image" },
   "deploy-host": { type: "string", valueHint: "user@host", description: "CI deploy target" },
   "deploy-dir": { type: "string", valueHint: "dir", description: "CI deploy directory" },
@@ -131,6 +141,8 @@ interface OpsOptions {
   natsUriVar: string;
   domain: string;
   upstream: string;
+  maxBodySize: string | undefined;
+  lbRetry: string | undefined;
   image: string;
   deployHost: string;
   deployDir: string;
@@ -229,7 +241,12 @@ async function generateCaddyfile(root: string, opts: OpsOptions): Promise<void> 
   await writeOpsFile(
     root,
     "Caddyfile",
-    caddyfileTemplate({ domains: [opts.domain], upstream: opts.upstream }),
+    caddyfileTemplate({
+      domains: [opts.domain],
+      upstream: opts.upstream,
+      maxBodySize: opts.maxBodySize,
+      lbRetry: opts.lbRetry,
+    }),
     opts.force,
   );
 }
@@ -526,6 +543,8 @@ export async function runOps(args: string[]): Promise<void> {
     natsUriVar: parsed["nats-uri-var"] ?? "NATS_URL",
     domain,
     upstream: parsed.upstream ?? "127.0.0.1:3000",
+    maxBodySize: parsed["max-body"],
+    lbRetry: parsed["lb-retry"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression
     image: parsed.image ?? "ghcr.io/${{ github.repository }}",
     deployHost: parsed["deploy-host"] ?? "",

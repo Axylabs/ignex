@@ -301,6 +301,11 @@ Highlights:
   `--replSet`, and MongoDB is exposed on host `27017:27017` for local dev.
 - **Caddyfile** — reverse proxy with auto TLS, HSTS at the terminator (the app
   deliberately omits it), and no `encode gzip` (the app already compresses).
+  `--max-body 64MiB` rejects oversized bodies at the edge (align it with
+  `server.maxRequestBodySize`); `--lb-retry 5s` keeps retrying the upstream
+  while the app restarts so a single-instance deploy doesn't surface 502s.
+  The domain may be a Caddy env placeholder (`--domain '{$SITE_ADDRESS}'`) so
+  one committed Caddyfile serves every environment.
 
 Run `ignex ops --help` for the full flag reference.
 

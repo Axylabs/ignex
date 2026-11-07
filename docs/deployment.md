@@ -53,7 +53,10 @@ export const server = {
 
 If TLS is terminated at the proxy (recommended), the proxy negotiates HTTP/2
 with clients and speaks HTTP/1.1 (or h2c) to the app — `ignex ops caddy`
-generates this by default.
+generates this by default. For a single instance under systemd, add
+`--lb-retry 5s` so Caddy keeps retrying the upstream across a restart instead
+of answering 502, and `--max-body <size>` to enforce the body ceiling at the
+edge.
 
 Tuning notes:
 - `server.idleTimeout` defaults to 10s (Bun's documented HTTP default) unless

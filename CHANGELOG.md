@@ -6,6 +6,28 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`ignex ops caddy` learns the single-instance production knobs.**
+  `--max-body <size>` emits `request_body { max_size }` so oversized bodies are
+  rejected at the edge (align with `server.maxRequestBodySize`), and
+  `--lb-retry <duration>` emits `lb_try_duration`/`lb_try_interval` on the
+  `reverse_proxy` so requests arriving while the app restarts under systemd
+  wait for it instead of failing with 502. Both are off by default.
+  `caddyfileTemplate` exposes them as `maxBodySize` and `lbRetry`; the site
+  address passes through verbatim, so a Caddy env placeholder
+  (`--domain '{$SITE_ADDRESS}'`) lets one committed Caddyfile serve every
+  environment.
+
+### Fixed
+
+- **The generated Caddyfile pins `X-Real-IP` to the real peer.** With
+  `trustProxy`, `ctx.ip` prefers `x-real-ip` over the rightmost
+  `x-forwarded-for` hop — but Caddy only manages `X-Forwarded-*` and passed a
+  client-supplied `X-Real-IP` straight through, so a client could choose its
+  own IP for rate limiting and audit trails. The `reverse_proxy` block now
+  always carries `header_up X-Real-IP {remote_host}`.
+
 ## [0.2.5] — 2026-10-29
 
 ### Added
