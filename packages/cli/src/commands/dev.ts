@@ -95,10 +95,13 @@ class DevServer {
     this.buildArgs = opts.buildArgs;
   }
 
+  /** Stable handler reference so {@link shutdown} can detach them. */
+  private readonly onSignal = (): void => void this.shutdown();
+
   /** Install signal handlers, watch, and run the initial build. */
   async start(): Promise<void> {
-    process.on("SIGINT", () => void this.shutdown());
-    process.on("SIGTERM", () => void this.shutdown());
+    process.on("SIGINT", this.onSignal);
+    process.on("SIGTERM", this.onSignal);
 
     // Attach watchers before the initial build so changes made during the first
     // (potentially slow) build are not missed.
@@ -365,11 +368,23 @@ class DevServer {
     if (this.stopping) return;
     this.stopping = true;
 
+    // Detach the signal handlers first: a signal arriving during teardown (or
+    // a teardown step that throws before exit) must not re-enter shutdown or
+    // leave the process alive with duplicated handlers stacking per signal.
+    process.off("SIGINT", this.onSignal);
+    process.off("SIGTERM", this.onSignal);
+
     if (this.timer) clearTimeout(this.timer);
     if (this.crashRestartTimer) clearTimeout(this.crashRestartTimer);
     for (const watcher of this.watchers) watcher.close();
 
-    await this.stopChild();
+    // Teardown must not block the exit: a failing child kill or watcher close
+    // still ends the process (the crash-restart supervisor is gone by then).
+    try {
+      await this.stopChild();
+    } catch {
+      // exit path continues below
+    }
     process.exit(this.lastBuildFailed ? 1 : 0);
   }
 

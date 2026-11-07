@@ -7,8 +7,8 @@
       "rationale": "SDK realtime client surface — Tier D"
     },
     "packages/core/src/http/router.ts": {
-      "lines": 695,
-      "rationale": "interpreted router + AOT path — Tier B"
+      "lines": 706,
+      "rationale": "interpreted router + AOT path — Tier B (handler timeout dispatch race)"
     },
     "packages/compiler/src/sdk/flatbuffers.ts": {
       "lines": 687,
@@ -67,24 +67,24 @@
       "rationale": "session security — Tier B (secret rotation ring)"
     },
     "packages/cli/src/commands/dev.ts": {
-      "lines": 527,
-      "rationale": "CLI dev command — Tier E"
+      "lines": 542,
+      "rationale": "CLI dev command — Tier E (signal-handler cleanup in shutdown)"
     },
     "packages/cli/src/commands/event.ts": {
       "lines": 510,
       "rationale": "CLI event command — Tier E"
     },
     "packages/compiler/src/phases/codegen/helpers.ts": {
-      "lines": 476,
-      "rationale": "codegen helpers — Tier D"
+      "lines": 485,
+      "rationale": "codegen helpers — Tier D (handler-timeout race emission)"
     },
     "packages/compiler/src/types.ts": {
-      "lines": 471,
-      "rationale": "compiler types — Tier D"
+      "lines": 478,
+      "rationale": "compiler types — Tier D (handlerTimeoutMs option)"
     },
     "packages/core/src/lifecycle/app-factory.ts": {
-      "lines": 461,
-      "rationale": "AOT app factory (wave-1 split byproduct) — Tier B"
+      "lines": 464,
+      "rationale": "AOT app factory (wave-1 split byproduct) — Tier B (handler timeout threading)"
     },
     "packages/compiler/src/phases/analysis/dev-only-plugins.ts": {
       "lines": 454,
@@ -105,6 +105,14 @@
     "packages/native/src/template.ts": {
       "lines": 451,
       "rationale": "template auto-escape parity engine (minijinja byte-contract) — Tier B"
+    },
+    "packages/core/src/http/cookies.ts": {
+      "lines": 415,
+      "rationale": "cookie serialization + RFC6265 name validation — Tier B"
+    },
+    "packages/core/src/platform/fault-report.ts": {
+      "lines": 415,
+      "rationale": "fault report/dedupe + suppression sink — Tier B"
     }
   },
   "ignoreGlobs": [
