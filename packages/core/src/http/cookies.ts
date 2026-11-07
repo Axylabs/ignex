@@ -95,7 +95,9 @@ const MAX_COOKIE_HEADER_BYTES = 8192;
 export const cookiePairsToRecord = (
   pairs: ReadonlyArray<[string, string]>,
 ): Record<string, string> => {
-  const out: Record<string, string> = {};
+  // Null prototype: request-controlled cookie names can never reach
+  // Object.prototype or shadow inherited members downstream.
+  const out: Record<string, string> = Object.create(null);
   let count = 0;
 
   // Native parser trims + unwraps DQUOTE but does not URL-decode, so we keep

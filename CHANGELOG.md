@@ -8,6 +8,16 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Request-parser records are null-prototype.** Query (`parseQuery` /
+  `groupQueryPairs`), form-data (`formDataToObject`) and cookie
+  (`cookiePairsToRecord`) records are built with `Object.create(null)`, so
+  request-controlled keys (`__proto__`, `constructor`) can never reach
+  `Object.prototype` or shadow inherited members when apps spread/merge the
+  records downstream. Visible behavior is unchanged (stringify, `Object.keys`,
+  spread all behave as before); only code calling inherited methods directly
+  on the records (`record.hasOwnProperty(...)`) must switch to
+  `Object.prototype.hasOwnProperty.call(...)`.
+
 - **Templates HTML auto-escape by default (stored-XSS class closed).** `{{ }}`
   interpolation in both render engines — native minijinja (`createTemplate`,
   castrum ≥ 0.9.12) and the pure-TS fallback — now escapes with the exact

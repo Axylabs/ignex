@@ -17,7 +17,10 @@ import { isNativeAvailable, queryPairs } from "@ignex/native";
 export const groupQueryPairs = (
   pairs: ReadonlyArray<[string, string]>,
 ): Record<string, string | string[]> => {
-  const out: Record<string, string | string[]> = {};
+  // Null prototype: request-controlled keys (`__proto__`, `constructor`) can
+  // never reach Object.prototype or shadow inherited members when the record
+  // is spread/merged downstream.
+  const out: Record<string, string | string[]> = Object.create(null);
 
   for (const [key, value] of pairs) {
     const existing = out[key];

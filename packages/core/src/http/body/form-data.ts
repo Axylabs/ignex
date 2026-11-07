@@ -56,7 +56,9 @@ export function formDataToRecord(fd: FormData): Record<string, string> {
 
 /** FormData → object, accumulating duplicate keys into arrays. */
 export function formDataToObject(fd: FormData): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+  // Null prototype: request-controlled keys (`__proto__`, `constructor`) can
+  // never reach Object.prototype or shadow inherited members downstream.
+  const out: Record<string, unknown> = Object.create(null);
 
   forEachFormDataEntry(fd, (value, key) => {
     const existing = out[key];
