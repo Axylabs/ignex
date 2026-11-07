@@ -36,20 +36,50 @@ export type Config<S extends ConfigSchema> = {
   [K in keyof S]: InferType<S[K]>;
 };
 
-const coerce = (field: ConfigField, raw: string | undefined): unknown => {
+/**
+ * Warn once per env var when an invalid value silently falls back to the
+ * default (availability-first, like `envJson`) — a typo'd `PORT=3O00` or a
+ * malformed JSON env var must be OBSERVABLE, not swallowed. Strict schema
+ * validation with structured issues lives in `defineEnv`/`ignex doctor`.
+ */
+const warnedCoercions = new Set<string>();
+const warnBadCoercion = (envVar: string, type: ConfigFieldType, raw: string): void => {
+  if (warnedCoercions.has(envVar)) return;
+  warnedCoercions.add(envVar);
+  console.warn(
+    `[ignex] config: invalid ${type} value for ${envVar} (${JSON.stringify(
+      raw.length > 80 ? `${raw.slice(0, 80)}…` : raw,
+    )}) — using the schema default instead. Fix the env value or use defineEnv for strict validation.`,
+  );
+};
+
+const coerce = (field: ConfigField, envVar: string, raw: string | undefined): unknown => {
   if (raw === undefined) return field.default;
 
   switch (field.type) {
     case "number": {
       const n = Number(raw);
-      return Number.isNaN(n) ? field.default : n;
+      if (Number.isNaN(n)) {
+        warnBadCoercion(envVar, "number", raw);
+        return field.default;
+      }
+      return n;
     }
     case "boolean": {
-      return coerceBoolean(raw) ?? field.default;
+      const b = coerceBoolean(raw);
+      if (b === undefined) {
+        warnBadCoercion(envVar, "boolean", raw);
+        return field.default;
+      }
+      return b;
     }
     case "json": {
       // Same fallback semantics as `envJson` (single coercion path).
-      return tryCatchOr(field.default, () => JSON.parse(raw));
+      const parsed = tryCatchOr(field.default, () => JSON.parse(raw));
+      if (parsed === field.default && raw.trim() !== JSON.stringify(field.default)) {
+        warnBadCoercion(envVar, "json", raw);
+      }
+      return parsed;
     }
     default:
       return raw;
@@ -81,7 +111,7 @@ export const defineConfig = <const S extends ConfigSchema>(
       throw new Error(`Missing required config: ${String(key)} (env: ${envVar})`);
     }
 
-    acc[key] = coerce(field, raw);
+    acc[key] = coerce(field, envVar, raw);
     return acc;
   })(entries);
 

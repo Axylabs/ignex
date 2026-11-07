@@ -85,6 +85,13 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Invalid typed config env values now warn.** `defineConfig` keeps its
+  availability-first fallback (invalid `number`/`boolean`/`json` env values
+  resolve to the schema default) but logs a loud once-per-var warning naming
+  the env var, the expected type and the offending value — a typo'd
+  `PORT=3O00` is no longer silently swallowed. Strict validation with
+  structured issues remains `defineEnv` (`ignex doctor`).
+
 - 206 Range responses are streamed (`Bun.file().slice().stream()`) instead of
   materialized — a suffix range (`bytes=-N`) on a large static file no longer
   buffers N bytes in memory. The re-wrapping guarantee is preserved: the body
