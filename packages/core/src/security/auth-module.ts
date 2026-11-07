@@ -148,6 +148,13 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
     }
 
     const pair = generateEd25519Keypair();
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[ignex] auth: generated a new Ed25519 private key and wrote it in PLAINTEXT to " +
+          `.env (${privateKeyEnv}) in production — prefer provisioning keys from a secret ` +
+          "manager and set bootstrapEnv: false to fail fast instead.",
+      );
+    }
     writeEnvKeys({
       [privateKeyEnv]: pair.privateKey,
       [publicKeyEnv]: pair.publicKey,

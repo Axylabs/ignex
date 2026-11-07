@@ -17,6 +17,7 @@ import { installGracefulShutdown } from "../platform/graceful-shutdown";
 import { STOP_DEADLINE_MS } from "../platform/jobs";
 import { installProcessGuards } from "../platform/process-guards";
 import type { LifeCycleStore } from "../types";
+import { reportSecurityAdvisories } from "./advisories";
 import { type AppOptions, buildContextOptions } from "./app-context-options";
 import { mergeLifeCycle } from "./hooks";
 import {
@@ -110,6 +111,7 @@ export interface IgnexApp {
 export const createApp = (options: AppOptions): IgnexApp => {
   const pluginContext = createPluginContext();
   for (const p of options.plugins ?? []) pluginContext.register(p);
+  reportSecurityAdvisories(options.plugins);
 
   // Mirror the compiler-generated server: `addHook`-registered hooks (from
   // legacy callable/`setup` plugins) are converted first, then plugin methods

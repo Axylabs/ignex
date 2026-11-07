@@ -8,6 +8,20 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Boot-time security advisories.** In production, serving now warns once when
+  the app ships without the security-headers plugin (`security()`) or with
+  cookie sessions but no CSRF guard — the most common misconfigurations that
+  previously booted silently. Advisories are warnings, never failures;
+  `IGNEX_SILENCE_ADVISORIES=1` mutes them for deliberate shapes.
+
+- **Cookie names are validated on write** (RFC 6265 cookie-octets). An invalid
+  name used to silently produce a `Set-Cookie` the browser drops — eating the
+  session/token it carried; it now throws with an actionable message.
+
+- **Auth-module key bootstrap warns in production.** Auto-generating an
+  Ed25519 private key into a plaintext `.env` outside development now logs a
+  loud warning pointing at secret managers and `bootstrapEnv: false`.
+
 - **Static/download filenames are header-safe.** `Content-Disposition`
   filenames (from `sendFile({ download })` and `streamDownload({ filename })`)
   strip CR/LF/backslash/DQUOTE — RFC 6266 quoted-string framing — so a

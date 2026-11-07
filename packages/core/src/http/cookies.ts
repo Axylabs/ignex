@@ -30,7 +30,20 @@ const normalizeSameSite = (sameSite: CookieOptions["sameSite"]): string | undefi
   return sameSite.charAt(0).toUpperCase() + sameSite.slice(1);
 };
 
+/**
+ * RFC 6265 cookie-name grammar (cookie-octets). An invalid name silently
+ * produces a `Set-Cookie` the browser drops — a programming error that must
+ * fail fast instead of eating the cookie (and the session/token it carries).
+ */
+const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
 const serializeCookiePair = (name: string, value: string, opts: ElysiaCookie): string => {
+  if (!COOKIE_NAME_RE.test(name)) {
+    throw new TypeError(
+      `invalid cookie name ${JSON.stringify(name)} — RFC 6265 cookie-octets only ` +
+        "(token charset; no spaces, separators or control characters)",
+    );
+  }
   const parts = [`${name}=${encodeCookieValue(value)}`];
 
   if (opts.domain) parts.push(`Domain=${opts.domain}`);
