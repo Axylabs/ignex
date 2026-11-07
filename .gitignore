@@ -72,3 +72,6 @@ bench/results/compare/*
 
 # throwaway DX dogfood app (docs/dx-improvement-plan.md)
 .dx-eval
+
+# Serena MCP agent-tooling local state (project.yml, memories, cache)
+.serena/

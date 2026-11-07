@@ -59,8 +59,8 @@
       "rationale": "AOT cache + COMPILER_CACHE_VERSION \u2014 Tier D (cache-version contract \u2014 split with care)"
     },
     "packages/cli/src/commands/ops.ts": {
-      "lines": 539,
-      "rationale": "CLI ops command \u2014 Tier E"
+      "lines": 558,
+      "rationale": "CLI ops command \u2014 Tier E (caddy --max-body/--lb-retry flags)"
     },
     "packages/core/src/security/session.ts": {
       "lines": 535,

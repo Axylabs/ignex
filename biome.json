@@ -18,6 +18,7 @@
       "!.bun-install",
       "!.npm-tmp-cache",
       "!.qlty",
+      "!.serena",
       "!.gen-debug-ui-*",
       "!**/.gen-debug-ui-*",
       "!.dx-eval",
