@@ -38,10 +38,16 @@ describe("templates", () => {
   });
 
   it("composes layouts via withLayout", () => {
-    const layout = createTemplate("<main>{{ content }}</main>");
+    // Layout glue renders framework-generated page HTML — composed content is
+    // trusted, so the layout opts it out of auto-escaping with `| safe`
+    // (auto-escape is ON by default since the template-hardening change).
+    const layout = createTemplate("<main>{{ content | safe }}</main>");
     const page = createTemplate("<h1>{{ title }}</h1>");
     const composed = withLayout((content, data) => layout({ ...data, content }))(page);
     expect(composed({ title: "Hi" })).toBe("<main><h1>Hi</h1></main>");
+    // And the default is now escape-on: an unmarked variable is escaped.
+    const strict = createTemplate("<main>{{ content }}</main>");
+    expect(strict({ content: "<h1>Hi</h1>" })).toBe("<main>&lt;h1&gt;Hi&lt;&#x2f;h1&gt;</main>");
   });
 
   it("registry render + missing template", () => {

@@ -6,6 +6,34 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Templates HTML auto-escape by default (stored-XSS class closed).** `{{ }}`
+  interpolation in both render engines — native minijinja (`createTemplate`,
+  castrum ≥ 0.9.12) and the pure-TS fallback — now escapes with the exact
+  minijinja `AutoEscape::Html` table (`< > & " ' /` → entities), so user-shaped
+  context values can no longer inject markup. Previously plain interpolation
+  rendered raw in both engines; only the explicit `| escape` filter escaped.
+  Opt-outs: the `| safe` filter trusts one value (the mark survives `upper`/
+  `lower`/`trim`/`capitalize`, exactly like minijinja), and
+  `createTemplate(source, { autoescape: false })` / `renderTemplate(src, ctx,
+  { autoescape: false })` disable the gate per renderer. Migration: layouts
+  composing framework-generated page HTML must mark it trusted
+  (`{{ content | safe }}` in the layout glue). The fallback also gained
+  minijinja's scalar/container repr (`True`/`False`, `[1, "a"]`,
+  `{"k": "v"}` — strings quoted inside containers), so native and fallback
+  renders stay byte-identical; parity is a new hard gate:
+  `bun run verify:native:template` (CI native-parity lane).
+
+### Changed
+
+- The fallback `| escape` filter now emits minijinja's exact entities
+  (`'` → `&#x27;`, plus `/` → `&#x2f;`) instead of the old `&#39;` table, and
+  its result is auto-escape-immune (marked safe) — no double-escaping when
+  auto-escape is on.
+- Boolean context values render Python-style (`True`/`False`) in the fallback,
+  matching native minijinja byte for byte (previously `true`/`false`).
+
 ### Added
 
 - **`ignex ops caddy` learns the single-instance production knobs.**

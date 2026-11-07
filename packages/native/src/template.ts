@@ -6,10 +6,22 @@
  * /`{% elif %}`/`{% else %}`/`{% endif %}`, `{% for x in list %}`/`{% endfor %}`
  * with a `loop` object, and `{# comments #}`. Complex Jinja features are
  * available only through the native addon.
+ *
+ * Security contract: `{{ }}` interpolation is HTML auto-escaped by DEFAULT in
+ * both engines with the exact minijinja `AutoEscape::Html` table (`< > & " ' /`)
+ * — the fallback mirrors it byte for byte, so native↔fallback renders are
+ * identical (pinned by `scripts/verify-native-template.ts`). The `| safe`
+ * filter opts a value out; `{ autoescape: false }` disables the whole gate.
  */
 import { getFfiInstances, growExact } from "./ffi";
 import { nativeFor } from "./runtime";
 import { encoder, fromBytes } from "./util";
+
+/** Per-renderer template options (mirrors the castrum addon constructor). */
+export interface TemplateRenderOptions {
+  /** Disable HTML auto-escaping of `{{ }}` interpolation (default: on). */
+  autoescape?: boolean;
+}
 
 interface NativeTemplateRenderer {
   render(context: unknown): Uint8Array;
@@ -27,11 +39,12 @@ const MAX_TEMPLATE_OUTPUT = 64 * 1024 * 1024;
 const createNativeRenderer = (
   source: string,
   op: "createTemplate" | "renderTemplate",
+  options?: TemplateRenderOptions,
 ): NativeTemplateRenderer | null => {
   const n = nativeFor(op);
   if (!n || typeof n.TemplateRenderer !== "function") return null;
   try {
-    const inst = new n.TemplateRenderer(source);
+    const inst = new n.TemplateRenderer(source, options ?? null);
     // Opaque-handle C-ABI fast path — the per-call `render` crossing drops from
     // ~1684ns (NAPI object marshal) to ~610ns (C-ABI pre-serialized JSON
     // context) on the compiled template (bench 2026-08-16; null handle → NAPI).
@@ -59,17 +72,24 @@ const createNativeRenderer = (
 };
 
 /** Render a template string with the given context (JSON-serializable). */
-export const renderTemplate = (source: string, context: unknown): string => {
-  const renderer = createNativeRenderer(source, "renderTemplate");
+export const renderTemplate = (
+  source: string,
+  context: unknown,
+  options?: TemplateRenderOptions,
+): string => {
+  const renderer = createNativeRenderer(source, "renderTemplate", options);
   if (renderer) return fromBytes(renderer.render(context));
-  return renderTemplateFallback(source, context);
+  return renderTemplateFallback(source, context, options);
 };
 
 /** Create a compiled template renderer (reusable, lower per-render cost). */
-export const createTemplate = (source: string): ((context: Record<string, unknown>) => string) => {
-  const renderer = createNativeRenderer(source, "createTemplate");
+export const createTemplate = (
+  source: string,
+  options?: TemplateRenderOptions,
+): ((context: Record<string, unknown>) => string) => {
+  const renderer = createNativeRenderer(source, "createTemplate", options);
   if (renderer) return (context) => fromBytes(renderer.render(context));
-  return (context) => renderTemplateFallback(source, context);
+  return (context) => renderTemplateFallback(source, context, options);
 };
 
 // ── Fallback engine ─────────────────────────────────────────────
@@ -242,46 +262,106 @@ const resolvePath = (pathExpr: string, ctx: Record<string, unknown>): unknown =>
   return value;
 };
 
+/**
+ * HTML auto-escape table — the exact minijinja `AutoEscape::Html` entities
+ * (`&lt; &gt; &amp; &quot; &#x27; &#x2f;`), so native and fallback renders
+ * stay byte-identical. `&` is replaced first so the introduced entities are
+ * never re-escaped.
+ */
 const htmlEscape = (value: string): string =>
   value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/'/g, "&#x27;")
+    .replace(/\//g, "&#x2f;");
+
+/**
+ * Safe-string marker — a value that must NOT be auto-escaped at render time
+ * (what minijinja's `safe` filter produces). A symbol-keyed frozen wrapper:
+ * filters that transform strings drop the mark, exactly like minijinja.
+ */
+const SAFE: unique symbol = Symbol("ignex.template.safe");
+
+interface SafeString {
+  readonly [SAFE]: true;
+  readonly value: string;
+}
+
+const markSafe = (value: string): SafeString => ({ [SAFE]: true, value });
+
+const isSafe = (value: unknown): value is SafeString =>
+  typeof value === "object" && value !== null && SAFE in value;
+
+/** Unwrap a safe string for string transformation (safety is lost). */
+const unwrap = (value: unknown): unknown => (isSafe(value) ? value.value : value);
+
+/**
+ * Stringify a value the way minijinja prints it, so native and fallback
+ * renders are byte-identical: Python-repr style for containers (`True`,
+ * `[1, "a"]`, `{"k": "v"}`) — strings INSIDE containers are double-quoted,
+ * top-level strings render raw. (Exotic float magnitudes keep JS formatting
+ * — a documented divergence outside JSON round-trip values.)
+ */
+const stringifyValue = (value: unknown, inContainer = false): string => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return inContainer ? JSON.stringify(value) : value;
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value))
+    return `[${value.map((item) => stringifyValue(item, true)).join(", ")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${JSON.stringify(key)}: ${stringifyValue(item, true)}`)
+      .join(", ")}}`;
+  }
+  return String(value);
+};
+
+/**
+ * Apply a string transform, preserving a safe mark (minijinja semantics:
+ * `upper` on a safe string stays safe; on a plain string returns plain).
+ */
+const transformPreserveSafe = (value: unknown, transform: (raw: string) => string): unknown => {
+  const raw = unwrap(value);
+  if (typeof raw !== "string") return raw;
+  const out = transform(raw);
+  return isSafe(value) ? markSafe(out) : out;
+};
+
+/** The fallback filter table (see the module docstring for the subset). */
+const FILTERS: Record<string, (value: unknown, args: unknown[]) => unknown> = {
+  upper: (value) => transformPreserveSafe(value, (raw) => raw.toUpperCase()),
+  lower: (value) => transformPreserveSafe(value, (raw) => raw.toLowerCase()),
+  trim: (value) => transformPreserveSafe(value, (raw) => raw.trim()),
+  capitalize: (value) =>
+    transformPreserveSafe(value, (raw) =>
+      raw.length > 0 ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw,
+    ),
+  // `safe` marks the stringified value as trusted — auto-escaping skips it
+  // (minijinja `safe` semantics).
+  safe: (value) => markSafe(stringifyValue(unwrap(value))),
+  // `escape` escapes once and marks the result safe, so a later auto-escape
+  // pass never double-escapes (minijinja `escape` semantics — it escapes
+  // with HTML rules even when auto-escape is disabled, and it trusts values
+  // that are already safe).
+  escape: (value) => (isSafe(value) ? value : markSafe(htmlEscape(stringifyValue(unwrap(value))))),
+  length: (value) => {
+    const raw = unwrap(value);
+    return typeof raw === "string" ? raw.length : Array.isArray(raw) ? raw.length : 0;
+  },
+  // `default` returns the value itself, so a safe value stays safe.
+  default: (value, args) => value ?? args[0] ?? "",
+  json: (value) => JSON.stringify(unwrap(value)),
+};
 
 const applyFilter = (filterExpr: string, value: unknown, ctx: Record<string, unknown>): unknown => {
   const m = /^([A-Za-z_][\w$]*)(?:\((.*)\))?$/.exec(filterExpr.trim());
-  if (!m) return value;
-  const name = m[1];
-  const args = m[2]
-    ? m[2]
-        .split(",")
-        .map((a) => a.trim())
-        .map((a) => evaluate(a, ctx))
-    : [];
-  switch (name) {
-    case "upper":
-      return typeof value === "string" ? value.toUpperCase() : value;
-    case "lower":
-      return typeof value === "string" ? value.toLowerCase() : value;
-    case "trim":
-      return typeof value === "string" ? value.trim() : value;
-    case "capitalize":
-      return typeof value === "string" && value.length > 0
-        ? value[0]?.toUpperCase() + value.slice(1)
-        : value;
-    case "escape":
-      return htmlEscape(String(value ?? ""));
-    case "length":
-      return typeof value === "string" ? value.length : Array.isArray(value) ? value.length : 0;
-    case "default":
-      return value ?? args[0] ?? "";
-    case "json":
-      return JSON.stringify(value);
-    default:
-      return value;
-  }
+  const handler = m === null ? undefined : FILTERS[m[1] ?? ""];
+  if (m === null || handler === undefined) return value;
+  const args = m[2] ? m[2].split(",").map((a) => evaluate(a.trim(), ctx)) : [];
+  return handler(value, args);
 };
 
 const evaluate = (expr: string, ctx: Record<string, unknown>): unknown => {
@@ -291,7 +371,8 @@ const evaluate = (expr: string, ctx: Record<string, unknown>): unknown => {
   return value;
 };
 
-const truthy = (v: unknown): boolean => {
+const truthy = (raw: unknown): boolean => {
+  const v = unwrap(raw);
   if (v == null) return false;
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return v !== 0;
@@ -300,7 +381,7 @@ const truthy = (v: unknown): boolean => {
   return true;
 };
 
-const renderNodes = (nodes: Node[], ctx: Record<string, unknown>): string => {
+const renderNodes = (nodes: Node[], ctx: Record<string, unknown>, autoescape: boolean): string => {
   let out = "";
   for (const node of nodes) {
     switch (node.type) {
@@ -309,16 +390,22 @@ const renderNodes = (nodes: Node[], ctx: Record<string, unknown>): string => {
         break;
       case "expr": {
         const v = evaluate(node.value, ctx);
-        out += v == null ? "" : String(v);
+        if (v == null) break;
+        if (isSafe(v)) {
+          out += v.value;
+        } else {
+          const raw = stringifyValue(v);
+          out += autoescape ? htmlEscape(raw) : raw;
+        }
         break;
       }
       case "if": {
         const branch = node.branches.find((b) => truthy(evaluate(b.cond, ctx)));
-        out += renderNodes(branch ? branch.body : node.elseBody, ctx);
+        out += renderNodes(branch ? branch.body : node.elseBody, ctx, autoescape);
         break;
       }
       case "for": {
-        const iterable = evaluate(node.iterable, ctx);
+        const iterable = unwrap(evaluate(node.iterable, ctx));
         const items: Array<[unknown, unknown]> = Array.isArray(iterable)
           ? iterable.map((item, i) => [item, i] as [unknown, unknown])
           : iterable != null && typeof iterable === "object"
@@ -336,7 +423,7 @@ const renderNodes = (nodes: Node[], ctx: Record<string, unknown>): string => {
               length: items.length,
             },
           };
-          out += renderNodes(node.body, scope);
+          out += renderNodes(node.body, scope, autoescape);
         });
         break;
       }
@@ -347,9 +434,16 @@ const renderNodes = (nodes: Node[], ctx: Record<string, unknown>): string => {
 
 /**
  * Minimal Jinja-like fallback renderer (see module docstring for the subset).
+ * HTML auto-escapes `{{ }}` interpolation unless disabled via
+ * `options.autoescape` or opted out per value with `| safe`.
  */
-export const renderTemplateFallback = (source: string, context: unknown): string => {
+export const renderTemplateFallback = (
+  source: string,
+  context: unknown,
+  options?: TemplateRenderOptions,
+): string => {
   const tokens = tokenizeRaw(source);
   const { nodes } = parseBlock(tokens, 0, new Set());
-  return renderNodes(nodes, (context ?? {}) as Record<string, unknown>);
+  const autoescape = options?.autoescape ?? true;
+  return renderNodes(nodes, (context ?? {}) as Record<string, unknown>, autoescape);
 };

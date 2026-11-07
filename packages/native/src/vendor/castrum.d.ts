@@ -15,7 +15,11 @@
  */
 
 export declare class TemplateRenderer {
-  constructor(source: string);
+  /**
+   * HTML auto-escapes `{{ }}` interpolation by default (minijinja
+   * `AutoEscape::Html` table); pass `{ autoescape: false }` to disable.
+   */
+  constructor(source: string, options?: { autoescape?: boolean } | null);
   render(context: any): Uint8Array;
   /** Opaque handle for the C-ABI instance fast path (`castrum_template_render`). */
   innerPtr(): bigint;

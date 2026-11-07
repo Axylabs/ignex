@@ -301,7 +301,12 @@ export {
   setNativeTelemetrySink,
   type TelemetrySink,
 } from "./telemetry";
-export { createTemplate, renderTemplate, renderTemplateFallback } from "./template";
+export {
+  createTemplate,
+  renderTemplate,
+  renderTemplateFallback,
+  type TemplateRenderOptions,
+} from "./template";
 export { decoder, encoder, fromBytes, toBytes } from "./util";
 export {
   validateEmail,

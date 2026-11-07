@@ -34,6 +34,7 @@
     "test:native:real": "bunx vitest run packages/native/test --no-file-parallelism",
     "verify:native:route": "bun scripts/verify-native-route.ts",
     "verify:native:ffi": "bun scripts/verify-native-ffi.ts",
+    "verify:native:template": "bun scripts/verify-native-template.ts",
     "verify:aot:rbac": "bun scripts/verify-aot-rbac.ts",
     "verify:aot:abort": "bun scripts/verify-aot-abort.ts",
     "verify:aot:plugin-specialized": "bun scripts/verify-aot-plugin-specialized.ts",

@@ -2,12 +2,17 @@
  * Template rendering — minijinja (native) with a small pure-TS fallback.
  * Provides single templates, registries, directory loading and layout
  * composition helpers.
+ *
+ * Security contract: `{{ }}` interpolation is HTML auto-escaped by DEFAULT in
+ * both engines (identical minijinja `AutoEscape::Html` table); the `| safe`
+ * filter opts a value out and `{ autoescape: false }` disables the gate.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createTemplate as createNativeTemplate,
   renderTemplate as renderNative,
+  type TemplateRenderOptions,
 } from "@ignex/native";
 
 /** Variables passed to a template render. */
@@ -15,12 +20,20 @@ export type TemplateContext = Record<string, unknown>;
 /** A compiled template: renders a context to a string. */
 export type TemplateFn = (data: TemplateContext) => string;
 
-/** Compile a template source into a reusable render function. */
-export const createTemplate = (source: string): TemplateFn => createNativeTemplate(source);
+/**
+ * Compile a template source into a reusable render function.
+ * `{{ }}` interpolation is HTML auto-escaped by default (`| safe` opts a
+ * value out); pass `{ autoescape: false }` to render raw.
+ */
+export const createTemplate = (source: string, options?: TemplateRenderOptions): TemplateFn =>
+  createNativeTemplate(source, options);
 
-/** Render a template source once with the given context. */
-export const renderTemplate = (source: string, data: TemplateContext): string =>
-  renderNative(source, data);
+/** Render a template source once with the given context (auto-escaped). */
+export const renderTemplate = (
+  source: string,
+  data: TemplateContext,
+  options?: TemplateRenderOptions,
+): string => renderNative(source, data, options);
 
 /**
  * A named collection of compiled templates.
@@ -75,6 +88,10 @@ export const createTemplateDir = async (
 /**
  * Compose a layout around a page renderer:
  * `withLayout(layout)(page)` → `(data) => layout(page(data), data)`.
+ *
+ * The composed page markup is framework-generated HTML — the layout glue must
+ * opt it out of auto-escaping explicitly (`{{ content | safe }}`); unmarked
+ * context values are escaped by default.
  */
 export const withLayout =
   (layout: (content: string, data: TemplateContext) => string) =>

@@ -283,6 +283,9 @@ jobs:
       - name: Per-route native stack parity (plain Bun, real addon)
         run: bun run verify:native:route
 
+      - name: Template auto-escape parity (plain Bun, real addon)
+        run: bun run verify:native:template
+
       # C-ABI (bun:ffi) is the PRIMARY transport — force it so a bind/self-test
       # regression (or a Bun/ABI drift) fails loudly instead of silently falling
       # back to NAPI. `IGNEX_FFI_MODE=ffi` throws on any ffi failure.
