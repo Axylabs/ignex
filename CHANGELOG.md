@@ -57,6 +57,12 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Rejection-storm sink: `onFaultSuppressed`.** The production fault-dedupe
+  window now exposes its suppression counts programmatically — subscribe via
+  `onFaultSuppressed` (platform barrel) to bridge storms into metrics or
+  notifiers; previously only the console log line carried them. Broken
+  listeners are swallowed — reporting never becomes the failure.
+
 - **CSRF guard hardening: Origin enforcement, session binding, `__Host-`
   prefix.** `createCsrfGuard` now validates `Origin`/`Referer` on
   state-changing requests against the request's own origin (default

@@ -82,11 +82,16 @@ export {
 } from "../platform/errors";
 export type { ToFaultOptions } from "../platform/fault";
 export { statusForOrigin, toFault } from "../platform/fault";
-export type { FaultRenderOptions, ReportFaultOptions } from "../platform/fault-report";
+export type {
+  FaultRenderOptions,
+  FaultSuppressionListener,
+  ReportFaultOptions,
+} from "../platform/fault-report";
 export {
   faultOf,
   faultRequestInfo,
   isFaultReported,
+  onFaultSuppressed,
   renderFault,
   reportFault,
 } from "../platform/fault-report";

@@ -212,6 +212,39 @@ export const resetFaultDedupe = (): void => {
 };
 
 /**
+ * A sink for rejection-storm visibility: invoked with the fault and the
+ * number of identical reports suppressed since the last printed one.
+ * Bridge it into metrics/notifiers — the suppression window otherwise keeps
+ * storms invisible to anything but the console log line.
+ */
+export type FaultSuppressionListener = (fault: Fault, suppressed: number) => void;
+
+const suppressionListeners = new Set<FaultSuppressionListener>();
+
+/**
+ * Subscribe to fault-suppression events (fires once per PRINT with the count
+ * suppressed since the previous print, and once per suppressed report with
+ * the running count). Listener throws are swallowed — reporting must never
+ * become the failure. Returns an unsubscribe function.
+ */
+export const onFaultSuppressed = (listener: FaultSuppressionListener): (() => void) => {
+  suppressionListeners.add(listener);
+  return () => {
+    suppressionListeners.delete(listener);
+  };
+};
+
+const emitSuppression = (fault: Fault, suppressed: number): void => {
+  for (const listener of suppressionListeners) {
+    try {
+      listener(fault, suppressed);
+    } catch {
+      /* a broken sink must never break reporting */
+    }
+  }
+};
+
+/**
  * Decide whether this fault should print now, and how many identical reports
  * were suppressed since the last one.
  *
@@ -303,10 +336,12 @@ export const reportFault = (thrown: unknown, options: ReportFaultOptions = {}): 
 
   const decision = shouldPrint(fault);
   if (decision.suppressed) {
+    emitSuppression(fault, decision.since);
     markReported(thrown);
     markReported(compact);
     return compact;
   }
+  if (decision.since > 0) emitSuppression(fault, decision.since);
 
   try {
     const block = renderFault(fault, options);
