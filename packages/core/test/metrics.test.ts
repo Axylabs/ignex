@@ -87,19 +87,61 @@ describe("metricsPlugin", () => {
 });
 
 describe("createOtlpExporter", () => {
-  it("starts and stops without throwing (best-effort push)", async () => {
-    const m = createMetrics();
-    m.counter("c").inc();
-    const fetchMock = vi.fn(async () => new Response("ok"));
+  it("exports valid OTLP data points and drains before stopping", async () => {
+    const m = createMetrics({ histogramBuckets: [10] });
+    m.counter("requests", { route: "/orders" }).inc();
+    m.histogram("latency", { route: "/orders" }).observe(5);
+    const bodies: string[] = [];
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response("ok");
+    });
     vi.stubGlobal("fetch", fetchMock);
     const exporter = createOtlpExporter(m, {
       endpoint: "http://collector:4318/v1/metrics",
       intervalMs: 10,
     });
     exporter.start();
-    await new Promise((r) => setTimeout(r, 30));
-    exporter.stop();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await exporter.stop();
+
     expect(fetchMock).toHaveBeenCalled();
+    const payload = JSON.parse(bodies[0] ?? "{}") as any;
+    const exported = payload.resourceMetrics[0].scopeMetrics[0].metrics;
+    const counter = exported.find((metric: any) => metric.name === "requests");
+    const histogram = exported.find((metric: any) => metric.name === "latency");
+    expect(counter.sum.isMonotonic).toBe(true);
+    expect(counter.sum.dataPoints[0]).toMatchObject({
+      asInt: "1",
+      attributes: [{ key: "route", value: { stringValue: "/orders" } }],
+    });
+    expect(histogram.histogram.dataPoints[0]).toMatchObject({
+      count: "1",
+      sum: 5,
+      bucketCounts: ["1", "1"],
+      explicitBounds: [10],
+    });
+    expect(JSON.stringify(payload)).not.toContain("sampleCount");
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects unsuccessful collector responses without throwing into the app", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const m = createMetrics();
+    m.counter("c").inc();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("full", { status: 503 })),
+    );
+    const exporter = createOtlpExporter(m, {
+      endpoint: "http://collector:4318/v1/metrics",
+      intervalMs: 5,
+    });
+    exporter.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await exporter.stop();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("503"));
+    errorSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 });

@@ -39,7 +39,11 @@ export const normalizeSecrets = (input: SecretInput): readonly (string | Uint8Ar
 };
 
 /** The current (signing) secret — always ring entry 0. */
-export const signSecret = (input: SecretInput): string | Uint8Array => normalizeSecrets(input)[0]!;
+export const signSecret = (input: SecretInput): string | Uint8Array => {
+  const current = normalizeSecrets(input)[0];
+  if (current === undefined) throw new TypeError("secret ring requires at least one secret");
+  return current;
+};
 
 /**
  * Try a verification attempt against every ring entry, in order (current

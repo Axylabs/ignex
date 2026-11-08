@@ -8,10 +8,10 @@
  * that cannot serve traffic — previously every instance reported healthy
  * regardless of dependency state.
  *
- * Interpreted apps: `plugins: [healthProbe({ readiness: [...] })]` registers
- * both endpoints on the router. AOT/compiled apps: use `runReadinessChecks()`
- * inside a `src/routes/ready.get.ts` route file (the compiler discovers file
- * routes; plugin-registered routes are an interpreted-only feature).
+ * Interpreted and compiled apps: `plugins: [healthProbe({ readiness: [...] })]`
+ * registers both endpoints after plugin initialization. Apps that prefer an
+ * explicit file route can call `runReadinessChecks()` from
+ * `src/routes/ready.get.ts` instead.
  */
 import type { IgnexRouter } from "../http/router";
 import type { IgnexPlugin } from "../lifecycle/plugin";

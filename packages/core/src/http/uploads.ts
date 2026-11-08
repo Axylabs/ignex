@@ -25,7 +25,6 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { IgnexContext } from "../http/context";
 import { sendFile } from "../http/files";
@@ -115,6 +114,29 @@ export const sanitizeFileName = (name: string): string => {
 
 const megabytes = (mb: number): number => mb * 1024 * 1024;
 
+const startsWith = (bytes: Uint8Array, signature: readonly number[]): boolean =>
+  signature.every((value, index) => bytes[index] === value);
+
+const hasExpectedSignature = (contentType: string, bytes: Uint8Array): boolean => {
+  switch (contentType) {
+    case "image/png":
+      return startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    case "image/jpeg":
+      return startsWith(bytes, [0xff, 0xd8, 0xff]);
+    case "image/gif":
+      return startsWith(bytes, [0x47, 0x49, 0x46, 0x38]);
+    case "image/webp":
+      return (
+        startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+        String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+      );
+    case "application/pdf":
+      return startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]);
+    default:
+      return true;
+  }
+};
+
 /**
  * Parse a multipart upload from `ctx`, validate it against the options, and
  * persist it under `dir` with an unguessable server-generated name. Never
@@ -122,12 +144,17 @@ const megabytes = (mb: number): number => mb * 1024 * 1024;
  * result so route files keep their own response shapes.
  */
 export const saveUpload = async (
-  ctx: Pick<IgnexContext, "body">,
+  ctx: Pick<IgnexContext, "body"> & { req?: Request },
   options: SaveUploadOptions,
 ): Promise<UploadSuccess | UploadRejection> => {
   const maxBytes = options.maxBytes ?? megabytes(10);
   const allowed = options.allowed ?? DEFAULT_UPLOAD_TYPES;
   const field = options.field ?? "file";
+
+  const declaredLength = Number(ctx.req?.headers.get("content-length") ?? Number.NaN);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    return { ok: false, status: 413, error: "Uploaded body exceeds the configured limit" };
+  }
 
   const form = await ctx.body.formData();
   const file = form.get(field);
@@ -150,10 +177,14 @@ export const saveUpload = async (
   if (!ext) {
     return { ok: false, status: 415, error: `Unsupported content type "${contentType}"` };
   }
+  const signature = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  if (!hasExpectedSignature(contentType, signature)) {
+    return { ok: false, status: 415, error: "File contents do not match the declared type" };
+  }
 
   mkdirSync(options.dir, { recursive: true });
   const name = `${randomUUID()}.${ext}`;
-  await writeFile(join(options.dir, name), Buffer.from(await file.arrayBuffer()));
+  await Bun.write(join(options.dir, name), file);
 
   return {
     ok: true,

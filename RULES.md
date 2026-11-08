@@ -52,7 +52,7 @@ is the how-to guide; `.agents/skills/` holds task-specific runbooks;
   they are directly unit-testable without mocks. Isolate side effects
   (sockets, files, timers, env) in dedicated modules.
 - **Small functions in small files**: one responsibility per file, grouped
-  into domain folders (`packages/core/src/{security,http,data,lifecycle,
+  into domain folders (`packages/core/src/{application,security,http,data,lifecycle,
   platform,content,plugins,debug,types}/`, plus the `publ/` public sub-barrels,
   `rpc/` and `vendor/`; compiler `phases/`; cli `commands/`). Never build
   god-files.

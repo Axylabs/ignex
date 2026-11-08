@@ -50,38 +50,43 @@ describe("createWSHandler in-flight cap", () => {
     expect(closed).toEqual([{ code: 1013, reason: "Too many in-flight messages" }]);
   });
 
-  it("releases a closed socket's slots so a wedged handler cannot pin the cap", () => {
+  it("does not let one wedged connection consume another connection's budget", () => {
     const wedged = fakeSocket();
-    const blocked = fakeSocket();
-    const fresh = fakeSocket();
+    const independent = fakeSocket();
     let calls = 0;
     const handler = createWSHandler(
       {
         message: () => {
           calls++;
-          return neverSettles(); // never resolves → its slot is never freed by settling
+          return neverSettles();
         },
       },
       undefined,
       { maxInflightMessages: 1 },
     );
     handler.open?.(wedged.socket);
-    handler.open?.(blocked.socket);
-    handler.open?.(fresh.socket);
+    handler.open?.(independent.socket);
 
-    handler.message(wedged.socket, "wedge"); // occupies the only slot
-    expect(calls).toBe(1);
+    handler.message(wedged.socket, "wedge");
+    handler.message(wedged.socket, "capped");
+    handler.message(independent.socket, "independent");
 
-    // While the wedged socket is alive the cap is genuinely enforced.
-    handler.message(blocked.socket, "blocked");
-    expect(calls).toBe(1);
-    expect(blocked.closed).toEqual([{ code: 1013, reason: "Too many in-flight messages" }]);
-
-    // Closing the wedged socket frees its slot for a live connection.
-    handler.close?.(wedged.socket, 1006, "gone");
-    handler.message(fresh.socket, "now-ok");
     expect(calls).toBe(2);
-    expect(fresh.closed).toHaveLength(0);
+    expect(wedged.closed).toEqual([{ code: 1013, reason: "Too many in-flight messages" }]);
+    expect(independent.closed).toHaveLength(0);
+  });
+
+  it("supports an explicit route-wide cap in addition to per-connection limits", () => {
+    const first = fakeSocket();
+    const second = fakeSocket();
+    const handler = createWSHandler({ message: () => neverSettles() }, undefined, {
+      maxInflightMessages: 10,
+      maxTotalInflightMessages: 1,
+    });
+    handler.message(first.socket, "one");
+    handler.message(second.socket, "two");
+    expect(first.closed).toHaveLength(0);
+    expect(second.closed).toEqual([{ code: 1013, reason: "Too many in-flight messages" }]);
   });
 
   it("decrements the count once an async handler settles", async () => {

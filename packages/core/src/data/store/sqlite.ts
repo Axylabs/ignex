@@ -108,6 +108,33 @@ export const createSqliteStore = async (
       ]);
     },
 
+    update(key, updater, opts) {
+      run("BEGIN IMMEDIATE");
+      try {
+        const row = one(
+          `SELECT ${valueColRef} AS value, ${expiresColRef} AS expires FROM ${table} WHERE ${keyColRef} = ?`,
+          [key],
+        );
+        const current =
+          row === null || (row.expires !== 0 && row.expires <= Date.now())
+            ? null
+            : JSON.parse(row.value);
+        const next = updater(current);
+        if (next instanceof Promise) {
+          throw new TypeError("SQLite store updaters must be synchronous");
+        }
+        run(
+          `INSERT INTO ${table} (${keyColRef}, ${valueColRef}, ${expiresColRef}) VALUES (?, ?, ?) ON CONFLICT(${keyColRef}) DO UPDATE SET ${valueColRef} = excluded.${valueColRef}, ${expiresColRef} = excluded.${expiresColRef}`,
+          [key, JSON.stringify(next), resolveExpiry(opts, options.ttlMs, Date.now())],
+        );
+        run("COMMIT");
+        return next;
+      } catch (error) {
+        run("ROLLBACK");
+        throw error;
+      }
+    },
+
     close() {
       db.close();
     },

@@ -46,6 +46,7 @@ the error taxonomy and self-contained data structures; see D-010). Tests use
 | Build + run app | `bun run build` → `bun run dev` / `bun run start` |
 | App dev server with debugbar | `bun run dev:debug` (debug-shaped build in `packages/app/dist-dev/`; production `dev`/`build` eliminate the debugbar) |
 | Smoke gates | `bun run smoke` (native) + `bun run smoke:fallback` (`IGNEX_NATIVE=off`) |
+| Generated-app / SQL checks | `bun run verify:scaffold` (`SCAFFOLD_FEATURES` selects bundles) + `bun run verify:drizzle` (real SQLite CRUD) |
 | SDK generation | `bun run sdk` / `sdk:push` / `sdk:publish` / `sdk:release` |
 | Benchmarks | `bun run bench`, `bench:native`, `bench:ffi`, `bench:jwt*`, `bench:server*`, `bench:compare` |
 | Native parity checks | `bun run verify:native:route` / `verify:native:ffi` / `verify:aot:rbac` / `verify:cli:resource` / `check:native:surface` (vendor/castrum.d.ts ↔ real addon drift) |
@@ -101,7 +102,8 @@ packages/
   shared/       FP toolkit (compose, always) + compiler↔runtime AOT contract (ContextUsage)
   native/       ★ castrum wrapper: unified backend.* execution API + SELECTION table +
                 byte-compatible pure-TS fallbacks; route-wire v3 (createNativeRoute)
-  core/         runtime primitives by domain folder: security/ (auth, csrf, crypto,
+  core/         runtime primitives by domain folder: application/ (typed use cases),
+                security/ (auth, csrf, crypto,
                 session), http/ (context, body, proxy, files, sse, ws, route DSL),
                 data/ (cache, dataloader, lru, query, schema, validation),
                 lifecycle/ (hooks, lifecycle, plugin), platform/ (env, config, jobs,

@@ -8,6 +8,37 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **PostgreSQL resource generation and persistent HTTP caching.** `ignex resource
+  --db sql --sql-driver postgres` emits native PostgreSQL column types, identity
+  keys, `node-postgres` wiring, versioned Drizzle migrations, and the same awaited
+  CRUD handlers used by SQLite. `createPersistentHttpCacheStore` adapts generic
+  stores such as Redis without corrupting binary response bodies; cache keys now
+  include the URL origin. WebSockets also accept an optional route-wide
+  `maxTotalInflightMessages` in addition to the per-connection cap.
+
+- **Functional application use cases.** `defineUseCase` binds typed structural
+  ports through a higher-order factory, separating reusable application
+  dependencies from per-invocation input. The cookbook defines pure domain,
+  application-scoped, and request-scoped lifetimes without ambient containers or
+  request-bearing globals. A routed security E2E suite now covers concurrent
+  request isolation and high-impact HTTP security regressions.
+
+- **Consumer-extensible SDK and OpenAPI generation.** `ignex sdk` now reads
+  typed `sdk` project config with CLI → env → config → default precedence,
+  accepts application-owned `SdkPlatform` implementations per invocation, and
+  supports pure async package/file hooks with path/collision validation. The
+  shared OpenAPI generator accepts canonical metadata, server/security/tag,
+  exclusion, and final-transform options through compiler `openApi` config and
+  the interpreted plugin's `document` option, keeping runtime docs, compiled
+  artifacts, and SDKs on one contract. Existing built-in TypeScript output
+  remains zero-runtime-dependency.
+
+- **Opt-in request correlation through `requestId()`.** The core plugin uses
+  one validated id for `ctx.requestId`, legacy request state, logs, errors, and
+  response headers; supports custom headers/generators, inbound trust and echo
+  controls, and bounded visible-ASCII ids; and declares its AOT context usage
+  so specialized routes do not fall back to full contexts.
+
 - **`ignex ship` — the guided go-live flow** (aliases `golive`/`go-live`). One
   command from scaffold to deploy-ready: pick a style (Docker Compose /
   systemd + Caddy / CI), and it generates the missing `ops` artifacts without
@@ -55,6 +86,73 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **AOT artifacts are complete, deterministic application bundles.** Plugin routes
+  register after ordered plugin initialization and before bind, with duplicate
+  detection and lifecycle binding; OpenAPI JSON is embedded for standalone
+  binaries; unresolved application dependencies fail instead of producing broken
+  output. `nativeRoutes` is opt-in at every optimization level because the lean JS
+  prelude won the end-to-end comparison. Generated TypeScript clients infer real
+  body/query/path/response schemas, support query arrays and method-specific
+  dispatch, and no longer contain a duplicate client implementation.
+  `COMPILER_CACHE_VERSION` → 0.9.31 and `MODULES_CACHE_VERSION` → 15.
+
+- **Shared-state and observability contracts are production-safe by default.**
+  Stores expose optional atomic `update()` (SQLite immediate transactions; Redis
+  optimistic transactions), job mutation uses it, schedulers no longer block on
+  permanently failed runs, and worker schedulers disable inline execution. Redis
+  rate limiting is one Lua operation and async store failures are awaited so
+  fail-closed actually closes. OTLP metrics use valid data-point payloads with
+  timeouts, status checks, overlap prevention, unref'd timers, and async drain.
+  SMTP transports are pooled/reused/closable and delivery errors reject.
+
+- **Password work is portable and off the normal event-loop path.** Scrypt is the
+  default; Argon2id is an explicit native-only option. Async scrypt hashing and
+  verification use Node's off-thread crypto, while existing Argon2id PHC hashes
+  retain native task-pool verification and attacker-cost bounds. Static year-long
+  caching is restricted to build directories/content-hashed assets rather than
+  every script or stylesheet.
+
+- **Scaffolds contain overrides and production wiring, not copied framework
+  defaults/demo middleware.** `ignex.config.mjs` starts as a typed empty
+  override object; the middleware feature registers core `requestId()` instead
+  of generating a private implementation; demo timing/header hooks and their
+  files are gone; and `ignex add middleware` now adds only the middleware import
+  + plugin spread, leaving user lifecycle config untouched. The scaffold E2E
+  gate now covers custom OpenAPI/SDK config, generated declaration typechecking,
+  compiled boot, request correlation, and a real generated-SDK request.
+  The subsequent AOT hardening entry above records the current cache versions.
+
+- **Compiled servers share request-independent instances instead of rebuilding
+  them per request.** The 503 handler-timeout response (`__TIMEOUT_RESPONSE`)
+  and the route-miss material (pre-stringified 404/405 bodies, now joined by a
+  frozen shared `__MISS_HEADERS` record — 404s allocate nothing beyond the
+  `Response`) are built once at module load; the static dispatch wrappers
+  hoist their duplicated `__extractServer` call (one per request, not two);
+  and the 404/405 fallback + OPTIONS preflight extract the request path with
+  core's zero-allocation `pathnameOf` instead of a per-request `new URL` —
+  which also makes the 405 `Allow` lookup agree with `ctx.path` on
+  dot-segment paths. Sharing is strictly bounded to instances that carry no
+  per-request data and are never mutated afterwards (`IGN_ERRORS_EXPOSED` /
+  emission-sharing tests pin the boundary); per-request mutable state
+  (contexts, `set` accumulators, cookies) remains request-private as before.
+  `COMPILER_CACHE_VERSION` → 0.9.28.
+
+- **Explicit `exposeErrorDetails: true` on a production-shaped build now warns
+  at build time (`IGN_ERRORS_EXPOSED`).** The secure default itself is
+  unchanged — `mergeOptions` already fails production shapes closed when the
+  option is unset — but an explicit opt-in used to ship silently; the build
+  now says that clients will receive internal error messages/details
+  (connection strings still redacted). Defense-in-depth: the codegen config's
+  fallback for callers that bypass the options merge is now shape-aware too
+  (`exposeErrorDetails ?? !isProductionBuild(opts)`, matching `mergeOptions`'
+  resolution instead of an unconditional constant), and new
+  `exposure-invariants` tests pin every layer of the chain independently —
+  options merge, codegen config, baked emission, the emitted error boundary
+  (which must consult the baked `EXPOSE_ERRORS` const, never a runtime env
+  read), and the incremental-cache contract that `NODE_ENV` stays part of the
+  whole-build fingerprint so a prod rebuild can never be served a dev-shaped
+  cached artifact.
+
 - **`ignex doctor`'s default-session-secret check keys off the project, not
   the process.** It now blocks when the project's own `.env` says
   `NODE_ENV=production` instead of depending on the doctor process happening
@@ -86,9 +184,20 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   name used to silently produce a `Set-Cookie` the browser drops — eating the
   session/token it carried; it now throws with an actionable message.
 
-- **Auth-module key bootstrap warns in production.** Auto-generating an
-  Ed25519 private key into a plaintext `.env` outside development now logs a
-  loud warning pointing at secret managers and `bootstrapEnv: false`.
+- **Authentication fails closed on identity and key material.** Production no
+  longer auto-writes Ed25519 private keys into `.env`; provision them through a
+  secret manager (`bootstrapEnv: false` also disables development writes).
+  Token issuance requires stable `user.id`/`user.sub`. Generated registration no
+  longer ships an admin or accepts caller-selected roles; users are durable in
+  SQLite, and refresh tokens are hashed, single-use, rotated, durable, and
+  replay-rejected. Signed session envelopes preserve `createdAt` while legacy
+  fused cookies remain readable.
+
+- **RPC and request resource limits fail safely.** RPC methods require validation
+  unless `allowUnvalidated: true` is explicit, compiler failure uses the injected
+  fallback checker, and 5xx messages are sanitized. WebSocket in-flight limits are
+  per connection with an optional route-wide total; uploads reject oversized
+  Content-Length before parsing and verify file signatures.
 
 - **Static/download filenames are header-safe.** `Content-Disposition`
   filenames (from `sendFile({ download })` and `streamDownload({ filename })`)
@@ -267,12 +376,27 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Request, cache, and mail behavior now matches its contract.** HTTP cache keys
+  include origin; static unhashed assets revalidate; per-connection WebSocket
+  counters cannot be exhausted by one client; SMTP delivery failures reject
+  instead of reporting success; and session creation timestamps survive signed
+  envelopes. RPC validation and compile-failure fallback no longer admit invalid
+  payloads accidentally.
+
 - **The generated Caddyfile pins `X-Real-IP` to the real peer.** With
   `trustProxy`, `ctx.ip` prefers `x-real-ip` over the rightmost
   `x-forwarded-for` hop — but Caddy only manages `X-Forwarded-*` and passed a
   client-supplied `X-Real-IP` straight through, so a client could choose its
   own IP for rate limiting and audit trails. The `reverse_proxy` block now
   always carries `header_up X-Real-IP {remote_host}`.
+
+### Removed
+
+- **The nonviable HTTP FlatBuffers SDK platform.** It emitted an incomplete,
+  incorrectly bound client and has been removed rather than kept as a duplicate
+  serialization stack. The zero-dependency TypeScript client and OpenAPI package
+  are the supported HTTP SDKs. The independent nova realtime FlatBuffers wire
+  transport remains supported.
 
 ## [0.2.5] — 2026-10-29
 

@@ -2,6 +2,8 @@
  * @fileoverview Codegen: stage 2 — header constants + inlined handlers.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { CompilerOptions } from "../../types";
 import { emitHeatModule } from "./heat";
 import { indentBody } from "./helpers";
@@ -73,12 +75,21 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
       : `const __TRUST_PROXY = false;`,
   );
 
+  const openApiArtifact = join(opts.outDir, "openapi.json");
+  if (opts.generateOpenAPI && existsSync(openApiArtifact)) {
+    header.push(
+      `globalThis.__IGNEX_OPENAPI_JSON = ${JSON.stringify(readFileSync(openApiArtifact, "utf8"))};`,
+    );
+  }
+
   // Shared context options for non-route contexts (OPTIONS/404/405/error
   // paths). Hoisted so the `{ body: BODY_LIMITS }` literal is not re-allocated
   // per request. Declared AFTER `BODY_LIMITS` and `__TRUST_PROXY` (const TDZ —
   // this used to reference `BODY_LIMITS` before initialization and every built
   // server failed to load).
-  header.push(`const __ctxOpts = Object.freeze({ body: BODY_LIMITS, trustProxy: __TRUST_PROXY });`);
+  header.push(
+    `const __ctxOpts = Object.freeze({ body: BODY_LIMITS, trustProxy: __TRUST_PROXY, cache: new HttpResponseCache() });`,
+  );
 
   // Shared TextEncoder — reused by jsonReply/textReply/htmlReply. The previous
   // `new TextEncoder()` per response allocated a fresh encoder per reply.

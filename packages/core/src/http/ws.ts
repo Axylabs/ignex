@@ -143,13 +143,15 @@ export interface WSLimits {
  * Dispatch-level options for {@link createWSHandler}.
  *
  * `maxInflightMessages` bounds concurrent unsettled message handlers per
- * handler: at the cap the socket is closed with 1013 ("Too many in-flight
+ * connection: at the cap the socket is closed with 1013 ("Too many in-flight
  * messages") instead of queueing unbounded promise work — a slow or wedged
  * handler can no longer pin unbounded event-loop/memory per socket.
  */
 export interface WSHandlerOptions extends WSLimits {
-  /** Max concurrent in-flight message handlers (default {@link DEFAULT_MAX_INFLIGHT_MESSAGES}). */
+  /** Max unsettled handlers per connection (default {@link DEFAULT_MAX_INFLIGHT_MESSAGES}). */
   maxInflightMessages?: number;
+  /** Optional process-wide cap shared by every connection handled by this route. */
+  maxTotalInflightMessages?: number;
 }
 
 /** Default in-flight message cap — matches Elysia's 256-message ceiling. */
@@ -337,11 +339,8 @@ export const createWSHandler = <Context, Body, Response>(
   };
 
   const cap = options?.maxInflightMessages ?? DEFAULT_MAX_INFLIGHT_MESSAGES;
+  const totalCap = options?.maxTotalInflightMessages;
   let inFlight = 0;
-  // Outstanding in-flight handlers per socket. The route-wide `inFlight` cap
-  // is only meaningful for LIVE sockets: when a socket closes we release its
-  // slots, so a wedged handler (a promise that never settles) cannot pin the
-  // cap for the whole route and 1013-close every later connection.
   const inFlightBySocket = new WeakMap<ServerWebSocket<Context>, number>();
 
   /** Release one in-flight slot for `socket` (idempotent once it has closed). */
@@ -383,15 +382,13 @@ export const createWSHandler = <Context, Body, Response>(
         }
       }
 
-      // In-flight cap: a handler that never settles must not let the socket
-      // (and the event loop) accumulate unbounded pending work. At the cap the
-      // connection is closed with 1013 instead of queuing another dispatch.
-      if (inFlight >= cap) {
+      const outstanding = inFlightBySocket.get(ws) ?? 0;
+      if (outstanding >= cap || (totalCap !== undefined && inFlight >= totalCap)) {
         ws.close(WS_INFLIGHT_LIMIT_CODE, WS_INFLIGHT_LIMIT_REASON);
         return;
       }
       inFlight++;
-      inFlightBySocket.set(ws, (inFlightBySocket.get(ws) ?? 0) + 1);
+      inFlightBySocket.set(ws, outstanding + 1);
       const pending = invoke(() => hook.message?.(wrap(ws), parsed as Body));
       if (pending) {
         void pending.finally(() => {

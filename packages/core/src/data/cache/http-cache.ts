@@ -69,7 +69,7 @@ export class HttpResponseCache {
 
     const varyKey = vary.map((h) => `${h.toLowerCase()}=${req.headers.get(h) ?? ""}`).join("|");
 
-    return `${req.method}:${url.pathname}${url.search}:${varyKey}`;
+    return `${req.method}:${url.origin}:${url.pathname}${url.search}:${varyKey}`;
   }
 
   private handleStoreError(error: unknown): null {

@@ -16,9 +16,12 @@ export {
   canVerifyPasswordHash,
   passwordHash,
   passwordHashAlgorithm,
+  passwordHashAsync,
   passwordHashFallback,
+  passwordHashFallbackAsync,
   passwordVerify,
   passwordVerifyFallback,
+  passwordVerifyFallbackAsync,
 } from "./password";
 export { sessionOpen, sessionSeal } from "./session";
 export { randomToken, randomTokenFallback } from "./token";

@@ -10,10 +10,12 @@
 export type {
   HttpResponseCacheOptions,
   HttpResponseCacheStore,
+  PersistentHttpResponseCacheStore,
 } from "../data/cache";
 // ── data ────────────────────────────────────────────────────────
 export {
   cacheControl,
+  createPersistentHttpCacheStore,
   entityTag,
   HttpResponseCache,
   parseCacheControl,

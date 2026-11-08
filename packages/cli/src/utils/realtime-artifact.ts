@@ -138,9 +138,14 @@ export const emitRealtimeArtifact = async (root: string, outDir: string): Promis
     );
   }
   const events = declaration.events;
-  if (!isRecord(events) || Object.keys(events).length === 0) {
+  const controlEvents = declaration.controlEvents;
+  if (
+    !isRecord(events) ||
+    (Object.keys(events).length === 0 &&
+      (!isRecord(controlEvents) || Object.keys(controlEvents).length === 0))
+  ) {
     throw new Error(
-      `${sourcePath}: \`realtime.events\` must be a non-empty record of event name → TypeBox schema.`,
+      `${sourcePath}: declare at least one realtime event or RPC/control event using TypeBox schemas.`,
     );
   }
 
@@ -209,4 +214,24 @@ export const ensureLocalRealtimeSdk = async (_root: string, outDir: string): Pro
   const { writeRealtimeSdk } = await import("@ignex/compiler");
   const result = await writeRealtimeSdk({ outDir });
   return result.packages.length > 0;
+};
+
+/** Emit the RPC method manifest from the application's explicit registry module. */
+export const emitRpcManifestArtifact = async (root: string, outDir: string): Promise<boolean> => {
+  const sourcePath = join(root, "src", "rpc", "kit.ts");
+  if (!existsSync(sourcePath)) return false;
+  importSeq += 1;
+  const mod = (await import(`${pathToFileURL(sourcePath).href}?t=${Date.now()}-${importSeq}`)) as {
+    rpc?: { manifest?: () => unknown };
+  };
+  const manifest = mod.rpc?.manifest?.();
+  if (!isRecord(manifest) || !isRecord(manifest.methods)) {
+    throw new Error(`${sourcePath} must export the createRpcKit instance as \`rpc\`.`);
+  }
+  await mkdir(outDir, { recursive: true });
+  const target = join(outDir, "rpc-manifest.json");
+  const tmp = join(outDir, ".rpc-manifest.json.tmp");
+  await writeFile(tmp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  await rename(tmp, target);
+  return true;
 };

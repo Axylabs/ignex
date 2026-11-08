@@ -228,7 +228,7 @@ export const runDebugSystemTool = async (args: {
   }
 };
 
-/** Published clients (SDK + flatbuffers client) with git tags + local state. */
+/** Published SDK clients with git tags + local state. */
 export const runDebugClientsTool = async (args: {
   url?: string;
   token?: string;

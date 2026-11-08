@@ -29,11 +29,14 @@ const fail = (message: string): never => {
 };
 
 // 1. Generate the resource exactly like `ignex resource User --db sql`.
-const fields = parseModelFields("email:string(format email),age:integer,active:boolean");
+const fields = parseModelFields(
+  "email:string(format email),age:integer,active:boolean,tags:array(string),when:date",
+);
 const modelCode = drizzleModelTemplate("User", fields);
+const postgresModelCode = drizzleModelTemplate("User", fields, "postgres");
 const dbCode = drizzleDbTemplate();
 const configCode = drizzleConfigTemplate();
-const routes = drizzleResourceTemplates("User", ["email", "age", "active"]);
+const routes = drizzleResourceTemplates("User", fields);
 
 // 2. Shape sanity.
 if (!modelCode.includes('sqliteTable("users"')) fail("model template missing table");
@@ -41,6 +44,15 @@ if (!dbCode.includes("drizzle-orm/bun-sqlite")) fail("db template missing driver
 if (!configCode.includes('dialect: "sqlite"')) fail("config template missing dialect");
 if (routes.length !== 5) fail("expected 5 CRUD routes");
 if (!routes.some((r) => r.path === "api/users/index.get.ts")) fail("list route path wrong");
+const createRoute = routes.find((r) => r.path === "api/users/index.post.ts")?.content ?? "";
+const readRoute = routes.find((r) => r.path === "api/users/[id].get.ts")?.content ?? "";
+if (!createRoute.includes("toSqlRecord") || !createRoute.includes("Type.Array(Type.String())")) {
+  fail("create route does not preserve typed array semantics");
+}
+if (!createRoute.includes("new Date(value as string | number)")) fail("date conversion missing");
+if (!readRoute.includes("{ status: 400 }") || !readRoute.includes("{ status: 404 }")) {
+  fail("read route does not emit proper 400/404 statuses");
+}
 
 // 3. Import the generated model file (write to a temp dir so `drizzle-orm`
 //    resolves from the workspace).
@@ -52,10 +64,17 @@ try {
   };
   if (!users) fail("generated model did not export the table");
 
+  writeFileSync(join(tmp, "users-postgres.ts"), postgresModelCode);
+  const postgres = (await import(pathToFileURL(join(tmp, "users-postgres.ts")).href)) as {
+    users?: unknown;
+  };
+  if (!postgres.users) fail("generated PostgreSQL model did not evaluate");
+  console.log("PostgreSQL model generation ok (live database not required for this check)");
+
   // 4. Boot SQLite with the schema drizzle-kit would emit and run CRUD.
   const sqlite = new Database(":memory:");
   sqlite.exec(
-    "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, age INTEGER, active INTEGER, created_at INTEGER, updated_at INTEGER);",
+    'CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, age INTEGER, active INTEGER, tags TEXT, "when" INTEGER, created_at INTEGER, updated_at INTEGER);',
   );
   const db = drizzle(sqlite);
 

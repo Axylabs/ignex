@@ -1,16 +1,16 @@
 /**
  * @fileoverview `metricsPlugin` + `createOtlpExporter` — production
  * observability: a `/metrics` Prometheus endpoint, per-request HTTP metrics,
- * and an optional OTLP push exporter for traces/metrics.
+ * and an optional OTLP/HTTP JSON push exporter for metrics.
  *
- * This is DX over the STANDARD protocols (Prometheus text format, OTLP/gRPC
- * via @opentelemetry when installed), not a new monitoring system. The plugin:
+ * This is DX over standard protocols (Prometheus text and OTLP/HTTP JSON),
+ * not a new monitoring system. The plugin:
  *
  *   - counts requests per route/status and records duration histograms;
  *   - serves `GET /metrics` in Prometheus text format (auth via a token
  *     option — metrics endpoints should not be public);
  *   - `createOtlpExporter(metrics, { endpoint })` pushes snapshots on an
- *     interval using the @opentelemetry SDK when installed (optional).
+ *     interval with timeouts, non-overlapping exports, and async shutdown.
  *
  * ```ts
  * import { metricsPlugin } from "@ignex/core";
@@ -104,96 +104,113 @@ export interface OtlpExporterOptions {
   endpoint: string;
   /** Push interval in ms (default 15_000). */
   intervalMs?: number;
+  /** Maximum duration of one export request in ms (default 10_000). */
+  timeoutMs?: number;
   /** Optional headers (auth). */
   headers?: Record<string, string>;
   /** Service name label (default `process.env.OTEL_SERVICE_NAME` or "ignex"). */
   serviceName?: string;
 }
 
-/**
- * Push metric snapshots to an OTLP endpoint on an interval. Uses fetch (the
- * OTLP/HTTP protobuf-JSON path) — no @opentelemetry dependency required.
- * Best-effort: a failed push is logged, never thrown.
- */
+interface OtlpExporter {
+  start(): void;
+  /** Stop scheduled exports and wait for any active request. */
+  stop(): Promise<void>;
+}
+
+const otlpAttributes = (labels: Record<string, string>) =>
+  Object.entries(labels).map(([key, value]) => ({ key, value: { stringValue: value } }));
+
+const otlpPayload = (metrics: Metrics, serviceName: string): Record<string, unknown> => {
+  const snapshot = metrics.snapshot();
+  const counters = snapshot.counters.map((counter) => ({
+    name: counter.name,
+    unit: "1",
+    sum: {
+      dataPoints: [
+        {
+          attributes: otlpAttributes(counter.labels),
+          ...(Number.isInteger(counter.value)
+            ? { asInt: String(counter.value) }
+            : { asDouble: counter.value }),
+        },
+      ],
+      aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE",
+      isMonotonic: true,
+    },
+  }));
+  const histograms = snapshot.histograms.map((histogram) => ({
+    name: histogram.name,
+    unit: "ms",
+    histogram: {
+      dataPoints: [
+        {
+          attributes: otlpAttributes(histogram.labels),
+          count: String(histogram.count),
+          sum: histogram.sum,
+          bucketCounts: [
+            ...histogram.buckets.map((bucket) => String(bucket.count)),
+            String(histogram.count),
+          ],
+          explicitBounds: histogram.buckets.map((bucket) => bucket.le),
+        },
+      ],
+      aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE",
+    },
+  }));
+  return {
+    resourceMetrics: [
+      {
+        resource: { attributes: [{ key: "service.name", value: { stringValue: serviceName } }] },
+        scopeMetrics: [{ scope: { name: "ignex" }, metrics: [...counters, ...histograms] }],
+      },
+    ],
+  };
+};
+
+/** Push standards-shaped OTLP/HTTP JSON metric snapshots without overlapping exports. */
 export const createOtlpExporter = (
   metrics: Metrics,
   options: OtlpExporterOptions,
-): { start(): void; stop(): void } => {
+): OtlpExporter => {
   const intervalMs = options.intervalMs ?? 15_000;
+  const timeoutMs = options.timeoutMs ?? 10_000;
   const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? "ignex";
   let timer: ReturnType<typeof setInterval> | null = null;
+  let active: Promise<void> | null = null;
 
-  const push = async (): Promise<void> => {
-    const snapshot = metrics.snapshot();
-    // Minimal OTLP/HTTP JSON payload: resource + scope metrics with
-    // sum/gauge + histogram data points. Enough for a collector to ingest
-    // without the full SDK.
-    const dataPoints = [
-      ...snapshot.counters.map((c) => ({
-        name: c.name,
-        unit: "1",
-        sum: { value: c.value, aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE" },
-        attributes: Object.entries(c.labels).map(([k, v]) => ({
-          key: k,
-          value: { stringValue: v },
-        })),
-      })),
-      ...snapshot.histograms.map((h) => ({
-        name: h.name,
-        unit: "ms",
-        histogram: {
-          sampleCount: String(h.count),
-          sampleSum: String(h.sum),
-          bucketCounts: [...h.buckets.map((b) => String(b.count)), "0"],
-          explicitBounds: h.buckets.map((b) => b.le),
-        },
-        attributes: Object.entries(h.labels).map(([k, v]) => ({
-          key: k,
-          value: { stringValue: v },
-        })),
-      })),
-    ];
-    const payload = {
-      resourceMetrics: [
-        {
-          resource: { attributes: [{ key: "service.name", value: { stringValue: serviceName } }] },
-          scopeMetrics: [
-            {
-              scope: { name: "ignex" },
-              metrics: dataPoints.map((dp) => ({
-                ...dp,
-                name: dp.name,
-                unit: dp.unit,
-              })),
-            },
-          ],
-        },
-      ],
-    };
-    try {
-      await fetch(options.endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...options.headers },
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      // Best-effort — a down collector must never break the app.
-      console.error(
-        `[otlp] push failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+  const push = (): Promise<void> => {
+    if (active) return active;
+    active = (async () => {
+      try {
+        const response = await fetch(options.endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...options.headers },
+          body: JSON.stringify(otlpPayload(metrics, serviceName)),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!response.ok) throw new Error(`collector returned ${response.status}`);
+      } catch (error) {
+        console.error(
+          `[otlp] push failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    })().finally(() => {
+      active = null;
+    });
+    return active;
   };
 
   return {
     start() {
       if (timer) return;
       timer = setInterval(() => void push(), intervalMs);
+      timer.unref?.();
     },
-    stop() {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+    async stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      await active;
     },
   };
 };

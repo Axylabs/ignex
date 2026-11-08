@@ -73,7 +73,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     enableHandlerDeduplication: true,
     precompileValidators: false,
     precompileSerializers: false,
-    nativeRoutes: true,
+    nativeRoutes: false,
     hoistConstants: true,
     specializeContext: true,
     routeCache: true,
@@ -84,7 +84,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
     enableHandlerDeduplication: true,
     precompileValidators: true,
     precompileSerializers: true,
-    nativeRoutes: true,
+    nativeRoutes: false,
     hoistConstants: true,
     specializeContext: true,
     routeCache: true,
@@ -95,6 +95,7 @@ export const optimizationPresets: Record<OptimizationLevel, Partial<CompilerOpti
 /** Build the fully-defaulted {@link CompilerOptions} (env-aware). */
 export const createDefaultOptions = (): CompilerOptions => ({
   routesDir: process.env.ROUTES_DIR || "./src/routes",
+  hooksDir: process.env.HOOKS_DIR || "./src/hooks",
   appConfig: process.env.APP_CONFIG || "./src/app.config.ts",
   // NOTE: no `maxRequestBodySize` literal here — the emitted bootstrap falls
   // back to the shared core constant (DEFAULT_MAX_REQUEST_BODY_SIZE, 64MB) so
@@ -129,7 +130,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
 
   precompileValidators: true,
   precompileSerializers: true,
-  nativeRoutes: true,
+  nativeRoutes: false,
 
   hoistConstants: true,
   specializeContext: true,

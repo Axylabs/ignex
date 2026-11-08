@@ -40,11 +40,15 @@ const toRouteDefinition = (route: RouteIR): Parameters<typeof generateOpenAPI>[1
 export const generateOpenApi = (
   routes: readonly RouteIR[],
   opts: CompilerOptions,
-): Record<string, unknown> =>
-  generateOpenAPI(
+): Record<string, unknown> => {
+  const document = opts.openApi ?? {};
+  return generateOpenAPI(
     {
-      title: opts.serviceName ?? "ignex",
-      version: "1.0.0",
+      title: document.title ?? opts.serviceName ?? "ignex",
+      version: document.version ?? "1.0.0",
+      ...(document.description !== undefined ? { description: document.description } : {}),
     },
     routes.map(toRouteDefinition),
+    document,
   ) as Record<string, unknown>;
+};

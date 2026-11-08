@@ -2,6 +2,7 @@
  * @fileoverview `routes.d.ts` type artifact generation.
  */
 
+import { jsonSchemaToTs } from "../../sdk/json-schema-to-ts";
 import type { CompilerOptions, ModuleInfo, RouteIR } from "../../types";
 import { walk } from "../../utils/ast";
 import { toImportPath } from "../codegen/config";
@@ -129,6 +130,17 @@ const groupByPath = (routes: readonly RouteIR[]): Map<string, RouteIR[]> => {
   return byPath;
 };
 
+const responseType = (schema: unknown): string => {
+  if (schema === undefined || schema === null) return "unknown";
+  if (typeof schema === "object" && !Array.isArray(schema)) {
+    const entries = Object.entries(schema as Record<string, unknown>);
+    if (entries.length > 0 && entries.every(([status]) => /^\d{3}$/.test(status))) {
+      return entries.map(([, value]) => jsonSchemaToTs(value)).join(" | ");
+    }
+  }
+  return jsonSchemaToTs(schema);
+};
+
 /** Emit one method block of the `IgnexRoutes` interface. */
 const emitRouteMethod = (
   lines: string[],
@@ -136,24 +148,27 @@ const emitRouteMethod = (
   typedBodies: Map<RouteIR, string>,
 ): void => {
   const method = route.source.method.toLowerCase();
+  const schemaDoc = route.decisions.schemaDoc as Record<string, unknown> | undefined;
   lines.push(`    ${method}: {`);
 
   if (route.source.paramNames.length > 0) {
-    lines.push(`      params: ${tsParamType(route.source.paramNames)};`);
+    lines.push(
+      `      params: ${schemaDoc?.params === undefined ? tsParamType(route.source.paramNames) : jsonSchemaToTs(schemaDoc.params)};`,
+    );
   }
 
-  if (route.analysis.usage.query) {
-    lines.push("      query: Record<string, string | string[]>;");
+  if (route.analysis.usage.query || schemaDoc?.query !== undefined) {
+    lines.push(
+      `      query: ${schemaDoc?.query === undefined ? "Record<string, string | string[]>" : jsonSchemaToTs(schemaDoc.query)};`,
+    );
   }
 
-  // A body type is emitted when the handler reads `ctx.body` OR the route
-  // declares a body schema (schema-first routes validate the body even if
-  // the handler never reads it). Prefer the typed `Static<typeof …>` form.
-  const schemaDoc = route.decisions?.schemaDoc as { body?: unknown } | undefined;
   if (route.analysis.usage.body || schemaDoc?.body !== undefined) {
-    lines.push(`      body: ${typedBodies.get(route) ?? "unknown"};`);
+    lines.push(
+      `      body: ${typedBodies.get(route) ?? (schemaDoc?.body === undefined ? "unknown" : jsonSchemaToTs(schemaDoc.body))};`,
+    );
   }
 
-  lines.push("      response: unknown;");
+  lines.push(`      response: ${responseType(schemaDoc?.response)};`);
   lines.push("    };");
 };

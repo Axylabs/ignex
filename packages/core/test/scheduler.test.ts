@@ -90,6 +90,41 @@ describe("createScheduler", () => {
     expect(scheduler.jobs.filter((n) => n === "dup").length).toBe(1);
   });
 
+  it("does not let a permanently failed run block future schedules", async () => {
+    const { store, scheduler } = makeScheduler();
+    await store.enqueue({
+      id: "old-failure",
+      name: "recovered",
+      status: "failed",
+      runAt: Date.now(),
+      attempts: 1,
+      maxAttempts: 1,
+      createdAt: Date.now(),
+    });
+    const task = vi.fn(async () => {});
+    vi.useFakeTimers();
+    scheduler.cron("* * * * * *", "recovered", task);
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(2_500);
+    scheduler.stop();
+    expect(task).toHaveBeenCalledOnce();
+  });
+
+  it("can leave execution to a durable worker without inline claims", async () => {
+    const store = createStoreJobStore(createMemoryStore());
+    const scheduler = createScheduler({ store, executeInline: false, log: () => {} });
+    const task = vi.fn(async () => {});
+    vi.useFakeTimers();
+    scheduler.cron("* * * * * *", "worker-only", task);
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(2_500);
+    scheduler.stop();
+    expect(task).not.toHaveBeenCalled();
+    expect(
+      (await store.list()).some((job) => job.name === "worker-only" && job.status === "queued"),
+    ).toBe(true);
+  });
+
   it("rejects an invalid cron expression at registration", () => {
     const { scheduler } = makeScheduler();
     expect(() => scheduler.cron("not-a-cron", "bad", async () => {})).toThrow();

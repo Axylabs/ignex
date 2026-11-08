@@ -13,14 +13,10 @@ import {
   metricsLibTemplate,
   realtimeLibTemplate,
   rpcKitTemplate,
+  rpcRealtimeTemplate,
 } from "../templates/libs.js";
 import { loggerLibTemplate } from "../templates/logger.js";
-import {
-  middlewareIndexTemplate,
-  middlewareLogRequestsTemplate,
-  middlewareReadmeTemplate,
-  middlewareRequestIdTemplate,
-} from "../templates/middleware.js";
+import { middlewareIndexTemplate, middlewareReadmeTemplate } from "../templates/middleware.js";
 import type { ProjectTemplateOptions } from "../templates/project.js";
 import {
   biomeTemplate,
@@ -286,9 +282,15 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
     // Production module bundles — module-scope singletons under src/lib.
     { path: "src/lib/metrics.ts", when: "metrics", content: () => metricsLibTemplate() },
     { path: "src/lib/jobs.ts", when: "durableJobs", content: () => durableJobsLibTemplate() },
+    {
+      path: "src/jobs.ts",
+      when: "durableJobs",
+      content: () => 'export { jobs, start, stop } from "./lib/jobs.js";\n',
+    },
     { path: "src/lib/realtime.ts", when: "realtime", content: () => realtimeLibTemplate() },
     { path: "src/lib/mailer.ts", when: "mailer", content: () => mailerLibTemplate() },
     { path: "src/rpc/kit.ts", when: "rpc", content: () => rpcKitTemplate() },
+    { path: "src/realtime.ts", when: "rpc", content: () => rpcRealtimeTemplate() },
     { path: "src/ws.example.ts", when: "ws", content: () => wsExampleTemplate() },
     {
       path: "src/middleware/README.md",
@@ -299,16 +301,6 @@ const plannedFiles = (opts: ProjectTemplateOptions): readonly PlannedFile[] => {
       path: "src/middleware/index.ts",
       when: "middleware",
       content: () => middlewareIndexTemplate(),
-    },
-    {
-      path: "src/middleware/request-id.ts",
-      when: "middleware",
-      content: () => middlewareRequestIdTemplate(),
-    },
-    {
-      path: "src/middleware/log-requests.ts",
-      when: "middleware",
-      content: () => middlewareLogRequestsTemplate(),
     },
     {
       path: "src/lib/auth.ts",

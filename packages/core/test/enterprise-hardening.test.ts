@@ -226,6 +226,26 @@ describe("rate limit — atomic shared counting + error policy", () => {
     expect((res as Response).status).toBe(503);
   });
 
+  it("fail-closed also covers asynchronous write failures", async () => {
+    const { rateLimit } = await import("../src/plugins/ratelimit");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = {
+      get: async () => undefined,
+      set: async () => {
+        throw new Error("write failed");
+      },
+    } as unknown as RateLimitStore;
+    const plugin = rateLimit({ store: broken, onStoreError: "closed" });
+    const res = await plugin.onRequest({
+      setState: () => {},
+      headers: new Headers(),
+      ip: "1.2.3.4",
+    } as never);
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(503);
+    consoleSpy.mockRestore();
+  });
+
   it("fail-open (default) allows requests when the store errors", async () => {
     const { rateLimit } = await import("../src/plugins/ratelimit");
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -244,21 +264,22 @@ describe("rate limit — atomic shared counting + error policy", () => {
     consoleSpy.mockRestore();
   });
 
-  it("createRedisRateLimitStore exposes the atomic incr contract", async () => {
-    let incrCalls = 0;
+  it("createRedisRateLimitStore increments and returns the real TTL atomically", async () => {
+    let count = 0;
+    let ttl = -1;
     const store = createRedisRateLimitStore({
       client: async () => ({
-        incr: async () => {
-          incrCalls += 1;
-          return incrCalls;
+        eval: async () => {
+          count += 1;
+          if (ttl < 0) ttl = 60_000;
+          return [count, ttl];
         },
-        pexpire: async () => 1,
       }),
     });
     const e1 = await store.incr("k", 60_000, 1_000);
     const e2 = await store.incr("k", 60_000, 1_001);
-    expect(e1.count).toBe(1);
-    expect(e2.count).toBe(2);
+    expect(e1).toEqual({ count: 1, resetTime: 61_000 });
+    expect(e2).toEqual({ count: 2, resetTime: 61_001 });
     await store.close();
   });
 });

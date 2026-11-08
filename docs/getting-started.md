@@ -63,7 +63,7 @@ What you get:
 - `src/app.config.ts` — plugins (debugbar, session, openapi, plus any selected features), lifecycle, and a **typed** `server` config (`ServerConfig` — HTTPS or plain HTTP per the wizard)
 - `src/config/env.ts` — validated environment config (a TypeBox schema + `defineEnv`) and `.env.example` derived from it
 - `src/lib/auth.ts` + auth routes (register / login / me) when you pass `--features auth`
-- `ignex.config.mjs` — compiler profile (optimization level, artifact toggles)
+- `ignex.config.mjs` — typed project overrides only; optimized compiler defaults are inherited, with `sdk` and `openApi` sections for generation customization
 - `vitest.config.ts` + `test/` — a scaffolded integration test
 
 Environment variables are declared in `src/config/env.ts` with a TypeBox
@@ -156,7 +156,7 @@ skipped):
 
 ```sh
 ignex add auth                 # auth lib + require-auth hook + register/login/me routes
-ignex add auth,refresh         # + refresh/logout with revocable refresh tokens
+ignex add auth,refresh         # + durable hashed refresh rotation/logout
 ignex add cors,security        # src/plugins/index.ts, wired into src/app.config.ts
 ignex add sessions --dry-run   # preview the files without writing them
 ```

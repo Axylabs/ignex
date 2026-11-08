@@ -95,7 +95,7 @@ describe("emitRealtimeArtifact", () => {
 
     writeFileSync(join(root, "src", "realtime.ts"), `export const realtime = { events: {} };`);
     await expect(emitRealtimeArtifact(root, join(root, ".ignex"))).rejects.toThrow(
-      /non-empty record/,
+      /at least one realtime event or RPC\/control event/,
     );
   });
 });

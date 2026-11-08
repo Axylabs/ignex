@@ -32,7 +32,7 @@ const queue = createDurableJobQueue({ store, handlers });
 // The scheduler enqueues a durable job per cron tick. Inline run is disabled
 // (no runIfUnclaimed) — schedule:run owns execution, so multiple replicas
 // never double-run a scheduled job.
-const scheduler = createScheduler({ store });
+const scheduler = createScheduler({ store, executeInline: false });
 
 // ── add scheduled jobs here ──────────────────────────────────────────────
 // scheduler.cron("0 9 * * *", "morning-digest", async () => { ... });

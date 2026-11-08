@@ -27,6 +27,7 @@ const buildWithParamRoute = async (): Promise<{ outDir: string }> => {
     'export default () => ({ id: "x" });\n',
   );
   writeFileSync(join(routesDir, "notify.post.ts"), "export default (ctx) => ctx.body.json();\n");
+  writeFileSync(join(routesDir, "search.get.ts"), "export default (ctx) => ctx.query;\n");
   const result = await buildAsync({
     routesDir,
     outDir,
@@ -54,10 +55,8 @@ describe("generated client.ts (SDK)", () => {
 
     // Codegen-time knowledge drives params-vs-init (no runtime heuristic) and
     // the params+body call shape is part of the emitted contract.
-    expect(client).toContain(
-      'const ROUTE_ARGS: Record<string, "none" | "params" | "body" | "params+body"> = {',
-    );
-    expect(client).toContain('"/products/:id": "params"');
+    expect(client).toContain("const ROUTE_ARGS: Record<string, string> = {");
+    expect(client).toContain('"get /products/:id": "params"');
     expect(client).toContain('"params+body"');
     expect(client).not.toContain("instanceof URLSearchParams");
 
@@ -135,12 +134,16 @@ describe("generated client.ts (runtime)", () => {
       expect(bodyInit?.method).toBe("POST");
       expect(bodyInit?.body).toBe('{"hello":"world"}');
 
-      // 4. Client-wide init headers deep-merge with per-call headers.
+      // 4. Query routes serialize scalar and array values.
+      await client["/search"].get({ q: "hello world", tag: ["a", "b"] });
+      expect(requests[4]?.url).toBe("http://api.test/search?q=hello%20world&tag=a&tag=b");
+
+      // 5. Client-wide init headers deep-merge with per-call headers.
       const withBase = mod.createApiClient("http://api.test", {
         headers: { "x-app": "1" },
       });
       await withBase["/health"].get({ headers: { "x-call": "2" } });
-      const lastHeaders = requests[4]?.init?.headers as Record<string, string>;
+      const lastHeaders = requests[5]?.init?.headers as Record<string, string>;
       expect(lastHeaders?.["x-app"]).toBe("1");
       expect(lastHeaders?.["x-call"]).toBe("2");
     } finally {

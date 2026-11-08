@@ -7,7 +7,7 @@
  * - added route metadata for future validators/serializers/OpenAPI
  */
 
-import type { ContextUsage, HttpMethod } from "@ignex/shared";
+import type { ContextUsage, HttpMethod, OpenAPIDocumentOptions } from "@ignex/shared";
 import type { Diagnostic, DiagnosticCollector } from "./diagnostics";
 import type { SourceFile } from "./frontend/source-file";
 import type { SourceManager } from "./frontend/source-manager";
@@ -261,11 +261,11 @@ export interface CompilerOptions {
 
   readonly reusePort?: boolean;
 
-  // Advanced AOT options
   readonly generateTypes?: boolean;
   readonly generateOpenAPI?: boolean;
+  /** Canonical document customization shared with runtime docs and SDKs. */
+  readonly openApi?: OpenAPIDocumentOptions;
   readonly generateClient?: boolean;
-
   readonly precompileValidators?: boolean;
   readonly precompileSerializers?: boolean;
 

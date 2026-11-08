@@ -21,18 +21,25 @@ import { env } from "../config/env.js";
  */
 export const metrics = createMetrics();
 
-// Optional OTLP push (traces/metrics to a collector). Requires the
-// @opentelemetry SDK packages when enabled.
-if (env.OTLP_ENDPOINT) {
-  createOtlpExporter(metrics, { endpoint: env.OTLP_ENDPOINT });
-}
+// Optional OTLP metrics push. Stop the exporter during application shutdown.
+export const otlp = env.OTLP_ENDPOINT
+  ? createOtlpExporter(metrics, { endpoint: env.OTLP_ENDPOINT })
+  : null;
+otlp?.start();
+
+export const metricsLifecycle = {
+  name: "metrics-lifecycle",
+  async close(): Promise<void> {
+    await otlp?.stop();
+  }
+};
 `;
 }
 
 /** `src/lib/jobs.ts` — durable (SQLite) job queue + handler registry. */
 export function durableJobsLibTemplate(): string {
   return `import { mkdirSync } from "node:fs";
-import { type JobHandler, createDurableJobQueue, createSqliteJobStore } from "@ignex/core";
+import { type JobHandler, type JobStore, createDurableJobQueue, createSqliteJobStore } from "@ignex/core";
 
 /**
  * Handler registry — one entry per background job name. Enqueue from any
@@ -49,7 +56,16 @@ const handlers: Record<string, JobHandler> = {
  */
 mkdirSync("./data", { recursive: true });
 const store = await createSqliteJobStore("./data/jobs.db");
-export const jobs = createDurableJobQueue({ store, handlers, concurrency: 2 });
+if (!store) throw new Error("Durable jobs require bun:sqlite");
+const jobStore: JobStore = store;
+export const jobs = createDurableJobQueue({ store: jobStore, handlers, concurrency: 2 });
+export function start(): void {
+  jobs.start();
+}
+export async function stop(): Promise<void> {
+  await jobs.stop();
+  await jobStore.close?.();
+}
 `;
 }
 
@@ -81,8 +97,8 @@ import { env } from "../config/env.js";
 
 /**
  * Transactional email. Uses the built-in \`log\` driver until SMTP_HOST is
- * set (then real SMTP via nodemailer). The mailer never throws on the
- * request path — prefer handing sends to a job (src/lib/jobs.ts).
+ * set (then real SMTP via pooled nodemailer). Delivery failures reject;
+ * queue important messages and close the mailer during application shutdown.
  */
 export const mailer = createMailer(
   env.SMTP_HOST
@@ -99,12 +115,18 @@ export const mailer = createMailer(
       }
     : { driver: "log", from: env.SMTP_FROM },
 );
+
+export const mailerLifecycle = {
+  name: "mailer-lifecycle",
+  close: () => mailer.close()
+};
 `;
 }
 
 /** `src/rpc/kit.ts` — typed, schema-validated RPC methods over the realtime hub. */
 export function rpcKitTemplate(): string {
   return `import { Type } from "typebox";
+import { Check } from "typebox/value";
 import { createRpcKit } from "@ignex/core";
 
 /**
@@ -113,11 +135,42 @@ import { createRpcKit } from "@ignex/core";
  * in .ignex/rpc-manifest.json. Call \`await rpc.registerDispatcher()\`
  * after the hub boots (see the realtime kit docs for the full wiring).
  */
-export const rpc = createRpcKit({ manifestPath: ".ignex/rpc-manifest.json" });
+export const rpc = createRpcKit({
+  manifestPath: ".ignex/rpc-manifest.json",
+  fallbackCheck: (schema, value) => Check(schema, value)
+});
 
 rpc.define("ping", {
   schema: Type.Object({ echo: Type.Optional(Type.String()) }),
   handler: async (payload) => ({ pong: payload, at: Date.now() }),
 });
+
+export const rpcLifecycle = {
+  name: "rpc-lifecycle",
+  init: () => rpc.registerDispatcher()
+};
+`;
+}
+
+/** `src/realtime.ts` — realtime control-channel declarations for the RPC bundle. */
+export function rpcRealtimeTemplate(): string {
+  return `import { Type } from "typebox";
+
+export const realtime = {
+  events: {},
+  controlEvents: {
+    "rpc.request": Type.Object({
+      id: Type.String(),
+      method: Type.String(),
+      payload: Type.String()
+    }),
+    "rpc.response": Type.Object({
+      id: Type.String(),
+      ok: Type.Boolean(),
+      data: Type.String(),
+      error: Type.String()
+    })
+  }
+};
 `;
 }

@@ -903,20 +903,13 @@ try {
     },
   );
 
-  await check(
-    "global middleware: x-request-id (plugin) + x-ignex-middleware (lifecycle)",
-    async () => {
-      const res = await fetch(`${BASE}/health`);
-      expectStatus(res, 200);
-      // Custom `IgnexPlugin` (onRequest/onResponse) — see src/middleware/request-id.ts.
-      const requestId = res.headers.get("x-request-id");
-      if (!requestId || requestId.length < 8) {
-        throw new Error(`x-request-id ${JSON.stringify(requestId)}`);
-      }
-      // Global lifecycle `afterHandle` hook — see src/middleware/log-requests.ts.
-      expectHeader(res, "x-ignex-middleware", "true");
-    },
-  );
+  await check("requestId plugin correlates an inbound id on the response", async () => {
+    const res = await fetch(`${BASE}/health`, {
+      headers: { "x-request-id": "smoke-request-id" },
+    });
+    expectStatus(res, 200);
+    expectHeader(res, "x-request-id", "smoke-request-id");
+  });
 
   /* ---------- robustness ---------- */
   await check("20 concurrent GET /health all 200", async () => {

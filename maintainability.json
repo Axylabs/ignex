@@ -10,10 +10,6 @@
       "lines": 706,
       "rationale": "interpreted router + AOT path — Tier B (handler timeout dispatch race)"
     },
-    "packages/compiler/src/sdk/flatbuffers.ts": {
-      "lines": 687,
-      "rationale": "SDK flatbuffers codegen — Tier D"
-    },
     "packages/compiler/src/sdk/typescript.ts": {
       "lines": 687,
       "rationale": "SDK TS client generation — Tier D"
@@ -55,8 +51,8 @@
       "rationale": "debug tracer — Tier C"
     },
     "packages/compiler/src/cache.ts": {
-      "lines": 546,
-      "rationale": "AOT cache + COMPILER_CACHE_VERSION — Tier D (cache-version contract — split with care)"
+      "lines": 556,
+      "rationale": "AOT cache + COMPILER_CACHE_VERSION — Tier D (cache-version contract — split with care; 0.9.29 version-history entry)"
     },
     "packages/cli/src/commands/ops.ts": {
       "lines": 722,
@@ -79,8 +75,8 @@
       "rationale": "CLI event command — Tier E"
     },
     "packages/compiler/src/phases/codegen/helpers.ts": {
-      "lines": 485,
-      "rationale": "codegen helpers — Tier D (handler-timeout race emission)"
+      "lines": 507,
+      "rationale": "codegen helpers — Tier D (handler-timeout race emission; 0.9.28 shared request-independent instances — timeout Response + miss headers baked at module load)"
     },
     "packages/compiler/src/types.ts": {
       "lines": 478,

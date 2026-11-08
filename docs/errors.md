@@ -363,8 +363,10 @@ Development prints every failure. `IGNEX_ERROR_DEDUPE_MS` overrides the window;
 
 ## Correlating a request with its log line
 
-`ctx.requestId` (and the `x-request-id` response header when tracing is on) is
-attached to the report as `request <id>`. The AOT-compiled server passes its
+`ctx.requestId` is attached to the report as `request <id>`. Register the
+opt-in `requestId()` plugin to accept a validated inbound `x-request-id` (or a
+custom header), echo it on every response, and keep context state, logs, errors,
+and application metadata on the same id. The AOT-compiled server passes its
 specialized context, so `method`/`path`/`route` appear when the route uses them.
 
 Set `IGNEX_DEBUG=1` to also print the original error object, its properties and

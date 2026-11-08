@@ -17,7 +17,6 @@ import {
 import { env } from "./config/env.js";
 import { dbPlugin } from "./db.js";
 import { middleware } from "./middleware/index.js";
-import { logRequests, markResponse } from "./middleware/log-requests.js";
 
 export const plugins: IgnexPlugin[] = [
   // Custom global plugins (see src/middleware/) — run on every request.
@@ -35,8 +34,7 @@ export const plugins: IgnexPlugin[] = [
   // eliminates it entirely, and a production PROCESS keeps it locked off
   // unless IGNEX_DEBUG=1 is explicitly set — a stray DEBUG=true env file
   // cannot ship the toolbar to prod.
-  // `sdkPaths`/`clientPaths` point the Clients panel at the packages
-  // `ignex sdk` generates.
+  // `sdkPaths` points the Clients panel at packages `ignex sdk` generates.
   ...(env.DEBUG
     ? [
         debugbar({
@@ -47,7 +45,6 @@ export const plugins: IgnexPlugin[] = [
           // `--cwd packages/app`).
           docsPaths: ["../../docs", "../../README.md"],
           sdkPaths: ["dist/sdk/typescript/package.json", "dist/sdk/openapi/package.json"],
-          clientPaths: ["dist/sdk/flatbuffers/package.json"],
         }),
       ]
     : []),
@@ -108,8 +105,6 @@ const i18n = createI18n(
 
 export const lifecycle = {
   request: [i18n.middleware()],
-  // Global lifecycle stage hooks (see src/middleware/log-requests.ts).
-  beforeHandle: [logRequests(), markResponse()],
 };
 
 // Static response headers served natively by Bun's default-header sink (applied

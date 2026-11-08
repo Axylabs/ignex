@@ -36,23 +36,15 @@ export const createPluginContext = (): PluginContext => {
       plugins.push(plugin);
     },
     async initAll() {
-      // Run every plugin's init even if one fails; report failures but don't
-      // leave later plugins un-initialized. If any init failed, rethrow so
-      // callers can fail CLOSED (`createApp({ strictInit: true })` never binds
-      // the listener) — `Promise.allSettled` guarantees later plugins still
-      // ran regardless.
-      //
-      // Each failure is reported WITH the plugin's name through
-      // `reportPluginBootFailure`: the user sees the configuration-first report
-      // (`.env` state, the rejected connection variable, what to fix) instead of
-      // a raw driver object graph, and the rethrown error stays compact.
-      const results = await Promise.allSettled(plugins.map((p) => p.init?.()));
+      // Registration order is the dependency contract. Run every plugin even
+      // after a failure, but never run dependent initializers concurrently.
       const failures: Error[] = [];
-      for (const [index, result] of results.entries()) {
-        if (result.status !== "rejected") continue;
-        failures.push(
-          reportPluginBootFailure(plugins[index]?.name ?? "anonymous plugin", result.reason),
-        );
+      for (const plugin of plugins) {
+        try {
+          await plugin.init?.();
+        } catch (error) {
+          failures.push(reportPluginBootFailure(plugin.name ?? "anonymous plugin", error));
+        }
       }
       if (failures.length > 0) {
         throw failures.length === 1

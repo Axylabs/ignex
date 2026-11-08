@@ -124,10 +124,16 @@ Two cross-cutting layers sit directly under `src/`:
   stages (`imports.ts` → `header.ts` → `routes.ts` → `routetable.ts` →
   `server.ts`) over a shared `CodegenState`; `identifiers.ts` owns all
   generated-name conventions and `helpers.ts` the dependency-aware helper
-  registry.
-- **linker** — wires route modules, hooks, and app config together.
+  registry. Plugin `routes()` registrations run after ordered plugin
+  initialization and before the listener binds; duplicate file/plugin routes
+  fail at boot. Plugins serving an existing compiled document (for example
+  OpenAPI) declare `aotRoutes: "intercept"` instead of registering a duplicate.
+- **linker** — wires route modules, hooks, and app config together. Unresolved
+  application imports fail the build; only documented optional peers may remain
+  external.
 - **artifacts** — writes `routes.d.ts`, `client.ts`/`client.d.ts`,
-  `openapi.json`, `manifest.json`.
+  `openapi.json`, `manifest.json`. OpenAPI JSON is also embedded in the compiled
+  server, so standalone binaries do not probe the source tree at request time.
 
 The pipeline itself is composed declaratively in `src/index.ts`: each phase is
 a pure function over a `PipelineState`, threaded with `pipe` (sync path) or
@@ -174,6 +180,18 @@ emits a context that only carries the used members; `EMPTY_USAGE` /
 2. add it to the `USAGE_FLAGS` table in `utils/ast/usage.ts`,
 3. gate the context emission on the flag in `codegen.ts`,
 4. add a test in `packages/compiler/test/ast.test.ts`.
+
+## Application use cases
+
+`packages/core/src/application/` contains the functional application-layer
+contract. `defineUseCase(implementation)` returns a factory that binds explicit
+application dependencies and then produces a typed `(input) => output` function.
+It performs no I/O and owns no global or request state. Applications define
+ports as structural interfaces, keep domain decisions pure, and put side effects
+in injected adapters. Shared instances must be concurrency-safe; request state
+belongs in the invocation input or `IgnexContext`, never in an application-scoped
+closure. See [the cookbook](cookbook.md#use-cases-and-dependency-lifetimes) for
+the standard module layout and composition-root example.
 
 ## Runtime lifecycle
 

@@ -5,6 +5,7 @@
  * implementation is grouped by use case into domain folders so each concern
  * stays small and discoverable:
  *
+ *   application/— functional use cases + explicit dependency lifetimes
  *   security/   — auth, csrf, crypto, session        (request security & trust)
  *   http/       — context, body, proxy, files, sse, ws, route DSL
  *   data/       — cache, dataloader, lru, query, schema, validation
@@ -32,6 +33,7 @@
  */
 /// <reference lib="dom" />
 
+export * from "./publ/application";
 export * from "./publ/client";
 export * from "./publ/content";
 export * from "./publ/data";

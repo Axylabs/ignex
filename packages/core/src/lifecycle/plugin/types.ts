@@ -102,12 +102,13 @@ export interface IgnexPlugin {
   close?(): MaybePromise<void>;
 
   /**
-   * Register plugin routes onto the interpreted router. Called by `createApp`
-   * once, before `router.bind(...)`, only when the app uses a router. Never
-   * invoked for compiled (AOT) apps — plugins there contribute lifecycle
-   * hooks only (see {@link IgnexPlugin.onRequest} for the compiled fallback).
+   * Register routes in interpreted and compiled apps. AOT registration happens
+   * after plugin initialization and before the listener binds; conflicting file
+   * and plugin routes fail at boot.
    */
   routes?(router: IgnexRouter): void;
+  /** AOT route strategy. `intercept` keeps an onRequest-only endpoint out of the route table. */
+  readonly aotRoutes?: "register" | "intercept";
 
   // Request lifecycle
   onRequest?(ctx: IgnexContext): MaybePromise<IgnexContext | Response>;

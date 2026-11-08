@@ -47,6 +47,10 @@ sdk/         SDK generation support
   `templates/features.ts`, wiring in `utils/app-config-merge.ts`). Keep the two
   in sync — `planInstall` is exhaustive over `FEATURE_NAMES`, so a new feature
   fails to typecheck until it is declared there.
+- `ignex resource --db sql` emits Drizzle CRUD for SQLite by default or
+  PostgreSQL with `--sql-driver postgres`; migrations use `drizzle-kit migrate`,
+  not `push`. Keep dialect-specific model imports and awaited route queries in
+  sync, and verify SQLite with `bun run verify:drizzle`.
 - `ignex route` inspects the route table (verify with
   `bun run verify:cli:resource`); `ignex dev` runs the watch loop
   (`--no-spawn` to build-only, `--open` to launch the browser).

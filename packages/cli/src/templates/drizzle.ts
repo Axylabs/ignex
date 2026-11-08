@@ -3,27 +3,18 @@
  * same CLI surface as the ninox Mongo path.
  *
  *   ignex resource User --db sql --fields "email:string,age:integer"
+ *   ignex resource User --db sql --sql-driver postgres
  *
- * Emits:
- *   src/models/<plural>.ts        drizzle schema tables (sqlite, bun:sqlite)
- *   src/db-sql.ts                 the drizzle client (lazy)
- *   drizzle.config.ts             drizzle-kit config (migrations via bun:sqlite)
- *   src/routes/api/<plural>/*.ts  CRUD routes over drizzle queries
- *
- * Field DSL mapping (same DSL as `ignex model`):
- *   string            → text
- *   string(format email) → text (validated at the route)
- *   string(min/max N) → text
- *   integer           → integer
- *   number            → real
- *   boolean           → integer({ mode: "boolean" })
- *   date              → integer({ mode: "timestamp_ms" })
- *   objectId          → text (stored as a 24-hex string)
- *   array(x)          → text (JSON-encoded)
- *   enum(a,b,c)       → text (validated at the route)
- *   any               → text
+ * Emits dialect-specific tables, a shared client, drizzle-kit config, and CRUD
+ * routes. SQLite uses bun:sqlite; PostgreSQL uses node-postgres. Numeric,
+ * boolean, and date fields use real/doublePrecision, integer(boolean)/boolean,
+ * and integer(timestamp_ms)/timestamp respectively. ObjectIds, arrays, enums,
+ * and arbitrary values use text; routes validate and JSON-convert as needed.
  */
 import { type ModelField, pluralize } from "./model.js";
+
+/** Supported SQL drivers for generated resources. */
+export type SqlDialect = "sqlite" | "postgres";
 
 /** The snake_case SQL column name for a field (kebab/camel → snake). */
 export const sqlColumnName = (name: string): string =>
@@ -33,44 +24,68 @@ export const sqlColumnName = (name: string): string =>
     .toLowerCase();
 
 /** Map one model field → a drizzle column line. */
-export const drizzleColumn = (field: ModelField): string => {
+export const drizzleColumn = (field: ModelField, dialect: SqlDialect = "sqlite"): string => {
   const col = sqlColumnName(field.line.split(":")[0]?.trim() ?? "field");
   const spec = field.spec ?? "string";
   const s = spec.trim();
 
   if (s === "integer") return `${col}: integer("${col}"),`;
-  if (s === "number") return `${col}: real("${col}"),`;
-  if (s === "boolean") return `${col}: integer("${col}", { mode: "boolean" }),`;
-  if (s === "date") return `${col}: integer("${col}", { mode: "timestamp_ms" }),`;
-  if (s === "objectId") return `${col}: text("${col}"),`;
-  if (s === "any") return `${col}: text("${col}"),`;
-  if (s.startsWith("enum(")) return `${col}: text("${col}"),`;
-  if (s.startsWith("array(")) return `${col}: text("${col}"),`;
-  return `${col}: text("${col}"),`; // string + string(format/min/max)
+  if (s === "number")
+    return `${col}: ${dialect === "postgres" ? "doublePrecision" : "real"}("${col}"),`;
+  if (s === "boolean") {
+    return dialect === "postgres"
+      ? `${col}: boolean("${col}"),`
+      : `${col}: integer("${col}", { mode: "boolean" }),`;
+  }
+  if (s === "date") {
+    return dialect === "postgres"
+      ? `${col}: timestamp("${col}", { withTimezone: true }),`
+      : `${col}: integer("${col}", { mode: "timestamp_ms" }),`;
+  }
+  if (s === "objectId" || s === "any") return `${col}: text("${col}"),`;
+  if (s.startsWith("enum(") || s.startsWith("array(")) return `${col}: text("${col}"),`;
+  return `${col}: text("${col}"),`;
 };
 
-/** `src/models/<plural>.ts` — a drizzle sqlite table from the field DSL. */
-export const drizzleModelTemplate = (name: string, fields: ModelField[]): string => {
+/** `src/models/<plural>.ts` — a drizzle table from the field DSL. */
+export const drizzleModelTemplate = (
+  name: string,
+  fields: readonly ModelField[],
+  dialect: SqlDialect = "sqlite",
+): string => {
   const plural = pluralize(name);
   const Type = name.charAt(0).toUpperCase() + name.slice(1);
-  const columns = fields.map((f) => `  ${drizzleColumn(f)}`).join("\n");
-  return `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+  const columns = fields.map((field) => `  ${drizzleColumn(field, dialect)}`).join("\n");
+  const table = dialect === "postgres" ? "pgTable" : "sqliteTable";
+  const imports = new Set(["integer", table]);
+  if (dialect === "postgres") imports.add("timestamp");
+  for (const field of fields) {
+    const builder = /^[^:]+:\s+(\w+)\(/.exec(drizzleColumn(field, dialect))?.[1];
+    if (builder) imports.add(builder);
+  }
+  const idColumn =
+    dialect === "postgres"
+      ? 'integer("id").primaryKey().generatedAlwaysAsIdentity()'
+      : 'integer("id").primaryKey({ autoIncrement: true })';
+  const createdAtColumn =
+    dialect === "postgres"
+      ? 'timestamp("created_at", { withTimezone: true })'
+      : 'integer("created_at", { mode: "timestamp_ms" })';
+  const updatedAtColumn =
+    dialect === "postgres"
+      ? 'timestamp("updated_at", { withTimezone: true })'
+      : 'integer("updated_at", { mode: "timestamp_ms" })';
+  return `import { ${[...imports].sort().join(", ")} } from "drizzle-orm/${dialect === "postgres" ? "pg" : "sqlite"}-core";
 
 /**
- * SQL model for "${plural}" — generated by \`ignex resource ${name} --db sql\`.
- *
- * Columns map from the same field DSL as the Mongo path (text / integer /
- * real / boolean-as-integer / timestamp-ms-as-integer / JSON-encoded arrays
- * and enums as text). Dates and arrays are stored losslessly:
- *   - date      → INTEGER (unix ms) — drizzle mode timestamp_ms
- *   - array(x)  → TEXT (JSON) — decode with JSON.parse
- *   - enum(a,b) → TEXT — validated by the route's TypeBox schema
+ * SQL model for "${plural}" (${dialect}) — generated by \`ignex resource ${name}\`.
+ * JSON-encoded arrays and enums are validated by the route schemas.
  */
-export const ${plural} = sqliteTable("${plural}", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const ${plural} = ${table}("${plural}", {
+  id: ${idColumn},
 ${columns}
-  createdAt: integer("created_at", { mode: "timestamp_ms" }),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+  createdAt: ${createdAtColumn},
+  updatedAt: ${updatedAtColumn},
 });
 
 export type ${Type} = typeof ${plural}.$inferSelect;
@@ -78,32 +93,41 @@ export type New${Type} = typeof ${plural}.$inferInsert;
 `;
 };
 
-/** `src/db-sql.ts` — the shared drizzle client (lazy). */
-export const drizzleDbTemplate = (): string => `import { Database } from "bun:sqlite";
+/** `src/db-sql.ts` — the shared drizzle client for the selected SQL driver. */
+export const drizzleDbTemplate = (dialect: SqlDialect = "sqlite"): string => {
+  if (dialect === "postgres") {
+    return `import { drizzle } from "drizzle-orm/node-postgres";
+import { env } from "./config/env.js";
+
+// PostgreSQL through the standard node-postgres driver and validated DATABASE_URL.
+export const db = drizzle(env.DATABASE_URL ?? "postgres://localhost:5432/app");
+`;
+  }
+  return `import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { env } from "./config/env.js";
 
-// SQLite via bun:sqlite (zero-config, file-backed). The file path is the
-// validated DATABASE_URL from src/config/env.ts (wired automatically when this
-// file is first generated). For Postgres swap the driver:
-//   import { drizzle } from "drizzle-orm/node-postgres";
-//   export const db = drizzle(env.DATABASE_URL!);
+// SQLite via bun:sqlite (zero-config, file-backed).
 const sqlite = new Database(env.DATABASE_URL ?? "./data/app.db");
 sqlite.exec("PRAGMA journal_mode = WAL;");
 
 export const db = drizzle(sqlite);
 export { sqlite };
 `;
+};
 
-/** `drizzle.config.ts` — drizzle-kit migrations for the generated schema. */
-export const drizzleConfigTemplate = (): string => `import { defineConfig } from "drizzle-kit";
+/** `drizzle.config.ts` — drizzle-kit migrations for the selected driver. */
+export const drizzleConfigTemplate = (dialect: SqlDialect = "sqlite"): string => {
+  const fallback = dialect === "postgres" ? "postgres://localhost:5432/app" : "./data/app.db";
+  return `import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   schema: "./src/models/*.ts",
   out: "./drizzle",
-  dialect: "sqlite",
+  dialect: "${dialect}",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "./data/app.db",
+    url: process.env.DATABASE_URL ?? "${fallback}",
   },
 });
 `;
+};

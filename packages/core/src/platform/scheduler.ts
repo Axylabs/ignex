@@ -56,6 +56,8 @@ export interface SchedulerOptions {
   skipWhenInFlight?: boolean;
   /** Optional sink for scheduler diagnostics (default `console`). */
   log?: (message: string) => void;
+  /** Run unclaimed ticks in this process after 1s (default true). Workers set false. */
+  executeInline?: boolean;
 }
 
 /** The scheduler surface. */
@@ -101,9 +103,11 @@ const cryptoHex = (bytes: number): string => {
 async function hasInFlight(store: JobStore, name: string): Promise<boolean> {
   try {
     const all = await store.list();
-    return all.some((job) => job.name === name && job.status !== "completed");
+    return all.some(
+      (job) => job.name === name && (job.status === "queued" || job.status === "running"),
+    );
   } catch {
-    return false; // store unavailable — don't block the schedule
+    return true;
   }
 }
 
@@ -118,6 +122,7 @@ async function handleTick(
   task: () => Promise<void> | void,
   log: (message: string) => void,
   skipWhenInFlight: boolean,
+  executeInline: boolean,
   newJobId: () => string,
 ): Promise<void> {
   if (skipWhenInFlight && (await hasInFlight(store, name))) {
@@ -136,8 +141,7 @@ async function handleTick(
   };
   try {
     await store.enqueue(run);
-    // Single-process apps: run inline if no worker claims it first.
-    void runIfUnclaimed(store, run, task, log);
+    if (executeInline) void runIfUnclaimed(store, run, task, log);
   } catch (error) {
     log(`enqueue error for ${name}: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -167,7 +171,16 @@ export const createScheduler = (options: SchedulerOptions): Scheduler => {
       jobs.get(name)?.handle.stop();
       const onTick = (): void => {
         if (!started.value) return; // registered paused; start() begins ticking
-        void handleTick(options.store, name, expression, task, log, skipWhenInFlight, newJobId);
+        void handleTick(
+          options.store,
+          name,
+          expression,
+          task,
+          log,
+          skipWhenInFlight,
+          options.executeInline !== false,
+          newJobId,
+        );
       };
       const handle = scheduleTick(expression, onTick); // validates + throws on bad expressions
       const entry = { name, expression, stopped: false, handle };

@@ -9,9 +9,9 @@ import { service } from "../db.js";
  * Unlike /health (liveness: process is up), this runs a REAL dependency check
  * (Mongo ping via ninox's `service.health()`) and returns 503 when it fails —
  * so a replica with a dead MongoDB stops receiving traffic instead of serving
- * errors. AOT note: plugin-registered routes don't exist in compiled apps, so
- * the probe lives here as a file route using `runReadinessChecks` (the same
- * semantics as the interpreted-only `healthProbe()` plugin).
+ * errors. This app keeps the probe as an explicit file route using
+ * `runReadinessChecks`; `healthProbe()` can register equivalent routes in both
+ * interpreted and compiled apps.
  */
 const checks: readonly ReadinessCheck[] = [
   {

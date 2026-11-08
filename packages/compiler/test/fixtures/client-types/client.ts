@@ -2,18 +2,24 @@
 import { createClient } from "@ignex/core";
 import type { IgnexRoutes } from "./routes";
 
-// Per-route call signature, derived from the route's declared params/body:
-//   params+body → (params, body, init?)
-//   params      → (params, init?)
-//   body        → (body, init?)
-//   none        → (init?)
-type IgnexRouteHandler<Route> = Route extends { params: infer P; body: unknown }
-  ? (params: P, body: unknown, init?: RequestInit) => Promise<unknown>
-  : Route extends { params: infer P }
-    ? (params: P, init?: RequestInit) => Promise<unknown>
-    : Route extends { body: unknown }
-      ? (body: unknown, init?: RequestInit) => Promise<unknown>
-      : (init?: RequestInit) => Promise<unknown>;
+type IgnexResponse<Route> = Route extends { response: infer R } ? R : unknown;
+
+type IgnexRouteHandler<Route> =
+  Route extends { params: infer P; query: infer Q; body: infer B }
+    ? (params: P, query: Q, body: B, init?: RequestInit) => Promise<IgnexResponse<Route>>
+    : Route extends { params: infer P; query: infer Q }
+      ? (params: P, query: Q, init?: RequestInit) => Promise<IgnexResponse<Route>>
+      : Route extends { query: infer Q; body: infer B }
+        ? (query: Q, body: B, init?: RequestInit) => Promise<IgnexResponse<Route>>
+        : Route extends { params: infer P; body: infer B }
+          ? (params: P, body: B, init?: RequestInit) => Promise<IgnexResponse<Route>>
+          : Route extends { params: infer P }
+            ? (params: P, init?: RequestInit) => Promise<IgnexResponse<Route>>
+            : Route extends { query: infer Q }
+              ? (query: Q, init?: RequestInit) => Promise<IgnexResponse<Route>>
+              : Route extends { body: infer B }
+                ? (body: B, init?: RequestInit) => Promise<IgnexResponse<Route>>
+                : (init?: RequestInit) => Promise<IgnexResponse<Route>>;
 
 export type IgnexClient = {
   [Path in keyof IgnexRoutes]: {
@@ -28,68 +34,67 @@ const ROUTES: Record<string, string> = {
   "post /submit/:id": "/submit/:id",
 };
 
-// Route path → call shape ("none" | "params" | "body" | "params+body").
-const ROUTE_ARGS: Record<string, "none" | "params" | "body" | "params+body"> = {
-  "/": "none",
-  "/products/:id": "params",
-  "/echo": "body",
-  "/submit/:id": "params+body"
+const ROUTE_ARGS: Record<string, string> = {
+  "get /": "none",
+  "get /products/:id": "params",
+  "post /echo": "body",
+  "post /submit/:id": "params+body"
 };
 
 const buildUrl = (path: string, params?: Record<string, string | number>): string => {
   let url = path;
   for (const [key, value] of Object.entries(params ?? {})) {
-    url = url
-      .replace(`:${key}`, encodeURIComponent(String(value)))
-      .replace(`*${key}`, encodeURIComponent(String(value)));
+    const encoded = encodeURIComponent(String(value));
+    url = url.replaceAll(`:${key}`, encoded).replaceAll(`*${key}`, encoded);
   }
   return url;
 };
 
-// Deep-merge per-call init over the client-wide init so a per-call header
-// doesn't clobber headers set on `createApiClient` (shallow spread would).
+const buildQuery = (query?: Record<string, unknown>): string => {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value === undefined || value === null) continue;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(item))}`);
+    }
+  }
+  return parts.length > 0 ? `?${parts.join("&")}` : "";
+};
+
 const mergeInit = (base: RequestInit | undefined, per: RequestInit | undefined): RequestInit => {
   const out: RequestInit = { ...base, ...per };
   if (base?.headers && per?.headers) {
-    out.headers = {
-      ...(base.headers as Record<string, string>),
-      ...(per.headers as Record<string, string>),
-    };
+    out.headers = { ...(base.headers as Record<string, string>), ...(per.headers as Record<string, string>) };
   }
   return out;
 };
 
 export function createApiClient(baseUrl = "", init?: RequestInit): IgnexClient {
   const client = createClient({ baseUrl });
-
   const routeHandler = (pathKey: string) => {
     const path = ROUTES[pathKey] ?? pathKey;
-    const mode = ROUTE_ARGS[path] ?? "none";
     return new Proxy({} as Record<string, (...args: unknown[]) => Promise<unknown>>, {
       get(_, methodKey: string) {
+        const method = methodKey.toUpperCase();
+        const mode = ROUTE_ARGS[`${method.toLowerCase()} ${path}`] ?? "none";
         return async (...args: unknown[]) => {
-          if (mode === "params+body") {
-            const [params, body, requestInit] = args as [Record<string, string | number>, unknown, RequestInit?];
-            return client.request(methodKey.toUpperCase(), buildUrl(path, params), body, mergeInit(init, requestInit));
-          }
-          if (mode === "params") {
-            const [params, requestInit] = args as [Record<string, string | number>, RequestInit?];
-            return client.request(methodKey.toUpperCase(), buildUrl(path, params), undefined, mergeInit(init, requestInit));
-          }
-          if (mode === "body") {
-            const [body, requestInit] = args as [unknown, RequestInit?];
-            return client.request(methodKey.toUpperCase(), path, body, mergeInit(init, requestInit));
-          }
-          const [requestInit] = args as [RequestInit?];
-          return client.request(methodKey.toUpperCase(), path, undefined, mergeInit(init, requestInit));
+          let params: Record<string, string | number> | undefined;
+          let query: Record<string, unknown> | undefined;
+          let body: unknown;
+          let requestInit: RequestInit | undefined;
+          if (mode === "params+query+body") [params, query, body, requestInit] = args as [Record<string, string | number>, Record<string, unknown>, unknown, RequestInit?];
+          else if (mode === "params+query") [params, query, requestInit] = args as [Record<string, string | number>, Record<string, unknown>, RequestInit?];
+          else if (mode === "query+body") [query, body, requestInit] = args as [Record<string, unknown>, unknown, RequestInit?];
+          else if (mode === "params+body") [params, body, requestInit] = args as [Record<string, string | number>, unknown, RequestInit?];
+          else if (mode === "params") [params, requestInit] = args as [Record<string, string | number>, RequestInit?];
+          else if (mode === "query") [query, requestInit] = args as [Record<string, unknown>, RequestInit?];
+          else if (mode === "body") [body, requestInit] = args as [unknown, RequestInit?];
+          else [requestInit] = args as [RequestInit?];
+          const url = buildUrl(path, params) + buildQuery(query);
+          return client.request(method, url, body, mergeInit(init, requestInit));
         };
       },
     });
   };
-
-  return new Proxy({} as IgnexClient, {
-    get(_, pathKey: string) {
-      return routeHandler(pathKey);
-    },
-  });
+  return new Proxy({} as IgnexClient, { get(_, pathKey: string) { return routeHandler(pathKey); } });
 }

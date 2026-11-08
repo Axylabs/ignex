@@ -10,15 +10,12 @@
  *   - **Interpreted** (`createApp({ router, plugins: [openapi()] })`):
  *     registers real routes via `routes(router)` and generates the document
  *     on demand by introspecting `router.listRoutes()`.
- *   - **AOT/compiled** (plugins from `src/app.config.ts`): `routes()` is never
- *     invoked, so `onRequest` intercepts the two paths and serves the
- *     compiler-generated `openapi.json` artifact (probed from
- *     `.ignex/openapi.json` → `dist/openapi.json`, overridable via
- *     `artifactPath`), falling back to runtime generation when absent. The
- *     NEWEST artifact among all candidates wins (keyed by mtime), so dev-mode
- *     regeneration is always served — a stale `dist` build never shadows the
- *     fresh `.ignex` artifact the watcher just produced, and no restart is
- *     needed to pick up a regenerated file.
+ *   - **AOT/compiled** (plugins from `src/app.config.ts`): `aotRoutes:
+ *     "intercept"` keeps the endpoints out of the route table so `onRequest`
+ *     serves the complete compiler-generated document. Embedded OpenAPI JSON is
+ *     preferred for standalone binaries; external `.ignex`/`dist` artifacts
+ *     remain development fallbacks (`artifactPath` overrides), with the NEWEST
+ *     readable file winning and mtime-keyed cache invalidation.
  *
  * The plugin's own endpoints are hidden from the document both by path
  * exclusion and `detail.hide` (the shared generator skips hidden routes), so
@@ -32,9 +29,11 @@ import type { IgnexPlugin } from "../lifecycle/plugin";
 import {
   generateOpenAPI,
   type OpenAPIDocument,
+  type OpenAPIDocumentOptions,
   type OpenAPIInfo,
   type RouteDefinition,
 } from "../openapi";
+import { embeddedArtifact, newestArtifact } from "./openapi-artifact";
 
 /** Docs UI providers supported by {@link openapi}. */
 export type OpenAPIProvider = "scalar" | "swagger-ui" | null;
@@ -47,6 +46,8 @@ export interface OpenAPIOptions {
   specPath?: string;
   /** Docs UI provider. Default `"scalar"`; `null` disables the UI page. */
   provider?: OpenAPIProvider;
+  /** Canonical document options shared with the compiled `openApi` config. */
+  document?: OpenAPIDocumentOptions;
   /** Document-level metadata — merged into the `info` block / root. */
   documentation?: {
     title?: string;
@@ -141,15 +142,6 @@ const swaggerUiHtml = (
 const paramNamesOf = (path: string): readonly string[] =>
   [...path.matchAll(/:([A-Za-z0-9_]+)/g)].map((match) => match[1] ?? "").filter(Boolean);
 
-/**
- * True when the last path segment carries a file extension (`/assets/app.js`,
- * `/openapi.json`) — the "static file" heuristic used for `exclude.staticFile`.
- */
-const isStaticFile = (routePath: string): boolean => {
-  const last = routePath.slice(routePath.lastIndexOf("/") + 1);
-  return last.includes(".") && !last.endsWith("/");
-};
-
 const jsonResponse = (doc: unknown): Response =>
   new Response(JSON.stringify(doc), {
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
@@ -183,6 +175,7 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
     specPath = "/openapi.json",
     provider = "scalar",
     documentation = {},
+    document = {},
     exclude,
     scalar = {},
     swagger = {},
@@ -197,64 +190,59 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
   let warnedFallback = false;
 
   const info: OpenAPIInfo = {
-    title: documentation.title ?? "IgnEx API",
-    version: documentation.version ?? "0.1.0",
+    title: document.title ?? documentation.title ?? "IgnEx API",
+    version: document.version ?? documentation.version ?? "0.1.0",
   };
-  if (documentation.description !== undefined) info.description = documentation.description;
+  const description = document.description ?? documentation.description;
+  if (description !== undefined) info.description = description;
 
   const ownPaths = new Set<string>([specPath]);
   if (typeof path === "string") ownPaths.add(path);
-
-  const excludedMethods = new Set((exclude?.methods ?? ["options"]).map((m) => m.toLowerCase()));
-
-  const isExcludedPath = (routePath: string): boolean => {
-    if (ownPaths.has(routePath)) return true;
-    if (exclude?.staticFile !== false && isStaticFile(routePath)) return true;
-    for (const pattern of exclude?.paths ?? []) {
-      if (typeof pattern === "string" ? pattern === routePath : pattern.test(routePath)) {
-        return true;
-      }
-    }
-    return false;
+  const specOptions: OpenAPIDocumentOptions = {
+    ...document,
+    ...(documentation.tags !== undefined ? { tags: documentation.tags } : {}),
+    exclude: {
+      ...document.exclude,
+      ...exclude,
+      paths: [...(document.exclude?.paths ?? []), ...(exclude?.paths ?? []), ...ownPaths],
+      methods: exclude?.methods ?? document.exclude?.methods ?? ["options"],
+      staticFile: exclude?.staticFile ?? document.exclude?.staticFile ?? true,
+    },
   };
 
   /** Map runtime route registrations onto the shared `RouteDefinition` contract. */
   const toRouteDefinitions = (regs: readonly RouteRegistration[]): RouteDefinition[] =>
-    regs
-      .filter((reg) => !excludedMethods.has(reg.method.toLowerCase()))
-      .filter((reg) => !isExcludedPath(reg.path))
-      .map((reg) => {
-        const def: RouteDefinition = {
-          method: reg.method,
-          path: reg.path,
-          paramNames: paramNamesOf(reg.path),
-          usesBody: reg.schema?.body != null,
+    regs.map((reg) => {
+      const def: RouteDefinition = {
+        method: reg.method,
+        path: reg.path,
+        paramNames: paramNamesOf(reg.path),
+        usesBody: reg.schema?.body != null,
+      };
+      if (reg.schema) {
+        def.schema = {
+          body: reg.schema.body,
+          headers: reg.schema.headers,
+          query: reg.schema.query,
+          params: reg.schema.params,
+          cookie: reg.schema.cookie,
+          response: reg.schema.response,
         };
-        if (reg.schema) {
-          def.schema = {
-            body: reg.schema.body,
-            headers: reg.schema.headers,
-            query: reg.schema.query,
-            params: reg.schema.params,
-            cookie: reg.schema.cookie,
-            response: reg.schema.response,
-          };
-        }
-        if (reg.detail) def.detail = reg.detail as Record<string, unknown>;
-        return def;
-      });
+      }
+      if (reg.detail) def.detail = reg.detail as Record<string, unknown>;
+      return def;
+    });
 
   /** Build the runtime document from the router's registered routes (cached). */
   const buildSpec = (): OpenAPIDocument => {
     if (!router) {
       // AOT/no-router: nothing to enumerate at runtime — the compiled
       // artifact (readArtifact) is the source of truth.
-      return generateOpenAPI(info, []);
+      return generateOpenAPI(info, [], specOptions);
     }
     const regs = router.listRoutes();
     if (cachedSpec && cachedSpec.count === regs.length) return cachedSpec.doc;
-    const doc = generateOpenAPI(info, toRouteDefinitions(regs));
-    if (documentation.tags !== undefined) doc.tags = documentation.tags;
+    const doc = generateOpenAPI(info, toRouteDefinitions(regs), specOptions);
     cachedSpec = { count: regs.length, doc };
     return doc;
   };
@@ -275,19 +263,11 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
    * regenerated artifact invalidates it on the next request without a restart.
    */
   const readArtifact = async (): Promise<OpenAPIDocument | undefined> => {
+    const embedded = embeddedArtifact();
+    if (embedded) return embedded;
     if (typeof Bun === "undefined") return undefined;
 
-    let newest: { path: string; mtimeMs: number } | undefined;
-    for (const candidate of candidatePaths()) {
-      try {
-        const file = Bun.file(candidate);
-        if (!(await file.exists())) continue;
-        const mtimeMs = file.lastModified;
-        if (!newest || mtimeMs > newest.mtimeMs) newest = { path: candidate, mtimeMs };
-      } catch {
-        // Unreadable candidate — try the next.
-      }
-    }
+    const newest = await newestArtifact(candidatePaths());
     if (!newest) return undefined;
 
     // Serve the cached parse when the newest file is unchanged.
@@ -378,6 +358,7 @@ export const openapi = (options: OpenAPIOptions = {}): IgnexPlugin => {
 
   return {
     name: "openapi",
+    aotRoutes: "intercept",
     routes: registerRoutes,
     onRequest,
     /**

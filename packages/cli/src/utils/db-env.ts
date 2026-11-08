@@ -23,8 +23,8 @@ import { envConfigTemplate, envExampleTemplate } from "../templates/env.js";
 import { exists, readTextFile, writeFileEnsuringDir } from "./fs.js";
 import { success, warn } from "./logger.js";
 
-/** The two data layers that map a connection URL through the env config. */
-export type DbKind = "mongo" | "sql";
+/** The data layers that map a connection URL through the env config. */
+export type DbKind = "mongo" | "sql" | "postgres";
 
 /** The env schema entry + matching `.env.example` section per data layer. */
 const DB_ENV_ENTRY: Record<DbKind, { readonly schema: string; readonly example: string }> = {
@@ -38,12 +38,18 @@ MONGO_URL=mongodb://localhost:27017/`,
     example: `# OPTIONAL — DATABASE_URL (default: ./data/app.db)
 DATABASE_URL=./data/app.db`,
   },
+  postgres: {
+    schema: '  DATABASE_URL: Type.String({ default: "postgres://localhost:5432/app" }),',
+    example: `# OPTIONAL — DATABASE_URL (default: postgres://localhost:5432/app)
+DATABASE_URL=postgres://localhost:5432/app`,
+  },
 };
 
 /** The env var a data layer maps (used for idempotency checks). */
 export const DB_ENV_VAR: Record<DbKind, string> = {
   mongo: "MONGO_URL",
   sql: "DATABASE_URL",
+  postgres: "DATABASE_URL",
 };
 
 /**

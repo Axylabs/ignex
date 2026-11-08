@@ -202,14 +202,14 @@ New resources are merged into an existing `src/db.ts` automatically (import,
 `openapi,examples,tests`; `all`/`none` also accepted):
 
 - `auth` — full auth route set: `POST /auth/register`, `POST /auth/login`,
-  `GET /auth/me`, plus `src/lib/auth.ts` (Ed25519 `authModule()`,
-  `createPasswordHasher`, in-memory user store) and the `require-auth` hook.
+  `GET /auth/me`, plus `src/lib/auth.ts` (Ed25519 `authModule()`, portable
+  scrypt `createPasswordHasher`, durable SQLite users) and `require-auth`.
 - `refresh` — adds `POST /auth/refresh` and `POST /auth/logout` on top of
-  `auth` (opaque, revocable refresh tokens backed by the session store).
+  `auth` (opaque hashed tokens, durable single-use rotation, replay rejection).
   Requires `auth` (enabled automatically if omitted).
-- `middleware` — global hooks scaffold: `src/middleware/` with a custom
-  `IgnexPlugin` (`request-id.ts`) + lifecycle `HookFn`s (`log-requests.ts`),
-  wired into the `plugins` array and a `lifecycle` export in `app.config.ts`.
+- `middleware` — `src/middleware/` registers the built-in `requestId()` plugin
+  and documents application-owned `IgnexPlugin`/lifecycle extension points;
+  only the middleware spread is wired into `app.config.ts`.
 - `sessions`, `cors`, `rateLimit`, `security`, `compression`, `logger`,
   `openapi`, `files`, `ws`, `sse`, `cache`, `proxy`, `templates`,
   `env`, `jobs`, `i18n`, `examples`, `tests` — the remaining toggles.

@@ -15,13 +15,14 @@ Public surface = `src/index.ts` barrel + documented subpaths
 
 | Folder | Contents |
 | --- | --- |
+| `application/` | `defineUseCase` (typed higher-order dependency binding; no ambient/request state) |
 | `security/` | `auth` (requireAuth/optionalAuth/JWT/basic/bearer), `session` (signed-cookie + store), `csrf` (double-submit), `crypto` (JWT / cookie signer / CSRF / password hash / AEAD) |
 | `http/` | `context` (`IgnexContext` + `createContext`), `cookies`, `headers`, `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first `get`/`post`/… — `@ignex/core/http`), `conditional`, `finalize` |
 | `data/` | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
 | `lifecycle/` | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics + `mergeLifeCycle`), `plugin` (+ `hookToPlugin`) |
 | `platform/` | `env` (typed accessors), `config` (`defineConfig` — `@ignex/core/config`), `coerce`, `jobs` (durable + store), `errors` (`HTTPError` family), `sqlite`, `metrics`, `mailer`, `notifier`, `scheduler` |
 | `content/` | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |
-| `plugins/` | ready-made `IgnexPlugin` factories: auth-module, auth, session, csrf, cors, compression, security, logger, ratelimit, rbac, native, nova, openapi, debugbar, metrics |
+| `plugins/` | ready-made `IgnexPlugin` factories: auth-module, auth, session, csrf, cors, compression, security, logger, request-id, ratelimit, rbac, native, nova, openapi, debugbar, metrics |
 | `debug/` | debugbar + observatory (logs, metrics/Prometheus, SQLite history, leak diagnostics); KT collection in `kt.ts`, pure rendering in `knowledge-markdown.ts`, shared span descriptions in `span-kind-names.ts` |
 | `types/` | unified type umbrella (`types/http.ts` + `types/lifecycle.ts`) |
 | `rpc/` | realtime RPC kit (manifest + bindings) |
@@ -51,6 +52,9 @@ requestId, locals).
   compiled/interpreted router and OpenAPI generation derive from the same
   schemas; keep them in sync.
 - New plugins are `IgnexPlugin` factories in `plugins/` with a barrel export.
+  `routes()` registers in interpreted and AOT apps after ordered initialization;
+  use `aotRoutes: "intercept"` only when an `onRequest` endpoint serves an
+  existing compiled artifact and must stay out of the route table.
 - `@ignex/core/http` subpath = `src/http/route.ts` — don't move it without
   updating `package.json` exports AND the compiler's generated imports.
 

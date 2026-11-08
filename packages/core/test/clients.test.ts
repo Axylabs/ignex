@@ -54,21 +54,21 @@ describe("ClientRegistry", () => {
     expect(clients[0]?.gitTags).toEqual([]);
   });
 
-  it("detects frontend clients via kind/platform metadata (flatbuffers)", () => {
+  it("detects frontend clients via kind/platform metadata (realtime)", () => {
     const { pkgPath } = scratch({
       "package.json": JSON.stringify({
         name: "@acme/api-client",
         version: "0.5.0",
         kind: "client",
-        platform: "flatbuffers",
-        files: ["dist", "schema.fbs"],
+        platform: "realtime",
+        files: ["dist", "realtime/schema.fbs"],
       }),
     });
     const registry = new ClientRegistry({ cwd: "/" });
     const client = registry.list([pkgPath])[0];
     expect(client?.kind).toBe("client");
-    expect(client?.platform).toBe("flatbuffers");
-    expect(client?.files).toContain("schema.fbs");
+    expect(client?.platform).toBe("realtime");
+    expect(client?.files).toContain("realtime/schema.fbs");
   });
 
   it("probes directories and sdk.json metadata files", () => {

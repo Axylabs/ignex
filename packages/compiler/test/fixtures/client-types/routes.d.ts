@@ -17,8 +17,12 @@ export interface IgnexRoutes {
   };
   "/echo": {
     post: {
-      body: unknown;
-      response: unknown;
+      body: {
+  value: string;
+};
+      response: {
+  ok: boolean;
+};
     };
   };
   "/submit/:id": {

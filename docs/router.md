@@ -218,12 +218,14 @@ to `Bun.serve` untouched:
 Dispatch bounds (`WSHandlerOptions extends WSLimits`):
 
 - `maxInflightMessages` (default 256, matching Elysia) caps concurrent
-  **unsettled** message handlers per handler. At the cap the socket is closed
-  with **1013** (`"Too many in-flight messages"`) instead of queueing unbounded
-  promise work — a slow or wedged handler can no longer pin unbounded
-  event-loop time or memory per socket. The counter decrements when the
-  handler's promise settles; a synchronously-throwing handler decrements
-  immediately.
+  **unsettled** message handlers **per connection**. At the cap the socket is
+  closed with **1013** (`"Too many in-flight messages"`) instead of queueing
+  unbounded promise work. The counter decrements when the handler's promise
+  settles; a synchronously-throwing handler decrements immediately.
+- `maxTotalInflightMessages` optionally caps unsettled handlers across every
+  connection on that route. Reaching either limit closes the offending socket,
+  preventing many concurrent clients from multiplying one route's memory and
+  event-loop work without bound.
 - Every hook (open/message/drain/close) is wrapped in `invoke`, which contains
   sync throws and reports async rejections (`console.error`, never a crash), so
   one bad handler cannot take down socket dispatch or connection bookkeeping.

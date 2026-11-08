@@ -43,12 +43,13 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
    input; only `http`/`https`, rejecting `javascript:`/`data:`/`vbscript:`,
    protocol-relative, backslash and CR/LF forms), and `trustedHost()` compares
    case-insensitively with port normalization and rejects control characters.
-9. **Concurrent state mutations can't lose or duplicate work.** Job-store
-   mutations (`enqueue`/`claim`/`claimOne`/`complete`/`fail`/`heartbeat`/
-   `releaseExpired`) run through a per-instance serialization chain, so no two
-   workers claim one job on a fresh-read backend; `SessionStore.update(id, fn)`
-   is an atomic read-modify-write, so concurrent writers to one session merge
-   instead of dropping each other.
+9. **State mutation safety is explicit about its backend boundary.** Job-store
+   mutations use atomic store `update()` where available (SQLite immediate
+   transactions, Redis optimistic transactions) plus per-instance serialization;
+   owner-token leases reject stale completion. Custom stores without atomic
+   updates are only serialized within one process. `SessionStore.update(id, fn)`
+   is an atomic read-modify-write on supporting backends. Queue delivery remains
+   at least once, never an exactly-once promise.
 10. **Failed builds emit nothing.** `precompileStage`/`artifactsStage`/
     `linkStage` short-circuit on `ctx.diagnostics.hasErrors`, so a throwing build
     leaves no partial `dist/` for watchers and SDK tooling to consume.
@@ -73,7 +74,7 @@ fragility) · 🟡 open (hygiene/debt) · ✅ resolved.
 | `detectFramingConflict` | `packages/core/src/http/framing-guard.ts` | Rejects CL+TE, duplicate `Content-Length`, non-`chunked` TE → 400 `framing-conflict` | HTTP request smuggling |
 | `maxHeaderBytes` | `packages/core/src/http/header-cap.ts` | Byte tally (names + values + CRLF) at request entry → 431 | DoS — request size limits |
 | Instance-scoped state | `debug/tracer.ts`, `debug/nats-tracker.ts`, `platform/scheduler.ts`, `debug/logs.ts` | No module-level mutable ids/sequences; injectable `SpanIdSource`, crypto suffixes | Test isolation / order-independent suites |
-| Job-store serialization | `packages/core/src/platform/jobs-store.ts` | Per-instance read-modify-write chain; no double-claim | Lost-update / double-claim integrity |
+| Atomic job updates | `packages/core/src/platform/jobs-store.ts` + `data/store/*` | SQLite/Redis transactions, per-instance fallback, owner-token leases | Lost-update / stale-owner integrity |
 | `SessionStore.update` | `packages/core/src/security/session.ts` | Atomic per-id mutation on the backing store | Concurrent-writer integrity |
 | `hasErrors` gates | `packages/compiler/src/phases/*` | No artifacts on a failing build | Build failure hygiene |
 | `SELECTION` deep-freeze | `packages/native/src/selection.ts` | Immutable golden data | Read-only invariant |
@@ -497,7 +498,15 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
     races matter, and a wholesale conversion is not scheduled.
 14. **Parse-level incremental compilation** — the cache fingerprints whole
     builds today; per-module parse reuse is tracked separately.
-15. **Distributed CAS for rate limiting / job claiming** — the plugin's atomic
-    path requires a store exposing `incr` (redis), and job claims rely on driver
-    atomicity plus owner-token leases. A pluggable CAS contract for non-atomic
-    shared stores is future work.
+15. **Distributed CAS for custom stores** — Redis job updates now use
+    `WATCH`/`MULTI` retries, SQLite uses `BEGIN IMMEDIATE`, and Redis fixed-window
+    limiting is one Lua operation. Custom shared stores without atomic `update()`
+    still only have per-instance serialization and need a backend-specific CAS.
+16. **External-service release matrix** — unit tests and real SQLite CRUD are
+    green, but live PostgreSQL, Redis, MongoDB, NATS, SMTP, and an OTLP collector
+    still need staged integration/soak/failover runs before calling those drivers
+    production-validated. Template-level PostgreSQL support is not a live-DB proof.
+17. **Enterprise identity and delivery** — OIDC/OAuth2, MFA/WebAuthn, full
+    OpenTelemetry trace export, transactional outbox, and organization/tenant
+    administration remain roadmap features, not implied by the current auth,
+    metrics, and durable-job primitives.

@@ -1,27 +1,20 @@
 /**
- * Scaffold template tests — the generated `ignex.config.mjs` must carry the
- * production optimization profile (parity with packages/app/builder.ts) so a
- * fresh `ignex create` project gets the tuned defaults, not the compiler's
- * raw defaults.
+ * Scaffold config inherits optimized framework defaults and carries only
+ * project-specific overrides, including SDK/OpenAPI extension points.
  */
 
 import { expect, test } from "vitest";
 import { ignexConfigTemplate } from "../src/templates/project.js";
 
-test("ignexConfigTemplate emits the production optimization profile", () => {
+test("ignexConfigTemplate emits a minimal typed override surface", () => {
   const config = ignexConfigTemplate();
 
-  expect(config).toContain("optimizationLevel: 3");
-  expect(config).toContain("precompileValidators: true");
-  expect(config).toContain("precompileSerializers: true");
-  expect(config).toContain("generateTypes: true");
-  expect(config).toContain("generateOpenAPI: true");
-  expect(config).toContain("generateClient: true");
-  expect(config).toContain("specializeContext: true");
-  expect(config).toContain("hoistConstants: true");
-  expect(config).toContain("routeCache: true");
-  expect(config).toContain('routesDir: "src/routes"');
-  expect(config).toContain('outFile: "server.js"');
+  expect(config).toContain('import("@ignex/cli/config").IgnexProjectConfig');
+  expect(config).toContain("export default {}");
+  expect(config).not.toContain("optimizationLevel: 3");
+  expect(config).not.toContain("precompileValidators: true");
+  expect(config).not.toContain("generateOpenAPI: true");
+  expect(config).not.toContain("routesDir:");
 });
 
 test("dev help text documents --minify and --sourcemap", async () => {

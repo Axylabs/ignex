@@ -72,5 +72,6 @@ export {
   permissionMatches,
   requireAuthenticated,
 } from "../plugins/rbac";
+export { type RequestIdOptions, requestId } from "../plugins/request-id";
 export { type SecurityOptions, security } from "../plugins/security";
 export { type SessionPluginOptions, session } from "../plugins/session";

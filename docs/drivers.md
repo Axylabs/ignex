@@ -16,6 +16,11 @@ interface Store {
   set(key: string, value: unknown, options?: StoreSetOptions): MaybePromise<void>;
   delete(key: string): MaybePromise<void>;
   touch?(key: string, options?: StoreSetOptions): MaybePromise<void>;
+  update?(
+    key: string,
+    updater: (current: unknown | null) => MaybePromise<unknown>,
+    options?: StoreSetOptions,
+  ): MaybePromise<unknown>;
   close?(): MaybePromise<void>;
 }
 ```
@@ -25,6 +30,10 @@ Methods are **sync-capable** (`MaybePromise`): the memory/file/sqlite drivers
 are fully synchronous after construction — zero Promise/microtask on the hot
 path — while custom async drivers (Redis, …) return Promises. `await` works
 either way; hot paths branch on `instanceof Promise` like the rest of ignex.
+The optional `update()` is an atomic read-modify-write: SQLite uses
+`BEGIN IMMEDIATE`; Redis uses `WATCH`/`MULTI` with contention retries. Memory
+and file stores accept synchronous updaters only, so an async updater cannot
+escape their transaction/serialization boundary.
 
 ## Built-in drivers
 
@@ -33,6 +42,7 @@ either way; hot paths branch on `instanceof Promise` like the rest of ignex.
 | `memory`  | `Map` + lazy expiry + unref'd sweep | yes      | Hot-path default; `close()` clears sweep |
 | `sqlite`  | `bun:sqlite` `kv` table            | yes      | Async **factory** (module bootstrap); returns `null` when unavailable |
 | `file`    | JSON-lines file, atomic tmp+rename | yes      | Portable `node:fs`; survives restarts    |
+| `redis`   | Redis hashes + TTL                 | no       | Atomic updates/rate limits; close with app shutdown |
 
 Create them directly, or through the manager:
 
@@ -130,10 +140,11 @@ const queue = createDurableJobQueue({
 });
 ```
 
-Every job store performs a FRESH read-modify-write per operation (never a
-stale snapshot), stamps random **owner tokens** on claim and verifies them on
-complete/fail/heartbeat, prunes finished history via `retention`, and mints
-collision-resistant ids — safe to run multiple workers against one backend.
+Job stores use the backing store's atomic `update()` when available and fall
+back to per-instance serialization otherwise. Claims stamp random **owner
+tokens**, completion/failure/heartbeat verify ownership, retention prunes
+finished history, and ids are collision-resistant. SQLite serializes writers
+with `BEGIN IMMEDIATE`; Redis retries optimistic `WATCH`/`MULTI` conflicts.
 For ASYNC drivers (Redis) use the async factory:
 
 ```ts
@@ -145,20 +156,29 @@ const jobs = await openStoreJobStore(createRedisStore({ url: process.env.REDIS_U
 ```
 
 `createStoreJobStore` remains for sync drivers (memory/file/sqlite) and throws
-an actionable error if handed an async one. The residual single-key
-last-writer-wins window under concurrent writers is documented in
-docs/deployment.md §4 — strict exactly-once at high concurrency wants a
-backend with native atomic ops.
+an actionable error if handed an async one. Custom stores without atomic
+`update()` only serialize within one instance; cross-process safety requires a
+backend transaction/CAS implementation. Delivery is at least once, so handlers
+must remain idempotent.
 
 ### HTTP response cache
 
 ```ts
-import { HttpResponseCache, createMemoryStore } from "@ignex/core";
+import {
+  createPersistentHttpCacheStore,
+  createRedisStore,
+  HttpResponseCache,
+} from "@ignex/core";
 
-const cache = new HttpResponseCache({
-  store: /* any HttpResponseCacheStore — default is an LRU */,
-});
+const redis = createRedisStore({ url: process.env.REDIS_URL });
+const store = createPersistentHttpCacheStore(redis);
+const cache = new HttpResponseCache({ store });
+// await store.close() during app shutdown
 ```
+
+The persistent adapter base64-encodes binary bodies and retains stale entries
+for the configured stale-while-revalidate window. Cache keys include the URL
+origin, so one cache cannot reuse a response across unrelated hosts.
 
 ### Rate limiting
 

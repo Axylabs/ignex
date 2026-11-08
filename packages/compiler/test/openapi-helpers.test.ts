@@ -100,4 +100,29 @@ describe("generateOpenApi over the script's RouteIR shape", () => {
     const op = (openapi.paths as Record<string, Record<string, any>>)["/health"].get;
     expect(op.responses["200"].description).toBe("Successful response");
   });
+
+  it("uses canonical document options without changing route schemas", () => {
+    const route = scriptRoute("GET", "/health", [], undefined);
+    const hidden = scriptRoute("GET", "/internal", [], undefined);
+    const openapi = generateOpenApi([route, hidden], {
+      ...opts,
+      openApi: {
+        title: "Acme Public API",
+        version: "2026.1",
+        description: "Public contract",
+        servers: [{ url: "https://api.acme.test" }],
+        exclude: { paths: ["/internal"] },
+        transform: (document) => ({ ...document, "x-owner": "platform" }),
+      },
+    });
+    expect(openapi.info).toEqual({
+      title: "Acme Public API",
+      version: "2026.1",
+      description: "Public contract",
+    });
+    expect(openapi.servers).toEqual([{ url: "https://api.acme.test" }]);
+    expect(openapi["x-owner"]).toBe("platform");
+    expect(openapi.paths).toHaveProperty("/health");
+    expect(openapi.paths).not.toHaveProperty("/internal");
+  });
 });

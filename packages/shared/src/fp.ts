@@ -210,7 +210,7 @@ export function pipe<A>(a: A): {
   ): J;
 };
 export function pipe<A>(a: A) {
-  return (...fns: Array<(x: any) => any>): unknown =>
+  return (...fns: Array<(x: unknown) => unknown>): unknown =>
     fns.reduce((acc: unknown, fn) => fn(acc), a as unknown);
 }
 
@@ -254,7 +254,7 @@ export function compose<A, B, C, D, E, F, G, H>(
   k: (b: B) => C,
   l: (a: A) => B,
 ): (a: A) => H;
-export function compose(...fns: Array<(x: any) => any>): (x: any) => any {
+export function compose(...fns: Array<(x: unknown) => unknown>): (x: unknown) => unknown {
   return (x) => fns.reduceRight((acc: unknown, fn) => fn(acc), x);
 }
 
@@ -340,7 +340,7 @@ export function pipeAsync<A>(a: A): {
   ): Promise<J>;
 };
 export function pipeAsync<A>(a: A) {
-  return async (...fns: Array<(x: any) => any>): Promise<unknown> => {
+  return async (...fns: Array<(x: unknown) => unknown>): Promise<unknown> => {
     let acc: unknown = a;
     for (const fn of fns) acc = await fn(acc);
     return acc;

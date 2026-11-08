@@ -35,52 +35,18 @@
  */
 
 import { jsonSchemaToTs } from "./json-schema-to-ts";
+import { loadNovaGenerate } from "./nova-generate";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRealtimeInput } from "./types";
-
-/** Runtime specifier of the optional peer codegen module. */
-const NOVA_GENERATE_SPECIFIER: string = "@ignex/nova/generate";
-
-/** Structural contract of `generateBindings`' return value (what we consume). */
-interface NovaGenerated {
-  /** All generated artifacts keyed by relative path (e.g. `ts/backend.ts`). */
-  files: Record<string, string>;
-}
-
-/** Structural contract of the dynamically imported `@ignex/nova/generate`. */
-interface NovaGenerateModule {
-  generateBindings(
-    schema: { schemas?: unknown; events: unknown; controlEvents?: unknown },
-    options: { rust: false; ffiMode: "optional"; subjectPrefix: string; force: true },
-  ): NovaGenerated;
-}
-
-/**
- * Import `@ignex/nova/generate` lazily (optional peer) with a clear error when
- * the dependency or its `flatc` prerequisite is missing.
- */
-const loadNovaGenerate = async (): Promise<NovaGenerateModule> => {
-  try {
-    // A non-literal specifier keeps this module importable without the peer;
-    // resolution (and its failure modes) happen at runtime.
-    const mod = (await import(NOVA_GENERATE_SPECIFIER)) as Partial<NovaGenerateModule>;
-    if (mod.generateBindings === undefined) {
-      throw new Error("module has no generateBindings export");
-    }
-    return mod as NovaGenerateModule;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `The realtime SDK platform requires the optional peer "@ignex/nova" — install it with ` +
-        `\`bun add @ignex/nova\`. Codegen additionally needs the FlatBuffers compiler (\`flatc\`) on ` +
-        `PATH (brew install flatbuffers / apt install flatbuffers-compiler). Import failed: ${reason}`,
-    );
-  }
-};
 
 /** Guard: realtime declarations must exist and declare at least one event. */
 const requireRealtimeInput = (ctx: SdkGenerateContext): SdkRealtimeInput => {
   const input = ctx.realtime;
-  if (input === undefined || Object.keys(input.events).length === 0) {
+  if (
+    input === undefined ||
+    (Object.keys(input.events).length === 0 &&
+      Object.keys(input.controlEvents ?? {}).length === 0 &&
+      Object.keys(input.rpcMethods ?? {}).length === 0)
+  ) {
     throw new Error(
       `No realtime declarations for the ${ctx.serviceName} SDK — run \`ignex build\` with a ` +
         `\`src/realtime.ts\` exporting \`realtime\` ({ subjectPrefix, events, ... }); expected at ` +

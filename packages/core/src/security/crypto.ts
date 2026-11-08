@@ -17,6 +17,7 @@ import {
   jwtVerifyEdDsa,
   type PasswordHashOptions,
   passwordHash,
+  passwordHashAsync,
   passwordVerify,
   randomToken,
   signCookie,
@@ -191,7 +192,7 @@ export interface Ed25519JwtService {
  * Signed through the Rust addon (`castrum`) via `@ignex/native` with a
  * byte-compatible pure-TS fallback; the keypair is the base64url DER format
  * produced by {@link generateEd25519Keypair} (and written to `.env` by the
- * auth module).
+ * auth module only outside production when bootstrap is enabled).
  *
  * @throws TypeError when `options.privateKey`/`options.publicKey` are empty.
  */
@@ -294,10 +295,9 @@ export interface PasswordHasher {
   /** Verify a password against a PHC string. */
   verify(password: string, phc: string): boolean;
   /**
-   * Verify a password OFF the JS event loop when the native task pool is
-   * available (argon2id is 10–200 ms of CPU that otherwise stalls the loop).
-   * Falls back to {@link PasswordHasher.verify} for `$scrypt$` hashes and when
-   * the native task runtime is unavailable, so the boolean result is identical
+   * Verify a password off the JS event loop. Scrypt uses Node's async crypto;
+   * argon2id uses the native task pool when available. Native runtime failures
+   * fall back to {@link PasswordHasher.verify}, preserving the boolean result
    * on every backend (`IGNEX_NATIVE=off` included).
    *
    * @param password - Cleartext password.
@@ -308,15 +308,12 @@ export interface PasswordHasher {
   verifyAsync(password: string, phc: string, options?: TaskRunOptions): Promise<boolean>;
 }
 
-/** Create a password hasher (argon2id native / scrypt fallback). */
+/** Create a password hasher using portable scrypt by default. */
 export const createPasswordHasher = (options?: PasswordHashOptions): PasswordHasher => ({
-  // `crypto.getRandomValues` (webcrypto) is the fast, portable CSPRNG — native
-  // in Bun (~87x vs `node:crypto` randomBytes for small buffers — see
-  // docs/native-acceleration.md) and available in Node too.
   hash: async (password) => {
     const salt = new Uint8Array(16);
     crypto.getRandomValues(salt);
-    return passwordHash(password, salt, options);
+    return passwordHashAsync(password, salt, options);
   },
   verify: (password, phc) => passwordVerify(password, phc),
   verifyAsync: (password, phc, runOptions) => verifyPasswordAsync(password, phc, runOptions),

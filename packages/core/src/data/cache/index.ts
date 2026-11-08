@@ -10,6 +10,10 @@ export { withBrowserCache } from "./browser";
 export { cacheControl, parseCacheControl } from "./cache-control";
 export { entityTag } from "./hash";
 export { HttpResponseCache } from "./http-cache";
+export {
+  createPersistentHttpCacheStore,
+  type PersistentHttpResponseCacheStore,
+} from "./store";
 export type {
   HttpResponseCacheOptions,
   HttpResponseCacheStore,

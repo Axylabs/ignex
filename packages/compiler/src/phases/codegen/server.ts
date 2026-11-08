@@ -25,6 +25,7 @@ const STRUCTURAL_CORE = [
   "EMPTY_LIFECYCLE",
   "HANDLER_TIMEOUT_CODE",
   "HANDLER_TIMEOUT_REASON",
+  "HttpResponseCache",
   "installGracefulShutdown",
   "installProcessGuards",
   "mergeWSLimits",
@@ -35,6 +36,7 @@ const STRUCTURAL_CORE = [
 /** Symbols needed only when the app config contributes plugins/lifecycle. */
 const APP_CONFIG_CORE = [
   "createPluginContext",
+  "createRouter",
   "mergeLifeCycle",
   "pluginsToLifeCycle",
   "pluginContextToLifecycle",
@@ -56,6 +58,7 @@ const HELPER_CORE = [
   "errorToResponse",
   "isDecoratedResponse",
   "markDecoratedResponse",
+  "pathnameOf",
   "runHooks",
   "runTimed",
   "validateAsync",
@@ -86,6 +89,31 @@ export const stageServer = (state: CodegenState, opts: CompilerOptions): string 
   functions.push(
     `const __HANDLER_TIMEOUT_MS = __serverCfg.handlerTimeoutMs ?? ${opts.handlerTimeoutMs ?? 0};`,
   );
+
+  if (state.hasAppConfig) {
+    functions.push(`const __pluginRouter = createRouter();
+for (const __p of __appPlugins) {
+  if (__p && __p.aotRoutes !== "intercept" && typeof __p.routes === "function") __p.routes(__pluginRouter);
+}
+__pluginRouter.bind({
+  preParseStages: __preParseStages,
+  beforeHandle: __lc.beforeHandle ?? [],
+  afterHandle: __lc.afterHandle ?? [],
+  mapResponse: __lc.mapResponse ?? [],
+  afterResponse: __lc.afterResponse ?? [],
+  error: __lc.error ?? [],
+  exposeErrors: false,
+  handlerTimeoutMs: __HANDLER_TIMEOUT_MS,
+  ctx: __ctxOpts,
+});
+const __pluginRouteTable = __pluginRouter.buildRoutes();
+for (const [__path, __handlers] of Object.entries(__pluginRouteTable)) {
+  for (const __method of Object.keys(__handlers)) {
+    if (__routes[__path]?.[__method]) throw new Error(\`Plugin route conflicts with a file route: \${__method} \${__path}\`);
+  }
+  __routes[__path] = { ...__routes[__path], ...__handlers };
+}`);
+  }
 
   functions.push(`const __serveOptions = {
   port: Number(process.env.PORT ?? __serverCfg.port ?? 3000),

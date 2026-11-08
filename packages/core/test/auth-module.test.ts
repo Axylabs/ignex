@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const ctx = (req = new Request("http://localhost:3000/")) => createContext(req, {});
 
 /** Preserve + restore the env keys this suite touches. */
-const ENV_KEYS = ["JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY"] as const;
+const ENV_KEYS = ["JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY", "NODE_ENV"] as const;
 const saved = new Map<string, string | undefined>();
 const saveEnv = (): void => {
   for (const k of ENV_KEYS) saved.set(k, process.env[k]);
@@ -82,6 +82,16 @@ describe("createAuthModule — .env key bootstrap", () => {
 
     const module = createAuthModule({ mode: "both", bootstrapEnv: false });
     expect(() => module.plugin().init?.()).toThrow(/JWT_PRIVATE_KEY/);
+  });
+
+  it("refuses to generate private keys in production", () => {
+    saveEnv();
+    delete process.env.JWT_PRIVATE_KEY;
+    delete process.env.JWT_PUBLIC_KEY;
+    process.env.NODE_ENV = "production";
+    const module = createAuthModule();
+    expect(() => module.plugin().init?.()).toThrow(/secret manager/);
+    delete process.env.NODE_ENV;
   });
 
   it("uses pre-existing keys without writing .env", async () => {

@@ -66,18 +66,19 @@ export interface RpcKitOptions {
   manifestPath?: string;
   /**
    * Compile a schema's JSON into a raw-string validator (native addon path).
-   * Called once per method at registration; a thrown error or null result
-   * must never break registration.
+   * A failure falls back to `fallbackCheck`; without one, registration fails.
    */
   compileValidator?: (schemaJson: string) => RpcKitCompiledValidator | null;
   /**
    * Interpreted fallback check used when `compileValidator` is unavailable.
-   * Return false to reject the payload with status 400. When neither this
-   * nor `compileValidator` is provided, payloads are accepted unvalidated.
+   * Return false to reject the payload with status 400. Omitting every validator
+   * fails at registration unless `allowUnvalidated` is explicitly enabled.
    */
   fallbackCheck?: (schema: RpcKitSchema, value: unknown) => boolean;
   /** Human-readable first-validation-error text for 400 replies (optional). */
   describeError?: (schema: RpcKitSchema, value: unknown) => string;
+  /** Deliberately permit methods without a validator. Default false. */
+  allowUnvalidated?: boolean;
 }
 
 /** A compiled registry entry. */
@@ -117,7 +118,7 @@ const errorToEnvelope = (err: unknown): { message: string; status: number } => {
         ? e.error
         : "RPC handler failed";
   const status = typeof e.status === "number" ? e.status : 500;
-  return { message, status };
+  return { message: status >= 500 ? "RPC handler failed" : message, status };
 };
 
 /** Atomic JSON file write (tmp + rename) under an ensured directory. */
@@ -189,6 +190,15 @@ export const createRpcKit = (
         } catch {
           native = null; // compile failure must never break registration
         }
+      }
+      if (
+        native === null &&
+        options.fallbackCheck === undefined &&
+        options.allowUnvalidated !== true
+      ) {
+        throw new Error(
+          `RPC method '${method}' has no working validator; provide fallbackCheck or explicitly set allowUnvalidated`,
+        );
       }
       registry.set(method, { ...def, native });
       scheduleManifestWrite();
@@ -267,8 +277,7 @@ export const createRpcKit = (
           return;
         }
 
-        // Native compiled validator over the RAW payload when available;
-        // injected interpreted fallback otherwise; neither → accept.
+        // Registration guarantees a validator unless the app explicitly opted out.
         const checked =
           def.native !== null
             ? def.native.validate(rawPayloadString)

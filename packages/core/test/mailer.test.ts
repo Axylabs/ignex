@@ -47,6 +47,27 @@ describe("createMailer (log driver)", () => {
     });
   });
 
+  it("reuses and closes the SMTP transport", async () => {
+    let creations = 0;
+    const close = vi.fn();
+    const sendMail = vi.fn(async () => ({ accepted: ["a@example.com"], messageId: "m1" }));
+    const mailer = createMailer({
+      driver: "smtp",
+      smtp: { host: "localhost", port: 2525 },
+      transport: () => {
+        creations += 1;
+        return { sendMail, close };
+      },
+    });
+    await mailer.send({ to: "a@example.com", subject: "one" });
+    await mailer.send({ to: "a@example.com", subject: "two" });
+    await mailer.close();
+    expect(creations).toBe(1);
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledOnce();
+    await expect(mailer.send({ to: "a@example.com", subject: "three" })).rejects.toThrow(/closed/);
+  });
+
   it("throws when SMTP driver is configured without smtp options", () => {
     expect(() => createMailer({ driver: "smtp" })).toThrow(/requires smtp options/);
   });

@@ -410,7 +410,7 @@ export const createMcpServer = (): McpServer => {
     {
       title: "Debugbar: published clients",
       description:
-        "List the published SDK + FlatBuffers frontend clients detected by the debugbar with local versions and git tags (the release signal) — verify what frontend teams are running.",
+        "List the published TypeScript/OpenAPI SDK and realtime client packages detected by the debugbar with local versions and git tags (the release signal) — verify what frontend teams are running.",
       inputSchema: {
         url: z.string().optional().describe("Debugbar base URL (default: $IGNEX_DEBUGBAR_URL)"),
         token: z.string().optional().describe("Debugbar token (default: $IGNEX_DEBUGBAR_TOKEN)"),

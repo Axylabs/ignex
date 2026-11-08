@@ -37,6 +37,8 @@ describe("session fusion (sessionSeal/sessionOpen)", () => {
     const s2 = await getSession(c2);
     expect(s2).toBeDefined();
     expect(s2?.data.cart).toEqual(["apple"]);
+    expect(s2?.createdAt).toBe(s1.createdAt);
+    expect(s2?.createdAt).not.toBe(s2.expiresAt);
   });
 
   it("decodes legacy fallback-sealed cookies (byte compatibility)", async () => {

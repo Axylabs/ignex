@@ -12,7 +12,7 @@ describe("scheduleTemplate", () => {
   it("wires createScheduler + durable queue with start/stop", () => {
     const code = scheduleTemplate();
     expect(code).toContain('from "@ignex/core"');
-    expect(code).toContain("createScheduler({ store })");
+    expect(code).toContain("createScheduler({ store, executeInline: false })");
     expect(code).toContain("createDurableJobQueue({ store, handlers })");
     expect(code).toContain("createFileJobStore");
     expect(code).toContain("export async function start()");

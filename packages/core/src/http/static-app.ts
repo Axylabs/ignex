@@ -4,18 +4,17 @@
  * disk with the correct cache policy.
  *
  * Policy (matches what production apps need):
- * - hashed assets (`_astro/*`, common static extensions) are immutable —
- *   one-year browser + stale-while-revalidate caches;
- * - HTML pages are always revalidated (no stale window), so a just-published
- *   rebuild is never hidden by a stale browser/CDN copy;
+ * - assets in hash-oriented build directories or with content-hashed filenames
+ *   are immutable — one-year browser + stale-while-revalidate caches;
+ * - HTML pages and unhashed files are always revalidated (no stale window), so
+ *   a just-published rebuild is never hidden by a stale browser/CDN copy;
  * - directories resolve to their `index.html`;
  * - unknown paths fall back to an SPA shell (`404.html`, else the index) so
  *   client-routed detail pages render via islands;
  * - an optional `tagsFor(path)` hook emits `Cache-Tag` headers as the
  *   extension point for tag-based CDN purges.
  *
- * Route files stay one-liners (the compiler discovers file routes; plugin
- * routes are interpreted-only):
+ * Route files stay one-liners (plugin routes can also register in AOT apps):
  *
  * ```ts
  * // src/routes/[...path].get.ts
@@ -41,8 +40,8 @@ export interface ServeStaticAppOptions {
   /** Directory index filename (default `"index.html"`). */
   index?: string;
   /**
-   * Paths matching this pattern are immutable assets (long caches). Default:
-   * `_astro/*` and common static extensions (js/css/svg/png/ico/woff/woff2).
+   * Paths matching this pattern receive long-lived caching. The default is
+   * restricted to hash-oriented build directories and content-hashed filenames.
    */
   assetPattern?: RegExp;
   /** Browser cache seconds for assets (default one year). */
@@ -54,8 +53,8 @@ export interface ServeStaticAppOptions {
   tagsFor?: (relPath: string) => string | null;
 }
 
-/** Default asset detection: build-hash folders + common static extensions. */
-const DEFAULT_ASSET_PATTERN = `${/^_astro\//.source}|\\.(js|css|svg|png|ico|woff2?)$`;
+/** Default long-cache detection requires a build directory or a content hash. */
+const DEFAULT_ASSET_PATTERN = `${/^(?:_astro|_next|assets|static)\//.source}|(?:^|[.-])[a-f0-9]{8,}(?:[.-]|$)`;
 
 /** Compiled asset patterns by source — avoids a `new RegExp` per request. */
 const assetPatternCache = new Map<string, RegExp>();

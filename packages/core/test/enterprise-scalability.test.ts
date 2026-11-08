@@ -20,6 +20,7 @@ import {
   createApp,
   createDataLoader,
   createFileStore,
+  createMemoryStore,
   createStoreJobStore,
   LRUCache,
   rateLimit,
@@ -97,6 +98,32 @@ describe("job store — concurrent claim safety", () => {
     expect(running).toHaveLength(100);
     const owners = new Set(running.map((job) => job.leaseOwner));
     expect(owners.size).toBe(100);
+  });
+
+  it("uses the shared store's atomic update across independent job-store instances", async () => {
+    const backing = createMemoryStore();
+    const first = createStoreJobStore(backing);
+    const second = createStoreJobStore(backing);
+    const now = Date.now();
+    for (let index = 0; index < 100; index++) {
+      await first.enqueue({
+        id: `job-${index}`,
+        name: "shared",
+        status: "queued",
+        runAt: now,
+        attempts: 0,
+        maxAttempts: 1,
+        createdAt: now,
+      });
+    }
+    const claimed = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        (index % 2 === 0 ? first : second).claim(1, 30_000, now),
+      ),
+    );
+    const ids = claimed.flatMap((jobs) => jobs.map((job) => job.id));
+    expect(ids).toHaveLength(100);
+    expect(new Set(ids).size).toBe(100);
   });
 });
 

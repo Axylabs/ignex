@@ -88,6 +88,32 @@ describe("openapi() — interpreted mode (createApp + router)", () => {
     // provider: null → no UI page is registered.
     expect((await inject(app, { url: "/docs" })).status).toBe(404);
   });
+
+  it("uses the same canonical document options as the compiler", async () => {
+    const app = createApp({
+      router: createRouter()
+        .get("/health", () => "ok")
+        .get("/internal", () => "secret"),
+      plugins: [
+        openapi({
+          document: {
+            title: "Acme API",
+            version: "2026.1",
+            servers: [{ url: "https://api.acme.test" }],
+            exclude: { paths: ["/internal"] },
+            transform: (document) => ({ ...document, "x-owner": "platform" }),
+          },
+        }),
+      ],
+    });
+    const res = await inject(app, { url: "/openapi.json" });
+    const spec = (await res.json()) as Record<string, any>;
+    expect(spec.info).toEqual({ title: "Acme API", version: "2026.1" });
+    expect(spec.servers).toEqual([{ url: "https://api.acme.test" }]);
+    expect(spec["x-owner"]).toBe("platform");
+    expect(spec.paths).toHaveProperty("/health");
+    expect(spec.paths).not.toHaveProperty("/internal");
+  });
 });
 
 describe("openapi() — AOT fallback (onRequest interception, no router)", () => {
@@ -184,6 +210,24 @@ describe("openapi() — AOT fallback (onRequest interception, no router)", () =>
       expect(spec2.paths).toHaveProperty("/new-route");
     } finally {
       (globalThis as { Bun?: unknown }).Bun = realBun;
+    }
+  });
+
+  it("serves an embedded standalone-binary OpenAPI document without fs access", async () => {
+    const globalValue = (globalThis as { __IGNEX_OPENAPI_JSON?: string }).__IGNEX_OPENAPI_JSON;
+    (globalThis as { __IGNEX_OPENAPI_JSON?: string }).__IGNEX_OPENAPI_JSON = JSON.stringify({
+      openapi: "3.1.0",
+      info: { title: "Embedded", version: "1.0.0" },
+      paths: { "/embedded": {} },
+    });
+    try {
+      const plugin = openapi();
+      const ctx = { url: new URL("http://localhost/openapi.json") } as never;
+      const res = (await plugin.onRequest?.(ctx)) as Response;
+      const spec = (await res.json()) as { paths?: Record<string, unknown> };
+      expect(spec.paths).toHaveProperty("/embedded");
+    } finally {
+      (globalThis as { __IGNEX_OPENAPI_JSON?: string }).__IGNEX_OPENAPI_JSON = globalValue;
     }
   });
 });

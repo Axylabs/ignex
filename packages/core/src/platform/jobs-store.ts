@@ -113,6 +113,8 @@ export interface JobStore {
   releaseExpired(now?: number): Promise<number>;
   /** All stored jobs (for observability) — reflects the CURRENT store state. */
   list(): Promise<StoredJob[]>;
+  /** Release the backing store after workers drain. */
+  close?(): Promise<void>;
 }
 
 /** Retention bounds for completed/failed job history. */
@@ -196,9 +198,9 @@ const pruneFinished = (
 
 /**
  * Wrap ANY {@link Store} driver as a {@link JobStore} — including ASYNC
- * drivers (Redis et al.). Every operation performs a FRESH read-modify-write
- * against the store (never a cached snapshot), stamps owner tokens on claim,
- * verifies them on completion, and applies retention pruning.
+ * drivers (Redis et al.). Mutations use the driver's atomic `update()` when
+ * available and per-instance serialization otherwise, stamp owner tokens on
+ * claim, verify them on completion, and apply retention pruning.
  *
  * @param store - The generic store driver backing this job store.
  * @param options - Retention tuning.
@@ -210,18 +212,12 @@ export const openStoreJobStore = async (
 ): Promise<JobStore> => buildStoreJobStore(store, options);
 
 /**
- * The single implementation behind both factories: EVERY operation performs a
- * fresh read-modify-write (the multi-process fix), stamps owner tokens on
- * claim, verifies them on bookkeeping, and prunes history per retention.
- *
- * MUTATIONS are serialized per instance: a chained "tail" promise holds the
- * slot of the previous read-modify-write until it commits, so a concurrent
- * `claim`/`enqueue`/`complete` never reads a pre-commit snapshot. The plain
- * memory driver aliased job objects between snapshots (masking the race); with
- * fresh-read drivers (file/sqlite/redis) unsynchronized mutations could hand
- * the SAME job to two claimers. Cross-process isolation still rests on the
- * driver's own atomicity + ownership leases — this chain closes the
- * in-process window on top of any driver.
+ * The single implementation behind both factories uses the driver's atomic
+ * `update()` when available and per-instance serialization otherwise, stamps
+ * owner tokens on claim, verifies them on bookkeeping, and prunes history per
+ * retention. Cross-process isolation rests on the driver's transaction/CAS
+ * implementation plus ownership leases; non-atomic custom stores are only
+ * serialized within this instance.
  */
 const buildStoreJobStore = (store: Store, options: StoreJobStoreOptions = {}): JobStore => {
   const retention = options.retention;
@@ -249,6 +245,25 @@ const buildStoreJobStore = (store: Store, options: StoreJobStoreOptions = {}): J
     return run;
   };
 
+  const mutate = <T>(fn: (jobs: Map<string, StoredJob>) => T): Promise<T> => {
+    if (store.update) {
+      let result: T;
+      const updated = store.update(JOBS_KEY, (raw) => {
+        const jobs = jobsFromRaw(raw);
+        result = fn(jobs);
+        pruneFinished(jobs, retention, Date.now());
+        return Object.fromEntries(jobs);
+      });
+      return Promise.resolve(updated).then(() => result);
+    }
+    return serialize(async () => {
+      const jobs = await readJobs();
+      const result = fn(jobs);
+      await persist(jobs, Date.now());
+      return result;
+    });
+  };
+
   /**
    * Ownership guard with TS-friendly narrowing: returns the verified job or
    * `undefined` (missing job OR owned by a different token).
@@ -264,93 +279,69 @@ const buildStoreJobStore = (store: Store, options: StoreJobStoreOptions = {}): J
 
   return {
     enqueue(job) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         jobs.set(job.id, job);
-        await persist(jobs, Date.now());
       });
     },
 
     claim(limit, leaseMs, now = Date.now()) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         const due = [...jobs.values()]
           .filter((job) => job.status === "queued" && job.runAt <= now)
           .sort((a, b) => a.runAt - b.runAt)
           .slice(0, Math.max(0, limit));
-
-        const claimed: StoredJob[] = [];
         for (const job of due) {
           job.status = "running";
           job.leaseUntil = now + leaseMs;
           job.leaseOwner = randomToken(12);
-          claimed.push(job);
         }
-        if (claimed.length > 0) await persist(jobs, now);
-        return claimed.map((job) => ({ ...job }));
+        return due.map((job) => ({ ...job }));
       });
     },
 
     claimOne(id, leaseMs, now = Date.now()) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         const job = jobs.get(id);
         if (job?.status !== "queued" || job.runAt > now) return null;
         job.status = "running";
         job.leaseUntil = now + leaseMs;
         job.leaseOwner = randomToken(12);
-        await persist(jobs, now);
         return { ...job };
       });
     },
 
     complete(id, completionOptions) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         const job = verifyOwner(jobs.get(id), completionOptions?.owner);
         if (!job) return;
         job.status = "completed";
         delete job.leaseUntil;
         delete job.leaseOwner;
-        await persist(jobs, Date.now());
       });
     },
 
     fail(id, error, retryAt, completionOptions) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         const job = verifyOwner(jobs.get(id), completionOptions?.owner);
         if (!job) return;
         job.attempts += 1;
         job.lastError = errorMessage(error);
         delete job.leaseUntil;
-        if (retryAt !== undefined) {
-          job.status = "queued";
-          job.runAt = retryAt;
-          // Retry hands the job back to the pool: clear ownership so any
-          // worker can claim it.
-          delete job.leaseOwner;
-        } else {
-          job.status = "failed";
-          delete job.leaseOwner;
-        }
-        await persist(jobs, Date.now());
+        job.status = retryAt === undefined ? "failed" : "queued";
+        if (retryAt !== undefined) job.runAt = retryAt;
+        delete job.leaseOwner;
       });
     },
 
     heartbeat(id, until, completionOptions) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         const job = verifyOwner(jobs.get(id), completionOptions?.owner);
-        if (job?.status !== "running") return;
-        job.leaseUntil = until;
-        await persist(jobs, Date.now());
+        if (job?.status === "running") job.leaseUntil = until;
       });
     },
 
     releaseExpired(now = Date.now()) {
-      return serialize(async () => {
-        const jobs = await readJobs();
+      return mutate((jobs) => {
         let released = 0;
         for (const job of jobs.values()) {
           if (job.status === "running" && (job.leaseUntil ?? 0) < now) {
@@ -360,7 +351,6 @@ const buildStoreJobStore = (store: Store, options: StoreJobStoreOptions = {}): J
             released += 1;
           }
         }
-        if (released > 0) await persist(jobs, now);
         return released;
       });
     },
@@ -368,6 +358,10 @@ const buildStoreJobStore = (store: Store, options: StoreJobStoreOptions = {}): J
     async list() {
       const jobs = await readJobs();
       return [...jobs.values()].map((job) => ({ ...job }));
+    },
+
+    async close() {
+      await store.close?.();
     },
   };
 };

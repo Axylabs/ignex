@@ -68,35 +68,122 @@ export default get(async (ctx) => {
 
 For a UUID path param, declare it once: `const params = Type.Object({ id: Uuid })`.
 
+## Use cases and dependency lifetimes
+
+Keep business rules in `src/use-cases/`, infrastructure behind small structural
+interfaces (ports), and HTTP parsing/response construction in routes.
+`defineUseCase` is a higher-order function: it binds application dependencies
+once, then returns a function that accepts only one invocation's input.
+
+```ts
+// src/use-cases/withdraw.ts
+import { defineUseCase } from "@ignex/core";
+
+export interface Account {
+  readonly id: string;
+  readonly balance: number;
+}
+
+// A port is an interface implemented by an infrastructure adapter.
+export interface AccountRepository {
+  find(id: string): Promise<Account>;
+  save(account: Account): Promise<void>;
+}
+
+export interface WithdrawInput {
+  readonly accountId: string;
+  readonly amount: number;
+}
+
+// Pure: no I/O, clock, random source, or shared mutation.
+export const applyWithdrawal = (account: Account, amount: number): Account => {
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > account.balance) {
+    throw new RangeError("Invalid withdrawal");
+  }
+  return { ...account, balance: account.balance - amount };
+};
+
+export const createWithdraw = defineUseCase(
+  async (
+    { accounts }: { readonly accounts: AccountRepository },
+    input: WithdrawInput,
+  ) => {
+    const updated = applyWithdrawal(await accounts.find(input.accountId), input.amount);
+    await accounts.save(updated);
+    return updated;
+  },
+);
+```
+
+Bind the shared repository in the composition root, not inside the route and
+not in a request-global variable:
+
+```ts
+// src/routes/accounts/withdraw.post.ts
+import { post } from "@ignex/core/http";
+import { createWithdraw } from "../../use-cases/withdraw";
+import { accounts } from "../../infra/accounts";
+
+const withdraw = createWithdraw({ accounts });
+
+export default post(async (ctx) => {
+  const input = await ctx.body.json<WithdrawInput>();
+  return ctx.json(await withdraw(input));
+});
+```
+
+Validate untrusted input before executing the use case in production (for
+example with a route schema or `defineRequest`); the generic type annotation
+alone is not runtime validation.
+
+Use three explicit lifetimes:
+
+- **Pure values/functions** — immutable domain input and output; no hidden I/O.
+- **Application-scoped instances** — repositories, database pools, clock and ID
+  ports. Sharing is deliberate, and implementations must be concurrency-safe.
+- **Request-scoped values** — authenticated user, tenant, transaction, locale,
+  and request IDs. Pass these in the invocation input or request context; never
+  capture them in an application-scoped closure.
+
+Avoid mutable module singletons and service locators. A module-level instance is
+appropriate only for immutable configuration or an explicitly managed,
+concurrency-safe application service. Do not put request objects, sessions, or
+per-request caches in shared references. This keeps concurrent requests isolated
+and makes adapters replaceable in tests without a mocking framework.
+
 ## SQL resources (Drizzle)
 
 For SQL, ignex wraps the **standard approach** — [Drizzle](https://orm.drizzle.team)
 — with the same CLI surface as the Mongo path:
 
 ```sh
-# Scaffold a User model + CRUD routes + drizzle.config.ts + src/db-sql.ts
+# SQLite (default): model + CRUD routes + drizzle.config.ts + src/db-sql.ts
 ignex resource User --db sql --fields "email:string(format email),age:integer,active:boolean"
 
-# Migrations via drizzle-kit (generate/push/check)
+# PostgreSQL: native boolean/timestamp/double-precision columns + pg driver
+ignex resource User --db sql --sql-driver postgres --fields "email:string,active:boolean"
+
+# Versioned migrations via drizzle-kit (generate/migrate/check)
 ignex migrate create add-profile --db sql    # drizzle-kit generate
-ignex migrate up --db sql                    # drizzle-kit push
+ignex migrate up --db sql                    # drizzle-kit migrate
 ```
 
 What you get (Mongo and SQL share the route contract and field DSL):
 
-- `src/models/users.ts` — a typed drizzle sqlite table (`$inferSelect` /
-  `$inferInsert`). Field mapping: `string→text`, `integer→integer`,
-  `number→real`, `boolean→integer(mode boolean)`, `date→integer(timestamp_ms)`,
-  `array/enum/objectId→text`.
-- `src/db-sql.ts` — the shared client (`bun:sqlite`, WAL). Swap the driver for
-  Postgres by changing one import.
-- `src/routes/api/users/*` — list/getOne/create/update/delete backed by drizzle
-  queries (`select/insert/update/delete` + `eq`), validated with TypeBox.
+- `src/models/users.ts` — a typed Drizzle table (`$inferSelect` /
+  `$inferInsert`). SQLite maps `number→real`, `boolean→integer(mode boolean)`,
+  and `date→integer(timestamp_ms)`; PostgreSQL uses `doublePrecision`,
+  `boolean`, and `timestamp(withTimezone)`. Arrays/enums/objectIds use text.
+- `src/db-sql.ts` — the shared client (`bun:sqlite` with WAL, or
+  `node-postgres`). `DATABASE_URL` selects the file or connection URL.
+- `src/routes/api/users/*` — list/getOne/create/update/delete backed by awaited
+  Drizzle queries, validated TypeBox input, pagination, and 400/404 responses.
 - `drizzle.config.ts` — drizzle-kit config pointing at `src/models/*.ts`.
 
-The storage is file-backed SQLite (zero-config); `DATABASE_URL` overrides the
-path. This is intentionally **not** a new ORM — it's Drizzle with ignex-shaped
-DX (same `--fields` DSL, same route layout, same `ignex migrate`).
+Choose one SQL dialect per project; existing client/config files are never
+overwritten when adding another resource. This is intentionally **not** a new
+ORM — it's Drizzle with ignex-shaped DX (same `--fields` DSL, route layout,
+and `ignex migrate`).
 
 ## Validation & OpenAPI
 
@@ -264,9 +351,10 @@ third-party SDK — where the status table has to live outside the class.
 ## Plugins & config (`src/app.config.ts`)
 
 ```ts
-import { compression, cors, security, session } from "@ignex/core";
+import { compression, cors, requestId, security, session } from "@ignex/core";
 
 export const plugins = [
+  requestId(),
   cors(),
   compression(),
   security(),
@@ -275,6 +363,11 @@ export const plugins = [
 
 export const server = { port: Number(process.env.PORT ?? 3000) };
 ```
+
+`requestId()` is opt-in and correlates `ctx.requestId`, state, logs, errors,
+and responses. Customize it with `header`, `acceptIncoming`, `generate`,
+`maxLength`, or `echo: false`; inbound ids are bounded to visible ASCII rather
+than trusted blindly.
 
 Also available: `rateLimit()`, `logger()`, `csrf()` — all registered in the
 same `plugins` array. Global hooks go in a `lifecycle` export:
@@ -384,10 +477,14 @@ export default get(
 ```
 
 Full auth stack: `authModule()` (Ed25519 access tokens), `createPasswordHasher`
-(argon2id/scrypt), in-memory user store, and the `require-auth` hook — scaffold
-it with `bunx @ignex/cli@latest create my-api --features auth`, or drop it into
-an existing app with `bunx @ignex/cli@latest add auth` (add `,refresh` for the
-revocable refresh/logout pair). `ignex add` installs any of the `create`
+(portable scrypt by default; native Argon2id by explicit choice), a durable
+SQLite user store, and the `require-auth` hook — scaffold it with
+`bunx @ignex/cli@latest create my-api --features auth`, or drop it into an
+existing app with `bunx @ignex/cli@latest add auth`. Add `,refresh` for hashed,
+durable, single-use refresh tokens with rotation and replay rejection. New
+registrations always receive the `user` role; role administration belongs in a
+separate authorized flow. Production key bootstrap fails closed instead of
+writing private keys into `.env`. `ignex add` installs any of the `create`
 features into a project that already exists — sessions, jobs, SSE, i18n, the
 CORS/rate-limit/security/compression plugins, global middleware — reusing the
 same templates.
@@ -399,7 +496,7 @@ import { get } from "@ignex/core/http";
 import { getSession } from "@ignex/core";
 
 export default get(async (ctx) => {
-  const session = getSession(ctx);
+  const session = await getSession(ctx);
   if (!session) return ctx.json({ session: null });
 
   const visits = ((session.data.visits as number | undefined) ?? 0) + 1;
@@ -440,13 +537,14 @@ export const wsHandler = createWSHandler({
 ```
 
 `createWSHandler` accepts optional dispatch/transport limits as a third
-argument — an in-flight message cap (default 256; the socket is closed with
-**1013** when the cap is hit instead of queueing unbounded pending work) plus
-the Bun-level tuning fields:
+argument — a per-connection in-flight message cap (default 256; the socket is
+closed with **1013** at the cap), an optional route-wide total cap, plus the
+Bun-level tuning fields:
 
 ```ts
 export const wsHandler = createWSHandler(hooks, undefined, {
-  maxInflightMessages: 64,      // concurrent unsettled handlers (default 256)
+  maxInflightMessages: 64,       // per connection (default 256)
+  maxTotalInflightMessages: 512, // optional cap across this route's connections
   maxPayloadLength: 1024 * 1024, // per-frame bytes
   backpressureLimit: 64 * 1024, // bytes backlog before `drain` fires
   closeOnBackpressureLimit: true,

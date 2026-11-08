@@ -196,104 +196,7 @@ export default requireAuth;
 `;
 }
 
-export function authLibTemplate(options: { refresh: boolean }): string {
-  const { refresh } = options;
-  const imports = refresh
-    ? `import {
-  createAuthModule,
-  createMemorySessionStore,
-  createPasswordHasher,
-  randomToken,
-  type SessionStore,
-} from "@ignex/core";`
-    : `import { createAuthModule, createPasswordHasher } from "@ignex/core";`;
-
-  const refreshSection = refresh
-    ? `
-// --- Refresh tokens (opaque, revocable) ---
-// Reuses the session-store infrastructure (\`SessionStore\`) so tokens can be
-// revoked (logout) and verified server-side. Memory by default; point
-// \`refreshStore\` at \`createSqliteSessionStore(...)\` for persistence across
-// restarts.
-const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const refreshStore: SessionStore = createMemorySessionStore({ ttlSeconds: 7 * 24 * 60 * 60 });
-
-export const refreshTokens = {
-  /** Issue a new opaque refresh token bound to the user. */
-  async issue(user: { username: string; roles: string[] }): Promise<string> {
-    const token = randomToken(32);
-    await refreshStore.set(
-      token,
-      { sub: user.username, roles: user.roles },
-      { expiresAt: Date.now() + REFRESH_TTL_MS }
-    );
-    return token;
-  },
-  /** Resolve a refresh token to its user claims, or null when invalid/expired. */
-  async consume(token: string) {
-    return await refreshStore.get(token);
-  },
-  /** Revoke a refresh token (logout). */
-  async revoke(token: string): Promise<void> {
-    await refreshStore.delete(token);
-  }
-};
-`
-    : "";
-
-  return `${imports}
-
-// Ed25519 (EdDSA) JWT auth module — issues short-lived access tokens and
-// bootstraps \`JWT_PRIVATE_KEY\` / \`JWT_PUBLIC_KEY\` into \`.env\` on first use.
-export const ACCESS_TTL_SECONDS = 15 * 60;
-
-export const auth = createAuthModule({
-  mode: "both", // claims: { sub, roles, permissions }
-  ttlSeconds: ACCESS_TTL_SECONDS,
-  issuer: "ignex-app"
-});
-
-// Named hook used by routes via \`config.hooks = ["require-auth"]\`.
-export const requireAuth = auth.middleware();
-
-// --- In-memory user store (hashed passwords) ---
-// Swap for a real DB (e.g. a ninox collection) in production. The admin seed
-// is created on first access so hashing (argon2id native / scrypt fallback)
-// runs once at runtime rather than at module load.
-const hasher = createPasswordHasher();
-const users = new Map<string, { passwordHash: string; roles: string[] }>();
-let seeded = false;
-
-async function ensureSeed(): Promise<void> {
-  if (seeded) return;
-  seeded = true;
-  users.set("admin", {
-    passwordHash: await hasher.hash("secret"),
-    roles: ["admin"]
-  });
-}
-
-export const userStore = {
-  async find(username: string) {
-    await ensureSeed();
-    return users.get(username) ?? null;
-  },
-  async create(username: string, password: string, roles: string[] = []) {
-    await ensureSeed();
-    if (users.has(username)) return null;
-    users.set(username, { passwordHash: await hasher.hash(password), roles });
-    return { username, roles };
-  },
-  async verify(username: string, password: string) {
-    const entry = await userStore.find(username);
-    if (!entry) return null;
-    return hasher.verify(password, entry.passwordHash)
-      ? { username, roles: entry.roles }
-      : null;
-  }
-};${refreshSection}
-`;
-}
+export { authLibTemplate } from "./auth.js";
 
 export function loginRouteTemplate(options: { refresh: boolean }): string {
   const { refresh } = options;
@@ -308,13 +211,18 @@ export function loginRouteTemplate(options: { refresh: boolean }): string {
     ? `  return ctx.json({ accessToken, refreshToken, expiresIn: ACCESS_TTL_SECONDS });`
     : `  return ctx.json({ accessToken, expiresIn: ACCESS_TTL_SECONDS });`;
 
-  return `import { post } from "@ignex/core/http";
+  return `import { Type, type Static } from "typebox";
+import { post } from "@ignex/core/http";
 ${libImports}
 
-export default post(async (ctx) => {
-  const body = await ctx.body.json<{ username?: string; password?: string }>();
+const LoginBody = Type.Object({
+  username: Type.String({ minLength: 3, maxLength: 128 }),
+  password: Type.String({ minLength: 1, maxLength: 1024 })
+});
 
-  const user = await userStore.verify(body.username ?? "", body.password ?? "");
+export default post(async (ctx) => {
+  const body = await ctx.body.json<Static<typeof LoginBody>>();
+  const user = await userStore.verify(body.username, body.password);
   if (!user) {
     return ctx.json({ error: "Invalid credentials" }, { status: 401 });
   }
@@ -324,7 +232,7 @@ export default post(async (ctx) => {
     { roles: user.roles }
   );${issueRefresh}
 ${returnTokens}
-});
+}, { body: LoginBody });
 `;
 }
 
@@ -341,17 +249,18 @@ export function registerRouteTemplate(options: { refresh: boolean }): string {
     ? `  return ctx.json({ accessToken, refreshToken, expiresIn: ACCESS_TTL_SECONDS }, { status: 201 });`
     : `  return ctx.json({ accessToken, expiresIn: ACCESS_TTL_SECONDS }, { status: 201 });`;
 
-  return `import { post } from "@ignex/core/http";
+  return `import { Type, type Static } from "typebox";
+import { post } from "@ignex/core/http";
 ${libImports}
 
+const RegisterBody = Type.Object({
+  username: Type.String({ minLength: 3, maxLength: 128 }),
+  password: Type.String({ minLength: 12, maxLength: 1024 })
+});
+
 export default post(async (ctx) => {
-  const body = await ctx.body.json<{ username?: string; password?: string; roles?: string[] }>();
-
-  if (!body.username || !body.password) {
-    return ctx.json({ error: "username and password are required" }, { status: 400 });
-  }
-
-  const user = await userStore.create(body.username, body.password, body.roles ?? ["user"]);
+  const body = await ctx.body.json<Static<typeof RegisterBody>>();
+  const user = await userStore.create(body.username, body.password);
   if (!user) {
     return ctx.json({ error: "User already exists" }, { status: 409 });
   }
@@ -361,7 +270,7 @@ export default post(async (ctx) => {
     { roles: user.roles }
   );${issueRefresh}
 ${returnTokens}
-});
+}, { body: RegisterBody });
 `;
 }
 
@@ -377,18 +286,13 @@ export default post(async (ctx) => {
     return ctx.json({ error: "Invalid refresh token" }, { status: 401 });
   }
 
-  // Rotate here if you want refresh-token reuse detection: revoke this token
-  // and issue a fresh one alongside the new access token.
-  const user = {
-    username: String(data.sub ?? "anon"),
-    roles: (data.roles as string[] | undefined) ?? []
-  };
-  const accessToken = await auth.issueToken(
-    { id: user.username, roles: user.roles },
-    { roles: user.roles }
-  );
+  const user = { username: data.sub, roles: data.roles };
+  const [accessToken, refreshToken] = await Promise.all([
+    auth.issueToken({ id: user.username, roles: user.roles }, { roles: user.roles }),
+    refreshTokens.issue(user)
+  ]);
 
-  return ctx.json({ accessToken, expiresIn: ACCESS_TTL_SECONDS });
+  return ctx.json({ accessToken, refreshToken, expiresIn: ACCESS_TTL_SECONDS });
 });
 `;
 }
@@ -422,7 +326,7 @@ export function sessionRouteTemplate(): string {
 import { getSession } from "@ignex/core";
 
 export default get(async (ctx) => {
-  const session = getSession(ctx);
+  const session = await getSession(ctx);
   if (!session) return ctx.json({ session: null });
 
   const visits = ((session.data.visits as number | undefined) ?? 0) + 1;
@@ -545,7 +449,6 @@ export function appConfigTemplate(
   const h2 = (options.h2 ?? false) && https;
   const middlewareImports = middleware
     ? `import { middleware } from "./middleware/index.js";
-import { logRequests, markResponse } from "./middleware/log-requests.js";
 `
     : "";
   // Import under an alias: the exported `plugins` const below must never
@@ -557,13 +460,6 @@ import { logRequests, markResponse } from "./middleware/log-requests.js";
     : "";
   const pluginsSpread = hasPlugins ? "  ...appPlugins,\n" : "";
   const middlewareSpread = middleware ? "  ...middleware,\n" : "";
-  const lifecycle = middleware
-    ? `
-export const lifecycle = {
-  beforeHandle: [logRequests(), markResponse()]
-};
-`
-    : "";
 
   // The selected `--features` plugins (cors/rateLimit/security/compression/
   // logger) come from ./plugins/index.js (spread as appPlugins below); debugbar
@@ -612,7 +508,6 @@ ${pluginsSpread}${middlewareSpread}  // Developer dashboard (request waterfall, 
   // In AOT builds the plugin serves the compiler-generated openapi.json.
   openapi()
 ];
-${lifecycle}
 export const server: ServerConfig = {
 ${serverBody}
 };

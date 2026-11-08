@@ -19,10 +19,12 @@ app routes ── ignex build ──► manifest.json + openapi.json ── igne
 - `scripts/generate-sdk.ts` — the `sdk` script (flags: `--push`, `--publish`,
   `--release` via `bun run sdk*`).
 - `scripts/generate-openapi-client.ts` — `openapi:client` script.
-- `packages/core/src/openapi.ts` — the OpenAPI **3.1** spec generator
-  (runtime side; derive from the same route schemas as the router).
-- `packages/compiler/src/sdk/` — compiler-side SDK generation support.
-- `packages/shared/src/openapi/` — shared OpenAPI types/helpers.
+- `packages/core/src/openapi.ts` — public runtime facade over the shared
+  OpenAPI **3.1** generator.
+- `packages/compiler/src/sdk/` — compiler-side SDK generation support;
+  per-call `SdkPlatform`s and pure hooks avoid global registry mutation.
+- `packages/shared/src/openapi/` — shared generator, document options, and
+  exclusion/transform helpers used by runtime and AOT artifacts.
 
 ## Conventions
 
@@ -30,9 +32,12 @@ app routes ── ignex build ──► manifest.json + openapi.json ── igne
   the OpenAPI spec, the typed client, and validation must all derive from the
   same route definitions — keep them in sync (this is part of the AOT
   contract; `docs/architecture.md`).
-- **Never hand-edit generated SDK output** — regenerate via `ignex sdk`;
-  bump the SDK version through the `sdk:release` flow.
-- The SDK must stay **zero-runtime-dependency** (`docs/sdk.md`).
+- **Never hand-edit generated SDK output** — use `sdk` project config, custom
+  platforms, or pure hooks; bump the SDK version through the `sdk:release` flow.
+- The built-in TypeScript SDK must stay **zero-runtime-dependency**
+  (`docs/sdk.md`); application-owned custom platforms declare their own deps.
+  The nonviable HTTP FlatBuffers platform was removed; the independent nova
+  realtime FlatBuffers transport is still supported and is not an SDK platform.
 - OpenAPI output is a compiler/runtime artifact — changes to
   `packages/core/src/openapi.ts` need regeneration of the app's
   `openapi.json` and re-running `smoke` (the smoke test exercises the spec).

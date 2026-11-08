@@ -262,30 +262,39 @@ const __withBody = (payload, type, init) => {
    * exempt. The underlying work is not cancelled; handlers should honor
    * `req.signal` for cooperative cancellation.
    */
-  __raceHandler: `function __raceHandler(promise, onError) {
+  // The 503 timeout response is REQUEST-INDEPENDENT (static body + headers,
+  // no per-request data), so it is built ONCE at module load and shared by
+  // every timed-out request. It is returned straight to Bun by the wrappers —
+  // never routed through __applySet/__decorateWithDefaults — so nothing ever
+  // mutates the shared instance's headers. If a future change routes wrapper
+  // output through the response pipeline, this sharing must be revisited (a
+  // per-request header write would leak one request's set onto another).
+  __raceHandler: `const __TIMEOUT_BODY = JSON.stringify({ error: "Handler timeout", code: HANDLER_TIMEOUT_CODE });
+const __TIMEOUT_RESPONSE = new Response(__TIMEOUT_BODY, {
+  status: 503,
+  headers: { "content-type": "application/json", "x-ignex-reason": HANDLER_TIMEOUT_REASON },
+});
+function __raceHandler(promise, onError) {
   if (!__HANDLER_TIMEOUT_MS) return promise.catch(onError);
   let timer;
   const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => {
-      const res = new Response(JSON.stringify({ error: "Handler timeout", code: HANDLER_TIMEOUT_CODE }), {
-        status: 503,
-        headers: { "content-type": "application/json", "x-ignex-reason": HANDLER_TIMEOUT_REASON },
-      });
-      resolve(res);
-    }, __HANDLER_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(__TIMEOUT_RESPONSE), __HANDLER_TIMEOUT_MS);
   });
   return Promise.race([promise.catch(onError).finally(() => clearTimeout(timer)), timeout]);
 }`,
   __wrapStatic: `function __wrapStatic(handler) {
   return function (req, a, b) {
     const params = __extractParams(req, a, b) ?? EMPTY_PARAMS;
+    // Hoisted: one extraction per request, shared by the handler call and the
+    // error path (the previous emission called __extractServer twice).
+    const server = __extractServer(a, b);
     const onError = (err) => {
       const ctx = createContext(req, params, __ctxOpts);
-      ctx.server = __extractServer(a, b);
+      ctx.server = server;
       return __handleError(err, ctx);
     };
     try {
-      const r = handler(req, params, __extractServer(a, b));
+      const r = handler(req, params, server);
       return r instanceof Promise ? __raceHandler(r, onError) : r;
     } catch (err) {
       return onError(err);
@@ -301,11 +310,14 @@ const __withBody = (payload, type, init) => {
   __wrapStaticSync: `function __wrapStaticSync(handler) {
   return function (req, a, b) {
     const params = __extractParams(req, a, b) ?? EMPTY_PARAMS;
+    // Hoisted: one extraction per request (the previous emission called
+    // __extractServer twice — hot path + throw path).
+    const server = __extractServer(a, b);
     try {
-      return handler(req, params, __extractServer(a, b));
+      return handler(req, params, server);
     } catch (err) {
       const ctx = createContext(req, params, __ctxOpts);
-      ctx.server = __extractServer(a, b);
+      ctx.server = server;
       return __handleError(err, ctx);
     }
   };
@@ -335,8 +347,10 @@ const __withBody = (payload, type, init) => {
   };
 }`,
   __optionsHandler: `async function __optionsHandler(req, params, server) {
-  const url = new URL(req.url);
-  const allow = __allowFor(url.pathname) ?? "OPTIONS";
+  // pathnameOf (core): zero-allocation path extraction, no dot-segment
+  // normalization — the same helper ctx.path uses, so the 405 Allow lookup and
+  // ctx.path can never disagree about the request path.
+  const allow = __allowFor(pathnameOf(req.url)) ?? "OPTIONS";
 
   const ctx = createContext(req, params ?? EMPTY_PARAMS, __ctxOpts);
   ctx.server = server;
@@ -385,12 +399,21 @@ const __withBody = (payload, type, init) => {
   return undefined;
 }`,
   __fallback: `let __optionsWrapped;
-const __MISS_BODIES = {
+// Route-miss response material is REQUEST-INDEPENDENT: both bodies are
+// pre-stringified at module load and the 404 headers are one frozen shared
+// record (Response copies the record at construction, so sharing it is safe —
+// nothing ever mutates it). A miss (scanner, probe, stale link) allocates only
+// the Response itself.
+const __MISS_BODIES = Object.freeze({
   404: JSON.stringify({ error: "Not Found", status: 404, code: "NOT_FOUND" }),
   405: JSON.stringify({ error: "Method Not Allowed", status: 405, code: "METHOD_NOT_ALLOWED" }),
-};
+});
+const __MISS_HEADERS = Object.freeze({ "content-type": "application/json; charset=utf-8" });
 async function __fallback(req, server) {
-  const url = new URL(req.url);
+  // pathnameOf (core): zero-allocation path extraction, no dot-segment
+  // normalization — the same helper ctx.path uses, so the 405 Allow lookup and
+  // ctx.path can never disagree about the request path.
+  const pathname = pathnameOf(req.url);
 
   // Dev error overlay: while a build-error marker exists (written by
   // \`ignex dev\` on a failed compile), every request renders the error page
@@ -424,13 +447,12 @@ async function __fallback(req, server) {
     return (__optionsWrapped ??= __wrapStatic(__optionsHandler))(req, undefined, server);
   }
 
-  const allow = __allowFor(url.pathname);
+  const allow = __allowFor(pathname);
   const status = allow ? 405 : 404;
-  const headers = { "content-type": "application/json; charset=utf-8" };
-  if (allow) headers.Allow = allow;
+  // 404 → the shared frozen record (zero allocation); 405 needs the per-path
+  // Allow header, so it spreads the base once (rare relative to 404s).
+  const headers = allow ? { ...__MISS_HEADERS, Allow: allow } : __MISS_HEADERS;
 
-  // Body pre-stringified at module load — a route miss (scanner, probe,
-  // stale link) pays no per-hit serialization.
   let response = new Response(allow ? __MISS_BODIES[405] : __MISS_BODIES[404], { status, headers });
 
   // Run the lifecycle so plugins/hooks (e.g. CORS, security headers) apply to

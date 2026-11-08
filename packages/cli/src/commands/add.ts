@@ -222,9 +222,7 @@ function printWiringHint(plan: InstallPlan): void {
     hints.push('spread `...appPlugins` from "./plugins/index.js" into the `plugins` array');
   }
   if (plan.wire.middleware) {
-    hints.push(
-      "spread `...middleware` and add `beforeHandle: [logRequests(), markResponse()]` to `lifecycle`",
-    );
+    hints.push('spread `...middleware` from "./middleware/index.js" into the `plugins` array');
   }
   if (hints.length > 0) console.log(`\nℹ --no-wire in src/app.config.ts: ${hints.join("; ")}.`);
 }

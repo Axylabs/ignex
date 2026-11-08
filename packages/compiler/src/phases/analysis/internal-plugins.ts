@@ -93,6 +93,15 @@ export const INTERNAL_PLUGIN_USAGE: Readonly<Record<string, Readonly<ContextUsag
      * `url` is emitted by the specialized context.
      */
     openapi: Object.freeze({ ...EMPTY_USAGE, url: true }),
+
+    /** `metrics()` records the matched route template on the response path. */
+    metrics: Object.freeze({ ...EMPTY_USAGE, route: true }),
+
+    /** `healthProbe()` contributes routes without reading request context. */
+    healthProbe: Object.freeze({ ...EMPTY_USAGE }),
+
+    /** `requestId()` reads a header and assigns the shared id + state. */
+    requestId: Object.freeze({ ...EMPTY_USAGE, headers: true, state: true, requestId: true }),
   });
 
 /** The merged context requirement of an app's whole plugin layer. */

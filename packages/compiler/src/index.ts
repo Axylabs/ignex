@@ -96,10 +96,13 @@ export {
 export type {
   SdkFile,
   SdkGenerateContext,
+  SdkGenerationHooks,
   SdkOptions,
   SdkPackage,
+  SdkPackageHookContext,
   SdkPlatform,
   SdkPlatformId,
+  SdkPlatformSelection,
   SdkRealtimeInput,
   SdkResult,
   SdkRouteInfo,

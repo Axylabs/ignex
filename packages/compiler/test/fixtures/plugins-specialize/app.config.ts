@@ -8,9 +8,10 @@
  * active plugin set `hasGlobalLifecycle` and dragged every route onto the full
  * context.
  */
-import { cors, type IgnexPlugin, security } from "@ignex/core";
+import { cors, type IgnexPlugin, requestId, security } from "@ignex/core";
 
 export const plugins: IgnexPlugin[] = [
   cors({ origin: ["https://example.com"] }),
+  requestId(),
   security({ contentSecurityPolicy: "default-src 'self'" }),
 ];

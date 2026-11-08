@@ -24,10 +24,14 @@ import type { SourceFile } from "./source-file";
 /**
  * Cache-record version — stale records are discarded, never rehydrated.
  *
- * 12 — moves in lockstep with `COMPILER_CACHE_VERSION` 0.9.26 (a
+ * 12 — moved in lockstep with `COMPILER_CACHE_VERSION` 0.9.26 (a
  * documentation-only edit on an output-affecting path; see `cache.ts`).
+ * 13 — canonical OpenAPI document options and SDK extensibility; moves in
+ * lockstep with `COMPILER_CACHE_VERSION` 0.9.29.
+ * 14 — typed, query-aware HTTP client artifacts; compiler version 0.9.30.
+ * 15 — plugin routes, embedded OpenAPI, and fail-closed dependencies (0.9.31).
  */
-export const MODULES_CACHE_VERSION = "12";
+export const MODULES_CACHE_VERSION = "15";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {

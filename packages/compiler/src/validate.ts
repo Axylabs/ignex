@@ -66,6 +66,7 @@ const CompilerOptionsSchema = Type.Object(
 
     generateTypes: Type.Optional(Type.Boolean()),
     generateOpenAPI: Type.Optional(Type.Boolean()),
+    openApi: Type.Optional(Type.Record(Type.String(), Type.Any())),
     generateClient: Type.Optional(Type.Boolean()),
 
     precompileValidators: Type.Optional(Type.Boolean()),

@@ -101,6 +101,19 @@ export const createMemoryStore = (options: MemoryStoreOptions = {}): Store => {
       entry.expiresAt = resolveExpiry(opts, options.ttlMs, Date.now());
     },
 
+    update(key, updater, opts) {
+      const current = this.get(key);
+      const write = (value: unknown): unknown => {
+        this.set(key, value, opts);
+        return value;
+      };
+      const next = updater(current);
+      if (next instanceof Promise) {
+        throw new TypeError("Memory store updaters must be synchronous");
+      }
+      return write(next);
+    },
+
     close() {
       if (interval !== undefined) clearInterval(interval);
       entries.clear();

@@ -14,39 +14,70 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { flatbuffersPlatform } from "./flatbuffers";
+import { applySdkHooks } from "./hooks";
 import { loadSdkInputs, realtimeInputOf } from "./load";
 import { openapiPlatform } from "./openapi";
 import { realtimePlatform } from "./realtime";
-import type { SdkOptions, SdkPackage, SdkPlatform, SdkPlatformId, SdkResult } from "./types";
+import type {
+  SdkOptions,
+  SdkPackage,
+  SdkPlatform,
+  SdkPlatformId,
+  SdkPlatformSelection,
+  SdkResult,
+} from "./types";
 import { typescriptPlatform } from "./typescript";
 
 /** Registry of built-in platforms, keyed by id. */
 export const sdkPlatforms: Readonly<Record<string, SdkPlatform>> = {
   typescript: typescriptPlatform,
   openapi: openapiPlatform,
-  flatbuffers: flatbuffersPlatform,
   realtime: realtimePlatform,
 };
 
 /** Default platforms when `options.platforms` is omitted. */
 export const DEFAULT_SDK_PLATFORMS: readonly SdkPlatformId[] = ["typescript"];
 
-const isSdkPlatformId = (value: unknown): value is SdkPlatformId =>
-  value === "typescript" || value === "openapi" || value === "flatbuffers" || value === "realtime";
+const PLATFORM_ID = /^[a-z0-9][a-z0-9._-]*$/;
 
-/** Resolve the platform ids for an options object, validating unknowns. */
-const resolvePlatformIds = (options: SdkOptions): readonly SdkPlatformId[] => {
-  const requested = options.platforms ?? DEFAULT_SDK_PLATFORMS;
-  if (requested.length === 0) return DEFAULT_SDK_PLATFORMS;
-  for (const id of requested) {
-    if (!isSdkPlatformId(id)) {
+const resolvePlatform = (selection: SdkPlatformSelection): SdkPlatform => {
+  if (typeof selection !== "string") {
+    if (
+      selection === null ||
+      typeof selection !== "object" ||
+      !PLATFORM_ID.test(selection.id) ||
+      typeof selection.label !== "string" ||
+      typeof selection.description !== "string" ||
+      typeof selection.generate !== "function"
+    ) {
       throw new Error(
-        `Unknown SDK platform "${String(id)}" — supported: ${Object.keys(sdkPlatforms).join(", ")}`,
+        "Custom SDK platforms require a lowercase id, label, description, and generate function",
       );
     }
+    return selection;
   }
-  return [...new Set(requested)];
+  const platform = sdkPlatforms[selection];
+  if (platform === undefined) {
+    throw new Error(
+      `Unknown SDK platform "${selection}" — supported: ${Object.keys(sdkPlatforms).join(", ")}`,
+    );
+  }
+  return platform;
+};
+
+/** Resolve platform implementations and reject ambiguous duplicate ids. */
+const resolvePlatforms = (options: SdkOptions): readonly SdkPlatform[] => {
+  const requested = options.platforms ?? DEFAULT_SDK_PLATFORMS;
+  const selections = requested.length === 0 ? DEFAULT_SDK_PLATFORMS : requested;
+  const seen = new Set<string>();
+  return selections.map((selection) => {
+    const platform = resolvePlatform(selection);
+    if (seen.has(platform.id)) {
+      throw new Error(`Duplicate SDK platform id "${platform.id}"`);
+    }
+    seen.add(platform.id);
+    return platform;
+  });
 };
 
 /** Default package root: `<outDir>/sdk`. */
@@ -59,23 +90,18 @@ const defaultPackageRoot = (options: SdkOptions): string =>
  * Pure generation: reads the artifacts and returns file lists; nothing is
  * written. Use {@link writeSdk} to materialize the packages on disk.
  *
- * @param options - Artifact dir + package naming/version/platform selection.
+ * @param options - Artifact dir, package metadata, platforms, and pure hooks.
  * @returns The generated packages (files relative to each package dir).
  */
 export const generateSdk = async (options: SdkOptions): Promise<SdkResult> => {
   const inputs = loadSdkInputs(resolve(options.outDir));
-  const platformIds = resolvePlatformIds(options);
+  const platforms = resolvePlatforms(options);
   const rootDir = defaultPackageRoot(options);
-  const multi = platformIds.length > 1;
+  const multi = platforms.length > 1;
 
   const packages: SdkPackage[] = [];
-  for (const id of platformIds) {
-    const platform = sdkPlatforms[id];
-    if (platform === undefined) {
-      throw new Error(
-        `Unknown SDK platform "${id}" — supported: ${Object.keys(sdkPlatforms).join(", ")}`,
-      );
-    }
+  for (const platform of platforms) {
+    const { id } = platform;
     const platformOptions: SdkOptions = {
       ...options,
       // With several platforms, keep package names + local install paths
@@ -94,8 +120,10 @@ export const generateSdk = async (options: SdkOptions): Promise<SdkResult> => {
       options: platformOptions,
       ...(inputs.realtime !== undefined ? { realtime: inputs.realtime } : {}),
     };
+    const generated = await platform.generate(ctx);
+    const files = await applySdkHooks(generated, ctx, id, options.hooks);
     const dir = multi ? join(rootDir, id) : rootDir;
-    packages.push({ platform: id, dir, files: await platform.generate(ctx) });
+    packages.push({ platform: id, dir, files });
   }
 
   return { rootDir, packages };
@@ -127,7 +155,7 @@ export const writeSdk = async (options: SdkOptions): Promise<SdkResult> => {
  * generated wire stack, but the full SDK pipeline needs compilation
  * artifacts — so `ignex build` uses this to emit the realtime SDK BEFORE
  * compiling (and `ignex event bus` uses it right after scaffolding). The
- * full `writeSdk` pipeline (typescript/openapi/flatbuffers platforms) still
+ * full `writeSdk` pipeline (typescript/openapi platforms) still
  * requires a prior build.
  *
  * @param options - `outDir` holding `realtime.json` (+ optional

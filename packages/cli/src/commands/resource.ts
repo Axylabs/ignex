@@ -66,6 +66,11 @@ const argsDef = {
     valueHint: "mongo|sql",
     description: "Data layer (mongo default; sql = Drizzle)",
   },
+  "sql-driver": {
+    type: "string",
+    valueHint: "sqlite|postgres",
+    description: "SQL driver when --db sql (default sqlite)",
+  },
 } satisfies ArgsDef;
 
 const resourceCmd = defineCommand({
@@ -182,6 +187,42 @@ export async function addCollectionToDb(root: string, plural: string): Promise<v
   success(`Added ${plural} to src/db.ts collections.`);
 }
 
+interface SqlResourceInput {
+  root: string;
+  name: string;
+  plural: string;
+  modelPath: string;
+  dbSqlPath: string;
+  drizzleConfigPath: string;
+  routesDir: string;
+  fields: readonly ModelField[];
+  driver: "sqlite" | "postgres";
+  force: boolean;
+  opts: { auth: boolean; rbac: boolean };
+}
+
+/** Scaffold the model, routes, client, config, env, and dependencies for SQL. */
+async function scaffoldSqlResource(input: SqlResourceInput): Promise<void> {
+  const { root, name, plural, fields, driver, force, opts } = input;
+  if (
+    !(await writeScaffold(input.modelPath, drizzleModelTemplate(name, fields, driver), {
+      force,
+      overwrite: true,
+    }))
+  ) {
+    return;
+  }
+  for (const { path, content } of drizzleResourceTemplates(name, fields, opts)) {
+    await writeScaffold(join(input.routesDir, path), content, { force });
+  }
+
+  const dbSqlCreated = await writeScaffold(input.dbSqlPath, drizzleDbTemplate(driver));
+  await writeScaffold(input.drizzleConfigPath, drizzleConfigTemplate(driver));
+  if (dbSqlCreated) await wireDbEnv(root, driver === "postgres" ? "postgres" : "sql");
+  await ensureDrizzleDeps(root, driver);
+  if (opts.rbac) info(`Permissions pre-wired: ${plural}:read and ${plural}:write.`);
+}
+
 export async function runResource(args: string[]): Promise<void> {
   const parsed = parseArgs<typeof argsDef>(args, argsDef);
 
@@ -195,6 +236,20 @@ export async function runResource(args: string[]): Promise<void> {
   }
 
   const dbKind = parsed.db === "sql" ? "sql" : "mongo";
+  const sqlDriver = parsed["sql-driver"] === "postgres" ? "postgres" : "sqlite";
+  if (
+    parsed["sql-driver"] !== undefined &&
+    !["sqlite", "postgres"].includes(parsed["sql-driver"])
+  ) {
+    error(`Unknown SQL driver "${parsed["sql-driver"]}" — expected sqlite or postgres.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (dbKind !== "sql" && parsed["sql-driver"] !== undefined) {
+    error("--sql-driver requires --db sql.");
+    process.exitCode = 1;
+    return;
+  }
   const config = await loadConfig(root);
   const modelsDir = resolveDir(root, parsed.dir, config.modelsDir, "src/models");
   const routesDir = resolveDir(root, undefined, config.routesDir, "src/routes");
@@ -212,44 +267,25 @@ export async function runResource(args: string[]): Promise<void> {
   const drizzleConfigPath = join(root, "drizzle.config.ts");
   const opts = { auth: Boolean(parsed.auth), rbac: Boolean(parsed.rbac) };
 
+  const sqlLabel = sqlDriver === "postgres" ? "PostgreSQL" : "SQLite";
   step(
-    `Scaffolding resource ${name} (${dbKind === "sql" ? "Drizzle/SQLite" : `collection "${plural}"`})`,
+    `Scaffolding resource ${name} (${dbKind === "sql" ? `Drizzle/${sqlLabel}` : `collection "${plural}"`})`,
   );
 
   if (dbKind === "sql") {
-    // ── Drizzle (SQL) path ──────────────────────────────────────────────
-    if (
-      !(await writeScaffold(modelPath, drizzleModelTemplate(name, fields), {
-        force: Boolean(parsed.force),
-        overwrite: true,
-      }))
-    ) {
-      return;
-    }
-
-    for (const { path, content } of drizzleResourceTemplates(
+    await scaffoldSqlResource({
+      root,
       name,
-      fields.map((f) => f.line.split(":")[0]?.trim() ?? "field"),
-    )) {
-      // drizzle paths already include the `api/` prefix.
-      await writeScaffold(join(routesDir, path), content, {
-        force: Boolean(parsed.force),
-      });
-    }
-
-    // db-sql.ts + drizzle.config.ts are idempotent (never overwrite a custom
-    // client once present). On FIRST creation, wire DATABASE_URL into the env
-    // config so the generated client resolves its URL from env.ts.
-    const dbSqlCreated = await writeScaffold(dbSqlPath, drizzleDbTemplate());
-    await writeScaffold(drizzleConfigPath, drizzleConfigTemplate());
-    if (dbSqlCreated) await wireDbEnv(root, "sql");
-
-    // Install drizzle-orm + typebox (imported by the generated files).
-    await ensureDrizzleDeps(root);
-
-    if (opts.auth || opts.rbac) {
-      info("SQL resources: add auth hooks via config.hooks (drizzle has no guard pre-wiring yet).");
-    }
+      plural,
+      modelPath,
+      dbSqlPath,
+      drizzleConfigPath,
+      routesDir,
+      fields,
+      driver: sqlDriver,
+      force: Boolean(parsed.force),
+      opts,
+    });
     return;
   }
 
@@ -318,11 +354,11 @@ async function bootstrapMongoDb(root: string, name: string, plural: string): Pro
   await addCollectionToDb(root, plural);
 }
 
-/** Ensure the packages a generated SQL resource imports are installed
- *  (drizzle-orm + drizzle-kit for the model/client/config, typebox for the
- *  route body schemas). */
-async function ensureDrizzleDeps(root: string): Promise<void> {
-  await ensureDeps(root, ["drizzle-orm", "drizzle-kit", "typebox"]);
+/** Ensure the packages a generated SQL resource imports are installed. */
+async function ensureDrizzleDeps(root: string, driver: "sqlite" | "postgres"): Promise<void> {
+  const deps = ["drizzle-orm", "drizzle-kit", "typebox"];
+  if (driver === "postgres") deps.push("pg");
+  await ensureDeps(root, deps);
 }
 
 /** Write the app's guard boilerplate (src/lib/guards.ts) once, never overwrite. */

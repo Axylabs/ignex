@@ -13,7 +13,7 @@
  * its collections, connection URL, and migration directory.
  *
  * SQL (`--db sql`): delegates to drizzle-kit against the scaffolded
- * `drizzle.config.ts` (`generate` = create, `push` = up, `check` = status).
+ * `drizzle.config.ts` (`generate` = create, `migrate` = up, `check` = status).
  *
  * `create` is self-contained (a pure file write) so it works without a running
  * database.
@@ -187,7 +187,7 @@ export async function runMigrate(args: string[]): Promise<void> {
   // `--db sql` → drizzle-kit (the generated Drizzle schema). Delegates to the
   // `drizzle-kit` CLI so migrations share the drizzle.config.ts the
   // `--db sql` resource scaffolded. `create`/`generate` are pure file writes
-  // (no DB connection); `up`/`push`/`status` need the configured DB.
+  // (no DB connection); `up`/`migrate`/`status` need the configured DB.
   if (parsed.db === "sql") {
     const drizzleConfig = join(root, "drizzle.config.ts");
     if (!(await exists(drizzleConfig))) {
@@ -204,7 +204,7 @@ export async function runMigrate(args: string[]): Promise<void> {
         argsForKit.push("generate", "--name", name ?? "migration");
         break;
       case "up":
-        argsForKit.push("push"); // drizzle-kit push = apply schema to the DB
+        argsForKit.push("migrate"); // apply versioned SQL migrations
         break;
       case "status":
         argsForKit.push("check");

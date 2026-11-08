@@ -43,15 +43,18 @@ test("authLibTemplate without refresh omits the refresh-token manager", () => {
   expect(code).not.toContain("refreshTokens");
 });
 
-test("authLibTemplate with refresh emits the revocable refresh manager", () => {
+test("authLibTemplate with refresh emits hashed single-use durable tokens", () => {
   const code = authLibTemplate({ refresh: true });
-  expect(code).toContain("createMemorySessionStore");
+  expect(code).toContain("createSqliteStore");
   expect(code).toContain("randomToken(32)");
-  expect(code).toContain("type SessionStore");
+  expect(code).toContain('createHash("sha256")');
+  expect(code).toContain("consumedAt");
   expect(code).toContain("export const refreshTokens =");
   expect(code).toContain("async issue");
   expect(code).toContain("async consume");
   expect(code).toContain("async revoke");
+  expect(code).not.toContain("admin");
+  expect(code).not.toContain('hasher.hash("secret")');
 });
 
 test("loginRouteTemplate without refresh issues an access token only", () => {
@@ -75,17 +78,20 @@ test("loginRouteTemplate with refresh issues access + refresh tokens", () => {
   );
 });
 
-test("registerRouteTemplate creates a user and returns 201", () => {
+test("registerRouteTemplate creates an unprivileged validated user and returns 201", () => {
   const code = registerRouteTemplate({ refresh: true });
-  expect(code).toContain("userStore.create");
+  expect(code).toContain("userStore.create(body.username, body.password)");
   expect(code).toContain('{ error: "User already exists" }, { status: 409 }');
   expect(code).toContain("{ status: 201 }");
-  expect(code).toContain("const refreshToken = await refreshTokens.issue(user);");
+  expect(code).toContain("minLength: 12");
+  expect(code).not.toContain("body.roles");
 });
 
-test("refreshRouteTemplate consumes the refresh token and issues a new access token", () => {
+test("refreshRouteTemplate rotates the refresh token and issues a new access token", () => {
   const code = refreshRouteTemplate();
   expect(code).toContain("refreshTokens.consume");
+  expect(code).toContain("refreshTokens.issue(user)");
+  expect(code).toContain("refreshToken");
   expect(code).toContain('{ error: "Invalid refresh token" }, { status: 401 }');
   expect(code).toContain("auth.issueToken");
 });

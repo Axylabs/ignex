@@ -17,6 +17,17 @@ describe("handler timeout emission", () => {
     expect(src).toContain("if (!__HANDLER_TIMEOUT_MS) return promise.catch(onError)");
   });
 
+  it("bakes the request-independent 503 response once at module load", () => {
+    const src = HELPER_SOURCES.__raceHandler;
+    // The 503 body/headers carry no per-request data, so the Response is a
+    // shared module-level instance — never re-built per timeout.
+    expect(src).toContain("const __TIMEOUT_BODY = JSON.stringify(");
+    expect(src).toContain("const __TIMEOUT_RESPONSE = new Response(__TIMEOUT_BODY");
+    expect(src).toContain("resolve(__TIMEOUT_RESPONSE)");
+    // No per-timeout construction remains.
+    expect(src).not.toContain("new Response(JSON.stringify(");
+  });
+
   it("wrappers route async results through the race helper", () => {
     expect(HELPER_SOURCES.__wrapStatic).toContain("__raceHandler(r, onError)");
     expect(HELPER_SOURCES.__wrap).toContain("__raceHandler(__r, onError)");

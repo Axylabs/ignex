@@ -75,3 +75,6 @@ bench/results/compare/*
 
 # Serena MCP agent-tooling local state (project.yml, memories, cache)
 .serena/
+
+# ZCode CLI per-project state (plans, workflows, visualizations)
+.zcode/

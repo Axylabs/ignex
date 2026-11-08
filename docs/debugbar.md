@@ -70,9 +70,9 @@ in [UI design system](#ui-design-system-contributors).
   same view: NATS probe publishes **and** realtime emits
   (`POST /api/nova/events/emit`) — broadcast, or targeted to a user/group/
   topic/client — so consumers can be exercised without leaving the dashboard.
-- **Clients** — published SDK + FlatBuffers frontend clients with local
-  versions and git tags (`sdk-v*`) — a *tagged* vs *local only* badge on each
-  card.
+- **Clients** — published TypeScript/OpenAPI SDK and realtime client packages
+  with local versions and git tags (`sdk-v*`) — a *tagged* vs *local only*
+  badge on each card.
 - **AI** — the compact `ai/summary` snapshot plus a copy-paste MCP config so
   an AI agent can connect and debug this app (see *AI debugging (MCP)* below).
 - **Routes** — searchable inventory with method pills, source files and
@@ -265,7 +265,6 @@ debugbar({
   sdkPaths: ["dist/sdk/package.json"],     // published-SDK metadata probes
   docsPaths: ["docs", "."],                // KT documentation inventory scan roots
   projectRoot: ".",                        // where the KT project map + docs scan probe
-  clientPaths: ["dist/sdk/flatbuffers"],   // frontend-client probes (Clients panel)
   // NATS event tracking (Events panel). URL defaults to $NATS_URL.
   nats: {
     url: "nats://localhost:4222", // nats:// or tls:// host[:port]
@@ -675,9 +674,9 @@ combines them with git state:
   `GET /api/clients?refresh=1`) lists the `sdk-v*` tags — the release signal
   `ignex sdk --push` creates — so a package shows as **tagged** when its tag
   exists, **local only** otherwise.
-- **SDK vs client** — `kind: "sdk"` packages (typescript/openapi SDKs) and
-  `kind: "client"` packages (the FlatBuffers frontend client — see below) are
-  shown with distinct badges and their platforms.
+- **SDK vs client** — `kind: "sdk"` packages (TypeScript/OpenAPI SDKs) and
+  `kind: "client"` packages (the typed realtime client) are shown with
+  distinct badges and their platforms.
 
 ## AI debugging (MCP)
 

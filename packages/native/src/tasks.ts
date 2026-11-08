@@ -18,7 +18,7 @@
  * identifies the fallback.
  */
 import { pbkdf2Sync } from "node:crypto";
-import { passwordVerify } from "./crypto";
+import { passwordVerify, passwordVerifyFallbackAsync } from "./crypto";
 import { loadCastrumModule } from "./loader";
 import { brotliDecompress, gzipCompress, gzipDecompress } from "./payload";
 import { reportDegradation } from "./telemetry";
@@ -232,9 +232,10 @@ export const gzipCompressAsync = async (
  * Verify a password against a PHC string off the JS event loop (argon2id is
  * 10–200 ms of CPU that would otherwise stall the loop).
  *
- * Only argon2id hashes offload; `$scrypt$` hashes, a missing task runtime and
- * `IGNEX_NATIVE=off` fall back to the synchronous {@link passwordVerify}, so
- * the boolean result is identical whichever path runs.
+ * Scrypt uses Node's off-thread crypto without requiring the addon; argon2id
+ * uses castrum's task pool. A missing task runtime or offload failure falls
+ * back to synchronous {@link passwordVerify}, so the boolean result is
+ * identical whichever path runs.
  *
  * @param password - Cleartext password.
  * @param phc - Stored PHC hash (`$argon2id$…` or `$scrypt$…`).
@@ -247,10 +248,10 @@ export const verifyPasswordAsync = async (
   options?: TaskRunOptions,
 ): Promise<boolean> => {
   throwIfAborted(options?.signal);
-  if (!phc.startsWith("$argon2")) {
-    // scrypt (and any foreign PHC) stays on the synchronous dispatcher.
-    return passwordVerify(password, phc);
+  if (phc.startsWith("$scrypt$")) {
+    return passwordVerifyFallbackAsync(encoder.encode(password), phc);
   }
+  if (!phc.startsWith("$argon2")) return false;
   try {
     const runtime = await getSharedRuntime();
     return await runtime.argon2Verify(encoder.encode(password), encoder.encode(phc), options);

@@ -2,33 +2,8 @@
  * @fileoverview Generated SDK client artifacts — `client.d.ts` + `client.ts`.
  */
 
+import { CLIENT_TYPE_CONTRACT } from "../../sdk/client-contract";
 import type { RouteIR } from "../../types";
-
-/**
- * The per-route client type contract emitted into BOTH `client.d.ts` and
- * `client.ts` — single source of truth so the two can't drift.
- */
-const CLIENT_TYPE_CONTRACT = `
-
-// Per-route call signature, derived from the route's declared params/body:
-//   params+body → (params, body, init?)
-//   params      → (params, init?)
-//   body        → (body, init?)
-//   none        → (init?)
-type IgnexRouteHandler<Route> = Route extends { params: infer P; body: unknown }
-  ? (params: P, body: unknown, init?: RequestInit) => Promise<unknown>
-  : Route extends { params: infer P }
-    ? (params: P, init?: RequestInit) => Promise<unknown>
-    : Route extends { body: unknown }
-      ? (body: unknown, init?: RequestInit) => Promise<unknown>
-      : (init?: RequestInit) => Promise<unknown>;
-
-export type IgnexClient = {
-  [Path in keyof IgnexRoutes]: {
-    [Method in keyof IgnexRoutes[Path]]: IgnexRouteHandler<IgnexRoutes[Path][Method]>;
-  };
-};
-`;
 
 /** Generate `client.d.ts` — the typed per-route client call signatures. */
 export const generateClientDts = (): string =>
@@ -42,27 +17,26 @@ export declare function createApiClient(baseUrl?: string, init?: RequestInit): I
  * `@ignex/core` behind a path/method proxy).
  */
 export const generateClient = (routes: readonly RouteIR[]): string => {
-  const routeEntries = routes
-    .filter((r) => r.source.method !== "ALL")
-    .map(
-      (r) =>
-        `  ${JSON.stringify(`${r.source.method.toLowerCase()} ${r.source.path}`)}: ${JSON.stringify(
-          r.source.path,
-        )},`,
-    )
+  const clientRoutes = routes.filter((route) => route.source.method !== "ALL");
+  const routeEntries = clientRoutes
+    .map((route) => {
+      const key = `${route.source.method.toLowerCase()} ${route.source.path}`;
+      return `  ${JSON.stringify(key)}: ${JSON.stringify(route.source.path)},`;
+    })
     .join("\n");
-
-  // Each route's call shape is known at codegen time and emitted explicitly so
-  // the runtime never has to guess from an opaque object — a plain-object
-  // RequestInit used to be misread as `params` (dropping headers), and request
-  // bodies were never sent at all.
-  const routeArgsModes = routes
-    .filter((r) => r.source.method !== "ALL")
-    .map((r) => {
-      const hasParams = r.source.paramNames.length > 0;
-      const hasBody = r.analysis.usage.body === true;
-      const mode = hasParams ? (hasBody ? "params+body" : "params") : hasBody ? "body" : "none";
-      return `  ${JSON.stringify(r.source.path)}: ${JSON.stringify(mode)}`;
+  const routeArgsModes = clientRoutes
+    .map((route) => {
+      const params = route.source.paramNames.length > 0;
+      const query = route.analysis.usage.query === true;
+      const schemaDoc = route.decisions?.schemaDoc;
+      const body =
+        route.analysis.usage.body === true ||
+        (schemaDoc != null && typeof schemaDoc === "object" && "body" in schemaDoc);
+      const mode =
+        `${params ? "params" : ""}${params && query ? "+" : ""}${query ? "query" : ""}${(params || query) && body ? "+" : ""}${body ? "body" : ""}` ||
+        "none";
+      const key = `${route.source.method.toLowerCase()} ${route.source.path}`;
+      return `  ${JSON.stringify(key)}: ${JSON.stringify(mode)}`;
     })
     .join(",\n");
 
@@ -73,67 +47,66 @@ const ROUTES: Record<string, string> = {
 ${routeEntries}
 };
 
-// Route path → call shape ("none" | "params" | "body" | "params+body").
-const ROUTE_ARGS: Record<string, "none" | "params" | "body" | "params+body"> = {
+const ROUTE_ARGS: Record<string, string> = {
 ${routeArgsModes}
 };
 
 const buildUrl = (path: string, params?: Record<string, string | number>): string => {
   let url = path;
   for (const [key, value] of Object.entries(params ?? {})) {
-    url = url
-      .replace(\`:\${key}\`, encodeURIComponent(String(value)))
-      .replace(\`*\${key}\`, encodeURIComponent(String(value)));
+    const encoded = encodeURIComponent(String(value));
+    url = url.replaceAll(\`:\${key}\`, encoded).replaceAll(\`*\${key}\`, encoded);
   }
   return url;
 };
 
-// Deep-merge per-call init over the client-wide init so a per-call header
-// doesn't clobber headers set on \`createApiClient\` (shallow spread would).
+const buildQuery = (query?: Record<string, unknown>): string => {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value === undefined || value === null) continue;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      parts.push(\`\${encodeURIComponent(key)}=\${encodeURIComponent(String(item))}\`);
+    }
+  }
+  return parts.length > 0 ? \`?\${parts.join("&")}\` : "";
+};
+
 const mergeInit = (base: RequestInit | undefined, per: RequestInit | undefined): RequestInit => {
   const out: RequestInit = { ...base, ...per };
   if (base?.headers && per?.headers) {
-    out.headers = {
-      ...(base.headers as Record<string, string>),
-      ...(per.headers as Record<string, string>),
-    };
+    out.headers = { ...(base.headers as Record<string, string>), ...(per.headers as Record<string, string>) };
   }
   return out;
 };
 
 export function createApiClient(baseUrl = "", init?: RequestInit): IgnexClient {
   const client = createClient({ baseUrl });
-
   const routeHandler = (pathKey: string) => {
     const path = ROUTES[pathKey] ?? pathKey;
-    const mode = ROUTE_ARGS[path] ?? "none";
     return new Proxy({} as Record<string, (...args: unknown[]) => Promise<unknown>>, {
       get(_, methodKey: string) {
+        const method = methodKey.toUpperCase();
+        const mode = ROUTE_ARGS[\`\${method.toLowerCase()} \${path}\`] ?? "none";
         return async (...args: unknown[]) => {
-          if (mode === "params+body") {
-            const [params, body, requestInit] = args as [Record<string, string | number>, unknown, RequestInit?];
-            return client.request(methodKey.toUpperCase(), buildUrl(path, params), body, mergeInit(init, requestInit));
-          }
-          if (mode === "params") {
-            const [params, requestInit] = args as [Record<string, string | number>, RequestInit?];
-            return client.request(methodKey.toUpperCase(), buildUrl(path, params), undefined, mergeInit(init, requestInit));
-          }
-          if (mode === "body") {
-            const [body, requestInit] = args as [unknown, RequestInit?];
-            return client.request(methodKey.toUpperCase(), path, body, mergeInit(init, requestInit));
-          }
-          const [requestInit] = args as [RequestInit?];
-          return client.request(methodKey.toUpperCase(), path, undefined, mergeInit(init, requestInit));
+          let params: Record<string, string | number> | undefined;
+          let query: Record<string, unknown> | undefined;
+          let body: unknown;
+          let requestInit: RequestInit | undefined;
+          if (mode === "params+query+body") [params, query, body, requestInit] = args as [Record<string, string | number>, Record<string, unknown>, unknown, RequestInit?];
+          else if (mode === "params+query") [params, query, requestInit] = args as [Record<string, string | number>, Record<string, unknown>, RequestInit?];
+          else if (mode === "query+body") [query, body, requestInit] = args as [Record<string, unknown>, unknown, RequestInit?];
+          else if (mode === "params+body") [params, body, requestInit] = args as [Record<string, string | number>, unknown, RequestInit?];
+          else if (mode === "params") [params, requestInit] = args as [Record<string, string | number>, RequestInit?];
+          else if (mode === "query") [query, requestInit] = args as [Record<string, unknown>, RequestInit?];
+          else if (mode === "body") [body, requestInit] = args as [unknown, RequestInit?];
+          else [requestInit] = args as [RequestInit?];
+          const url = buildUrl(path, params) + buildQuery(query);
+          return client.request(method, url, body, mergeInit(init, requestInit));
         };
       },
     });
   };
-
-  return new Proxy({} as IgnexClient, {
-    get(_, pathKey: string) {
-      return routeHandler(pathKey);
-    },
-  });
+  return new Proxy({} as IgnexClient, { get(_, pathKey: string) { return routeHandler(pathKey); } });
 }
 `;
 };

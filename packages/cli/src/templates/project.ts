@@ -1,4 +1,5 @@
 import type { Feature } from "../types.js";
+import { cliVersion } from "../version.js";
 
 export interface ProjectTemplateOptions {
   name: string;
@@ -20,6 +21,10 @@ export const PLUGIN_FEATURES: readonly Feature[] = [
   "compression",
   "logger",
   "metrics",
+  "auth",
+  "mailer",
+  "realtime",
+  "rpc",
 ];
 
 /**
@@ -29,8 +34,27 @@ export const PLUGIN_FEATURES: readonly Feature[] = [
  */
 const PLUGIN_EMISSIONS: Partial<Record<Feature, { imports: readonly string[]; call: string }>> = {
   metrics: {
-    imports: ['{ metrics } from "../lib/metrics.js"', '{ env } from "../config/env.js"'],
-    call: 'metricsPlugin({ metrics, path: "/metrics", token: env.METRICS_TOKEN })',
+    imports: [
+      '{ metrics, metricsLifecycle } from "../lib/metrics.js"',
+      '{ env } from "../config/env.js"',
+    ],
+    call: 'metricsPlugin({ metrics, path: "/metrics", token: env.METRICS_TOKEN }), metricsLifecycle',
+  },
+  auth: {
+    imports: ['{ authLifecycle } from "../lib/auth.js"'],
+    call: "authLifecycle",
+  },
+  mailer: {
+    imports: ['{ mailerLifecycle } from "../lib/mailer.js"'],
+    call: "mailerLifecycle",
+  },
+  realtime: {
+    imports: ['{ realtime } from "../lib/realtime.js"'],
+    call: "realtime",
+  },
+  rpc: {
+    imports: ['{ rpcLifecycle } from "../rpc/kit.js"'],
+    call: "rpcLifecycle",
   },
 };
 
@@ -46,16 +70,22 @@ export function packageJsonTemplate(opts: ProjectTemplateOptions): string {
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "") || "ignex-app";
 
+  const frameworkRange = `^${cliVersion()}`;
   const dependencies: Record<string, string> = {
-    "@ignex/core": "latest",
+    "@ignex/core": frameworkRange,
   };
 
-  if (opts.features.has("examples")) {
-    dependencies.typebox = "latest";
+  if (
+    opts.features.has("examples") ||
+    opts.features.has("auth") ||
+    opts.features.has("refresh") ||
+    opts.features.has("rpc")
+  ) {
+    dependencies.typebox = "^1.3.15";
   }
 
   const devDependencies: Record<string, string> = {
-    "@ignex/cli": "latest",
+    "@ignex/cli": frameworkRange,
     "@biomejs/biome": "^2.5.5",
     oxlint: "^1.74.0",
     typescript: "^7.0.2",
@@ -122,34 +152,9 @@ export function tsconfigTemplate(): string {
 }
 
 export function ignexConfigTemplate(): string {
-  return `/** @type {import("@ignex/compiler").CompilerOptions} */
-export default {
-  routesDir: "src/routes",
-  hooksDir: "src/hooks",
-  outDir: ".ignex",
-  outFile: "server.js",
-
-  // Production optimization profile. \`minify: false\` keeps the generated
-  // server readable while developing; set \`minify: true\` (like
-  // packages/app/builder.ts) for smaller production output. Explicit knobs
-  // below can be overridden.
-  optimizationLevel: 3,
-  minify: false,
-  // Emits the .js.map next to the bundle so the debugbar can remap error
-  // stacks and span origins back to your TypeScript sources.
-  sourceMap: true,
-
-  generateTypes: true,
-  generateOpenAPI: true,
-  generateClient: true,
-
-  specializeContext: true,
-  hoistConstants: true,
-  routeCache: true,
-
-  precompileValidators: true,
-  precompileSerializers: true
-};
+  return `/** @type {import("@ignex/cli/config").IgnexProjectConfig} */
+// Set only project-specific overrides; optimized defaults live in the framework.
+export default {};
 `;
 }
 export function biomeTemplate(): string {
@@ -195,9 +200,9 @@ export function readmeTemplate(opts: ProjectTemplateOptions): string {
 ## Auth
 
 \`src/lib/auth.ts\` wires an Ed25519 \`authModule()\` (short-lived access tokens;
-\`JWT_PRIVATE_KEY\` / \`JWT_PUBLIC_KEY\` are bootstrapped into \`.env\`), a hashed
-in-memory user store (seeded with \`admin\` / \`secret\`), and the \`require-auth\`
-hook used via \`config.hooks\`.
+\`JWT_PRIVATE_KEY\` / \`JWT_PUBLIC_KEY\` are bootstrapped into \`.env\` in development),
+a SQLite-backed user store, and the \`require-auth\` hook used via \`config.hooks\`.
+Production requires pre-provisioned JWT keys.
 
 - \`POST /auth/register\` — create a user → access${tokens} token
 - \`POST /auth/login\` — verify credentials → access${tokens} token
@@ -265,7 +270,11 @@ export function pluginsTemplate(opts: { features: ReadonlySet<Feature> }): strin
     return `export const plugins: never[] = [];\n`;
   }
 
-  const imports = ["{ " + selected.join(", ") + ' } from "@ignex/core"'];
+  const coreSymbols = selected
+    .filter((feature) => !["auth", "mailer", "realtime", "rpc"].includes(feature))
+    .map((feature) => (feature === "metrics" ? "metricsPlugin" : feature));
+  const imports =
+    coreSymbols.length > 0 ? [`{ ${coreSymbols.join(", ")} } from "@ignex/core"`] : [];
   for (const feature of selected) {
     for (const extra of PLUGIN_EMISSIONS[feature]?.imports ?? []) imports.push(extra);
   }

@@ -45,6 +45,14 @@ describe("drizzleColumn", () => {
     expect(drizzleColumn(firstField("e:enum(a,b)"))).toBe('e: text("e"),');
     expect(drizzleColumn(firstField("t:array(string)"))).toBe('t: text("t"),');
   });
+
+  it("maps numeric, boolean, and date fields to native PostgreSQL columns", () => {
+    expect(drizzleColumn(firstField("r:number"), "postgres")).toBe('r: doublePrecision("r"),');
+    expect(drizzleColumn(firstField("b:boolean"), "postgres")).toBe('b: boolean("b"),');
+    expect(drizzleColumn(firstField("d:date"), "postgres")).toBe(
+      'd: timestamp("d", { withTimezone: true }),',
+    );
+  });
 });
 
 describe("drizzleModelTemplate", () => {
@@ -54,6 +62,20 @@ describe("drizzleModelTemplate", () => {
     expect(code).toContain('id: integer("id").primaryKey({ autoIncrement: true })');
     expect(code).toContain('createdAt: integer("created_at", { mode: "timestamp_ms" })');
     expect(code).toContain("export type User = typeof users.$inferSelect");
+  });
+
+  it("emits every PostgreSQL column import used by the table", () => {
+    const code = drizzleModelTemplate(
+      "User",
+      parseModelFields("active:boolean,score:number,birthday:date"),
+      "postgres",
+    );
+    expect(code).toContain('from "drizzle-orm/pg-core"');
+    expect(code).toContain("boolean");
+    expect(code).toContain("doublePrecision");
+    expect(code).toContain("timestamp");
+    expect(code).toContain('pgTable("users"');
+    expect(code).toContain('id: integer("id").primaryKey().generatedAlwaysAsIdentity()');
   });
 });
 
@@ -73,6 +95,11 @@ describe("drizzleDbTemplate / drizzleConfigTemplate", () => {
     expect(cfg).toContain('dialect: "sqlite"');
     expect(cfg).toContain('"./src/models/*.ts"');
   });
+
+  it("emits the node-postgres client and drizzle-kit config", () => {
+    expect(drizzleDbTemplate("postgres")).toContain('from "drizzle-orm/node-postgres"');
+    expect(drizzleConfigTemplate("postgres")).toContain('dialect: "postgres"');
+  });
 });
 
 describe("drizzleResourceTemplates", () => {
@@ -89,7 +116,7 @@ describe("drizzleResourceTemplates", () => {
 
   it("uses drizzle queries (select/insert/update/delete + eq)", () => {
     const list = drizzleRouteTemplate("User", "list");
-    expect(list).toContain("db.select().from(users).all()");
+    expect(list).toContain("await db.select().from(users).limit(limit).offset((page - 1) * limit)");
 
     const create = drizzleRouteTemplate("User", "create", ["email"]);
     expect(create).toContain(".insert(users)");

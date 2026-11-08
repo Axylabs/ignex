@@ -68,7 +68,7 @@ export interface AuthModuleOptions {
   loadRoles?: (user: AuthUser) => MaybePromise<string[]>;
   /** Resolve a user's permissions at issue time (DB-backed). Optional. */
   loadPermissions?: (user: AuthUser) => MaybePromise<string[]>;
-  /** Allow generating + writing missing keys into `.env` (default true). */
+  /** Allow generating + writing missing keys into `.env` outside production (default true). */
   bootstrapEnv?: boolean;
   /** Send `WWW-Authenticate: Bearer` on middleware failure (default true). */
   challenge?: boolean;
@@ -141,20 +141,14 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
     let publicKey = process.env[publicKeyEnv];
     if (privateKey && publicKey) return { privateKey, publicKey };
 
-    if (options.bootstrapEnv === false) {
+    if (options.bootstrapEnv === false || process.env.NODE_ENV === "production") {
       throw new Error(
-        `[ignex] auth: missing ${privateKeyEnv}/${publicKeyEnv} and bootstrapEnv is disabled`,
+        `[ignex] auth: missing ${privateKeyEnv}/${publicKeyEnv}; provision them from a secret manager. ` +
+          "Key bootstrap is available only outside production (or set bootstrapEnv: false explicitly).",
       );
     }
 
     const pair = generateEd25519Keypair();
-    if (process.env.NODE_ENV === "production") {
-      console.warn(
-        "[ignex] auth: generated a new Ed25519 private key and wrote it in PLAINTEXT to " +
-          `.env (${privateKeyEnv}) in production — prefer provisioning keys from a secret ` +
-          "manager and set bootstrapEnv: false to fail fast instead.",
-      );
-    }
     writeEnvKeys({
       [privateKeyEnv]: pair.privateKey,
       [publicKeyEnv]: pair.publicKey,
@@ -216,12 +210,11 @@ export const createAuthModule = (options: AuthModuleOptions = {}): AuthModule =>
       permissions = [...new Set([...direct, ...fromRoles])];
     }
 
-    // A user without `id`/`sub` gets a UNIQUE per-token subject (previously a
-    // constant "anon" made every such token indistinguishable — role-scoped
-    // auth could not tell them apart).
-    const claims: Record<string, unknown> = {
-      sub: String(user.id ?? user.sub ?? crypto.randomUUID()),
-    };
+    const subject = user.id ?? user.sub;
+    if (typeof subject !== "string" && typeof subject !== "number") {
+      throw new TypeError("auth.issueToken requires a stable user.id or user.sub");
+    }
+    const claims: Record<string, unknown> = { sub: String(subject) };
     if (mode === "role" || mode === "both") claims.roles = roles;
     if (mode === "permission" || mode === "both") claims.permissions = permissions;
 

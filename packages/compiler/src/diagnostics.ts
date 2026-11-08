@@ -74,6 +74,8 @@ export const DiagnosticCodes = {
   HookMissing: "IGN_HOOK_MISSING",
   /** Guards could not be statically evaluated; the runtime wrapper is kept. */
   OpaqueGuards: "IGN_OPAQUE_GUARDS",
+  /** A production-shaped build explicitly opted into exposing error details to clients. */
+  ErrorsExposed: "IGN_ERRORS_EXPOSED",
   /** Writing a generated artifact failed. */
   ArtifactWriteFailed: "IGN_ARTIFACT_WRITE_FAILED",
   /** A compiler option is deprecated and no longer affects output. */

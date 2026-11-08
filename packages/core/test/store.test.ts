@@ -109,6 +109,20 @@ describe("createSqliteStore", () => {
     expect(await store2.get("persist")).toEqual({ v: 42 });
   });
 
+  it("serializes atomic updates across independent connections", async () => {
+    const file = join(tmp(), "atomic.db");
+    const first = await open(file);
+    const second = await open(file);
+    if (!first || !second) return;
+    const increment = (store: Store) =>
+      store.update?.("counter", (current) => Number(current ?? 0) + 1);
+    await Promise.all(Array.from({ length: 50 }, () => increment(first)));
+    await Promise.all(Array.from({ length: 50 }, () => increment(second)));
+    expect(await first.get("counter")).toBe(100);
+    first.close?.();
+    second.close?.();
+  });
+
   it("honours a custom table + column mapping", async () => {
     const store = await open(":memory:", {
       table: "custom",

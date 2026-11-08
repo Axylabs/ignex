@@ -3,7 +3,11 @@ import { type CompileResult, type CompilerOptions, formatDiagnostic } from "@ign
 import { loadConfig } from "./config.js";
 import { exists } from "./fs.js";
 import { info, step, warn } from "./logger.js";
-import { emitRealtimeArtifact, ensureLocalRealtimeSdk } from "./realtime-artifact.js";
+import {
+  emitRealtimeArtifact,
+  emitRpcManifestArtifact,
+  ensureLocalRealtimeSdk,
+} from "./realtime-artifact.js";
 
 /**
  * CLI flags are mapped to real CompilerOptions names here.
@@ -91,6 +95,8 @@ export async function buildProject(
   }
 
   const input: Record<string, unknown> = { ...config };
+  // Project-level SDK settings belong to `ignex sdk`, not the server compiler.
+  delete input.sdk;
   Object.assign(input, mapCliFlags(flags));
 
   // Single rooting pass AFTER mergeOptions: the compiler defaults (`./src/routes`,
@@ -136,6 +142,7 @@ export async function buildProject(
   }
 
   const result = await compiler.buildAsync(rootedOpts);
+  await emitRpcManifestArtifact(root, rootedOpts.outDir);
 
   // Surface structured compiler diagnostics. `buildAsync` throws on errors, so
   // only warnings need to be printed here.

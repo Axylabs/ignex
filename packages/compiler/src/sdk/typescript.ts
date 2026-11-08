@@ -17,6 +17,7 @@
  */
 
 import { isRecord } from "@ignex/shared";
+import { CLIENT_TYPE_CONTRACT } from "./client-contract";
 import { jsonSchemaToTs } from "./json-schema-to-ts";
 import { sdkInstallSnippet, sdkPackageJson } from "./package-json";
 import type { SdkFile, SdkGenerateContext, SdkPlatform, SdkRouteInfo } from "./types";
@@ -197,40 +198,9 @@ import type {
 ${importLines}
 } from "./types";
 
-// Per-route call signature, derived from the route's declared params/query/body:
-//   params+query+body → (params, query, body, init?)
-//   params+query      → (params, query, init?)
-//   query+body        → (query, body, init?)
-//   params+body       → (params, body, init?)
-//   params            → (params, init?)
-//   query             → (query, init?)
-//   body              → (body, init?)
-//   none              → (init?)
-type IgnexRouteHandler<Route> =
-  Route extends { params: infer P; query: infer Q; body: unknown }
-    ? (params: P, query: Q, body: unknown, init?: RequestInit) => Promise<unknown>
-    : Route extends { params: infer P; query: infer Q }
-      ? (params: P, query: Q, init?: RequestInit) => Promise<unknown>
-      : Route extends { query: infer Q; body: unknown }
-        ? (query: Q, body: unknown, init?: RequestInit) => Promise<unknown>
-        : Route extends { params: infer P; body: unknown }
-          ? (params: P, body: unknown, init?: RequestInit) => Promise<unknown>
-          : Route extends { params: infer P }
-            ? (params: P, init?: RequestInit) => Promise<unknown>
-            : Route extends { query: infer Q }
-              ? (query: Q, init?: RequestInit) => Promise<unknown>
-              : Route extends { body: unknown }
-                ? (body: unknown, init?: RequestInit) => Promise<unknown>
-                : (init?: RequestInit) => Promise<unknown>;
-
+${CLIENT_TYPE_CONTRACT}
 export type IgnexRoutes = {
 ${pathBlocks.join("\n")}
-};
-
-export type IgnexClient = {
-  [Path in keyof IgnexRoutes]: {
-    [Method in keyof IgnexRoutes[Path]]: IgnexRouteHandler<IgnexRoutes[Path][Method]>;
-  };
 };
 `;
 };

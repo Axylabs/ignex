@@ -19,6 +19,7 @@
  * `../phases/codegen` (this facade); the stage modules stay internal.
  */
 
+import { DiagnosticCodes } from "../../diagnostics";
 import type {
   AppConfigInfo,
   CompilerContext,
@@ -27,6 +28,7 @@ import type {
   ModuleInfo,
   RouteIR,
 } from "../../types";
+import { isProductionBuild } from "../analysis/app-config";
 import { getConfig } from "./config";
 import { stageHeader, stageInlinedHandlers } from "./header";
 import { stageImports } from "./imports";
@@ -58,10 +60,24 @@ export const runCodeGen = (
   modules: readonly ModuleInfo[],
   hooks: ReadonlyMap<string, HookDef>,
   opts: CompilerOptions,
-  _ctx: CompilerContext,
+  ctx: CompilerContext,
   appConfig?: AppConfigInfo,
   realtimeConsumers: readonly string[] = [],
 ): string => {
+  // Loud escape hatch: the secure default forces `exposeErrorDetails: false`
+  // onto production-shaped builds when the option is unset (validate.ts
+  // mergeOptions), so reaching codegen with exposure ON means the artifact
+  // will return real (redacted) error messages/details to clients. Never
+  // silent — say so at build time.
+  if (isProductionBuild(opts) && opts.exposeErrorDetails === true) {
+    ctx.diagnostics.warn({
+      code: DiagnosticCodes.ErrorsExposed,
+      message:
+        "exposeErrorDetails is explicitly ON for a production-shaped build — " +
+        "clients will receive internal error messages/details (connection strings " +
+        "are still redacted). Pass exposeErrorDetails: false to fail closed.",
+    });
+  }
   // Timing is owned by the pipeline stage that calls this (single
   // `logger.time("codegen")` entry — the phase itself does not re-wrap).
   return generateServer(routes, modules, hooks, opts, appConfig, realtimeConsumers);

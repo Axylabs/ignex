@@ -66,9 +66,11 @@ describe("plugin-declared members on the specialized tier", () => {
     // …but the emitted literal now carries cors's `headers`/`method` and
     // security's `headers`/`req` alongside the route's own `json`. Before the
     // merge it was `ctx = { json: … }` and `cors.onRequest` crashed.
-    const literal = result.code.match(/ctx = \{ [^}]*\};/)?.[0] ?? "";
+    const literal = result.code.match(/ctx = \{.*\};/)?.[0] ?? "";
     expect(literal).toContain("headers: req.headers");
     expect(literal).toContain("method: req.method");
+    expect(literal).toContain("state");
+    expect(literal).toContain("requestId: generateRequestId()");
     expect(literal).toContain("json:");
     // `req` is emitted as its own member (`req: <req>`) so the hooks' reads of
     // `ctx.req.url` / `ctx.req.headers` resolve; `headers:`/`method:` reference
@@ -122,10 +124,11 @@ describe("plugin-declared members on the specialized tier", () => {
       // decoration (onRequest + onResponse both read the declared members).
       const withOrigin = await get(
         new Request("http://localhost/hello", {
-          headers: { origin: "https://example.com" },
+          headers: { origin: "https://example.com", "x-request-id": "aot-request-1" },
         }),
       );
       expect(withOrigin.status).toBe(200);
+      expect(withOrigin.headers.get("x-request-id")).toBe("aot-request-1");
       expect(withOrigin.headers.get("access-control-allow-origin")).toBe("https://example.com");
       // security's onResponse also ran — its declared `headers`/`req` present.
       expect(withOrigin.headers.get("content-security-policy")).toBe("default-src 'self'");

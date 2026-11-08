@@ -14,6 +14,8 @@ export { generateOpenAPI } from "./pipeline";
 export { toOpenApiPath } from "./schema";
 export type {
   OpenAPIDocument,
+  OpenAPIDocumentOptions,
+  OpenAPIExcludeOptions,
   OpenAPIInfo,
   OpenAPIRouteSchema,
   ParameterDoc,

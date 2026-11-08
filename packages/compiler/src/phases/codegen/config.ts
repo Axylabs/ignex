@@ -4,6 +4,7 @@
 
 import { relative } from "node:path";
 import type { CompilerOptions } from "../../types";
+import { isProductionBuild } from "../analysis/app-config";
 
 /** The runtime import specifier for `@ignex/core` (the generated server's only package dep). */
 export const CORE_PATH = "@ignex/core";
@@ -27,7 +28,13 @@ export interface CodegenConfig {
 export const getConfig = (opts: CompilerOptions): CodegenConfig => ({
   target: opts.target,
   serviceName: opts.serviceName ?? "ignex",
-  exposeErrorDetails: opts.exposeErrorDetails ?? false,
+  // Shape-aware fail-closed fallback (layer 2 of the exposure chain — see
+  // test/exposure-invariants.test.ts): mergeOptions forces production shapes
+  // to `exposeErrorDetails: false`, so this `??` only fires for callers that
+  // reach codegen without that merge. The fallback must resolve the SAME way
+  // mergeOptions does — production shapes fail closed, dev shapes keep local
+  // debuggability — never an unconditional constant.
+  exposeErrorDetails: opts.exposeErrorDetails ?? !isProductionBuild(opts),
   specializeContext: opts.specializeContext ?? true,
   reusePort: opts.reusePort ?? false,
   routeCache: opts.routeCache ?? true,

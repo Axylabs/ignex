@@ -198,7 +198,7 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
     key: string,
     stored: FixedWindowEntry | SlidingWindowEntry | TokenBucketEntry | undefined,
     now: number,
-  ): RateState => {
+  ): RateState | Promise<RateState> => {
     const config = { windowMs, maxRequests };
 
     let decision: RateDecision;
@@ -214,21 +214,15 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
       decision = checkFixedWindow(config, base, now);
     }
 
-    const persist = store?.set(key, decision.state, {
-      ttlMs: Math.max(0, decision.resetMs - now),
-    });
-    if (persist instanceof Promise) {
-      // A failed persistence must not reject into the request path — the
-      // decision for THIS request is already computed; log once so operators
-      // see a degraded limiter.
-      persist.catch((err) => void storeErrorPolicy(err));
-    }
-
-    return {
+    const state = {
       allowed: decision.allowed,
       remaining: decision.remaining,
       resetTime: decision.resetMs,
     };
+    const persist = store?.set(key, decision.state, {
+      ttlMs: Math.max(0, decision.resetMs - now),
+    });
+    return persist instanceof Promise ? persist.then(() => state) : state;
   };
 
   /** Finish an onRequest: 429 when the budget is exhausted, else record + pass. */
@@ -331,12 +325,19 @@ export const rateLimit = (options: RateLimitOptions = {}): IgnexPlugin => {
         // Store errors now hit the policy instead of becoming unhandled
         // rejections.
         return stored
-          .then((value) => finishCheck(ctx, checkWithStore(key, value, now)))
+          .then((value) => checkWithStore(key, value, now))
+          .then((state) => finishCheck(ctx, state))
           .catch((err) => handleStoreError(ctx, err));
       }
 
       try {
-        return finishCheck(ctx, checkWithStore(key, stored, now));
+        const state = checkWithStore(key, stored, now);
+        if (state instanceof Promise) {
+          return state
+            .then((resolved) => finishCheck(ctx, resolved))
+            .catch((err) => handleStoreError(ctx, err));
+        }
+        return finishCheck(ctx, state);
       } catch (err) {
         return handleStoreError(ctx, err);
       }

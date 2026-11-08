@@ -26,16 +26,44 @@ const snapshot = (name: string): string =>
   );
 
 // The routes the snapshot was generated from (covers all four call shapes).
-const makeRoute = (method: string, path: string, paramNames: string[], body = false): RouteIR =>
+const makeRoute = (
+  method: string,
+  path: string,
+  paramNames: string[],
+  body = false,
+  typed = false,
+): RouteIR =>
   ({
     source: { method, path, paramNames },
     analysis: { usage: body ? { body: true } : {} },
+    decisions: {
+      schemaDoc: {
+        ...(body && typed
+          ? {
+              body: {
+                type: "object",
+                properties: { value: { type: "string" } },
+                required: ["value"],
+              },
+            }
+          : {}),
+        ...(typed
+          ? {
+              response: {
+                type: "object",
+                properties: { ok: { type: "boolean" } },
+                required: ["ok"],
+              },
+            }
+          : {}),
+      },
+    },
   }) as unknown as RouteIR;
 
 const snapshotRoutes = [
   makeRoute("GET", "/", []),
   makeRoute("GET", "/products/:id", ["id"]),
-  makeRoute("POST", "/echo", [], true),
+  makeRoute("POST", "/echo", [], true, true),
   makeRoute("POST", "/submit/:id", ["id"], true),
 ];
 
@@ -51,10 +79,11 @@ describe("generated client type contract", () => {
     // No params/body → `(init?)`.
     expectTypeOf(client["/"].get).parameters.toEqualTypeOf<[init?: RequestInit]>();
 
-    // Body-only → `(body, init?)`.
+    // Body-only → concrete schema input + response output.
     expectTypeOf(client["/echo"].post).parameters.toEqualTypeOf<
-      [body: unknown, init?: RequestInit]
+      [body: { value: string }, init?: RequestInit]
     >();
+    expectTypeOf(client["/echo"].post).returns.toEqualTypeOf<Promise<{ ok: boolean }>>();
 
     // Params + body → `(params, body, init?)`.
     expectTypeOf(client["/submit/:id"].post).parameters.toEqualTypeOf<

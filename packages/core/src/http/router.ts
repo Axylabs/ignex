@@ -16,13 +16,13 @@
 
 import { debugStageEnd } from "../debug/tracer";
 import { withHandlerTimeout } from "../lifecycle/handler-timeout";
-import { runHooks, runTimed } from "../lifecycle/lifecycle";
-import { errorToResponse } from "../platform/errors";
+import { runTimed } from "../lifecycle/lifecycle";
 import type { HookContainer, MaybePromise } from "../types";
 import type { ContextOptions, IgnexContext, IgnexServer } from "./context";
 import { createContext } from "./context";
 import { finalizeResponse, jsonReply } from "./finalize";
 import { applySet } from "./headers";
+import { finishResponse, handleRouteError } from "./response-lifecycle";
 import type { RouteDetail, RouteLocalHooks, RouteSchemas } from "./route";
 import { runObserveStage, runPostStage, runPreStage, validateSchema } from "./route-stages";
 import { compiledPathFor, extractParams, extractServer, pathToRegex } from "./router-utils";
@@ -212,21 +212,18 @@ export const createRouter = (): IgnexRouter => {
       error: [],
     };
 
-  const handleError = async (err: unknown, ctx: IgnexContext | undefined): Promise<Response> => {
-    const s = ensureBound();
-    let target = ctx;
-    if (!target) {
-      target = createContext(new Request("http://ignex.local/"), EMPTY_PARAMS, ctxOptions ?? {});
-    }
-    try {
-      const r = await runTimed("error", "lifecycle", () => runHooks(s.error, target, err));
-      if (r.response) return applySet(r.response, r.ctx?.set ?? target.set);
-    } catch {
-      // An error-stage hook that throws must not mask the original error.
-    }
-    return errorToResponse(err, exposeErrors, target);
-  };
-
+  const handleError = (
+    err: unknown,
+    ctx: IgnexContext | undefined,
+    postRan = false,
+  ): Promise<Response> =>
+    handleRouteError(
+      err,
+      ctx ?? createContext(new Request("http://ignex.local/"), EMPTY_PARAMS, ctxOptions ?? {}),
+      ensureBound(),
+      exposeErrors,
+      postRan,
+    );
   /** Run the full per-request lifecycle for a matched route (guarded stages). */
   const runRoute = async (
     reg: RouteRegistration,
@@ -235,9 +232,9 @@ export const createRouter = (): IgnexRouter => {
   ): Promise<Response> => {
     const s = ensureBound();
     let ctx = initialCtx;
+    let postRan = false;
 
-    // A pre-aborted request is short-circuited before any work (matches the
-    // interpreted runLifecycle): the handler and hooks never run.
+    // Pre-aborted requests skip hooks and handlers, matching runLifecycle.
     if (req.signal.aborted) return new Response(null, { status: 200 });
 
     // start → request → parse → transform (before validation). The request
@@ -245,14 +242,14 @@ export const createRouter = (): IgnexRouter => {
     // inside it), so its waterfall row is recorded once the chain returns.
     const pre = await runPreStage(s.preParse, ctx, "request");
     debugStageEnd("request");
-    if (pre.halt) return pre.halt;
+    if (pre.halt) return finishResponse(pre.halt, pre.ctx, s);
     ctx = pre.ctx;
 
     // Runtime schema validation (no-op when the route has no schema).
     if (reg.schema) await validateSchema(reg.schema, ctx, req);
 
     const before = await runPreStage(s.beforeHandle, ctx, "beforeHandle");
-    if (before.halt) return before.halt;
+    if (before.halt) return finishResponse(before.halt, before.ctx, s);
     ctx = before.ctx;
 
     // Route-local before chain (the general guard mechanism): runs closest to
@@ -264,7 +261,7 @@ export const createRouter = (): IgnexRouter => {
         ctx,
         "route.before",
       );
-      if (local.halt) return local.halt;
+      if (local.halt) return finishResponse(local.halt, local.ctx, s);
       ctx = local.ctx;
     }
 
@@ -289,13 +286,16 @@ export const createRouter = (): IgnexRouter => {
       ));
     }
 
-    // afterHandle → mapResponse (may replace ctx and/or the response).
-    ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response, "afterHandle"));
-    ({ ctx, response } = await runPostStage(s.mapResponse, ctx, response, "mapResponse"));
-    await runObserveStage(s.afterResponse, ctx, response, "afterResponse");
-
-    // Single outer applySet (headers/status/cookies exactly once).
-    return applySet(response, ctx.set);
+    try {
+      // afterHandle → mapResponse (may replace ctx and/or the response).
+      postRan = true;
+      ({ ctx, response } = await runPostStage(s.afterHandle, ctx, response, "afterHandle"));
+      ({ ctx, response } = await runPostStage(s.mapResponse, ctx, response, "mapResponse"));
+      await runObserveStage(s.afterResponse, ctx, response, "afterResponse");
+      return applySet(response, ctx.set);
+    } catch (err) {
+      return handleError(err, ctx, postRan);
+    }
   };
 
   /** Per-route wrapper — the interpreted equivalent of the compiled `core` fn. */

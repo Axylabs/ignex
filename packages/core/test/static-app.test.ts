@@ -54,6 +54,13 @@ describe("serveStaticApp", () => {
     expect(res.headers.get("cache-control")).toContain("31536000");
   });
 
+  it("revalidates unhashed assets instead of caching them for a year", async () => {
+    const dir = makeDist({ "app.js": "console.log('current')" });
+    const res = await serveStaticApp(ctxFor("app.js"), { root: dir });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).not.toContain("31536000");
+  });
+
   it("falls back to the SPA shell for unknown paths", async () => {
     const dir = makeDist({ "index.html": "home", "404.html": "shell" });
     const res = await serveStaticApp(ctxFor("orders/abc"), { root: dir });

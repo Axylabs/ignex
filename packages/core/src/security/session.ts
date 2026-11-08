@@ -12,7 +12,7 @@
  * driver contract, implemented on the generic `data/store` layer (`memory` /
  * `sqlite` / file / custom drivers via {@link createSessionStoreFromStore}).
  */
-import { randomToken, sessionOpen, sessionSeal, signCookie, verifyCookie } from "@ignex/native";
+import { randomToken, sessionOpen, signCookie, verifyCookie } from "@ignex/native";
 import { err, ok, type Result } from "@ignex/shared";
 import type { IgnexContext } from "../http/context";
 import { readRequestCookie, writeCookie } from "../http/cookies";
@@ -72,12 +72,8 @@ export interface SessionManagerOptions {
   rolling?: boolean;
   cookieOptions?: Partial<Record<string, unknown>>;
   /**
-   * Use the fused native seal/open (ONE ffi crossing replacing
-   * stringify+HMAC). Default `false` — at small-envelope granularity the
-   * fused path measured 0.80x (seal) / 0.58x (open) versus JSC's optimized
-   * JSON.stringify + Bun HMAC (see CHANGELOG A/B verdict), so the JS two-step
-   * stays the measured-fastest default; opt in when profiling YOUR envelope
-   * sizes shows the crossing wins (larger data blobs, non-JSC hosts).
+   * @deprecated Legacy fused cookies are still decoded. New envelopes use the
+   * signed JSON path so `createdAt` survives rotation and rolling expiry.
    */
   nativeFusion?: boolean;
 }
@@ -133,6 +129,8 @@ interface Envelope {
   id: string;
   data?: SessionData;
   exp: number;
+  /** Epoch milliseconds at which the session was originally created. */
+  createdAt: number;
 }
 
 /**
@@ -261,15 +259,19 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     }
   };
 
-  /** Fused fast path: ONE native crossing verifies HMAC + extracts fields. */
+  const legacyCreatedAt = (exp: number): number => Math.max(0, exp * 1000 - ttlSeconds * 1000);
+
+  /** Fused decoding remains available for cookies written before creation timestamps existed. */
   const decodeFused = (raw: string): Result<Envelope, DecodeError> | null => {
     const opened = verifyWithRing(secrets, (entry) => sessionOpen(raw, entry));
-    if (!opened) return null; // ffi/addon unavailable → caller uses the fallback
+    if (!opened) return null;
     const exp = typeof opened.exp === "number" ? Math.floor(opened.exp) : 0;
     if (opened.id.length === 0) return err("invalid-id");
     if (exp * 1000 <= now()) return err("expired");
     const data = parseData(opened.dataJson);
-    return data.ok === false ? data : ok({ id: opened.id, data: data.value, exp });
+    return data.ok === false
+      ? data
+      : ok({ id: opened.id, data: data.value, exp, createdAt: legacyCreatedAt(exp) });
   };
 
   /** Two-step fallback: verifyCookie + JSON.parse (byte-compatible contract). */
@@ -277,7 +279,12 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     const unsigned = verifyWithRing(secrets, (entry) => verifyCookie(raw, entry));
     if (!unsigned) return err("invalid-signature");
     try {
-      const payload = JSON.parse(unsigned) as { id?: unknown; data?: unknown; exp?: unknown };
+      const payload = JSON.parse(unsigned) as {
+        id?: unknown;
+        data?: unknown;
+        exp?: unknown;
+        createdAt?: unknown;
+      };
       if (typeof payload.id !== "string" || payload.id.length === 0) return err("invalid-id");
       const exp = typeof payload.exp === "number" ? payload.exp : Math.floor(now() / 1000);
       if (exp * 1000 <= now()) return err("expired");
@@ -285,7 +292,11 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
         payload.data != null && typeof payload.data === "object"
           ? (payload.data as SessionData)
           : {};
-      return ok({ id: payload.id, data, exp });
+      const createdAt =
+        typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
+          ? payload.createdAt
+          : legacyCreatedAt(exp);
+      return ok({ id: payload.id, data, exp, createdAt });
     } catch {
       return err("invalid-json");
     }
@@ -293,26 +304,12 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
 
   const decodeEnvelope = (raw: string | undefined): Result<Envelope, DecodeError> => {
     if (!raw) return err("missing");
-    // Opt-in fused path first; both sealers' cookies decode on BOTH paths
-    // (byte-compatible), so enabling/disabling fusion never strands cookies.
     if (fusionEnabled) return decodeFused(raw) ?? decodeFallback(raw);
     return decodeFallback(raw);
   };
 
-  const encodeEnvelope = (envelope: Envelope): string => {
-    if (fusionEnabled) {
-      // ONE crossing: build + HMAC. `data` is omitted for store-backed
-      // sessions; the fused sealer embeds `null` there ("no data" on decode).
-      const sealed = sessionSeal(
-        envelope.id,
-        envelope.data === undefined ? "null" : JSON.stringify(envelope.data),
-        envelope.exp,
-        secret,
-      );
-      if (sealed !== null) return sealed;
-    }
-    return signCookie(JSON.stringify(envelope), secret);
-  };
+  const encodeEnvelope = (envelope: Envelope): string =>
+    signCookie(JSON.stringify(envelope), secret);
 
   const makeSession = (
     ctx: IgnexContext,
@@ -360,6 +357,7 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
     const envelope: Envelope = {
       id: session.id,
       exp: Math.floor(session.expiresAt / 1000),
+      createdAt: session.createdAt,
     };
     if (store) {
       return store.set(session.id, session.data, { expiresAt: session.expiresAt }).then(() => {
@@ -433,11 +431,11 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
           );
           return null;
         }
-        return makeSession(ctx, id, stored, exp * 1000, exp * 1000, false);
+        return makeSession(ctx, id, stored, envelope.value.createdAt, exp * 1000, false);
       });
     }
 
-    return makeSession(ctx, id, envelopeData ?? {}, exp * 1000, exp * 1000, false);
+    return makeSession(ctx, id, envelopeData ?? {}, envelope.value.createdAt, exp * 1000, false);
   };
 
   const load = async (ctx: IgnexContext): Promise<Session | null> => resolveSession(ctx);

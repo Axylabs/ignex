@@ -67,6 +67,17 @@ export interface Store {
   delete(key: string): MaybePromise<void>;
   /** Extend a live entry's expiry (drivers without TTL may omit this). */
   touch?(key: string, options?: StoreSetOptions): MaybePromise<void>;
+  /**
+   * Atomically read, transform, and replace one key. Distributed drivers use
+   * transactions or optimistic concurrency and retry conflicting updates.
+   * The updated value is returned. Implementations must not execute an async
+   * updater while holding a synchronous database transaction.
+   */
+  update?(
+    key: string,
+    updater: (current: unknown | null) => MaybePromise<unknown>,
+    options?: StoreSetOptions,
+  ): MaybePromise<unknown>;
   /** Release driver resources (timers, DB handles). Optional — call on shutdown. */
   close?(): MaybePromise<void>;
 }

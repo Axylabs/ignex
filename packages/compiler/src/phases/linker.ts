@@ -15,6 +15,7 @@ import { projectPath } from "../utils/path";
 import { isProductionBuild } from "./analysis/app-config";
 import { writeIfChanged } from "./artifacts/write";
 import { prodShapeBunPlugin, runtimeDepPlugin } from "./build-plugins";
+import { isOptionalExternal, unresolvedSpecifiers } from "./linker-externals";
 
 /** Minimal Bun.build log shape (message + optional source position). */
 interface BunBuildLog {
@@ -93,21 +94,6 @@ const writeRaw = (
 };
 
 /**
- * Extract unresolvable bare specifiers from Bun.build failure logs
- * (`Could not resolve: "x"`). These become `external` for a single retry, so
- * an optional/uninstalled dependency referenced by route code degrades to
- * runtime resolution instead of failing the build.
- */
-const unresolvedSpecifiers = (logs: readonly BunBuildLog[]): string[] => {
-  const out = new Set<string>();
-  for (const log of logs) {
-    const m = /Could not resolve:\s+"([^"]+)"/.exec(log.message ?? "");
-    if (m?.[1] && !m[1].startsWith(".") && !m[1].startsWith("/")) out.add(m[1]);
-  }
-  return [...out];
-};
-
-/**
  * Bundle with externalization retry: when route code references packages that
  * cannot be resolved at build time (optional/uninstalled deps), externalize
  * exactly those specifiers and retry. Bun.build surfaces resolution failures
@@ -143,7 +129,7 @@ const bundleWithExternalsRetry = async (
           ? unresolvedSpecifiers((errorLogs(thrown) as BunBuildLog[] | undefined) ?? [])
           : []),
       ]),
-    ].filter((spec) => !externals.has(spec));
+    ].filter((spec) => !externals.has(spec) && isOptionalExternal(spec));
     if (missing.length === 0) break;
 
     ctx.diagnostics.warn({

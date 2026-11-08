@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("createRpcKit", () => {
   it("registers methods and exposes a sorted deterministic manifest", () => {
-    const kit = createRpcKit({});
+    const kit = createRpcKit({ fallbackCheck: () => true });
     kit.define("b.method", { schema: { type: "object" }, handler: () => 1 });
     kit.define("a.method", { schema: { type: "object" }, handler: () => 2 });
     kit.define("b.method", { schema: { type: "object" }, handler: () => 3 });
@@ -29,7 +29,7 @@ describe("createRpcKit", () => {
     expect(Object.keys(doc.methods)).toEqual(["a.method", "b.method"]);
   });
 
-  it("compiles native validators once per method and survives compile failures", () => {
+  it("uses the fallback when native compilation fails", () => {
     let compiled = 0;
     const kit = createRpcKit({
       compileValidator: (json) => {
@@ -37,6 +37,7 @@ describe("createRpcKit", () => {
         if (json === '"boom"') throw new Error("compile failed");
         return { validate: (raw) => !raw.includes("reject") };
       },
+      fallbackCheck: () => true,
     });
     kit.define("ok", { schema: { type: "object" }, handler: () => 1 });
     kit.define("boom", { schema: "boom" as unknown as object, handler: () => 1 });
@@ -46,7 +47,7 @@ describe("createRpcKit", () => {
 
   it("writes the manifest atomically and flushes synchronously", async () => {
     const path = manifestPath();
-    const kit = createRpcKit({ manifestPath: path });
+    const kit = createRpcKit({ manifestPath: path, fallbackCheck: () => true });
     kit.define("me.get", { schema: { type: "object" }, handler: () => null });
     kit.flushManifest();
     const doc = JSON.parse(readFileSync(path, "utf8")) as {
@@ -57,11 +58,18 @@ describe("createRpcKit", () => {
     expect(doc.methods["me.get"]).toEqual({ type: "object" });
   });
 
-  it("accepts payloads when no validator is injected (open dispatch)", async () => {
+  it("fails closed when no validator is available", () => {
     const kit = createRpcKit({});
+    expect(() =>
+      kit.define("open.method", { schema: { type: "object" }, handler: () => "ok" }),
+    ).toThrow(/no working validator/);
+    expect(kit.methods()).toEqual([]);
+  });
+
+  it("requires an explicit opt-in for unvalidated methods", () => {
+    const kit = createRpcKit({ allowUnvalidated: true });
     kit.define("open.method", { schema: { type: "object" }, handler: () => "ok" });
     expect(kit.methods()).toEqual(["open.method"]);
-    // Manifest stays disabled without a path — flush must be a no-op.
     kit.flushManifest();
   });
 });

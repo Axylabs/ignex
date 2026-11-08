@@ -48,6 +48,36 @@ export interface RouteDefinition {
  */
 export type OpenAPIDocument = Record<string, unknown>;
 
+/** Route exclusion rules applied before operations are generated. */
+export interface OpenAPIExcludeOptions {
+  /** Exact route/OpenAPI paths or regular expressions to exclude. */
+  paths?: readonly (string | RegExp)[];
+  /** Case-insensitive HTTP methods to exclude. */
+  methods?: readonly string[];
+  /** Exclude paths whose final segment contains a dot. */
+  staticFile?: boolean;
+}
+
+/** Document-level customization shared by runtime and compiled OpenAPI output. */
+export interface OpenAPIDocumentOptions {
+  /** Document title. Callers provide their existing default when omitted. */
+  title?: string;
+  /** API document version. Callers provide their existing default when omitted. */
+  version?: string;
+  /** Document description. */
+  description?: string;
+  /** OpenAPI server entries. */
+  servers?: readonly unknown[];
+  /** Replace the automatically derived top-level tag list. */
+  tags?: readonly unknown[];
+  /** Document-wide security requirements. */
+  security?: readonly unknown[];
+  /** Routes to omit from the document. */
+  exclude?: OpenAPIExcludeOptions;
+  /** Final synchronous transform; must return an OpenAPI document object. */
+  transform?: (document: OpenAPIDocument) => OpenAPIDocument;
+}
+
 /** Where an OpenAPI parameter appears in the request. */
 export type ParameterLocation = "path" | "query" | "header" | "cookie";
 

@@ -184,6 +184,11 @@ export class IgnexContextImpl<P = Record<string, string>>
     return this._requestId;
   }
 
+  /** @internal The opt-in request-id plugin assigns a validated inbound id. */
+  set requestId(value: string) {
+    this._requestId = value;
+  }
+
   get ip(): string {
     if (this._ip !== undefined) return this._ip;
 

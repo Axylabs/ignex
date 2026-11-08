@@ -9,7 +9,7 @@
 
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import type { SdkPlatformId } from "@ignex/compiler";
+import type { SdkOptions, SdkPlatformId } from "@ignex/compiler";
 import {
   createSdkGithubRelease,
   packSdk,
@@ -19,7 +19,9 @@ import {
   writeSdk,
 } from "@ignex/compiler";
 import { type ArgsDef, defineCommand, parseArgs } from "citty";
+import type { SdkProjectOptions } from "../config.js";
 import { buildProject } from "../utils/compiler.js";
+import { loadConfig } from "../utils/config.js";
 import { resolveProjectRoot } from "../utils/discover-root.js";
 import { error, formatError, info, success } from "../utils/logger.js";
 import { emitRealtimeArtifact } from "../utils/realtime-artifact.js";
@@ -30,7 +32,7 @@ const argsDef = {
   root: { type: "string", valueHint: "dir", description: "Project root" },
   platform: {
     type: "string",
-    valueHint: "typescript|openapi|flatbuffers|realtime|all",
+    valueHint: "typescript|openapi|realtime|all",
     description: "Comma-separated SDK platforms (default typescript)",
   },
   name: {
@@ -45,6 +47,8 @@ const argsDef = {
     description: "SDK version (default: nearest package.json)",
   },
   out: { type: "string", valueHint: "dir", description: "SDK package output dir" },
+  license: { type: "string", valueHint: "SPDX", description: "SDK package license" },
+  description: { type: "string", valueHint: "text", description: "SDK package description" },
   "tag-prefix": {
     type: "string",
     valueHint: "prefix",
@@ -86,11 +90,14 @@ export default sdkCmd;
 
 interface SdkCommandArgs {
   root: string;
-  platforms: readonly SdkPlatformId[];
+  sdk: SdkProjectOptions;
+  platforms: SdkOptions["platforms"];
   name: string | undefined;
   scope: string | undefined;
   version: string | undefined;
   out: string | undefined;
+  license: string | undefined;
+  description: string | undefined;
   tagPrefix: string;
   push: boolean;
   publish: boolean;
@@ -125,27 +132,37 @@ const versionFromPackage = (root: string): string | undefined => {
 
 const parseSdkArgs = async (args: string[]): Promise<SdkCommandArgs> => {
   const parsed = parseArgs<typeof argsDef>(args, argsDef);
-
-  const platformsRaw = parsed.platform ?? "typescript";
-  const platforms = platformsRaw
-    .split(",")
+  const root = await resolveProjectRoot(parsed.root);
+  const project = await loadConfig(root);
+  if (
+    project.sdk !== undefined &&
+    (project.sdk === null || typeof project.sdk !== "object" || Array.isArray(project.sdk))
+  ) {
+    throw new Error("The 'sdk' project config must be a plain options object");
+  }
+  const sdk = (project.sdk ?? {}) as SdkProjectOptions;
+  const cliPlatforms = parsed.platform
+    ?.split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((id) => (id === "all" ? "typescript,openapi,flatbuffers,realtime" : id))
+    .map((id) => (id === "all" ? "typescript,openapi,realtime" : id))
     .join(",")
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean) as SdkPlatformId[];
+    .filter(Boolean) as SdkPlatformId[] | undefined;
 
   const access = parsed.access === "restricted" ? "restricted" : "public";
 
   return {
-    root: await resolveProjectRoot(parsed.root),
-    platforms,
-    name: parsed.name ?? process.env.SDK_NAME,
-    scope: parsed.scope ?? process.env.SDK_SCOPE,
-    version: parsed.version ?? process.env.SDK_VERSION,
-    out: parsed.out,
+    root,
+    sdk,
+    platforms: cliPlatforms ?? sdk.platforms,
+    name: parsed.name ?? process.env.SDK_NAME ?? sdk.name,
+    scope: parsed.scope ?? process.env.SDK_SCOPE ?? sdk.scope,
+    version: parsed.version ?? process.env.SDK_VERSION ?? sdk.version,
+    out: parsed.out ?? sdk.packageDir,
+    license: parsed.license ?? sdk.license,
+    description: parsed.description ?? sdk.description,
     tagPrefix: parsed["tag-prefix"] ?? "sdk-v",
     push: parsed.push === true,
     publish: parsed.publish === true,
@@ -162,7 +179,39 @@ const parseSdkArgs = async (args: string[]): Promise<SdkCommandArgs> => {
 
 /** The SDK root directory (mirrors the generator's default package root). */
 const resultRoot = (parsed: SdkCommandArgs, outDir: string): string =>
-  parsed.out !== undefined ? join(parsed.root, parsed.out) : join(outDir, "sdk");
+  parsed.out === undefined
+    ? join(outDir, "sdk")
+    : isAbsolute(parsed.out)
+      ? parsed.out
+      : join(parsed.root, parsed.out);
+
+const sdkRepoUrl = (parsed: SdkCommandArgs): string | undefined =>
+  (parsed.repo !== undefined ? `https://github.com/${parsed.repo}` : undefined) ??
+  process.env.SDK_REPO_URL ??
+  parsed.sdk.repoUrl ??
+  resolveRepoUrl(parsed.root);
+
+const sdkGenerationOptions = (
+  parsed: SdkCommandArgs,
+  outDir: string,
+  version: string,
+): SdkOptions => {
+  const packageDir = resultRoot(parsed, outDir);
+  const repoUrl = sdkRepoUrl(parsed);
+  return {
+    ...parsed.sdk,
+    outDir,
+    packageDir,
+    ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+    ...(parsed.scope !== undefined ? { scope: parsed.scope } : {}),
+    ...(parsed.license !== undefined ? { license: parsed.license } : {}),
+    ...(parsed.description !== undefined ? { description: parsed.description } : {}),
+    ...(repoUrl !== undefined ? { repoUrl } : {}),
+    localInstallPath: packageDir,
+    version,
+    ...(parsed.platforms !== undefined ? { platforms: parsed.platforms } : {}),
+  };
+};
 
 /** Pack each generated package and run the requested distribution steps. */
 const distributeSdk = (
@@ -221,13 +270,15 @@ const distributeSdk = (
 export async function runSdk(args: string[]): Promise<void> {
   const parsed = await parseSdkArgs(args);
 
-  info(`SDK: ${parsed.platforms.join(", ")} for ${parsed.root}`);
+  const platformNames = (parsed.platforms ?? ["typescript"])
+    .map((platform) => (typeof platform === "string" ? platform : platform.id))
+    .join(", ");
+  info(`SDK: ${platformNames} for ${parsed.root}`);
 
   try {
     // The SDK is derived from the compiled artifacts, so (re)build first.
     let outDir: string;
     if (parsed.skipBuild) {
-      const { loadConfig } = await import("../utils/config.js");
       const config = await loadConfig(parsed.root);
       outDir = (config.outDir as string | undefined) ?? ".ignex";
     } else {
@@ -243,24 +294,8 @@ export async function runSdk(args: string[]): Promise<void> {
     }
 
     const version = parsed.version ?? versionFromPackage(parsed.root) ?? "0.0.0";
-
-    // Derive the GitHub repo URL from the origin remote (or --repo) so the
-    // README can show the release-tarball install line once a repo exists.
-    const repoUrl =
-      process.env.SDK_REPO_URL ??
-      resolveRepoUrl(parsed.root) ??
-      (parsed.repo !== undefined ? `https://github.com/${parsed.repo}` : undefined);
-
-    const result = await writeSdk({
-      outDir,
-      ...(parsed.out !== undefined ? { packageDir: parsed.out } : {}),
-      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-      ...(parsed.scope !== undefined ? { scope: parsed.scope } : {}),
-      ...(repoUrl !== undefined ? { repoUrl } : {}),
-      localInstallPath: resultRoot(parsed, outDir),
-      version,
-      platforms: parsed.platforms,
-    });
+    const repoUrl = sdkRepoUrl(parsed);
+    const result = await writeSdk(sdkGenerationOptions(parsed, outDir, version));
 
     for (const pkg of result.packages) {
       info(`Generated ${pkg.platform} SDK in ${pkg.dir} (${pkg.files.length} files)`);

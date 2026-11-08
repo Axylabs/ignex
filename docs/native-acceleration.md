@@ -227,29 +227,36 @@ fallback** built on the existing `@ignex/native` wrappers — byte-identical
 results, no offload. `isNativeTaskRuntime(runtime)` (or `stats().threads > 0`)
 tells you which one you got; importing the module never throws.
 
-### Opt-in async consumers (`verifyAsync` / `compression({ offload: true })`)
+Portable scrypt does not need castrum: `passwordHashFallbackAsync` and
+`passwordVerifyFallbackAsync` use Node's off-thread crypto and retain bounds on
+attacker-controlled PHC cost parameters. Scrypt is the default password format;
+Argon2id is an explicit `{ algorithm: "argon2id" }` native-only choice.
+
+### Async consumers (`hash` / `verifyAsync` / `compression({ offload: true })`)
 
 Apps should not each hand-manage a runtime. `@ignex/native` exposes convenience
 async wrappers over a **process-wide shared** runtime (created once, reused per
 call site):
 
-- `verifyPasswordAsync(password, phc, options?)` — argon2id offloaded;
-  `$scrypt$` hashes and native-off fall back to the synchronous
-  `passwordVerify`, so the boolean result is identical on every backend.
+- `passwordHashAsync` — scrypt hashes off the JS event loop. Explicit Argon2id
+  hashing currently uses the synchronous native primitive.
+- `verifyPasswordAsync(password, phc, options?)` — scrypt uses Node's async
+  crypto; Argon2id uses castrum's task pool, with synchronous fallback on a
+  native runtime failure. The boolean result is identical on every backend.
 - `gzipCompressAsync(bytes, options?)` — large-body gzip offload.
 
-`@ignex/core` surfaces them where the work lives — opt-in, with unchanged sync
-signatures:
+`@ignex/core` surfaces them where the work lives:
 
-- `createPasswordHasher().verifyAsync(password, phc)` — the reference app's
-  login path (`packages/app/src/lib/auth.ts`) uses it, so an argon2id verify no
-  longer stalls the event loop.
+- `createPasswordHasher().hash(password)` uses async scrypt by default;
+  `verifyAsync(password, phc)` handles both scrypt and Argon2id without blocking
+  the event loop on the normal path.
 - `compression({ offload: true })` — known-length gzip bodies above 64 KiB
   compress on the task pool; brotli (no off-thread brotli-compress op) and small
   bodies stay synchronous. Served bytes decompress identically.
 
-Both paths route through the shared runtime and are covered by
-`IGNEX_NATIVE=off` smoke parity.
+Both password formats and compression are covered by `IGNEX_NATIVE=off` parity
+tests. Existing Argon2id PHC hashes remain verifiable when castrum is present;
+new portable applications should keep the scrypt default.
 
 A C-ABI binding rule this run surfaced (see the `AcceptNegotiator` fix): **match
 the Rust signature exactly.** `cstring` ARGs are NUL-terminated, so any byte
@@ -804,10 +811,13 @@ Synced the latest castrum working-tree changes into `@ignex/native`:
   2xx from the decoded snapshot. Measured in castrum ~580ns cheaper per request
   than the full-pipeline responder (+34% RPS at the HTTP level).
 
-The fastest path is the default: `IGNEX_FFI_MODE=auto` binds the C-ABI
-(`bun:ffi`) transport on Bun, the compiled routes get the native prelude by
-default (`nativeRoutes` on), and the native-preflight pipeline runs the direct
-C-ABI `createNativeIngress` when the framework owns the body.
+`IGNEX_FFI_MODE=auto` binds the C-ABI (`bun:ffi`) transport on Bun, and the
+native-preflight pipeline runs the direct C-ABI `createNativeIngress` when the
+framework owns the body. Per-route `nativeRoutes` is **opt-in** (`false` by
+default at every optimization level): end-to-end measurements favored the lean
+JS route prelude, so teams should enable it per workload and verify with
+`verify:native:route` plus `bench:server`. Native remains optional in either
+mode, with pure-TS parity.
 
 ### 2026-08-21 (later) — usage-only native prelude (castrum-aligned query/cookie parse)
 

@@ -38,8 +38,8 @@ const scratchPkg = (name: string, version: string): string => {
       name,
       version,
       kind: "client",
-      platform: "flatbuffers",
-      files: ["dist", "schema.fbs"],
+      platform: "realtime",
+      files: ["dist", "realtime/schema.fbs"],
     }),
   );
   return pkgPath;
@@ -452,7 +452,7 @@ describe("debugbar clients panel", () => {
     expect(body.count).toBe(1);
     expect(body.clients[0]).toMatchObject({
       kind: "client",
-      platform: "flatbuffers",
+      platform: "realtime",
       name: "@acme/api-client",
       version: "1.0.0",
     });

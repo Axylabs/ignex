@@ -5,13 +5,10 @@
  * The generic read→compute→write flow in the rate-limit plugin is non-atomic:
  * N replicas each read `count=k`, all write `k+1`, and the effective ceiling
  * drifts toward `N × maxRequests`. This adapter closes that gap for the
- * fixed-window algorithm using Redis's single-threaded command processing:
+ * fixed-window algorithm with one Lua call: increment, establish/repair the
+ * TTL, and return the real reset deadline as one atomic operation.
  *
- *   1. `INCR <key>`            → the authoritative count (atomic)
- *   2. on count === 1: `PEXPIRE <key> windowMs` → starts the window atomically
- *      for everyone (the first request of a window owns its creation)
- *
- * No Lua, no WATCH loops — two commands per check, both O(1). Sliding-window
+ * Sliding-window
  * and token-bucket algorithms are NOT supported here (they need multi-step
  * state); use them with an in-process LRU or implement a custom store.
  */
@@ -19,8 +16,7 @@ import type { FixedWindowEntry } from "../ratelimit";
 
 /** Minimal ioredis surface used by the atomic limiter. */
 export interface RedisRateLimitClientLike {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, ms: number): Promise<number>;
+  eval(script: string, keyCount: number, ...args: Array<string | number>): Promise<unknown>;
   /** Optional graceful shutdown (present on real ioredis clients). */
   quit?(): Promise<unknown>;
 }
@@ -87,22 +83,26 @@ export const createRedisRateLimitStore = (
   return {
     async incr(key, windowMs, now) {
       const client = await getClient();
-      const k = keyFor(key);
-      const count = await client.incr(k);
-      if (count === 1) {
-        // First hit of a fresh window: set its expiry. A crash between INCR
-        // and PEXPIRE would leak a permanent key — belt-and-braces re-arm the
-        // TTL when the count is small and the key reports none.
-        await client.pexpire(k, Math.max(1, windowMs));
-        return { count, resetTime: now + windowMs };
+      const result = await client.eval(
+        `local count = redis.call("INCR", KEYS[1])
+local ttl = redis.call("PTTL", KEYS[1])
+if ttl < 0 then
+  redis.call("PEXPIRE", KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {count, ttl}`,
+        1,
+        keyFor(key),
+        Math.max(1, windowMs),
+      );
+      if (
+        !Array.isArray(result) ||
+        typeof result[0] !== "number" ||
+        typeof result[1] !== "number"
+      ) {
+        throw new Error("Redis rate-limit script returned an invalid result");
       }
-      // Window start is owned by whoever saw count === 1; approximate the
-      // reset from the remaining TTL is impossible without a round trip, so we
-      // report `now + windowMs` only when count is 1 and otherwise keep the
-      // caller's monotonic estimate cheap: the header uses the FIRST request's
-      // resetTime which subsequent callers cannot know without a GET — the
-      // plugin therefore treats resetTime from incr() as advisory.
-      return { count, resetTime: now + windowMs };
+      return { count: result[0], resetTime: now + result[1] };
     },
 
     async close() {

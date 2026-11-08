@@ -81,18 +81,24 @@ State that must be SHARED across instances lives in stores:
 | State | Default (single instance) | Multi-instance |
 | --- | --- | --- |
 | Sessions | in-memory / signed cookie | Redis store (`createRedisStore`) via `createStoreManager` |
-| Rate limits | in-memory | `createRedisRateLimitStore()` — ATOMIC fixed-window counting across replicas |
-| HTTP cache | in-memory | Redis store (fail-open) |
-| Durable jobs | file / sqlite | `await openStoreJobStore(createRedisStore(...))` — fresh-read claims + owner-token leases |
+| Rate limits | in-memory | `createRedisRateLimitStore()` — one atomic Lua increment/TTL/reset operation |
+| HTTP cache | in-memory | `createPersistentHttpCacheStore(redis)` — binary-safe Redis persistence |
+| Durable jobs | file / sqlite | `await openStoreJobStore(createRedisStore(...))` — atomic updates + owner-token leases |
 | Realtime presence | in-process | nova NATS/Redis cluster (below) |
 
 ```ts
 // src/db.ts / a store wiring module
-import { createRedisRateLimitStore, createRedisStore } from "@ignex/core";
+import {
+  createPersistentHttpCacheStore,
+  createRedisRateLimitStore,
+  createRedisStore,
+} from "@ignex/core";
 export const redis = createRedisStore({ url: process.env.REDIS_URL });
 export const redisLimiter = createRedisRateLimitStore({ url: process.env.REDIS_URL });
+export const responseCache = createPersistentHttpCacheStore(redis);
 
-// sessions({ store: redis }), rateLimit({ store: redisLimiter }), cache: redis, …
+// sessions({ store: redis }), rateLimit({ store: redisLimiter }),
+// new HttpResponseCache({ store: responseCache })
 ```
 
 ### Same port, N processes (`reusePort`)
@@ -171,10 +177,10 @@ replica with a dead MongoDB stops receiving traffic instead of serving errors.
 ## 4. Durable jobs & the scheduler across instances
 
 `ignex queue:work` and `ignex schedule:run` are worker processes; run as many
-as you need. Every job operation performs a FRESH read-modify-write against
-the store (no stale snapshots), claims stamp a random **owner token**, and
-completion/heartbeat bookkeeping verifies ownership — the loser of any race
-cannot double-run or double-complete someone else's job:
+as you need. Job mutations use the store's atomic `update()` contract where
+available (SQLite `BEGIN IMMEDIATE`; Redis `WATCH`/`MULTI` with retries), claims
+stamp a random **owner token**, and completion/heartbeat bookkeeping verifies
+ownership — the loser of a race cannot complete someone else's job:
 
 ```sh
 # systemd / container: one app + N workers + 1 scheduler (or N schedulers)
@@ -183,12 +189,13 @@ ignex queue:work          # claim loop (run 2+ for throughput)
 ignex schedule:run        # cron ticks → durable jobs (run 1+, safe to duplicate)
 ```
 
-- Multiple replicas never double-CLAIM (fresh reads see another worker's
-  `running` stamp) and cannot double-COMPLETE (owner tokens). The residual
-  last-writer-wins window of a single-key store is narrowed but not
-  eliminated — for strict exactly-once at high concurrency, back the queue
-  with a store that has native atomic ops (Redis Lua / SQL row updates) via a
-  custom `JobStore`.
+- Redis and SQLite job mutations are atomic across their respective clients;
+  owner tokens prevent stale workers from completing another worker's lease.
+  Custom stores without atomic `update()` only serialize within one instance.
+  Delivery remains **at least once**, not exactly once: handlers must be
+  idempotent, and a transactional outbox is still application/infrastructure work.
+- Generated worker schedules use `executeInline: false`, so cron ticks enqueue
+  durable work for the queue workers instead of also running it in the scheduler.
 - A crash mid-job is recovered by lease expiry: the job is re-queued and
   picked up by another worker. At-least-once — handlers should be idempotent.
 - Completed/failed history grows without bound unless bounded: configure
@@ -260,11 +267,17 @@ export const plugins: IgnexPlugin[] = [
 
 // after createApp:
 const otlp = createOtlpExporter(metrics, { endpoint: env.OTLP_ENDPOINT });
-otlp.start();            // push on an interval (stop() on shutdown)
+otlp.start();
+// during shutdown, after the metrics plugin is wired:
+await otlp.stop();
 ```
 
 - `GET /metrics` → Prometheus text format (per-route request counts +
   duration histograms). Protect it with a token or the proxy.
+- OTLP/HTTP JSON exports use monotonic sums and histogram data points, request
+  timeouts/status checks, no overlapping pushes, unref'd timers, and an awaited
+  shutdown drain. This is metrics export, not full OpenTelemetry tracing; validate
+  cardinality and delivery against your collector before rollout.
 - Access logs: the `logger` plugin emits structured pino lines
   (`requestId/method/path/route/status/durationMs/ip`).
 - App logs: scaffolded `src/lib/logger.ts` gives every route/hook/service a

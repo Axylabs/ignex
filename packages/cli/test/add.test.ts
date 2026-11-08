@@ -69,8 +69,8 @@ describe("planInstall", () => {
       "src/routes/auth/login.post.ts",
       "src/routes/auth/me.get.ts",
     ]);
-    expect(plan.pluginsFile).toBeUndefined();
-    expect(plan.wire).toEqual({ plugins: false, middleware: false });
+    expect(plan.pluginsFile?.content()).toContain("authLifecycle");
+    expect(plan.wire).toEqual({ plugins: true, middleware: false });
   });
 
   it("emits the refresh variant of the auth lib when refresh is selected", () => {
@@ -132,7 +132,9 @@ describe("planInstall", () => {
     expect(plan.pluginsFile?.content()).toContain(
       'metricsPlugin({ metrics, path: "/metrics", token: env.METRICS_TOKEN })',
     );
-    expect(plan.pluginsFile?.content()).toContain('{ metrics } from "../lib/metrics.js"');
+    expect(plan.pluginsFile?.content()).toContain(
+      '{ metrics, metricsLifecycle } from "../lib/metrics.js"',
+    );
     expect(plan.envVars.map((v) => v.key)).toEqual(["METRICS_TOKEN", "OTLP_ENDPOINT"]);
     expect(plan.envVars[0]?.schemaLine).toContain("metadata: { secret: true }");
   });
@@ -144,12 +146,18 @@ describe("planInstall", () => {
     expect(lib).toContain('createSqliteJobStore("./data/jobs.db")');
     expect(lib).toContain('mkdirSync("./data", { recursive: true })');
     expect(plan.notes.join("\n")).toContain("ignex queue:work");
+    expect(plan.files.map((file) => file.path)).toContain("src/jobs.ts");
+    expect(lib).toContain("export async function stop");
   });
 
   it("pulls realtime in for rpc and declares the nova env var", () => {
     const plan = planInstall(features("rpc"));
     expect(plan.features).toEqual(["realtime", "rpc"]);
-    expect(plan.files.map((f) => f.path)).toEqual(["src/lib/realtime.ts", "src/rpc/kit.ts"]);
+    expect(plan.files.map((f) => f.path)).toEqual([
+      "src/lib/realtime.ts",
+      "src/rpc/kit.ts",
+      "src/realtime.ts",
+    ]);
     expect(plan.envVars.map((v) => v.key)).toEqual(["NOVA_PORT"]);
     const kit = plan.files.find((f) => f.path === "src/rpc/kit.ts")?.content();
     expect(kit).toContain("createRpcKit");
@@ -232,31 +240,22 @@ describe("wireAppConfig", () => {
     expect(twice.content).toBe(once);
   });
 
-  it("adds the middleware spread, imports and lifecycle hooks", () => {
+  it("adds only the middleware import and spread", () => {
     const { content } = wireAppConfig(base, { middleware: true });
     expect(content).toContain('import { middleware } from "./middleware/index.js";');
-    expect(content).toContain(
-      'import { logRequests, markResponse } from "./middleware/log-requests.js";',
-    );
     expect(content).toContain("  ...middleware,");
-    expect(content).toContain(
-      "export const lifecycle = {\n  beforeHandle: [logRequests(), markResponse()]\n};",
-    );
+    expect(content).not.toContain("logRequests");
+    expect(content).not.toContain("export const lifecycle");
   });
 
-  it("extends an existing lifecycle instead of declaring a second one", () => {
+  it("leaves an existing lifecycle untouched", () => {
     const source =
-      "export const plugins = [\n  a()\n];\n\nexport const lifecycle = {\n  afterHandle: [audit()]\n};\n";
+      "export const plugins = [\n  a()\n];\n\nexport const lifecycle = {\n  beforeHandle: [tenant()],\n  afterHandle: [audit()]\n};\n";
     const { content } = wireAppConfig(source, { middleware: true });
     expect(content.match(/export const lifecycle/g)).toHaveLength(1);
-    expect(content).toContain("beforeHandle: [logRequests(), markResponse()],");
+    expect(content).toContain("beforeHandle: [tenant()]");
     expect(content).toContain("afterHandle: [audit()]");
-  });
-
-  it("appends the example hooks to an existing beforeHandle stage", () => {
-    const source = "export const lifecycle = {\n  beforeHandle: [tenant()]\n};\n";
-    const { content } = wireAppConfig(source, { middleware: true });
-    expect(content).toContain("beforeHandle: [tenant(), logRequests(), markResponse()]");
+    expect(content).toContain("  ...middleware,");
   });
 
   it("refuses to touch a config with no recognizable plugins array", () => {

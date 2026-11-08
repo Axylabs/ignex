@@ -37,6 +37,23 @@ function fakeRedis() {
       e.px = undefined;
       return 1;
     }),
+    pttl: vi.fn(async (k: string) => data.get(k)?.px ?? -1),
+    watch: vi.fn(async () => "OK"),
+    unwatch: vi.fn(async () => "OK"),
+    multi: vi.fn(() => {
+      const writes: Array<() => void> = [];
+      const transaction = {
+        set(k: string, v: string, mode?: "PX", ms?: number) {
+          writes.push(() => data.set(k, { value: v, px: mode === "PX" ? ms : undefined }));
+          return transaction;
+        },
+        async exec() {
+          for (const write of writes) write();
+          return [];
+        },
+      };
+      return transaction;
+    }),
     quit: vi.fn(async () => "OK"),
   };
   return { client, data };
@@ -119,6 +136,17 @@ describe("createRedisStore", () => {
     await store.set("k", "v");
     await store.close();
     expect(client.quit).toHaveBeenCalled();
+  });
+
+  it("updates values through a watched transaction", async () => {
+    const { client } = fakeRedis();
+    const store = makeStore(client);
+    await store.update?.("counter", () => 1);
+    await store.update?.("counter", (current) => Number(current) + 1);
+    expect(await store.get("counter")).toBe(2);
+    expect(client.watch).toHaveBeenCalledWith("test:counter");
+    expect(client.multi).toHaveBeenCalledTimes(2);
+    expect(client.unwatch).toHaveBeenCalledTimes(2);
   });
 
   it("get returns the raw string when the value is not JSON", async () => {

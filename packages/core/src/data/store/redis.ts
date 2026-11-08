@@ -45,6 +45,13 @@ export interface RedisStoreOptions {
   ) => RedisLike;
 }
 
+/** Minimal ioredis transaction surface used by atomic updates. */
+export interface RedisMultiLike {
+  set(key: string, value: string): RedisMultiLike;
+  set(key: string, value: string, mode: "PX", ms: number): RedisMultiLike;
+  exec(): Promise<unknown>;
+}
+
 /** The ioredis surface the driver uses (typed loosely — optional dependency). */
 export interface RedisLike {
   get(key: string): Promise<string | null>;
@@ -52,7 +59,11 @@ export interface RedisLike {
   set(key: string, value: string): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
   pexpire(key: string, ms: number): Promise<number>;
+  pttl(key: string): Promise<number>;
   persist(key: string): Promise<number>;
+  watch(key: string): Promise<unknown>;
+  unwatch(): Promise<unknown>;
+  multi(): RedisMultiLike;
   quit(): Promise<unknown>;
 }
 
@@ -62,6 +73,55 @@ export const redisMissingError = (): Error =>
     "createRedisStore: ioredis is not installed. Add it with `bun add ioredis` " +
       "(the standard Redis client), or use the memory/sqlite/file store drivers.",
   );
+
+interface RedisUpdateInput {
+  client: RedisLike;
+  key: string;
+  rawKey: string;
+  updater: (current: unknown | null) => unknown | Promise<unknown>;
+  setOptions: StoreSetOptions | undefined;
+  defaultTtlMs: number | undefined;
+}
+
+/** Attempt one optimistic transaction, returning false only on contention. */
+const attemptRedisUpdate = async (
+  input: RedisUpdateInput,
+): Promise<{ committed: boolean; value: unknown }> => {
+  const { client, key, updater, setOptions, defaultTtlMs } = input;
+  await client.watch(key);
+  try {
+    const raw = await client.get(key);
+    let current: unknown = null;
+    if (raw !== null) {
+      try {
+        current = JSON.parse(raw);
+      } catch {
+        current = raw;
+      }
+    }
+    const value = await updater(current);
+    const serialized = JSON.stringify(value);
+    const expiresAt = resolveRedisExpiry(setOptions, defaultTtlMs, Date.now());
+    const preservedTtl =
+      setOptions === undefined && defaultTtlMs === undefined ? await client.pttl(key) : 0;
+    const ttl = expiresAt > 0 ? Math.max(1, expiresAt - Date.now()) : preservedTtl;
+    const transaction = client.multi();
+    if (ttl > 0) transaction.set(key, serialized, "PX", ttl);
+    else transaction.set(key, serialized);
+    return { committed: (await transaction.exec()) !== null, value };
+  } finally {
+    await client.unwatch();
+  }
+};
+
+/** Retry optimistic transactions without exposing contention to the caller. */
+const runRedisUpdate = async (input: RedisUpdateInput): Promise<unknown> => {
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const result = await attemptRedisUpdate(input);
+    if (result.committed) return result.value;
+  }
+  throw new Error(`Redis update for '${input.rawKey}' exceeded 64 contention retries`);
+};
 
 /**
  * Create a Redis-backed {@link Store}. ioredis is loaded lazily (optional
@@ -73,6 +133,7 @@ export const createRedisStore = (options: RedisStoreOptions = {}): Store => {
   const key = (raw: string): string => `${prefix}:${raw}`;
 
   let clientPromise: Promise<RedisLike> | null = null;
+  let updateTail: Promise<unknown> = Promise.resolve();
   const getClient = async (): Promise<RedisLike> => {
     if (clientPromise) return clientPromise;
     clientPromise = (async () => {
@@ -135,6 +196,24 @@ export const createRedisStore = (options: RedisStoreOptions = {}): Store => {
       } else {
         await client.persist(k);
       }
+    },
+
+    update(rawKey, updater, setOptions) {
+      const run = updateTail.then(async () =>
+        runRedisUpdate({
+          client: await getClient(),
+          key: key(rawKey),
+          rawKey,
+          updater,
+          setOptions,
+          defaultTtlMs,
+        }),
+      );
+      updateTail = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
     },
 
     async close() {

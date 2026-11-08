@@ -14,7 +14,7 @@
  */
 
 /** Built-in SDK platform identifiers. */
-export type SdkPlatformId = "typescript" | "openapi" | "flatbuffers" | "realtime";
+export type SdkPlatformId = "typescript" | "openapi" | "realtime";
 
 /** A single generated file, relative to its package directory. */
 export interface SdkFile {
@@ -100,6 +100,29 @@ export interface SdkGenerateContext {
   realtime?: SdkRealtimeInput;
 }
 
+/** Platform-specific context passed to SDK generation hooks. */
+export interface SdkPackageHookContext extends SdkGenerateContext {
+  /** Id of the platform whose package is being transformed. */
+  platform: string;
+}
+
+/** Pure, optional transforms applied after a platform generates its package. */
+export interface SdkGenerationHooks {
+  /** Transform the generated package manifest for the selected platform. */
+  transformPackageJson?: (
+    packageJson: Readonly<Record<string, unknown>>,
+    ctx: SdkPackageHookContext,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** Transform or extend the final file list before anything is written. */
+  transformFiles?: (
+    files: readonly SdkFile[],
+    ctx: SdkPackageHookContext,
+  ) => readonly SdkFile[] | Promise<readonly SdkFile[]>;
+}
+
+/** A built-in platform id or an application-supplied platform implementation. */
+export type SdkPlatformSelection = SdkPlatformId | SdkPlatform;
+
 /**
  * One SDK platform: emits a complete package (its own `package.json` +
  * sources) from the shared generation context.
@@ -160,8 +183,13 @@ export interface SdkOptions {
   scope?: string;
   /** Package version (semver). Defaults to `0.0.0`. */
   version?: string;
-  /** Platforms to generate. Defaults to `["typescript"]`. */
-  platforms?: readonly SdkPlatformId[];
+  /**
+   * Platforms to generate. Defaults to `["typescript"]`. Custom implementations
+   * are scoped to this invocation; the built-in registry is never mutated.
+   */
+  platforms?: readonly SdkPlatformSelection[];
+  /** Optional pure transforms applied to every selected package. */
+  hooks?: SdkGenerationHooks;
   /** Repository URL for README install instructions (e.g. GitHub HTTPS URL). */
   repoUrl?: string;
   /**

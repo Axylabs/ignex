@@ -83,8 +83,18 @@ import { projectPath } from "./utils/path";
  * `__handleError` hands context to `errorToResponse`. 0.9.26 — docs-only edit.
  * 0.9.27 — hardened prod serve: `development=false`, a `Bun.serve` error hook,
  * a boot-failure report, and a drain that awaits `stop()`.
+ * 0.9.28 — shared request-independent instances: the 503 handler-timeout
+ * Response (`__TIMEOUT_RESPONSE`) and the 404 miss headers (`__MISS_HEADERS`)
+ * are built once at module load; the static wrappers hoist the
+ * `__extractServer` call (one per request, not two); the 404/405 fallback and
+ * the OPTIONS preflight extract the path with core's zero-allocation
+ * `pathnameOf` (consistent with `ctx.path`) instead of a per-request
+ * `new URL`. Generated output shape changed.
+ * 0.9.29–0.9.31 — canonical/embedded OpenAPI, typed method-aware clients,
+ * plugin routes, app-scoped caches, default hooksDir, opt-in native routes,
+ * and fail-closed unresolved dependencies.
  */
-export const COMPILER_CACHE_VERSION = "0.9.27";
+export const COMPILER_CACHE_VERSION = "0.9.31";
 
 const CACHE_FILE = ".ignex-cache.json";
 

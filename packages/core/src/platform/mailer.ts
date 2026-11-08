@@ -4,8 +4,8 @@
  *
  * This is DX over the STANDARD approach, not a new SMTP stack: the `log`
  * driver is built-in (writes to console/pino — perfect for dev + tests), and
- * the `smtp` driver delegates to `nodemailer`. The mailer never throws on the
- * request path — callers decide (a queued job is the recommended pattern).
+ * the `smtp` driver delegates to a pooled, reusable `nodemailer` transport.
+ * Delivery failures reject so callers can report, retry, or queue them.
  *
  * ```ts
  * import { createMailer } from "@ignex/core";
@@ -54,12 +54,25 @@ export interface MailerOptions {
   };
   /** Log sink (default `console`). */
   log?: Console;
+  /** Reusable transport override for custom drivers and tests. */
+  transport?: (smtp: NonNullable<MailerOptions["smtp"]>) => MailTransport | Promise<MailTransport>;
 }
 
-/** The mailer surface. */
+/** Minimal reusable transport contract used by SMTP and tests. */
+export interface MailTransport {
+  sendMail(message: Record<string, unknown>): Promise<{
+    accepted?: unknown;
+    rejected?: unknown;
+    messageId?: string;
+  }>;
+  close?(): void | Promise<void>;
+}
+
+/** The mailer surface. Delivery failures reject so callers can retry or queue them. */
 export interface Mailer {
-  /** Send a message. Resolves to the driver result (never throws by itself). */
   send(message: MailMessage): Promise<MailSendResult>;
+  /** Close the reusable transport, if the driver owns one. */
+  close(): Promise<void>;
 }
 
 /** Resolve the default `from` (option or process.env.MAIL_FROM). */
@@ -107,22 +120,24 @@ export const createMailer = (options: MailerOptions = {}): Mailer => {
     if (!smtpOptions) {
       throw new Error("createMailer({ driver: 'smtp' }) requires smtp options (host/port).");
     }
-    return {
-      async send(message): Promise<MailSendResult> {
-        // Lazily load nodemailer so the log driver never needs it. The package
-        // is an optional peer (the SMTP driver is opt-in); typed loosely so
-        // core compiles without it installed. The specifier rides a variable so
-        // tsc does NOT try to resolve the module at typecheck time — a literal
-        // `import("nodemailer")` would break consumers that don't install it.
+    let transportPromise: Promise<MailTransport> | null = null;
+    let closed = false;
+    const getTransport = (): Promise<MailTransport> => {
+      transportPromise ??= (async () => {
+        if (options.transport) return options.transport(smtpOptions);
         const nodemailerSpecifier = "nodemailer";
         const nodemailer = (await import(nodemailerSpecifier)) as {
-          createTransport(options: unknown): {
-            sendMail(
-              message: Record<string, unknown>,
-            ): Promise<{ accepted?: unknown; rejected?: unknown; messageId?: string }>;
-          };
+          createTransport(config: unknown): MailTransport;
         };
-        const transport = nodemailer.createTransport(smtpOptions);
+        return nodemailer.createTransport({ ...smtpOptions, pool: true });
+      })();
+      return transportPromise;
+    };
+
+    return {
+      async send(message): Promise<MailSendResult> {
+        if (closed) throw new Error("mailer is closed");
+        const transport = await getTransport();
         const info = await transport.sendMail({
           from: message.from ?? resolveFrom(options),
           to: message.to,
@@ -141,9 +156,14 @@ export const createMailer = (options: MailerOptions = {}): Mailer => {
           ...(info.messageId !== undefined ? { messageId: info.messageId } : {}),
         };
       },
+      async close() {
+        closed = true;
+        const transport = await transportPromise;
+        await transport?.close?.();
+      },
     };
   }
 
   const logDriver = createLogDriver(options, sink);
-  return { send: (message) => logDriver(message) };
+  return { send: (message) => logDriver(message), close: async () => {} };
 };

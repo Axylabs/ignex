@@ -168,6 +168,17 @@ export const createFileStore = (dir: string, options: FileStoreOptions = {}): St
       persist();
     },
 
+    update(key, updater, opts) {
+      const current = this.get(key);
+      const write = (value: unknown): unknown => {
+        this.set(key, value, opts);
+        return value;
+      };
+      const next = updater(current);
+      if (next instanceof Promise) throw new TypeError("File store updaters must be synchronous");
+      return write(next);
+    },
+
     close() {
       flushPending();
     },

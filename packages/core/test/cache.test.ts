@@ -8,6 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { CachedHttpResponse, HttpResponseCacheStore } from "../src/data/cache/types";
 import {
   cacheControl,
+  createMemoryStore,
+  createPersistentHttpCacheStore,
   entityTag,
   HttpResponseCache,
   LRUCache,
@@ -299,8 +301,8 @@ describe("HttpResponseCache", () => {
     // The fill builds the entry itself — storing it must not require a
     // read-back (async stores would pay an extra sequential round-trip per
     // cold miss).
-    expect(sets).toEqual(["GET:/:"]);
-    expect(gets).toEqual(["GET:/:"]);
+    expect(sets).toEqual(["GET:http://x:/:"]);
+    expect(gets).toEqual(["GET:http://x:/:"]);
   });
 
   it("does not cache non-GET/HEAD methods", async () => {
@@ -357,6 +359,35 @@ describe("HttpResponseCache", () => {
       factory,
     );
     expect(conditional.status).toBe(304);
+  });
+
+  it("shares binary responses through the persistent store adapter", async () => {
+    const backing = createMemoryStore();
+    const store = createPersistentHttpCacheStore(backing);
+    const first = new HttpResponseCache({ store });
+    const second = new HttpResponseCache({ store });
+    const bytes = Uint8Array.from([0, 255, 1, 128, 42]);
+    const request = req("https://cache.example/binary");
+    await first.getOrSet(request, async () => new Response(bytes));
+    const hit = await second.getOrSet(request, async () => {
+      throw new Error("origin should not run");
+    });
+    expect(hit.headers.get("x-cache")).toBe("hit");
+    expect(new Uint8Array(await hit.arrayBuffer())).toEqual(bytes);
+    await store.close();
+  });
+
+  it("never reuses entries across origins", async () => {
+    const cache = new HttpResponseCache();
+    let calls = 0;
+    const factory = async () => {
+      calls += 1;
+      return new Response(`origin-${calls}`);
+    };
+    await cache.getOrSet(req("https://one.example/shared"), factory);
+    const other = await cache.getOrSet(req("https://two.example/shared"), factory);
+    expect(await other.text()).toBe("origin-2");
+    expect(calls).toBe(2);
   });
 
   it("varies the cache key by the configured headers", async () => {

@@ -57,11 +57,13 @@ touching git/npm/GitHub.
 ```
 ignex sdk [options]
 
-  --platform <ts|openapi|flatbuffers|all>   Platforms to generate (default: typescript)
+  --platform <ts|openapi|realtime|all>    Platforms to generate (default: typescript)
   --name <name>                 npm package name (default: <serviceName>-sdk)
   --scope <scope>               npm scope for the default name (e.g. @acme)
   --version <semver>            SDK version (default: nearest package.json version)
   --out <dir>                   SDK output dir (default: <outDir>/sdk)
+  --license <SPDX>              Package license (default: MIT)
+  --description <text>          Package description
   --tag-prefix <prefix>         Git tag prefix (default: sdk-v)
   --push                        Git-tag sdk-v<version> and push to origin
   --publish                     npm publish (--registry / SDK_NPM_REGISTRY)
@@ -106,35 +108,134 @@ same generation context (routes + OpenAPI document).
 | --- | --- | --- |
 | `typescript` (default) | `<serviceName>-sdk` | Zero-dep ESM typed client, `.d.ts` types, `openapi.json`, README |
 | `openapi` | `<serviceName>-api-spec` | Just the versioned `openapi.json` — feed it to your own codegen |
-| `flatbuffers` | `<serviceName>-flatbuffers-client` | **Binary frontend client**: real `schema.fbs` (wire envelope + route inventory), typed per-route client on the official `flatbuffers` runtime, `application/x-flatbuffers` request/response envelopes with a JSON fallback. Marked `kind: "client"` in its `package.json` so the debugbar **Clients** panel tracks it. |
+| `realtime` | `<serviceName>-realtime-client` | Typed realtime/RPC client generated from the realtime and RPC manifests. |
 
-Select several with `--platform typescript,openapi,flatbuffers` (or
+Select several with `--platform typescript,openapi,realtime` (or
 `--platform all`); each gets its own directory and a distinct package name.
 
-The FlatBuffers client is generated with the same builder/reader patterns as
-`@ignex/nova`'s typed realtime transport: strings are created before
-`startObject` (the runtime's `notNested` guard), the builder is pooled, and
-offsets are read via `__offset`/`__string`. GET/HEAD requests carry params in
-the URL (fetch forbids GET bodies) and still decode the response envelope;
-every other method sends the envelope as the body. Round-trips are verified in
-`packages/compiler/test/sdk-flatbuffers.test.ts`.
+## Project configuration and overrides
 
-### Adding a platform
-
-Implement the `SdkPlatform` interface (`packages/compiler/src/sdk/types.ts`)
-and register it in `sdkPlatforms`
-(`packages/compiler/src/sdk/index.ts`):
+Keep SDK defaults in `ignex.config.{ts,mjs}` instead of repeating flags or
+editing generated output. `defineConfig` from `@ignex/cli/config` types the
+complete project config:
 
 ```ts
-const pythonPlatform: SdkPlatform = {
-  id: "python",
-  label: "Python",
-  description: "Typed Python client from the OpenAPI document.",
+import { defineConfig } from "@ignex/cli/config";
+
+export default defineConfig({
+  sdk: {
+    name: "@acme/api-sdk",
+    version: "1.2.3",
+    packageDir: "generated/sdk",
+    platforms: ["typescript", "openapi"],
+    license: "Apache-2.0",
+    description: "Acme's public API client",
+  },
+});
+```
+
+CLI flags override environment variables, which override project config, which
+overrides framework defaults. `packageDir` is resolved from the project root,
+including with `--root`. The CLI and `generateSdk`/`writeSdk` accept the same
+platform and hook contracts; direct library calls receive explicit options and
+do not implicitly read project config or environment variables.
+
+### Custom platforms
+
+Pass an `SdkPlatform` directly in `platforms` — no framework patch or global
+registry mutation. A platform receives the canonical routes, OpenAPI document,
+service name, and resolved options, then returns package-relative `SdkFile`s.
+It may be async and use an application-owned optional codegen dependency.
+
+```ts
+const catalogPlatform = {
+  id: "catalog",
+  label: "Route catalog",
+  description: "Internal route inventory package",
   generate(ctx) {
-    // ctx.routes, ctx.openapi, ctx.options → return SdkFile[]
+    return [
+      {
+        path: "package.json",
+        content: JSON.stringify({
+          name: ctx.options.name,
+          version: ctx.options.version,
+        }),
+      },
+      { path: "routes.json", content: JSON.stringify(ctx.routes, null, 2) },
+    ];
   },
 };
+
+export default defineConfig({
+  sdk: { platforms: ["typescript", catalogPlatform] },
+});
 ```
+
+Custom ids are lowercase and become output subdirectory names for
+multi-platform builds. Duplicate ids and unknown built-in ids fail with an
+actionable error.
+
+### Generation hooks
+
+Use pure hooks for package metadata or file-level customization that does not
+need a custom platform:
+
+```ts
+export default defineConfig({
+  sdk: {
+    hooks: {
+      transformPackageJson(pkg, ctx) {
+        return { ...pkg, keywords: [ctx.serviceName, ctx.platform] };
+      },
+      transformFiles(files, ctx) {
+        return [
+          ...files,
+          { path: "SUPPORT.md", content: `Generated by ${ctx.platform}` },
+        ];
+      },
+    },
+  },
+});
+```
+
+Hooks run in memory before `writeSdk` writes anything. They may be async.
+Generated paths must be portable package-relative paths; absolute paths,
+traversal, empty segments, backslashes, duplicate files, and non-string content
+are rejected. Package transforms must return a plain object. Omitting hooks
+keeps the built-in generators unchanged.
+
+### OpenAPI document options
+
+Customize the canonical document once; the compiler artifact, runtime docs, and
+all SDK platforms use the same shared generator:
+
+```ts
+export default defineConfig({
+  openApi: {
+    title: "Acme Public API",
+    version: "2026.1",
+    description: "Public integration contract",
+    servers: [{ url: "https://api.acme.example" }],
+    security: [{ bearerAuth: [] }],
+    tags: [{ name: "orders", description: "Order management" }],
+    exclude: {
+      methods: ["options"],
+      paths: ["/internal", /^\/admin/],
+      staticFile: true,
+    },
+    transform(document) {
+      return { ...document, "x-owner": "platform-team" };
+    },
+  },
+});
+```
+
+`paths` accepts route-style (`/users/:id`) or OpenAPI-style (`/users/{id}`)
+paths. `detail.hide: true` remains the per-route opt-out. The final transform
+is synchronous and must return a document object. For interpreted apps,
+`openapi({ document: { ...sameOptions } })` applies the same options; the
+existing `documentation` and `exclude` plugin fields remain supported. In AOT
+apps the plugin serves the configured compiler artifact.
 
 ## What the TypeScript SDK contains
 
@@ -178,6 +279,9 @@ try {
 
 The call shape follows the route's inputs: `params+body → (params, body, init?)`,
 `params → (params, init?)`, `body → (body, init?)`, neither → `(init?)`.
+Method-specific options accept typed `query` values (including arrays), plus
+`headers`, `signal`, and `cache`; path parameters are encoded and substituted by
+the client. Request and response types are inferred from the route schemas.
 
 ## Where the types come from
 

@@ -11,6 +11,8 @@
 export {
   generateOpenAPI,
   type OpenAPIDocument,
+  type OpenAPIDocumentOptions,
+  type OpenAPIExcludeOptions,
   type OpenAPIInfo,
   type OpenAPIRouteSchema,
   type ParameterDoc,
