@@ -17,16 +17,27 @@ import { fileURLToPath } from "node:url";
 const srcDir = dirname(fileURLToPath(import.meta.url)); // .../packages/native/src/loader
 const pkgDir = dirname(dirname(srcDir)); // .../packages/native
 
+/**
+ * npm package names the addon may be installed under, in preference order:
+ * the ignex-ecosystem scoped name (what npm publishes since castrum 0.9.12)
+ * and the legacy unscoped name (pre-rename installs and local `bun link`
+ * checkouts).
+ */
+const CASTRUM_PKGS = ["@ignex/castrum", "castrum"] as const;
+
 /** Read our own package.json's castrum `file:` optionalDependency target. */
 const castrumFromOwnPackage = (): string | null => {
   try {
     const own = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
       optionalDependencies?: Record<string, string>;
     };
-    const spec = own.optionalDependencies?.castrum;
-    if (typeof spec !== "string" || !spec.startsWith("file:")) return null;
-    const target = join(pkgDir, spec.slice("file:".length));
-    return existsSync(join(target, "package.json")) ? target : null;
+    for (const name of CASTRUM_PKGS) {
+      const spec = own.optionalDependencies?.[name];
+      if (typeof spec !== "string" || !spec.startsWith("file:")) continue;
+      const target = join(pkgDir, spec.slice("file:".length));
+      if (existsSync(join(target, "package.json"))) return target;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -34,28 +45,37 @@ const castrumFromOwnPackage = (): string | null => {
 
 /** Resolve castrum via our own node_modules symlink (created by bun install). */
 const castrumFromSymlink = (): string | null => {
-  const symlink = join(pkgDir, "node_modules", "castrum");
-  return existsSync(join(symlink, "package.json")) ? symlink : null;
+  for (const name of CASTRUM_PKGS) {
+    const symlink = join(pkgDir, "node_modules", ...name.split("/"));
+    if (existsSync(join(symlink, "package.json"))) return symlink;
+  }
+  return null;
 };
 
 /**
- * Resolve castrum via a `node_modules/castrum` entry at `ancestor` — covers
- * `bun link` (root symlink → `~/.bun/install/global/...`) and hoisted
+ * Resolve castrum via a `node_modules/{@ignex/}castrum` entry at `ancestor` —
+ * covers `bun link` (root symlink → `~/.bun/install/global/...`) and hoisted
  * installs in monorepos. Mirrors Node/Bun's own upward module resolution so
  * the live linked castrum is found even when no workspace package declares it
  * via a `file:`/registry dependency.
  */
 const castrumFromNodeModules = (ancestor: string): string | null => {
-  const linked = join(ancestor, "node_modules", "castrum");
-  return existsSync(join(linked, "package.json")) ? linked : null;
+  for (const name of CASTRUM_PKGS) {
+    const linked = join(ancestor, "node_modules", ...name.split("/"));
+    if (existsSync(join(linked, "package.json"))) return linked;
+  }
+  return null;
 };
 
 /** Resolve castrum from bun's global link store (`~/.bun/install/global/...`). */
 const castrumFromBunLink = (): string | null => {
   const home = process.env.HOME ?? process.env.USERPROFILE;
   if (!home) return null;
-  const linked = join(home, ".bun", "install", "global", "node_modules", "castrum");
-  return existsSync(join(linked, "package.json")) ? linked : null;
+  for (const name of CASTRUM_PKGS) {
+    const linked = join(home, ".bun", "install", "global", "node_modules", ...name.split("/"));
+    if (existsSync(join(linked, "package.json"))) return linked;
+  }
+  return null;
 };
 
 /** Collect the ancestor directories of `start` up to the filesystem root. */
@@ -91,20 +111,22 @@ const castrumFromWorkspace = (ancestor: string): string | null => {
       const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
         optionalDependencies?: Record<string, string>;
       };
-      const spec = pkg.optionalDependencies?.castrum;
-      if (typeof spec !== "string") {
-        continue;
+      for (const dep of CASTRUM_PKGS) {
+        const spec = pkg.optionalDependencies?.[dep];
+        if (typeof spec !== "string") {
+          continue;
+        }
+        if (spec.startsWith("file:")) {
+          const target = join(pkgDir, spec.slice("file:".length));
+          if (existsSync(join(target, "package.json"))) return target;
+        }
+        // Registry-installed castrum (e.g. "^0.9.0"): resolve via the workspace
+        // package's node_modules, which bun links during install. This keeps the
+        // compiled/bundled entry (e.g. `packages/app/dist/__server.js`) native
+        // when the package no longer declares castrum via a `file:` target.
+        const installed = join(pkgDir, "node_modules", ...dep.split("/"));
+        if (existsSync(join(installed, "package.json"))) return installed;
       }
-      if (spec.startsWith("file:")) {
-        const target = join(pkgDir, spec.slice("file:".length));
-        if (existsSync(join(target, "package.json"))) return target;
-      }
-      // Registry-installed castrum (e.g. "^0.9.0"): resolve via the workspace
-      // package's node_modules, which bun links during install. This keeps the
-      // compiled/bundled entry (e.g. `packages/app/dist/__server.js`) native
-      // when the package no longer declares castrum via a `file:` target.
-      const installed = join(pkgDir, "node_modules", "castrum");
-      if (existsSync(join(installed, "package.json"))) return installed;
     } catch {
       /* ignore */
     }
