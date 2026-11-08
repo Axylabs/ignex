@@ -39,7 +39,7 @@ env:
   # to the v0.9.12 TAG commit (HTML auto-escape by default — required by the
   # template-parity gate), which builds from source and carries the full native
   # surface including the shared FFI ingress binding (`getIngressBinding`).
-  CASTRUM_REF: 6785f2988d21699f8e1c7669ec08b8cb9c4190de
+  CASTRUM_REF: 6a956fa6a356f75614e432350fde9f5f2f0eb7cf
 
 # Linux jobs pin the runner image label (`ubuntu-24.04`, not `ubuntu-latest`) so
 # a GitHub image migration cannot silently change the machine under the perf
