@@ -808,9 +808,12 @@ describe("systemd templates (host/VPS deployment)", () => {
       expect(readFileSync(join(dir, "deploy", "env.production.example"), "utf8")).toContain(
         "https://acme.example.com",
       );
-      // deploy.sh must be runnable as ./deploy.sh — mode 0755.
+      // deploy.sh must be runnable as ./deploy.sh — mode 0755 (POSIX only:
+      // Windows files carry no exec bits).
       const { statSync } = await import("node:fs");
-      expect(statSync(join(dir, "deploy", "deploy.sh")).mode & 0o111).toBe(0o111);
+      if (process.platform !== "win32") {
+        expect(statSync(join(dir, "deploy", "deploy.sh")).mode & 0o111).toBe(0o111);
+      }
       const units = readdirSync(join(dir, "deploy"));
       expect(units.some((name) => name.endsWith("-infra.service"))).toBe(true);
       // Infra ordering is baked into the emitted APP unit (no manual edit):
@@ -839,7 +842,10 @@ describe("systemd templates (host/VPS deployment)", () => {
       const installPath = join(dir, "deploy", "install.sh");
       expect(existsSync(installPath)).toBe(true);
       const { statSync } = await import("node:fs");
-      expect(statSync(installPath).mode & 0o111).toBe(0o111);
+      // POSIX only — Windows files carry no exec bits.
+      if (process.platform !== "win32") {
+        expect(statSync(installPath).mode & 0o111).toBe(0o111);
+      }
       const script = readFileSync(installPath, "utf8");
       expect(script).toContain('SERVICE="acme-api"');
       expect(script).toContain("useradd --system");

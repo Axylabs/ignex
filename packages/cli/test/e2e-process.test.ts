@@ -137,7 +137,10 @@ describe.skipIf(!ENTRY_EXISTS)("ignex CLI process e2e", () => {
       dir,
     );
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain("Created Caddyfile");
+    // The notice prints the target path relative to the CLI's cwd; macOS
+    // runners resolve /var/folders through /private, so the relative display
+    // path can carry ../ chains — match the notice, not the path shape.
+    expect(run.stdout).toMatch(/✔ Created .*Caddyfile/);
 
     // The generated Caddyfile is the command's output artifact (stdout only
     // carries the notice); the pinned lines must appear verbatim.

@@ -163,9 +163,11 @@ describe("runShip systemd style", () => {
       expect(existsSync(join(root, "deploy", "env.production.example"))).toBe(true);
       // Infra unit only when a compose file exists (none here).
       expect(existsSync(join(root, "deploy", "ship-demo-infra.service"))).toBe(false);
-      // Executable bits.
-      expect(statSync(join(root, "deploy", "deploy.sh")).mode & 0o111).toBeTruthy();
-      expect(statSync(join(root, "deploy", "install.sh")).mode & 0o111).toBeTruthy();
+      // Executable bits (POSIX only — Windows files carry no exec bits).
+      if (process.platform !== "win32") {
+        expect(statSync(join(root, "deploy", "deploy.sh")).mode & 0o111).toBeTruthy();
+        expect(statSync(join(root, "deploy", "install.sh")).mode & 0o111).toBeTruthy();
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

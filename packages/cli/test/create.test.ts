@@ -238,8 +238,11 @@ describe("ignex create --root", () => {
         expect(existsSync(join(target, "scripts/setup.ts"))).toBe(true);
         // The bootstrap must be runnable as ./setup.sh — the scaffolder has to
         // preserve the executable bit (default write mode would be 0644).
+        // POSIX only — Windows files carry no exec bits.
         const mode = statSync(join(target, "setup.sh")).mode & 0o777;
-        expect(mode & 0o111).toBe(0o111);
+        if (process.platform !== "win32") {
+          expect(mode & 0o111).toBe(0o111);
+        }
         // The generated package.json wires the provisioner as a script.
         const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as {
           scripts: Record<string, string>;
