@@ -59,12 +59,15 @@ if (!readRoute.includes("{ status: 400 }") || !readRoute.includes("{ status: 404
 const tmp = mkdtempSync(join(tmpdir(), "ignex-drizzle-verify-"));
 try {
   writeFileSync(join(tmp, "users.ts"), modelCode);
+  // Write BOTH model files before the first dynamic import: Bun caches the
+  // directory's module map at import time, so a file written AFTER a sibling
+  // import can come back "Cannot find module" on macOS (APFS).
+  writeFileSync(join(tmp, "users-postgres.ts"), postgresModelCode);
   const { users } = (await import(pathToFileURL(join(tmp, "users.ts")).href)) as {
     users: any;
   };
   if (!users) fail("generated model did not export the table");
 
-  writeFileSync(join(tmp, "users-postgres.ts"), postgresModelCode);
   const postgres = (await import(pathToFileURL(join(tmp, "users-postgres.ts")).href)) as {
     users?: unknown;
   };
