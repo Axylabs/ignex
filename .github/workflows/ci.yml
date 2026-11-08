@@ -20,18 +20,23 @@ env:
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
   # `^0.9.10` production install (a parity pass proved nothing about what users
-  # actually get). Pinned to the v0.9.10 TAG commit, which is the exact revision
-  # the registry serves (`castrum@0.9.10`). v0.9.10 adds the shared FFI ingress
-  # binding (`getIngressBinding`) that `@ignex/native` delegates to — its absence
-  # in the previous v0.9.6 pin is why the ingress-binding suite failed on every
-  # lane. Everything v0.9.6 carried is still present (sharded `MetricsRegistry`,
-  # `createPipeline`, route-wire v3, the optimized single-pass native route
-  # parser, the JS-compatible form decoder, the NUL-safe byte-input validators,
-  # and the off-thread task runtime). To move: bump BOTH this and
-  # packages/native/package.json's optionalDependency deliberately, run
-  # `bun run verify:native:ffi && bun run verify:native:route` locally first, and
-  # keep vendor/castrum.d.ts in sync (`bun run check:native:surface`).
-  CASTRUM_REF: 5b9d445ca1a7353b0fd19c3db2ba5708e1e871e9
+  # actually get). Pinned to the v0.9.12 TAG commit: HTML auto-escape by default
+  # in TemplateRenderer, which the `verify:native:template` parity gate REQUIRES
+  # (against an older addon the native lane renders raw while the pure-TS
+  # fallback escapes, so the gate fails by design). NOTE the registry still
+  # serves `castrum@0.9.10` — the parity lane builds the addon from THIS source,
+  # and the `^0.9.10` optionalDependency range already satisfies 0.9.12; bump
+  # the range to `^0.9.12` when the addon is actually published. Everything
+  # v0.9.10 carried is still present (shared FFI ingress binding
+  # `getIngressBinding` that `@ignex/native` delegates to, sharded
+  # `MetricsRegistry`, `createPipeline`, route-wire v3, the optimized
+  # single-pass native route parser, the JS-compatible form decoder, the
+  # NUL-safe byte-input validators, and the off-thread task runtime). To move:
+  # bump BOTH this and packages/native/package.json's optionalDependency
+  # deliberately, run `bun run verify:native:ffi && bun run verify:native:route`
+  # locally first, and keep vendor/castrum.d.ts in sync
+  # (`bun run check:native:surface`).
+  CASTRUM_REF: 6785f2988d21699f8e1c7669ec08b8cb9c4190de
 
 # Linux jobs run on a PINNED image label (`ubuntu-24.04`), never
 # `ubuntu-latest`: GitHub starts migrating the `ubuntu-latest` alias to Ubuntu 26
