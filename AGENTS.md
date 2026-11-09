@@ -159,23 +159,29 @@ cd /home/adeel/poc/my-app && bun link @ignex/core
 
 Cross-repo edges (verify with `grep` in `package.json` before assuming):
 
-- **`@ignex/native` → `castrum`** (`optionalDependencies: ^0.9.10`). Build the
-  addon files the loader looks for, register it, then link (a bare
+- **`@ignex/native` → `@ignex/castrum`** (scoped range in
+  `packages/native/package.json` `optionalDependencies`; the npm package used
+  the unscoped `castrum` name until the scoped rename — the loader resolves
+  the scoped name first and keeps the legacy name as a fallback).
+  Build the addon files the loader looks for, register it, then link (a bare
   `target/release/libcastrum.so` is not enough — the loader needs a
   package-shaped checkout):
   ```bash
   cd /home/adeel/poc/castrum
   cp target/release/libcastrum.so castrum.linux-x64-gnu.node   # baseline
   bash scripts/build-v3.sh                                     # x86-64-v3 SIMD variant
-  bun link                                                     # register castrum
+  bun link                                                     # register @ignex/castrum
 
   cd /home/adeel/poc/ignex
-  bun link castrum                       # root node_modules/castrum → checkout
-  ln -s /home/adeel/poc/castrum packages/native/node_modules/castrum
+  bun link @ignex/castrum                # root node_modules/@ignex/castrum → checkout
+  mkdir -p packages/native/node_modules/@ignex
+  ln -s /home/adeel/poc/castrum packages/native/node_modules/@ignex/castrum
   ```
-  The symlink is created directly because `bun link castrum` *inside*
+  The symlink is created directly because `bun link @ignex/castrum` *inside*
   `packages/native` fails (`@ignex/test-utils@workspace:*` does not resolve
   outside the workspace root); it is the same link state bun would produce.
+  Without the link, `bun install` puts the REGISTRY copy at that path — fine
+  for parity with what users get, stale relative to the live Rust source.
 - **`@ignex/core` → `@ignex/nova`** (optional peer): `cd /home/adeel/poc/nova
   && bun link`, then `cd packages/core && bun link @ignex/nova`.
 - **Rust cdylibs go stale the moment the Rust source changes** — rebuild before

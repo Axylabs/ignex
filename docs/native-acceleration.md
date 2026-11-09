@@ -38,8 +38,9 @@ an acceleration layer — importing it **never throws**.
   `TemplateRenderer`, `ConditionalRequest`, …) and Node.
 - `packages/native/src/loader.ts` loads the castrum **`.node` NAPI surface**
   with `require()`/`process.dlopen` (Node-API modules cannot be ESM-`import`ed
-  in Bun). The binary is located from the installed `castrum` package directory
-  (registry `node_modules/castrum`, or the local workspace `file:` checkout via
+  in Bun). The binary is located from the installed `@ignex/castrum` package
+  directory (registry `node_modules/@ignex/castrum`, or the local workspace
+  `file:` checkout via
   `IGNEX_NATIVE_PATH`), **bypassing the tsconfig `paths` mapping**
   that would otherwise hijack a bare `import("castrum")` at runtime (Bun honors
   `paths` — a bare import resolved to the `vendor/castrum.d.ts` stub and loaded

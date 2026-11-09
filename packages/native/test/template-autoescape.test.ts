@@ -102,20 +102,7 @@ describe("template auto-escape (secure default)", () => {
 });
 
 describe("createTemplate (compiled path)", () => {
-  // The compiled path only auto-escapes on an addon carrying the 0.9.12
-  // template hardening; CI quality lanes resolve the registry addon, which
-  // can lag the CASTRUM_REF pin until a release lands. Probe the capability
-  // instead of hard-failing — the addon-freshness parity contract itself is
-  // `scripts/verify-native-template.ts` (built from the pinned CASTRUM_REF).
-  const compiledEscapesByDefault = (() => {
-    try {
-      return createTemplate("{{ name }}")({ name: "<x>" }) === "&lt;x&gt;";
-    } catch {
-      return false;
-    }
-  })();
-
-  it.skipIf(!compiledEscapesByDefault)("auto-escapes on each render", () => {
+  it("auto-escapes on each render", () => {
     const tpl = createTemplate("{{ name }}");
     expect(tpl({ name: "<x>" })).toBe("&lt;x&gt;");
     expect(tpl({ name: "ok" })).toBe("ok");

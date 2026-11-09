@@ -37,9 +37,10 @@ env:
   # Pinned castrum revision (see ci.yml CASTRUM_REF for the bump procedure) —
   # the nightly sweep must exercise the SAME addon production installs. Pinned
   # to the v0.9.12 TAG commit (HTML auto-escape by default — required by the
-  # template-parity gate), which builds from source and carries the full native
-  # surface including the shared FFI ingress binding (`getIngressBinding`).
-  CASTRUM_REF: 6a956fa6a356f75614e432350fde9f5f2f0eb7cf
+  # template-parity gate; the npm package moved to `@ignex/castrum`), which
+  # builds from source and carries the full native surface including the
+  # shared FFI ingress binding (`getIngressBinding`).
+  CASTRUM_REF: d10b319f05d5213b0a57b528bcad52c423bc17e3
 
 # Linux jobs pin the runner image label (`ubuntu-24.04`, not `ubuntu-latest`) so
 # a GitHub image migration cannot silently change the machine under the perf

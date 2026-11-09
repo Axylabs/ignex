@@ -41,7 +41,7 @@ See `AGENTS.md` §Local development for the full workflow. Short version:
 `cargo build --release --lib` + copy to `castrum.linux-x64-gnu.node`, run
 `bash scripts/build-v3.sh` for the x86-64-v3 SIMD variant the loader prefers,
 then `bun link` in the checkout and link/symlink it into
-`packages/native/node_modules/castrum`. Always confirm what the loader actually
+`packages/native/node_modules/@ignex/castrum`. Always confirm what the loader actually
 resolved — a lingering `IGNEX_NATIVE_PATH` export silently wins over the link:
 
 ## Key files (`packages/native/src/`)

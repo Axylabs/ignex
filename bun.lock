@@ -164,7 +164,7 @@
         "vitest": "^5.0.5",
       },
       "optionalDependencies": {
-        "castrum": "^0.9.10",
+        "@ignex/castrum": "^0.9.12",
       },
     },
     "packages/shared": {
@@ -299,6 +299,8 @@
     "@hono/node-server": ["@hono/node-server@2.1.3", "", { "peerDependencies": { "hono": "^4" } }, "sha512-TA//nWMqPhbfdfneACk6t5a9eqbS9lABEPyKn0/xZTah3H3U2XaVg85rJFl0/Fyit0I552YDHgXGVSf3GwqbUw=="],
 
     "@ignex/app": ["@ignex/app@workspace:packages/app"],
+
+    "@ignex/castrum": ["@ignex/castrum@0.9.12", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"], "hasInstallScript": true }, "sha512-MfV6lGFLtm17OugGXWumthEDmwN2OguMtbofcotuxW1Ipl95CKzTc48PkPnl0p0s3s/lAEQ7mqg4sZV5LN6T4w=="],
 
     "@ignex/cli": ["@ignex/cli@workspace:packages/cli"],
 
@@ -663,8 +665,6 @@
     "call-bound": ["call-bound@1.0.4", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.2", "get-intrinsic": "^1.3.0" } }, "sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg=="],
 
     "caniuse-lite": ["caniuse-lite@1.0.30001810", "", {}, "sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg=="],
-
-    "castrum": ["castrum@0.9.10", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"] }, "sha512-Y5Ruv4uzc+lA7WGE3GIngTwpFuc1A02BqSt5MkZ7Hc04EFbREBiC1u9W3/6cdFpKph8um80wm1s/rfBJ6WyD0w=="],
 
     "chai": ["chai@6.3.0", "", {}, "sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg=="],
 

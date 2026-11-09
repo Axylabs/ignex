@@ -86,6 +86,14 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The native addon moved into the ignex npm scope.** `@ignex/native` now
+  requires `@ignex/castrum ^0.9.12` (the addon's npm package was the unscoped
+  `castrum` before 0.9.12). The loader resolves the scoped name first and keeps
+  the legacy unscoped `castrum` as a fallback, so pre-rename installs and local
+  `bun link` checkouts keep working; `IGNEX_NATIVE_PATH` and every runtime
+  surface are unchanged. 0.9.12 ships the template auto-escape hardening,
+  which the `verify:native:template` parity gate requires.
+
 - **AOT artifacts are complete, deterministic application bundles.** Plugin routes
   register after ordered plugin initialization and before bind, with duplicate
   detection and lifecycle binding; OpenAPI JSON is embedded for standalone

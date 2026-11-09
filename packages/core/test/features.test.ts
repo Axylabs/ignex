@@ -45,22 +45,9 @@ describe("templates", () => {
     const page = createTemplate("<h1>{{ title }}</h1>");
     const composed = withLayout((content, data) => layout({ ...data, content }))(page);
     expect(composed({ title: "Hi" })).toBe("<main><h1>Hi</h1></main>");
-    // The escape-on default needs a template-hardening-era addon; the
-    // registry addon CI quality lanes resolve can lag the CASTRUM_REF pin
-    // until its release lands (fallback pins are unconditional in
-    // packages/native/test/template-autoescape.test.ts; the compiled-path
-    // parity contract is verify:native:template against the pinned addon).
-    const compiledEscapesByDefault = (() => {
-      try {
-        return createTemplate("{{ v }}")({ v: "<x>" }) === "&lt;x&gt;";
-      } catch {
-        return false;
-      }
-    })();
-    if (compiledEscapesByDefault) {
-      const strict = createTemplate("<main>{{ content }}</main>");
-      expect(strict({ content: "<h1>Hi</h1>" })).toBe("<main>&lt;h1&gt;Hi&lt;&#x2f;h1&gt;</main>");
-    }
+    // And the default is now escape-on: an unmarked variable is escaped.
+    const strict = createTemplate("<main>{{ content }}</main>");
+    expect(strict({ content: "<h1>Hi</h1>" })).toBe("<main>&lt;h1&gt;Hi&lt;&#x2f;h1&gt;</main>");
   });
 
   it("registry render + missing template", () => {

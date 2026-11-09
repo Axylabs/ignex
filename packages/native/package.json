@@ -42,7 +42,7 @@
     ".": "./src/index.ts"
   },
   "optionalDependencies": {
-    "castrum": "^0.9.10"
+    "@ignex/castrum": "^0.9.12"
   },
   "devDependencies": {
     "@ignex/test-utils": "workspace:*",

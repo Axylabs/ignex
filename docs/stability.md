@@ -136,14 +136,15 @@ guarded directly).
   → SIGABRT host crash. JS `try/catch` cannot see it. The NAPI path is protected
   by napi-rs `catch_unwind`; the C-ABI path was not (guarded in castrum
   0.9.11).
-- **Status:** 🟡 mitigated upstream in **castrum 0.9.11** (not yet on npm at
-  the time of writing). Every one of its `#[no_mangle]` C-ABI exports runs
-  its body through the `c_abi!` → `panic_guard` wrapper, so a panic returns the
-  symbol's `0`/`false`/`null` sentinel instead of unwinding into Bun. A
-  source-level contract test fails the castrum build if a new export lacks the
-  guard. Ignex still keeps its local mitigations: bind-time parity self-test, JS
-  fallbacks, v3-SIGILL guard in `loader.ts`. Remaining: publish 0.9.11 and bump
-  `@ignex/native`'s `castrum` range (a `^0.9.10` range already resolves it).
+- **Status:** ✅ mitigated upstream in **castrum 0.9.11, published and
+  required by `@ignex/native`'s `^0.9.12` range** (0.9.12 — published as
+  `@ignex/castrum` — adds template auto-escape on top of the same guards).
+  Every one of castrum's `#[no_mangle]` C-ABI exports runs its body through
+  the `c_abi!` → `panic_guard` wrapper, so a panic returns the symbol's
+  `0`/`false`/`null` sentinel instead of unwinding into Bun. A source-level
+  contract test fails the castrum build if a new export lacks the guard.
+  Ignex still keeps its local mitigations: bind-time parity self-test, JS
+  fallbacks, v3-SIGILL guard in `loader.ts`.
 - **Required (cross-repo, coordinated with `Axylabs/flux-rs`):**
   1. ✅ Castrum 0.9.11: every `extern "C"` export is wrapped in
      `catch_unwind` returning the `0`/`null` error sentinel (previously only the
@@ -418,9 +419,11 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 7. **Publish readiness** — `@ignex/mcp` tarball was missing its `bin/` entry
    (`files: ['src']` excluded the declared `bin/ignex-mcp.js`); fixed
    2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
-   `castrum@0.9.10` is already published on npm and resolves via
-   `@ignex/native` `optionalDependencies` (lockfile-verified). Remaining: run
-   `bun scripts/release.ts` with a real `NPM_TOKEN` to release the monorepo.
+   `@ignex/castrum@0.9.12` is published on npm and required via `@ignex/native`
+   `optionalDependencies` `^0.9.12` (lockfile-verified; castrum publishes via
+   npm OIDC trusted publishing — binding on the package, `NPM_TOKEN`
+   environment secret dormant). Remaining: run `bun scripts/release.ts` with a
+   real `NPM_TOKEN` to release the monorepo.
 8. **DX dogfood gate** — a `dx-journey` harness wired into `verify:*`: scaffold a
    temp app, run the realtime event → frontend journey (create → `ignex event
    bus` → build → SDK → receive), and fail if **any** manual fix is needed

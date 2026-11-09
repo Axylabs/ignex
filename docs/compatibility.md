@@ -12,7 +12,7 @@ development).
 |---|---|---|---|---|
 | `@ignex/nova` | root devDeps; `packages/core` peer (optional) | `^0.1.7` / `^0.1.1` | `nova` (0.1.7) | typed realtime transport (FlatBuffer pub/sub, Rust FFI, NATS) |
 | `@ignex/ninox` | `packages/app` | `^0.1.3` | `ninox` (0.1.6) | schema-first MongoDB toolkit |
-| `castrum` | `packages/native` `optionalDependencies` | `^0.9.10` | `castrum` (0.9.10) | Rust addon consumed only through `@ignex/native` |
+| `@ignex/castrum` | `packages/native` `optionalDependencies` | `^0.9.12` | `castrum` (0.9.12) | Rust addon consumed only through `@ignex/native` (npm package moved into the ignex scope at 0.9.12; the loader also resolves the legacy unscoped name) |
 
 The ignex version lives in the root `package.json` (and `CHANGELOG.md`);
 `@ignex/nova` and `@ignex/ninox` are the only external packages linked into
