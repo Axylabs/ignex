@@ -6,6 +6,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-11-09
+
 ### Added
 
 - **PostgreSQL resource generation and persistent HTTP caching.** `ignex resource
