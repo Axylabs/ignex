@@ -105,8 +105,8 @@ jobs:
         with:
           scan-args: |-
             --recursive
-            --exclude
-            site/**
+            --x-exclude
+            g:site/**
             .
 
   # Quality gates across ALL supported platforms. Linux is the authoritative
