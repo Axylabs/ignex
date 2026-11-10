@@ -6,6 +6,22 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Documentation site (VitePress) deployed to GitHub Pages.** A learner-first
+  docs site at `site/` — landing page, guided tutorial path (introduction →
+  getting started → routing/validation/errors/plugins → features → SDK →
+  deployment → performance), an examples gallery with six copy-paste
+  walkthroughs, and three interactive client-side demos (route-filename
+  playground, the reference app's real generated OpenAPI explorer, and a
+  typed-client playground). Ember brand on the default VitePress theme with
+  dark mode, local search, and dead-link-checked builds (`bun run
+  docs:build`). Deployed to https://axylabs.github.io/ignex/ by
+  `.github/workflows/docs.yml` (build on PRs touching `site/**`, deploy on
+  `main`). The site is self-contained with its own lockfile (vitepress +
+  vue) and stays outside the governed `docs/` tree, which remains the
+  contributor-facing system of record (D-016).
+
 ## [0.2.6] — 2026-11-09
 
 ### Added

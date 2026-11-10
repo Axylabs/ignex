@@ -1,3 +1,9 @@
 {
-  "ignorePatterns": [".bun-install", ".npm-tmp-cache", ".gen-debug-ui-*"]
+  "ignorePatterns": [
+    ".bun-install",
+    ".npm-tmp-cache",
+    ".gen-debug-ui-*",
+    "site/.vitepress/cache",
+    "site/.vitepress/dist"
+  ]
 }

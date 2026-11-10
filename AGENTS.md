@@ -128,6 +128,9 @@ scripts/        maintainer scripts (verify-*, bench-*, check-*, smoke, sdk,
 bench/          compare/ (framework comparison harness) + run-bench helpers
 docs/           feature docs only — see the doc index below; docs/ai/ is
                 agent scaffolding (maintaining.md + the ADR-lite decisions/)
+site/           VitePress docs site (user-facing guides + examples; deployed
+                to GitHub Pages by .github/workflows/docs.yml — D-016;
+                `bun run docs:dev` / `docs:build` / `docs:preview`)
 ```
 
 ## Doc index

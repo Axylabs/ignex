@@ -1,0 +1,373 @@
+/* ignex brand — ember palette layered over the VitePress default theme. */
+
+:root {
+  /* brand ramp (light) */
+  --vp-c-ember: #e85a17;
+  --vp-c-flame: #ff3d5e;
+
+  --vp-c-brand-1: #d94e0f;
+  --vp-c-brand-2: #e85a17;
+  --vp-c-brand-3: #f2691f;
+  --vp-c-brand-soft: rgba(242, 105, 31, 0.14);
+
+  --vp-c-brand-dimm: rgba(232, 90, 23, 0.5);
+
+  /* hero gradient */
+  --ignex-gradient: linear-gradient(120deg, #ffb347 0%, #ff6b2c 45%, #ff3d5e 100%);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: var(--ignex-gradient);
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    rgba(255, 179, 71, 0.35) 40%,
+    rgba(255, 61, 94, 0.35) 50%
+  );
+  --vp-home-hero-image-filter: blur(56px);
+
+  /* buttons */
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #e85a17;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #f2691f;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: #d94e0f;
+
+  /* code blocks */
+  --vp-code-tab-divider: rgba(255, 107, 44, 0.25);
+  --vp-code-lang-color: #f2691f;
+
+  /* custom blocks */
+  --vp-custom-brand-border: transparent;
+  --vp-custom-brand-text: var(--vp-c-brand-1);
+  --vp-custom-brand-bg: var(--vp-c-brand-soft);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+}
+
+.dark {
+  --vp-c-brand-1: #ffa14d;
+  --vp-c-brand-2: #ff9240;
+  --vp-c-brand-3: #ff8a3d;
+  --vp-c-brand-soft: rgba(255, 138, 61, 0.16);
+  --vp-c-brand-dimm: rgba(255, 138, 61, 0.5);
+
+  --vp-button-brand-text: #221204;
+  --vp-button-brand-bg: #ff8a3d;
+  --vp-button-brand-hover-bg: #ffa14d;
+  --vp-button-brand-active-bg: #f07a2e;
+}
+
+/* --- hero --- */
+.VPHero.VPHero .name,
+.VPHero.VPHero .text {
+  letter-spacing: -0.02em;
+}
+
+.VPImage.image-src {
+  filter: drop-shadow(0 12px 40px rgba(255, 107, 44, 0.35));
+}
+
+/* --- demo component shared styles --- */
+.ignex-demo {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.ignex-demo-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-2);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ignex-demo-title::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ignex-gradient);
+  flex: none;
+}
+
+.ignex-terminal {
+  background: #16110c;
+  border-radius: 10px;
+  color: #f4ead9;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  padding: 14px 16px;
+  overflow-x: auto;
+  min-height: 220px;
+  white-space: pre-wrap;
+}
+
+.ignex-terminal .t-prompt {
+  color: #ff8a3d;
+  font-weight: 700;
+}
+
+.ignex-terminal .t-cmd {
+  color: #f4ead9;
+}
+
+.ignex-terminal .t-out {
+  color: #9c8f7d;
+}
+
+.ignex-terminal .t-ok {
+  color: #6fd08c;
+}
+
+.ignex-terminal .t-accent {
+  color: #ffb347;
+}
+
+/* route playground */
+.ignex-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 13.5px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.ignex-input:focus {
+  border-color: var(--vp-c-brand-1);
+}
+
+.ignex-route-card {
+  margin-top: 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  background: var(--vp-c-bg);
+  overflow: hidden;
+}
+
+.ignex-route-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  flex-wrap: wrap;
+}
+
+.ignex-method {
+  display: inline-block;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: #fff;
+  background: #22c55e;
+}
+
+.ignex-method.m-post {
+  background: #f59e0b;
+}
+
+.ignex-method.m-put {
+  background: #3b82f6;
+}
+
+.ignex-method.m-patch {
+  background: #a855f7;
+}
+
+.ignex-method.m-del {
+  background: #ef4444;
+}
+
+.ignex-method.m-all {
+  background: #64748b;
+}
+
+.ignex-route-path {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.ignex-route-body {
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--vp-c-text-2);
+  display: grid;
+  gap: 6px;
+}
+
+.ignex-route-body code {
+  color: var(--vp-c-brand-1);
+}
+
+/* api explorer */
+.ignex-explorer-endpoint {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: var(--vp-c-bg);
+  overflow: hidden;
+}
+
+.ignex-explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ignex-explorer-row:hover {
+  background: var(--vp-c-brand-soft);
+}
+
+.ignex-explorer-row summary-text {
+  flex: 1;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+}
+
+.ignex-explorer-chevron {
+  color: var(--vp-c-text-3);
+  transition: transform 0.15s;
+  flex: none;
+}
+
+.ignex-explorer-chevron.open {
+  transform: rotate(90deg);
+}
+
+.ignex-explorer-detail {
+  border-top: 1px solid var(--vp-c-divider);
+  padding: 12px 14px;
+  font-size: 13px;
+  display: grid;
+  gap: 10px;
+}
+
+.ignex-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ignex-tab {
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.ignex-tab.active {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.ignex-pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--vp-code-block-bg, #161b22);
+  color: var(--vp-code-block-color, #e6edf3);
+  font-family: var(--vp-font-family-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* client playground */
+.ignex-client-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 720px) {
+  .ignex-client-grid {
+    grid-template-columns: 240px 1fr;
+  }
+
+  .ignex-client-list {
+    max-height: 260px;
+    overflow-y: auto;
+  }
+}
+
+.ignex-client-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.ignex-client-item.active {
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+}
+
+.ignex-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  border: 1px solid var(--vp-c-brand-dimm);
+}
+
+/* feature strip on the landing page */
+.ignex-strip {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.ignex-strip-item {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg-soft);
+}
+
+.ignex-strip-item strong {
+  color: var(--vp-c-text-1);
+}

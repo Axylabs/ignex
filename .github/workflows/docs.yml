@@ -1,0 +1,89 @@
+name: Docs site (GitHub Pages)
+
+# Builds and deploys the VitePress site in `site/` to GitHub Pages
+# (https://axylabs.github.io/ignex/). The site is fully self-contained: it
+# installs its own lockfile under `site/` (vitepress + vue only) and never
+# touches the root `bun.lock`, so the workspace audit/quality gates in CI are
+# unaffected. A PR that touches `site/**` gets a build check without
+# deploying.
+#
+# First-time repo setup (already done once): Pages must be enabled with
+# `build_type: workflow` — `gh api repos/Axylabs/ignex/pages -X POST
+# -f build_type=workflow`. The `deploy` job's `pages: write` + `id-token:
+# write` permissions are the only elevated permissions in this workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/docs.yml"
+      - ".github/actions/ci-setup/**"
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  BUN_VERSION: 1.4.2
+
+jobs:
+  build:
+    name: Build site (VitePress)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Toolchain only — the root workspace install is irrelevant here (the
+      # site has its own lockfile; `install: "false"` keeps this job
+      # dependency-free and fast).
+      - name: Set up Bun
+        uses: ./.github/actions/ci-setup
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          install: "false"
+
+      - name: Install site deps (frozen)
+        working-directory: site
+        run: bun install --frozen-lockfile
+
+      # VitePress fails the build on dead internal links, so this doubles as
+      # the content gate for the docs.
+      - name: Build
+        working-directory: site
+        run: bun run build
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -6,7 +6,10 @@ that sounds like you.
 
 ## Start here
 
-**I want to build an app.** [Getting started](getting-started.md) goes from an
+**I want to build an app.** The rendered, learner-first version of this
+documentation — guides, examples, and interactive demos — lives at the
+**[ignex docs site](https://axylabs.github.io/ignex/)** (source: `site/`,
+deployed from `main`). [Getting started](getting-started.md) goes from an
 empty folder to a running API. Keep [Cookbook](cookbook.md) open in a second tab
 — that's where the recipes live (auth, sessions, jobs, SSE, caching, and so on).
 

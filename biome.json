@@ -30,7 +30,11 @@
       "!**/test/fixtures/client-types",
       "!bench/results",
       "!**/client-dist",
-      "!packages/core/src/debug/ui/styles.css"
+      "!packages/core/src/debug/ui/styles.css",
+      "!site/.vitepress/cache",
+      "!site/.vitepress/dist",
+      "!site/public",
+      "!site/**/components/*.vue"
     ]
   },
   "linter": {

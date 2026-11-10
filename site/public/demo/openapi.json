@@ -1,0 +1,808 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ignex",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/big": {
+      "get": {
+        "operationId": "get__api_big",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "big"
+        ]
+      }
+    },
+    "/api/gigs/{id}": {
+      "delete": {
+        "operationId": "delete__api_gigs__id_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "gigs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{24}$"
+            }
+          }
+        ]
+      },
+      "get": {
+        "operationId": "get__api_gigs__id_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "gigs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{24}$"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch__api_gigs__id_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "gigs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{24}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gigs": {
+      "get": {
+        "operationId": "get__api_gigs",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "gigs"
+        ]
+      },
+      "post": {
+        "operationId": "post__api_gigs",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "gigs"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "operationId": "get__api_me",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/orders-ack": {
+      "post": {
+        "operationId": "post__api_orders-ack",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "orders-ack"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "orderId",
+                  "quantity",
+                  "totalCents"
+                ],
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "totalCents": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders": {
+      "post": {
+        "operationId": "post__api_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "orders"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "orderId",
+                  "customer",
+                  "shippingAddress",
+                  "lineItems",
+                  "payment",
+                  "subtotalCents",
+                  "taxCents",
+                  "totalCents",
+                  "currency"
+                ],
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "customer": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "email",
+                      "name"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "shippingAddress": {
+                    "type": "object",
+                    "required": [
+                      "line1",
+                      "city",
+                      "region",
+                      "postalCode",
+                      "country"
+                    ],
+                    "properties": {
+                      "line1": {
+                        "type": "string"
+                      },
+                      "city": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": "string"
+                      },
+                      "postalCode": {
+                        "type": "string"
+                      },
+                      "country": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "lineItems": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "sku",
+                        "name",
+                        "quantity",
+                        "unitPriceCents"
+                      ],
+                      "properties": {
+                        "sku": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "unitPriceCents": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "payment": {
+                    "type": "object",
+                    "required": [
+                      "method",
+                      "last4"
+                    ],
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "last4": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "subtotalCents": {
+                    "type": "integer"
+                  },
+                  "taxCents": {
+                    "type": "integer"
+                  },
+                  "totalCents": {
+                    "type": "integer"
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{id}": {
+      "get": {
+        "operationId": "get__api_reports__id_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "reports"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "get__api_search",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "search"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "post__auth_login",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "post__auth_logout",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "get__auth_me",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "operationId": "post__auth_refresh",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "operationId": "post__auth_register",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "operationId": "get__catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/env": {
+      "get": {
+        "operationId": "get__env",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "env"
+        ]
+      }
+    },
+    "/files/{name}": {
+      "get": {
+        "operationId": "get__files__name_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "files"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "get__health",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/hello": {
+      "get": {
+        "operationId": "get__hello",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "hello"
+        ]
+      }
+    },
+    "/i18n": {
+      "get": {
+        "operationId": "get__i18n",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "i18n"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "operationId": "get__",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "default"
+        ]
+      }
+    },
+    "/jobs": {
+      "get": {
+        "operationId": "get__jobs",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/page": {
+      "get": {
+        "operationId": "get__page",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "page"
+        ]
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "operationId": "get__products__id_",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "products"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/products/add": {
+      "post": {
+        "operationId": "post__products_add",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "products"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "get__ready",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "ready"
+        ]
+      }
+    },
+    "/session": {
+      "get": {
+        "operationId": "get__session",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "session"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/upload": {
+      "post": {
+        "operationId": "post__upload",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "tags": [
+          "upload"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Endpoints under `/auth`"
+    },
+    {
+      "name": "big",
+      "description": "Endpoints under `/api/big`"
+    },
+    {
+      "name": "catalog",
+      "description": "Endpoints under `/catalog`"
+    },
+    {
+      "name": "default"
+    },
+    {
+      "name": "env",
+      "description": "Endpoints under `/env`"
+    },
+    {
+      "name": "files",
+      "description": "Endpoints under `/files`"
+    },
+    {
+      "name": "gigs",
+      "description": "Endpoints under `/api/gigs`"
+    },
+    {
+      "name": "health",
+      "description": "Endpoints under `/health`"
+    },
+    {
+      "name": "hello",
+      "description": "Endpoints under `/hello`"
+    },
+    {
+      "name": "i18n",
+      "description": "Endpoints under `/i18n`"
+    },
+    {
+      "name": "jobs",
+      "description": "Endpoints under `/jobs`"
+    },
+    {
+      "name": "me",
+      "description": "Endpoints under `/api/me`"
+    },
+    {
+      "name": "orders",
+      "description": "Endpoints under `/api/orders`"
+    },
+    {
+      "name": "orders-ack",
+      "description": "Endpoints under `/api/orders-ack`"
+    },
+    {
+      "name": "page",
+      "description": "Endpoints under `/page`"
+    },
+    {
+      "name": "products",
+      "description": "Endpoints under `/products`"
+    },
+    {
+      "name": "ready",
+      "description": "Endpoints under `/ready`"
+    },
+    {
+      "name": "reports",
+      "description": "Endpoints under `/api/reports`"
+    },
+    {
+      "name": "search",
+      "description": "Endpoints under `/api/search`"
+    },
+    {
+      "name": "session",
+      "description": "Endpoints under `/session`"
+    },
+    {
+      "name": "upload",
+      "description": "Endpoints under `/upload`"
+    }
+  ]
+}
