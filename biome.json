@@ -15,6 +15,7 @@
       "!**/.ignex",
       "!**/node_modules",
       "!**/.git",
+      "!.worktrees",
       "!.bun-install",
       "!.npm-tmp-cache",
       "!.qlty",

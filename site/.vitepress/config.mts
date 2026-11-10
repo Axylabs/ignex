@@ -33,7 +33,9 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: { src: `${BASE}logo.svg`, width: 28, height: 28 },
+    // VPImage applies withBase() to the src itself — the path must stay
+    // UN-prefixed or the deployed site requests /ignex/ignex/logo.svg (404).
+    logo: { src: "/logo.svg", width: 28, height: 28 },
     siteTitle: "ignex",
 
     nav: [

@@ -71,6 +71,11 @@
   filter: drop-shadow(0 12px 40px rgba(255, 107, 44, 0.35));
 }
 
+/* long mono tokens inside prose must wrap, never push the page wide */
+.vp-doc :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
 /* --- demo component shared styles --- */
 .ignex-demo {
   border: 1px solid var(--vp-c-divider);
@@ -78,6 +83,9 @@
   background: var(--vp-c-bg-soft);
   padding: 16px;
   margin: 16px 0;
+  /* safety net: nothing inside a demo card may spill past it */
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .ignex-demo-title {
@@ -243,6 +251,8 @@
 
 .ignex-explorer-row summary-text {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--vp-font-family-mono);
   font-size: 13px;
 }
@@ -263,6 +273,10 @@
   font-size: 13px;
   display: grid;
   gap: 10px;
+}
+
+.ignex-explorer-detail > * {
+  min-width: 0;
 }
 
 .ignex-tabs {
@@ -299,6 +313,7 @@
   line-height: 1.6;
   overflow-x: auto;
   white-space: pre;
+  max-width: 100%;
 }
 
 /* client playground */
@@ -308,9 +323,15 @@
   gap: 12px;
 }
 
+/* Grid items default to min-width:auto, so an unbreakable <pre> would force
+   the 1fr column past the container. Let children shrink and scroll instead. */
+.ignex-client-grid > * {
+  min-width: 0;
+}
+
 @media (min-width: 720px) {
   .ignex-client-grid {
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 
   .ignex-client-list {
