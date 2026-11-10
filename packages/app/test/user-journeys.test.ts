@@ -218,8 +218,14 @@ describe.runIf(CAN_BOOT)("user journeys (compiled server)", () => {
       expect(ok.body.report?.id).toBe("7");
       expect(ok.body.report?.owner).toBe(subject);
 
-      // Flipping the final signature byte must not verify.
-      const tampered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
+      // Flipping the first signature character must not verify. The FIRST
+      // char carries six real data bits for any signature length; the LAST
+      // char of a 32-byte (HS256) signature has four zero padding bits, so
+      // flipping A↔B there can decode to the identical signature (a no-op
+      // tamper that legitimately verifies — this previously failed ~1 in 4
+      // runs whenever the random signature ended in "A").
+      const [head = "", payload = "", signature = ""] = token.split(".");
+      const tampered = `${head}.${payload}.${signature.startsWith("A") ? "B" : "A"}${signature.slice(1)}`;
       expect(
         (
           await getJson(base, "/api/reports/7", {
