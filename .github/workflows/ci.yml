@@ -80,11 +80,15 @@ jobs:
   # Software supply-chain scanning (OSV): scans bun.lock + workspace manifests
   # against the OSV vulnerability database and reports findings as a SARIF
   # upload for the GitHub Security tab. Mirrors castrum's supply-chain job.
-  # `site/` (the VitePress docs toolchain) is excluded: its lockfile is a
-  # DEV-only static-site build (never installed by consumers — the shipped
-  # surface is the workspace lockfile + `bun audit` gate), and vitepress
-  # pins a vite/esbuild line whose dev-server advisories would otherwise
-  # fail the repo gate for code we do not ship.
+  # The scan targets the workspace lockfile explicitly — the dependency
+  # surface consumers actually receive (same policy as the `bun audit`
+  # gate). `site/` (the VitePress docs toolchain) is thereby excluded by
+  # construction: its lockfile is a DEV-only static-site build, and
+  # vitepress pins a vite/esbuild line whose dev-server advisories would
+  # otherwise fail the repo gate for code we do not ship. (The scanner's
+  # path-exclusion flags did not gate its filesystem walk — verified
+  # against osv-scanner v2.7.0 locally — so exclusion by scan-root is the
+  # reliable mechanism.)
   supply-chain:
     name: Supply-chain scan (OSV)
     runs-on: ubuntu-24.04
@@ -105,9 +109,7 @@ jobs:
         with:
           scan-args: |-
             --recursive
-            --x-exclude
-            g:site/**
-            .
+            ./bun.lock
 
   # Quality gates across ALL supported platforms. Linux is the authoritative
   # lane (native addon present); macOS/Windows exercise the pure-TS fallback
