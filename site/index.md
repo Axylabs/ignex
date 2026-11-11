@@ -86,11 +86,18 @@ dashboard at `/__debugbar`). The [ten-minute tour](/guide/tour) walks the
 whole loop with real commands.
 :::
 
-## Play with it right here
+## The core idea, in one input
 
-<ApiExplorer />
+Every route in ignex is a filename. Type one and watch what it becomes —
+this is the same parser the compiler runs:
 
-Like what the compiler generates? [See the full walkthrough →](/examples/)
+<RoutePlayground />
+
+That's the entire routing story: no registration, no config — the file *is*
+the contract, and `ignex build` registers every route in Bun's native
+routes table. The [routing guide](/guide/routing) covers the rest
+(handlers, schemas, catch-alls), or browse the
+[API explorer of a real generated app →](/examples/#api-explorer)
 
 ## Coming from somewhere else?
 
