@@ -17,7 +17,7 @@ export const plugins = [
 ];
 ```
 
-Open **`http://localhost:3000/__debugbar/`** — the URL is logged at boot.
+Open **`http://localhost:3000/__debugbar/`** — the URL is logged at boot. Where it fits in the daily flow: the [tour](./tour).
 
 ## Views
 

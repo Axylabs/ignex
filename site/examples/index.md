@@ -1,7 +1,9 @@
 # Examples
 
 Complete mini-apps, each one a handful of files you can copy into a real
-project. Every snippet is verified against the current API — most of them
+project.
+(New here? The [toolchain tour](../guide/tour) shows how the CLI and the
+debugbar produce these flows in the first place.) Every snippet is verified against the current API — most of them
 mirror what the [reference app](https://github.com/Axylabs/ignex/tree/main/packages/app/src/routes)
 and the scaffold generate.
 

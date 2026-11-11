@@ -79,6 +79,13 @@ That's the whole app. Run `bun run build` and ignex compiles it into `.ignex/`:
 **HTTPS is on by default in dev.** Local certs are generated for you, and
 `GET /openapi` serves an interactive API explorer — of your actual routes.
 
+::: tip Take the tour
+The two tools you'll use every day are the **`ignex` CLI** (scaffold,
+generate, build, diagnose, ship) and the **debugbar** (a full observability
+dashboard at `/__debugbar`). The [ten-minute tour](/guide/tour) walks the
+whole loop with real commands.
+:::
+
 ## Play with it right here
 
 <ApiExplorer />

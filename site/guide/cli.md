@@ -1,5 +1,7 @@
 # CLI reference
 
+See these commands working together end to end in the [tour](./tour).
+
 Everything in ignex is driven by one binary — `@ignex/cli`, fetched on demand
 (`bunx @ignex/cli` / `ignex` when installed). Commands are modern interactive
 wizards (arrow keys, checkbox multi-select) with **full non-interactive

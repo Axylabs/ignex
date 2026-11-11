@@ -62,6 +62,7 @@ export default defineConfig({
           text: "Introduction",
           items: [
             { text: "What is ignex?", link: "/guide/introduction" },
+            { text: "The tour: CLI + debugbar", link: "/guide/tour" },
             { text: "Getting started", link: "/guide/getting-started" },
           ],
         },
