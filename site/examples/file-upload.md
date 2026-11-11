@@ -80,7 +80,7 @@ curl -k -H 'Range: bytes=0-99' -o part.bin https://localhost:3000/files/cat.png
 (configurable in `src/app.config.ts`). Oversized uploads are rejected
 before your handler runs. Put the edge proxy (Caddy/nginx) in front for
 `--max-body` enforcement at the boundary too — see
-[Deployment](../guide/deployment#3-tls-and-http2-at-the-proxy).
+[Deployment](../guide/deployment#_3-tls-and-http-2-at-the-proxy).
 
 ## What to notice
 

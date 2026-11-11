@@ -45,7 +45,7 @@ export default defineConfig({
       {
         text: "Resources",
         items: [
-          { text: "Why ignex?", link: "/guide/introduction#why-ignex" },
+          { text: "Why ignex?", link: "/guide/introduction#the-three-ideas" },
           {
             text: "Comparing to Express, Elysia & Nest",
             link: "/guide/introduction#coming-from-somewhere-else",
@@ -80,12 +80,19 @@ export default defineConfig({
             { text: "Auth & sessions", link: "/guide/auth-and-sessions" },
             { text: "Realtime: SSE, WebSockets, nova", link: "/guide/realtime" },
             { text: "Data: stores, cache, jobs", link: "/guide/data" },
+            { text: "Debugbar", link: "/guide/debugbar" },
+          ],
+        },
+        {
+          text: "Tooling",
+          items: [
+            { text: "CLI reference", link: "/guide/cli" },
+            { text: "Typed SDK generation", link: "/guide/sdk" },
           ],
         },
         {
           text: "Ship it",
           items: [
-            { text: "Typed SDK generation", link: "/guide/sdk" },
             { text: "Deployment", link: "/guide/deployment" },
             { text: "Performance", link: "/guide/performance" },
           ],

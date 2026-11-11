@@ -7,17 +7,17 @@ and the scaffold generate.
 
 <div class="ignex-strip" style="margin: 20px 0;">
 
-<div class="ignex-strip-item"><strong><a href="/examples/hello-world">Hello, world</a></strong><br/>The smallest possible API — one file, one route, then a params + schema upgrade. <em>Start here.</em></div>
+<div class="ignex-strip-item">**[Hello, world](/examples/hello-world)**<br/>The smallest possible API — one file, one route, then a params + schema upgrade. <em>Start here.</em></div>
 
-<div class="ignex-strip-item"><strong><a href="/examples/crud-api">CRUD API</a></strong><br/>List / detail / create / update / delete with validation, pagination, and typed errors.</div>
+<div class="ignex-strip-item">**[CRUD API](/examples/crud-api)**<br/>List / detail / create / update / delete with validation, pagination, and typed errors.</div>
 
-<div class="ignex-strip-item"><strong><a href="/examples/auth-api">Auth API</a></strong><br/>Register, login, me — tokens, a guard hook, and role checks with <code>ignex add auth</code>.</div>
+<div class="ignex-strip-item">**[Auth API](/examples/auth-api)**<br/>Register, login, me — tokens, a guard hook, and role checks with <code>ignex add auth</code>.</div>
 
-<div class="ignex-strip-item"><strong><a href="/examples/realtime-chat">Realtime chat</a></strong><br/>SSE stream plus a nova typed chat bus with per-user delivery.</div>
+<div class="ignex-strip-item">**[Realtime chat](/examples/realtime-chat)**<br/>SSE stream plus a nova typed chat bus with per-user delivery.</div>
 
-<div class="ignex-strip-item"><strong><a href="/examples/file-upload">File upload</a></strong><br/>Multipart upload with safe-name sanitization and a static download route.</div>
+<div class="ignex-strip-item">**[File upload](/examples/file-upload)**<br/>Multipart upload with safe-name sanitization and a static download route.</div>
 
-<div class="ignex-strip-item"><strong><a href="/examples/typed-client">Typed client</a></strong><br/>Generate an SDK from your routes and consume it with full type safety.</div>
+<div class="ignex-strip-item">**[Typed client](/examples/typed-client)**<br/>Generate an SDK from your routes and consume it with full type safety.</div>
 
 </div>
 

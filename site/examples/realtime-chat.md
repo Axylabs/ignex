@@ -117,7 +117,7 @@ ignex event bus chat
 | **nova** | both, typed | chat, collaboration, per-user delivery, clusters |
 
 Nova also scales across instances (NATS cluster sync) — see
-[Deployment](../guide/deployment#4-scaling-out).
+[Deployment](../guide/deployment#_4-scaling-out).
 
 Next: [File upload](/examples/file-upload) — multipart bodies and static
 downloads.

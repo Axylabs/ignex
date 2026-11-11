@@ -122,19 +122,22 @@ imports `log`, the bundler drops it from the compiled server.
 ## The debugbar
 
 A dev-only dashboard served under `/__debugbar/` — register `debugbar()`
-in `plugins` (scaffolded apps include it). What it gives you:
+in `plugins` (scaffolded apps include it). The highlights:
 
 - **Waterfall** — every request's spans (middleware, handler, queries) with
   timings.
 - **Errors** — the full fault classification from [Errors](./errors):
   origin, kind, code, what-to-fix hints, cause chain, your frame vs the
-  dependency's — filterable and searchable.
+  dependency's — filterable and searchable, with one-click **replay**.
 - **Logs & queries** — everything logged during the request, captured
   without touching your code.
 - **History** — SQLite-persisted, so a failure from yesterday is still
   diagnosable today.
-- **AI endpoints** — `GET /api/ai/summary` and friends speak MCP, so an
-  agent in your editor can read the trace and propose a fix.
+- **AI endpoints** — the dashboard speaks MCP, so an agent in your editor
+  can read the trace and propose a fix.
+
+The full tour — all views, options, the Grafana endpoint, KT and the MCP
+tool list — has its own page: [Debugbar](./debugbar).
 
 **Zero production impact**: `ignex build` eliminates the debugbar, its
 observatory stack, and per-request tracing from the artifact — even when

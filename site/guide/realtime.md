@@ -148,6 +148,42 @@ ignex event bus chat
 
 Install: `bun add @ignex/nova` (+ `@sinclair/typebox` for the contract).
 
+## The wire: FlatBuffers, not JSON
+
+nova events travel as **FlatBuffers** — an zero-copy binary format, not
+JSON strings. Two practical consequences:
+
+- **Clients decode in pure JS** — no FFI, no WebAssembly in the browser;
+  the generated client decodes frames directly, so payload access stays
+  allocation-light even at high event rates.
+- **The server serializes through a Rust path** (`@ignex/nova`) for the
+  hot emit path — typing stays enforced at both ends because the decoder
+  reads the schema, not a convention.
+
+## Codegen: contracts become code
+
+The contract in `src/realtime.ts` is compiled, not interpreted:
+
+1. `ignex build` (or `ignex sdk --platform realtime`) generates **typed
+   bindings** from the contract into the local SDK
+   (`.ignex/sdk/realtime/`) — the `bindings` the plugin consumes, the
+   server facade (`on` / `emit*` re-exported by `src/lib/events.ts`), and
+   the browser client with direction-aware `on`/`send` signatures.
+2. FlatBuffer schema codegen uses `flatc` when it is on your `PATH`
+   (offered automatically during scaffolding); without it, the pure-JS
+   path still works — you just skip the native serializer.
+3. `ignex sdk --platform realtime` ships the same typed client to
+   frontend teams as an npm package — see the
+   [SDK guide](./sdk#platforms).
+
+Because bindings regenerate from the contract, adding an event is a
+contract edit + rebuild — the wizard (`ignex event bus <name>`) merges new
+events into `src/realtime.ts` additively so existing consumers never break.
+Every event flowing through the hub is visible in the
+[debugbar's Events panel](./debugbar#events-nats-nova-realtime-in-one-buffer)
+(direction, target, size, payload preview) — and fireable from it for
+testing.
+
 ::: tip Which tier for my feature?
 Notifications or a live feed → **SSE** (simplest, proxy-friendly). Chat or
 collaboration → **nova** (typing + rooms + presence are worth it). A

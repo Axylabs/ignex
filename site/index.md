@@ -128,7 +128,7 @@ benchmarks, run with the same discipline every time:
   supported mode and a CI gate, so the story is the same on every machine.
 
 <div style="text-align: center; margin-top: 32px;">
-  <a href="/guide/getting-started" class="ignex-badge" style="font-size: 14px; padding: 8px 20px;">Start building →</a>
+  **[Start building →](/guide/getting-started)**
 </div>
 
 </div>

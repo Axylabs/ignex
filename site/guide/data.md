@@ -125,7 +125,7 @@ Run the worker in production with `ignex queue:work`; scheduled jobs with
 `ignex schedule:run`. Delivery is at-least-once, so handlers must be
 idempotent. For **mailer + notifications** (`createMailer`,
 `createNotifier` — realtime push with email fallback), see the
-[Cookbook](./cookbook#mail--notifications).
+[Cookbook](./cookbook#mail-notifications).
 
 ## SQL via Drizzle (`ignex resource`)
 

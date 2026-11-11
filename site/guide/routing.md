@@ -4,7 +4,9 @@ Routes are files under `src/routes/`. The **filename** is the contract: it
 carries the URL path, the HTTP method, and the dynamic parameters. There is
 no router configuration to write — and at runtime there is no JS route
 matching either, because the compiler registers every route directly in
-[Bun's native routes table](https://bun.com/docs/api/route).
+[Bun's native routes table](https://bun.com/docs/api/http).
+
+## The route playground
 
 <RoutePlayground />
 

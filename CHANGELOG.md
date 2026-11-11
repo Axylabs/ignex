@@ -22,6 +22,28 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   vue) and stays outside the governed `docs/` tree, which remains the
   contributor-facing system of record (D-016).
 
+- **Docs site coverage: CLI reference, debugbar guide, FlatBuffers wire.** New
+  `guide/cli` (every command, flags, and the full feature vocabulary), a full
+  `guide/debugbar` page (views, waterfall + replay, Grafana endpoint, leak
+  diagnostics, KT, the MCP tool table), and a realtime section on the nova
+  FlatBuffer wire + codegen flow. The hero terminal animates on a
+  time-derived ticker with a CSS caret (rAF deadlocks in hidden tabs).
+
+### Fixed
+
+- **Docs site: navbar logo, demo-card overflow, and broken cross-page
+  links.** The deployed navbar logo 404'd — VPImage applies the base prefix
+  itself, so `themeConfig.logo.src` must stay un-prefixed
+  (`/ignex/ignex/logo.svg` was requested). ClientPlayground's code card
+  spilled past its grid at ≥720px (grid items default to `min-width: auto`).
+  Seven raw-HTML anchors (example-gallery cards, landing CTA) lacked the
+  `/ignex/` base and only worked locally; `og:image` pointed at a missing
+  asset (a real og.png ships now). Link validation is now a gate:
+  `site/scripts/check-links.mjs` (run as `check:links` in the docs
+  workflow) walks every built href/src — base correctness, in-page anchors,
+  assets, external reachability — and caught 4 anchor mismatches and a dead
+  Bun docs URL before this deploy.
+
 ## [0.2.6] — 2026-11-09
 
 ### Added

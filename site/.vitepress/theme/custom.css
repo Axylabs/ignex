@@ -71,11 +71,6 @@
   filter: drop-shadow(0 12px 40px rgba(255, 107, 44, 0.35));
 }
 
-/* long mono tokens inside prose must wrap, never push the page wide */
-.vp-doc :not(pre) > code {
-  overflow-wrap: anywhere;
-}
-
 /* --- demo component shared styles --- */
 .ignex-demo {
   border: 1px solid var(--vp-c-divider);
@@ -139,6 +134,60 @@
 
 .ignex-terminal .t-accent {
   color: #ffb347;
+}
+
+/* steady CSS-blinked caret — no JS toggling */
+.ignex-terminal .t-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.15em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: #ffb347;
+  animation: ignex-caret-blink 1.1s steps(2, start) infinite;
+}
+
+.ignex-terminal .t-caret.t-idle {
+  animation-duration: 1.6s;
+}
+
+@keyframes ignex-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* output lines fade in instead of popping */
+.ignex-terminal .t-line {
+  animation: ignex-line-in 0.18s ease-out;
+}
+
+@keyframes ignex-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ignex-terminal .t-caret {
+    animation: none;
+  }
+
+  .ignex-terminal .t-line {
+    animation: none;
+  }
 }
 
 /* route playground */
@@ -391,4 +440,10 @@
 
 .ignex-strip-item strong {
   color: var(--vp-c-text-1);
+}
+
+/* long mono tokens inside prose must wrap, never push the page wide
+   (kept last so selector specificity ascends past the demo rules) */
+.vp-doc :not(pre) > code {
+  overflow-wrap: anywhere;
 }

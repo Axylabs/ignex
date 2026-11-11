@@ -157,6 +157,8 @@ instead of a driver stack trace:
 
 - [Routing](./routing) — every filename convention, plus the interactive
   playground.
+- [CLI reference](./cli) — every command the scaffold set up for you.
+- [Debugbar](./debugbar) — the dashboard you just opened at `/__debugbar`.
 - [Examples](/examples/) — complete mini-apps you can copy.
 - [Cookbook](./cookbook) — short recipes (sessions, jobs, SSE, i18n…).
 - Stuck? `bunx @ignex/cli@latest doctor --root .` is the first command to
