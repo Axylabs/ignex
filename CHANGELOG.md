@@ -113,6 +113,15 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   8.3.8, ip-address 10.7.6, `@hono/node-server` 2.1.7. knip reports no unused
   dependencies.
 
+- **Sibling floors move to the latest releases.** `@ignex/castrum` `^0.11.0`
+  (byte-input FFI siblings for MIME + server negotiation, exact JWT output
+  sizing; CI's `CASTRUM_REF` build pin moves to the v0.11.0 tag commit),
+  `@ignex/nova` `^0.2.1` (root dev + the optional peers in core/compiler), and
+  `@ignex/ninox` `^0.2.0` (the reference app; wire-level Mongo command
+  monitoring, safety-first runtime contracts, stronger schema/query behavior).
+  ninox 0.2.0 is the first release through its npm OIDC trusted-publisher
+  binding (`publish.yml` in Axylabs/ninox).
+
 ### Fixed
 
 - **Request-format integrity and body hardening.** Query serialization now

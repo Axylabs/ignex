@@ -9,7 +9,7 @@
         "@babel/preset-typescript": "^8.0.7",
         "@biomejs/biome": "^2.6.6",
         "@elysia/cors": "^1.4.3",
-        "@ignex/nova": "^0.1.7",
+        "@ignex/nova": "^0.2.1",
         "@tailwindcss/cli": "^4.3.5",
         "@types/bun": "^1.4.4",
         "@vitest/coverage-v8": "^5.1.0",
@@ -36,7 +36,7 @@
       "version": "0.2.6",
       "dependencies": {
         "@ignex/core": "workspace:*",
-        "@ignex/ninox": "^0.1.7",
+        "@ignex/ninox": "^0.2.0",
         "mongodb": "^7.8.0",
         "typebox": "^1.4.6",
       },
@@ -96,7 +96,7 @@
         "fast-json-stringify": "^7.3.5",
       },
       "peerDependencies": {
-        "@ignex/nova": "^0.1.1",
+        "@ignex/nova": "^0.2.1",
       },
       "optionalPeers": [
         "@ignex/nova",
@@ -121,7 +121,7 @@
         "typescript": "^7.0.2",
       },
       "peerDependencies": {
-        "@ignex/nova": "^0.1.1",
+        "@ignex/nova": "^0.2.1",
       },
       "optionalPeers": [
         "@ignex/nova",
@@ -167,7 +167,7 @@
         "vitest": "^5.1.0",
       },
       "optionalDependencies": {
-        "@ignex/castrum": "^0.10.0",
+        "@ignex/castrum": "^0.11.0",
       },
     },
     "packages/shared": {
@@ -303,7 +303,7 @@
 
     "@ignex/app": ["@ignex/app@workspace:packages/app"],
 
-    "@ignex/castrum": ["@ignex/castrum@0.10.0", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"], "hasInstallScript": true }, "sha512-nV6Kk//tBQScZD+AFxr8xkoLofxK0NBUnAc8UOBPpisrGgbGiz9DYEfarQf32VhdZNRv0OtSe4tkr5tIG9j54A=="],
+    "@ignex/castrum": ["@ignex/castrum@0.11.0", "", { "peerDependencies": { "@types/node": "^26.1.2" }, "optionalPeers": ["@types/node"], "hasInstallScript": true }, "sha512-BgSitMd5kx64FS4zYwNWKQyQL+KPoaHLxRWhHIpWGCPudx4OKZQUD61tIJKS5z8KqwyZ56sSKzvY54z88McS1A=="],
 
     "@ignex/cli": ["@ignex/cli@workspace:packages/cli"],
 
@@ -315,9 +315,9 @@
 
     "@ignex/native": ["@ignex/native@workspace:packages/native"],
 
-    "@ignex/ninox": ["@ignex/ninox@0.1.7", "", { "dependencies": { "mongodb": "^7.5.0" }, "peerDependencies": { "typescript": ">=5.5.0" }, "optionalPeers": ["typescript"] }, "sha512-qIguHDAHal6erQgdfHxTHzlkgZ0DHyuxYo7XPWtIY4uhq2ryAviwNOqGOi1DxbMeR506crXaZUoFqfH4PUZp3g=="],
+    "@ignex/ninox": ["@ignex/ninox@0.2.0", "", { "dependencies": { "mongodb": "^7.5.0" }, "peerDependencies": { "typescript": ">=5.5.0" }, "optionalPeers": ["typescript"] }, "sha512-IB4KeD5NydWdTsIRY5fmni2JFPmszzH2uR4/R8UDFX3Ce2ooKLYtEnR19DpD1WRtc5Y+0GgPg135FYgTnNVTmw=="],
 
-    "@ignex/nova": ["@ignex/nova@0.1.7", "", { "dependencies": { "@sinclair/typebox": "^0.34.0", "flatbuffers": "^25.9.23", "nats": "^2.29.3" }, "peerDependencies": { "ioredis": "*", "typescript": "^7" }, "optionalPeers": ["ioredis"] }, "sha512-KUCbPrqJzMEqzUKSrXW3FwOfLAalRl/WzYrz8RwX98vgCfas1DkgoYcFUU+hq3tMyS+JGaPbs4RKskiK8HzPUA=="],
+    "@ignex/nova": ["@ignex/nova@0.2.1", "", { "dependencies": { "@sinclair/typebox": "^0.34.0", "flatbuffers": "^25.9.23", "nats": "^2.29.3" }, "peerDependencies": { "ioredis": "*", "typescript": "^7" }, "optionalPeers": ["ioredis"], "hasInstallScript": true }, "sha512-Ae9KQU6yT7fFf8yg8PdfCW9UfVJBAfIZC5aOkPj5C3FpoXdPTRDHk8hdyQJ5HTFMVRtf7GaaxzQ9ac9ekFOt1g=="],
 
     "@ignex/shared": ["@ignex/shared@workspace:packages/shared"],
 

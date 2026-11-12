@@ -20,26 +20,30 @@ env:
   # Pin the castrum addon revision CI builds against — previously the DEFAULT
   # BRANCH floated, so CI validated a moving target that could be ahead of the
   # production install (a parity pass proved nothing about what users actually
-  # get). Pinned to the v0.9.12 TAG commit: HTML auto-escape by default in
+  # get). Pinned to the v0.11.0 TAG commit: HTML auto-escape by default in
   # TemplateRenderer (which the `verify:native:template` parity gate REQUIRES —
   # against an older addon the native lane renders raw while the pure-TS
   # fallback escapes, so the gate fails by design), the panic-guarded C-ABI
-  # surface, and everything 0.9.10 carried (shared FFI ingress binding
-  # `getIngressBinding` that `@ignex/native` delegates to, sharded
-  # `MetricsRegistry`, `createPipeline`, route-wire v3, the optimized
-  # single-pass native route parser, the JS-compatible form decoder, the
-  # NUL-safe byte-input validators, and the off-thread task runtime). 0.9.12
-  # also moved the npm package into the ignex scope: the registry serves
-  # `@ignex/castrum@0.9.12` and `packages/native/package.json` requires
-  # `^0.9.12`; the loader resolves the scoped name first and keeps the legacy
-  # unscoped `castrum` as a fallback. Publishing rides on npm OIDC trusted
-  # publishing (binding: Axylabs/castrum + release.yml; the NPM_TOKEN
-  # environment secret is a dormant fallback — see castrum's release.yml). To
-  # move: bump BOTH this and packages/native/package.json's optionalDependency
-  # deliberately, run `bun run verify:native:ffi && bun run verify:native:route`
-  # locally first, and keep vendor/castrum.d.ts in sync
+  # surface, the configured native runtime bridge (`@ignex/castrum/native`,
+  # `createNativeBridge`) and direct per-route execution
+  # (`castrum_route_run_parts`, 0.10.0), byte-input FFI siblings for MIME +
+  # server negotiation with exact JWT output sizing (0.11.0), and everything
+  # 0.9.x carried (shared FFI ingress binding `getIngressBinding` that
+  # `@ignex/native` delegates to, sharded `MetricsRegistry`, `createPipeline`,
+  # route-wire v3, the optimized single-pass native route parser, the
+  # JS-compatible form decoder, the NUL-safe byte-input validators, and the
+  # off-thread task runtime). 0.9.12 moved the npm package into the ignex
+  # scope: the registry serves `@ignex/castrum` and
+  # `packages/native/package.json` requires `^0.11.0`; the loader resolves the
+  # scoped name first and keeps the legacy unscoped `castrum` as a fallback.
+  # Publishing rides on npm OIDC trusted publishing (binding: Axylabs/castrum
+  # + release.yml; the NPM_TOKEN environment secret is a dormant fallback —
+  # see castrum's release.yml). To move: bump BOTH this and
+  # packages/native/package.json's optionalDependency deliberately, run
+  # `bun run verify:native:ffi && bun run verify:native:route` locally first,
+  # and keep src/vendor/castrum.d.ts in sync
   # (`bun run check:native:surface`).
-  CASTRUM_REF: d10b319f05d5213b0a57b528bcad52c423bc17e3
+  CASTRUM_REF: dc0e055af2e91c41cd5c28d43634365c3e9ca756
 
 # Linux jobs run on a PINNED image label (`ubuntu-24.04`), never
 # `ubuntu-latest`: GitHub starts migrating the `ubuntu-latest` alias to Ubuntu 26

@@ -109,7 +109,7 @@
     "@babel/preset-typescript": "^8.0.7",
     "@biomejs/biome": "^2.6.6",
     "@elysia/cors": "^1.4.3",
-    "@ignex/nova": "^0.1.7",
+    "@ignex/nova": "^0.2.1",
     "@tailwindcss/cli": "^4.3.5",
     "@types/bun": "^1.4.4",
     "@vitest/coverage-v8": "^5.1.0",

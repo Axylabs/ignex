@@ -136,9 +136,9 @@ guarded directly).
   → SIGABRT host crash. JS `try/catch` cannot see it. The NAPI path is protected
   by napi-rs `catch_unwind`; the C-ABI path was not (guarded in castrum
   0.9.11).
-- **Status:** ✅ mitigated upstream in **castrum 0.9.11, published and
-  required by `@ignex/native`'s `^0.9.12` range** (0.9.12 — published as
-  `@ignex/castrum` — adds template auto-escape on top of the same guards).
+- **Status:** ✅ mitigated upstream in **castrum 0.9.11, shipped in every
+  release the current range admits** (floor `^0.11.0`; 0.9.12 — published as
+  `@ignex/castrum` — added template auto-escape on top of the same guards).
   Every one of castrum's `#[no_mangle]` C-ABI exports runs its body through
   the `c_abi!` → `panic_guard` wrapper, so a panic returns the symbol's
   `0`/`false`/`null` sentinel instead of unwinding into Bun. A source-level
@@ -420,8 +420,8 @@ Open requirements owned by the Rust addon repo (tracked here for continuity):
 7. **Publish readiness** — `@ignex/mcp` tarball was missing its `bin/` entry
    (`files: ['src']` excluded the declared `bin/ignex-mcp.js`); fixed
    2026-08-22 (`files: ['bin', 'src']`, verified via `npm pack --dry-run`).
-   `@ignex/castrum@0.9.12` is published on npm and required via `@ignex/native`
-   `optionalDependencies` `^0.9.12` (lockfile-verified; castrum publishes via
+   `@ignex/castrum@0.11.0` is published on npm and required via `@ignex/native`
+   `optionalDependencies` `^0.11.0` (lockfile-verified; castrum publishes via
    npm OIDC trusted publishing — binding on the package, `NPM_TOKEN`
    environment secret dormant). Remaining: run `bun scripts/release.ts` with a
    real `NPM_TOKEN` to release the monorepo.

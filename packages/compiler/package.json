@@ -52,7 +52,7 @@
     "fast-json-stringify": "^7.3.5"
   },
   "peerDependencies": {
-    "@ignex/nova": "^0.1.1"
+    "@ignex/nova": "^0.2.1"
   },
   "peerDependenciesMeta": {
     "@ignex/nova": {
