@@ -148,6 +148,54 @@ ignex event bus chat
 
 Install: `bun add @ignex/nova` (+ `@sinclair/typebox` for the contract).
 
+For production, the plugin also forwards Nova's safeguards and recovery knobs:
+
+```ts
+novaPlugin({
+  port: 3001,
+  bindings,
+  allowedOrigins: ["https://app.example.com"],
+  maxConnections: 10_000, // includes upgrades waiting for async auth
+  maxMessageSize: 64 * 1024,
+  maxRpcInFlight: 64, // per connection
+  rateLimit: { messagesPerSecond: 200, burst: 100, policy: "drop" },
+  authorizeTopic: (topic, ws) => topic.startsWith("public:"),
+  authorizeGroup: (group, ws) => group !== "admin",
+  resume: { historySize: 256, ttlMs: 60_000 },
+  authenticate: jwtAuth({ secret: env.JWT_SECRET }),
+});
+```
+
+Clients may call `subscribe()` and `joinGroup()` immediately before or after
+`connect()`; desired membership is applied on open and restored on reconnect.
+Set `events: false` only when you need the transport without the events hub.
+
+## Beyond WebSockets: backend calls and SSE
+
+The same Nova contract also works between backend services and over SSE; it is
+not tied to the WS plugin. Binary handlers return an ordinary Response, so they
+fit directly into an Ignex route:
+
+```ts
+import { createServiceClient, createServiceHandler } from "@ignex/nova/messaging";
+
+export const handleOrder = createServiceHandler({
+  bindings,
+  onMessage(message) {
+    if (message.name !== "order.update") return;
+    return { name: "order.update", payload: message.payload };
+  },
+});
+
+const orders = createServiceClient("https://internal.example/orders", { bindings });
+const updated = await orders.call("order.update", { orderId: "o-42" });
+```
+
+Use `createSseResponse` and `openNovaSse` from the same package for one-way
+streams. SSE carries each complete Nova frame as base64 in a standard SSE
+`data:` record, preserving schema validation across proxies and browsers. Use
+`@ignex/nova/messaging/server` when the backend should encode through Rust.
+
 ## The wire: FlatBuffers, not JSON
 
 nova events travel as **FlatBuffers** — an zero-copy binary format, not

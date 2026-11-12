@@ -8,6 +8,26 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Transport-neutral Nova messaging.** The generated FlatBuffer contract now
+  supports bounded binary service-to-service request/response and typed SSE in
+  addition to WebSockets and NATS. Portable `@ignex/nova/messaging` APIs plug
+  directly into Ignex Request/Response routes; `/messaging/server` adds the
+  optional Rust-native codec. The realtime guide documents all four carriers.
+
+- **Full Nova realtime bridge configuration.** `novaPlugin` now forwards origin
+  and token guards, rate limits, topic/group authorization, durable replay and
+  resume, int64 checks, RPC concurrency bounds, and custom HTTP handlers; the
+  events layer can be disabled explicitly. The real-package smoke test also
+  covers immediate topic/group membership and hardened option forwarding.
+
+- **Application overview and actionable debug insights.** The debugbar now opens
+  on a standard application control panel with retained-window health, active
+  requests, route tail latency, recent failures, instrumentation coverage and
+  direct controls. A pure insight engine prioritizes request failures, 4xx
+  spikes, slow requests/routes, N+1 and slow queries, error logs, runtime trends
+  and persistence failures with evidence, fixes and drill-down links. The same
+  findings feed `/api/overview` and the AI/MCP summary.
+
 - **Documentation site (VitePress) deployed to GitHub Pages.** A learner-first
   docs site at `site/` — landing page, guided tutorial path (introduction →
   getting started → routing/validation/errors/plugins → features → SDK →
@@ -22,6 +42,38 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   vue) and stays outside the governed `docs/` tree, which remains the
   contributor-facing system of record (D-016).
 
+- **Size-aware adaptive primitives and DataLoader batching.** `jsonValid` and
+  query parsing now learn native-vs-JS choices per payload-size bucket from
+  sampled live timings, with bounded exploration, hysteresis, compatibility
+  probes, and `IGNEX_ADAPTIVE=off` rollback. The reusable
+  `createAdaptiveExecutor` exposes the same allocation-free steady-state choice
+  path for other synchronous handlers. `createDataLoader` additionally supports
+  opt-in `adaptive` batch limits driven by sampled batch latency, plus `stats`
+  for pending work, cache hits, batch counts, and learned timing state.
+
+- **Adaptive native route execution (`nativeRoutesAdaptive`).** A new compiler
+  option that keeps the AOT native plan fixed but lets each validated route
+  choose native-vs-JS per request, learning from sampled timings under the
+  current system load: two request-size buckets per route track an EWMA of
+  native-vs-JS prelude duration (`@ignex/native` `createRouteExecutionPolicy`),
+  both modes are bootstrapped and the non-preferred one is re-probed on a
+  bounded 1-in-64 sampling schedule, and the preference flips only outside a
+  10% hysteresis band — so load changes retune the choice on the fly without
+  oscillation, and the steady-state hot path stays allocation-free. The
+  sampled span excludes body I/O (the clock starts after the bounded body
+  read) and usage-only native preludes stay static. `nativeRoutes` behavior
+  and defaults are unchanged.
+
+- **Wire-level MongoDB spans through the ninox toolkit.** The reference app and
+  the `ignex resource` db template now enable `monitorCommands` on the primary
+  client and hand the toolkit core's `debugQuery`, so `db` spans come from
+  ninox itself (logical `collection.op` spans plus, under `DEBUG`, driver
+  command monitoring via `instrumentMongoClient(db.mongoClient)` with full
+  wire commands, reply previews and driver-reported durations). The hand-rolled
+  per-call proxy wrapper in `db.ts` is gone; the db plugin disposes the
+  monitor on shutdown. `ignex/core/debug`'s `debugQuery` keeps its sync
+  pass-through signature, which ninox's `DebugQuery` now mirrors exactly.
+
 - **Docs site coverage: CLI reference, debugbar guide, FlatBuffers wire.** New
   `guide/cli` (every command, flags, and the full feature vocabulary), a full
   `guide/debugbar` page (views, waterfall + replay, Grafana endpoint, leak
@@ -29,7 +81,71 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   FlatBuffer wire + codegen flow. The hero terminal animates on a
   time-derived ticker with a CSS caret (rAF deadlocks in hidden tabs).
 
+### Changed
+
+- **Native runtime ownership consolidated in castrum.** `@ignex/native` now
+  consumes `@ignex/castrum/native` for addon discovery, NAPI loading, C-ABI
+  binding, transport self-tests, routes, metrics, ingress, and compiled
+  instances. The framework retains only its API adapters, measured selection,
+  telemetry, and byte-compatible TypeScript fallbacks; the previous duplicate
+  package resolver, `dlopen` maps, and self-test suite are removed.
+- **Compiled servers retain native acceleration.** The linker keeps castrum's
+  package loader external so addon discovery runs from the installed package,
+  not the generated `dist/`. Native `runParts` now uses castrum's direct
+  query/cookie/body C-ABI when available, removing per-request string-buffer and
+  packed-frame allocations while preserving frame/NAPI fallbacks and NUL parity.
+  Route tests now pin combined query/cookie/body chaining, exact result decoding,
+  compile-once codegen, instance reuse, one normal-path crossing, and exact-size
+  output retries.
+- **Maintained JSON Patch fallback.** The custom RFC 6901/6902 pointer and
+  mutation engine is replaced by `fast-json-patch`, reducing security-sensitive
+  code while preserving synchronous behavior and improving the measured fallback
+  workload by about 1.2×.
+
+- **Dependency refresh across the workspace.** Every manifest floor moves to the
+  latest known-good release, validated by the full gate matrix (typecheck, lint,
+  all test lanes, native/fallback parity, smoke): toolchain — vitest 5.1 across
+  every package, knip 6.45, oxlint 1.93, Biome 2.6.6 with the config schema
+  migrated, oxc-parser 0.158, Tailwind 4.3.5, Babel 8.1; runtime — `typebox`
+  1.4.6 and ajv 8.20 floors aligned across all published packages, pino 10.4,
+  lru-cache 11.5, `@clack/prompts` 1.9 (the CLI prompt wrapper now carries
+  clack's typed cancel symbol), MCP SDK 1.32.2; security-pin `overrides` — vite
+  8.3.8, ip-address 10.7.6, `@hono/node-server` 2.1.7. knip reports no unused
+  dependencies.
+
 ### Fixed
+
+- **Request-format integrity and body hardening.** Query serialization now
+  matches `URLSearchParams` in native and fallback modes, including malformed
+  escapes, Unicode and reserved characters. Pair/form records keep hostile keys
+  as inert own properties on null-prototype objects. Chunked multipart bodies
+  are parsed through the configured raw-byte cap, and malformed JSON produced by
+  text/binary cross-kind conversion now returns the standard 400 parse error.
+
+- **Docs: the `overrides`-block statements match the tree again.**
+  `architecture.md`, `compatibility.md` and `release-process.md` still claimed
+  the root `package.json` has no `overrides` block (true when the sibling
+  `file:` overrides were removed, false since the block was re-introduced for
+  security-advisory pins). The passages now say the block is reserved for
+  advisory-clearing transitive pins and sibling packages go through `bun link`.
+
+- **Debugbar audit hardening.** Token authentication now covers interpreted
+  dashboard pages/APIs and AOT stream-ticket minting, with the same gate in both
+  serving modes and Secure cookies on HTTPS. Errors includes non-throwing 5xx
+  responses, Metrics fetches on first mount, clear controls are POST-only, and
+  static method mismatches return 405 instead of falling through to detail routes.
+
+- **Runtime hardening.** Native route handles now destroy idempotently and reject
+  use after destruction. DataLoader applies its oldest-eviction bound to cached
+  errors as well as values, and the metrics bearer check uses constant-time
+  comparison.
+- **Request enforcement no longer fails open.** `nativePreflight` rejects with
+  503 when configured native enforcement is unavailable or cannot produce a
+  verdict; CORS preflight retains a TypeScript allow/deny fallback. AOT now
+  preserves `handlerTimeoutMs`, supports `maxHeaderBytes` across optimized and
+  fallback request paths, and clones reusable timeout/header error responses so
+  repeated requests cannot consume the same body. The plain-Bun
+  `verify:aot:guards` gate exercises the compiled server over real HTTP.
 
 - **Docs site: navbar logo, demo-card overflow, and broken cross-page
   links.** The deployed navbar logo 404'd — VPImage applies the base prefix

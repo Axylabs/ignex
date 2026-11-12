@@ -151,6 +151,36 @@ concurrency-safe application service. Do not put request objects, sessions, or
 per-request caches in shared references. This keeps concurrent requests isolated
 and makes adapters replaceable in tests without a mocking framework.
 
+## Batching high-volume work (DataLoader)
+
+Use `ctx.loader(...)` for request-scoped deduplication and caching. For a shared,
+concurrency-safe data source, create the loader once at application scope so the
+same microtask's work across requests can coalesce:
+
+```ts
+import { createDataLoader } from "@ignex/core";
+
+const users = createDataLoader(
+  async (ids: readonly number[]) => userRepository.findMany(ids),
+  {
+    adaptive: {
+      minBatchSize: 8,
+      maxBatchSize: 512,
+      targetBatchMs: 1,
+    },
+    max: 10_000, // bounded cache; never share request-private values
+  },
+);
+
+const user = await users.load(userId);
+```
+
+Adaptive mode starts at `minBatchSize` (override with `initialBatchSize`), grows
+only after fast, full batches, and halves the limit when sampled batch latency
+exceeds the target. `users.stats` exposes the current limit, EWMA latency,
+samples, pending keys, batch count, and cache hits. Omit `adaptive` to retain a
+fixed `maxBatchSize` and avoid timing overhead.
+
 ## SQL resources (Drizzle)
 
 For SQL, ignex wraps the **standard approach** — [Drizzle](https://orm.drizzle.team)

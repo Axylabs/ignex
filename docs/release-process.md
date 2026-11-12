@@ -140,10 +140,10 @@ supported line at that point. Until then, run the current minor.
   `check:api` gate (API.md ↔ barrel). Run `bun run prepublishOnly` from
   `ninox`.
 
-This monorepo consumes them through registry semver ranges; the root
-`overrides` block points them at local `file:` links for development. When a
-new version is published, update the semver ranges here (and drop or refresh
-the `file:` overrides as needed).
+This monorepo consumes them through registry semver ranges; local development
+uses `bun link` (see `AGENTS.md` §Local development), never `file:` overrides —
+the root `overrides` block is reserved for security-advisory pins of transitive
+dependencies. When a new version is published, update the semver ranges here.
 
 ## Tag & publish
 

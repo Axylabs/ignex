@@ -24,8 +24,10 @@ this repo during development.
   `@ignex/native` never imports `castrum` directly; the loader `require()`s it
   and every primitive ships a byte-compatible pure-TS fallback.
 - **Local development uses `bun link`, not `file:`/`overrides`.** The root
-  `package.json` has no `overrides` block and the root `tsconfig.json` has no
-  `@ignex/nova` paths: both were removed. To test a local castrum/nova/ninox,
+  `overrides` block holds only security-advisory pins for transitive
+  dependencies (each pin removes an advisory rather than allowlisting it), and
+  the root `tsconfig.json` has no `@ignex/nova` paths: the sibling `file:`
+  overrides were removed. To test a local castrum/nova/ninox,
   follow `AGENTS.md` §Local development.
 - `@ignex/nova` is an **optional peer** of `@ignex/core`: `novaPlugin` and the
   notifier lazy-import it (`@ignex/nova/server`, `@ignex/nova/events`) and

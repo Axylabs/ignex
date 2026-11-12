@@ -318,6 +318,7 @@ guarded directly).
 | `bun run bench:server:check:self` | Deterministic self-test of the server-bench comparator (no benchmark run). |
 | `bun run bench:compare:gate:self` | Deterministic self-test of the compare gate — injected p50 regression must fail, control must pass, stale/timestamp-less reports must be rejected (no benchmark run). |
 | `bun run verify:native:ffi` / `verify:native:route` | C-ABI scalar / per-route parity under plain Bun (needs real addon via `IGNEX_NATIVE_PATH`). |
+| `bun run verify:aot:guards` | Plain-Bun compiled-server HTTP checks for handler timeouts, request-header caps, constant-route guard coverage, fallbacks, and repeated error responses. |
 | `bun run check:cache-versions` | Fails if output-affecting files changed since the last tag without a cache-version bump. |
 | `bun run check:layers` | Architecture fitness function: the one-way package dependency rule + no import cycles (D-014). `--report` / `--mermaid` print the graph. |
 | `bun run scan:secrets` | Fail if any tracked file contains a likely credential (npm/GitHub/AWS token, PEM key). Runs as a CI job before install. |

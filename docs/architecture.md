@@ -66,7 +66,8 @@ re-inflates the scaffold's install graph.
 `@ignex/nova` and `@ignex/ninox` are developed in their own repos (`nova`,
 `ninox`) and consumed here through **registry semver ranges**; local work uses
 `bun link` (`AGENTS.md` §Local development), not `file:` overrides — the root
-`package.json` has no `overrides` block. The tsconfig `paths` entries that
+`overrides` block carries only security-advisory pins for transitive
+dependencies, never `@ignex/*` packages. The tsconfig `paths` entries that
 previously shadowed `@ignex/nova/*` with a type-only stub (and broke
 `novaPlugin`'s lazy `import()` under Bun, which honors `paths` at runtime) are
 deleted. `novaPlugin` lazily imports `@ignex/nova/server` in `init()` (optional
