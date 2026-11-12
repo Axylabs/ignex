@@ -1214,3 +1214,58 @@ describe("debugbar data panels", () => {
     expect(((await res2.json()) as { enabled: boolean }).enabled).toBe(false);
   });
 });
+
+describe("debugbar audit regressions", () => {
+  it("requires the token before minting AOT stream tickets", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true, token: "sekrit", persist: false })],
+      handler: () => new Response("ok"),
+    });
+    const denied = await run(app, "/__debugbar/api/stream/ticket", { method: "POST" });
+    expect(denied.status).toBe(403);
+    const allowed = await run(app, "/__debugbar/api/stream/ticket", {
+      method: "POST",
+      headers: { "x-debugbar-token": "sekrit" },
+    });
+    expect(allowed.status).toBe(200);
+    expect(((await allowed.json()) as { ticket: string }).ticket).toBeTruthy();
+  });
+
+  it("enforces the same token and page handshake in interpreted mode", async () => {
+    const app = createApp({
+      router: createRouter().get("/health", (ctx) => ctx.json({ ok: true })),
+      plugins: [debugbar({ enabled: true, token: "sekrit", persist: false })],
+    });
+    expect((await run(app, "/__debugbar/")).status).toBe(403);
+    expect((await run(app, "/__debugbar/api/overview")).status).toBe(403);
+    expect(
+      (
+        await run(app, "/__debugbar/api/overview", {
+          headers: { "x-debugbar-token": "sekrit" },
+        })
+      ).status,
+    ).toBe(200);
+    const handshake = await run(app, "/__debugbar/?token=sekrit");
+    expect(handshake.status).toBe(307);
+    expect(handshake.headers.get("set-cookie")).toContain("HttpOnly");
+    expect((await run(app, "/__debugbar/app.js")).status).toBe(200);
+  });
+
+  it("includes non-throwing 5xx responses in errors and application insights", async () => {
+    const app = createApp({
+      plugins: [debugbar({ enabled: true, persist: false })],
+      handler: (ctx) => ctx.json({ unavailable: true }, { status: 503 }),
+    });
+    await run(app, "/unavailable");
+    const errors = (await (await run(app, "/__debugbar/api/requests?error=1")).json()) as Array<{
+      id: string;
+      status: number;
+    }>;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.status).toBe(503);
+    const overview = (await (await run(app, "/__debugbar/api/overview")).json()) as {
+      summary: { failures: number; serverErrors: number };
+    };
+    expect(overview.summary).toMatchObject({ failures: 1, serverErrors: 1 });
+  });
+});

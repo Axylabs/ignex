@@ -7,7 +7,7 @@
 import { cookiePairs } from "@ignex/native";
 import { describe, expect, it } from "vitest";
 import { groupQueryPairs, parseQuery } from "../src/data/query";
-import { formDataToObject } from "../src/http/body/form-data";
+import { formDataToObject, formDataToRecord } from "../src/http/body/form-data";
 import { cookiePairsToRecord } from "../src/http/cookies";
 
 describe("parser record hygiene (null prototype)", () => {
@@ -37,6 +37,12 @@ describe("parser record hygiene (null prototype)", () => {
     const record = formDataToObject(fd);
     expect((record as Record<string, unknown>).name).toBe("x");
     expect(Object.getPrototypeOf(record)).toBeNull();
+
+    const flat = formDataToRecord(fd);
+    expect(Object.getPrototypeOf(flat)).toBeNull();
+    expect(Object.keys(flat)).toEqual(["__proto__", "name"]);
+    expect(flat.__proto__).toBe("<pwned>");
+    expect(flat.name).toBe("x");
   });
 
   it("cookie records are null-prototype", () => {

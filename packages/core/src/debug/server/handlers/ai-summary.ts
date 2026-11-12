@@ -13,6 +13,7 @@
 
 import type { NovaEventTrace } from "../../../plugins/nova";
 import { formatCause } from "../../fault-capture";
+import { buildOverview } from "../../insights";
 import { analyzeSamples } from "../../leaks";
 import { json } from "../../respond";
 import type {
@@ -137,6 +138,15 @@ export const createAiSummaryHandler =
     const diagnostics = analyzeSamples(deps.state.profiler.stats().samples);
     const badLogs = deps.state.logs.list({ minLevel: "warn", limit: 5 });
     const sinkStatus = deps.state.sink?.status();
+    const overview = buildOverview({
+      traces,
+      metrics: deps.state.metrics.snapshot(),
+      diagnostics,
+      logs: deps.state.logs.stats(),
+      activeRequests: deps.state.active.size,
+      systemSamples: diagnostics.samplesAnalyzed,
+      persistence: { enabled: sinkStatus?.available ?? false, error: sinkStatus?.error ?? null },
+    });
     const summary: AiDebugSummary = {
       service: deps.state.serviceName,
       version: deps.state.version,
@@ -160,6 +170,13 @@ export const createAiSummaryHandler =
       },
       clients,
       ...(nova !== undefined ? { nova } : {}),
+      insights: overview.findings.slice(0, 5).map((finding) => ({
+        id: finding.id,
+        severity: finding.severity,
+        category: finding.category,
+        title: finding.title,
+        recommendation: finding.recommendation,
+      })),
       observatory: {
         verdict: diagnostics.verdict,
         findings: diagnostics.findings.map((f) => ({

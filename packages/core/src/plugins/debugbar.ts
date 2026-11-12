@@ -246,7 +246,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
   const assets = createAssetServer(path);
   const streamHub = createStreamHub(revisions);
   const routeIndex = createRouteFileIndex(state.manifestPaths);
-  const api = createEndpointTable(deps, routeIndex, streamHub);
+  const api = createEndpointTable(deps, routeIndex, streamHub, gate);
 
   if (enabled) {
     setTracingEnabled(true);
@@ -256,49 +256,35 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     installLogStore(logStore);
   }
 
+  const servePage = (ctx: IgnexContext): Response => {
+    if (gate.authorized(ctx)) return assets.page();
+    // Rotate a valid page token into an HttpOnly cookie, then strip it from the URL.
+    if (gate.hasQueryToken(ctx)) {
+      const secure = ctx.url.protocol === "https:" ? "; Secure" : "";
+      return new Response(null, {
+        status: 307,
+        headers: {
+          location: `${state.path}/`,
+          "set-cookie": `${COOKIE_NAME}=${state.token}; Path=${state.path}; HttpOnly; SameSite=Strict; Max-Age=28800${secure}`,
+        },
+      });
+    }
+    return json({ error: "forbidden" }, 403);
+  };
+
   // ── dashboard serving (AOT onRequest interception) ────────────────────────
   const serve = (pathname: string, ctx: IgnexContext): Response | Promise<Response> => {
     const rest = pathname.slice(state.path.length);
     if (rest === "") {
       return new Response(null, { status: 307, headers: { location: `${state.path}/` } });
     }
-    if (rest.startsWith("/api/")) {
-      const apiPath = rest.slice(5);
-      if (isPublicApiPath(apiPath)) return api.dispatch(apiPath, ctx);
-      if (!gate.authorized(ctx)) return json({ error: "forbidden" }, 403);
-      return api.dispatch(apiPath, ctx);
-    }
-    // Everything non-API requires the normal gate first — EXCEPT the static
-    // bundle assets, which carry no secrets (BASE/token are runtime-injected)
-    // and whose availability before the cookie handshake keeps first-visit
-    // flows simple across proxies. The page itself stays gated.
-    if (rest === "/") {
-      if (!gate.authorized(ctx)) {
-        // Page handshake: `?token=…` rotates into an HttpOnly path-scoped
-        // cookie so tokens never persist in API query strings or access logs.
-        if (gate.hasQueryToken(ctx)) {
-          return new Response(null, {
-            status: 307,
-            headers: {
-              location: `${state.path}/`,
-              "set-cookie": `${COOKIE_NAME}=${state.token}; Path=${state.path}; HttpOnly; SameSite=Strict; Max-Age=28800`,
-            },
-          });
-        }
-        return json({ error: "forbidden" }, 403);
-      }
-      return assets.page();
-    }
+    if (rest.startsWith("/api/")) return api.dispatch(rest.slice(5), ctx);
+    // Static assets carry no secrets; every other surface uses the token gate.
+    if (rest === "/") return servePage(ctx);
     if (rest === "/app.js") return assets.js(ctx.headers.get("if-none-match"));
     if (rest === "/app.css") return assets.css(ctx.headers.get("if-none-match"));
     if (!gate.authorized(ctx)) return json({ error: "forbidden" }, 403);
     return json({ error: "not_found", status: 404 }, 404);
-  };
-
-  /** Endpoints that authenticate by mechanism instead of the standard gate. */
-  const isPublicApiPath = (apiPath: string): boolean => {
-    const head = apiPath.replace(/^\/+/, "").split("/")[0] ?? "";
-    return head === "stream"; // ticket auth inside the table
   };
 
   // ── interpreted mode: register dashboard routes on the router ─────────────
@@ -306,7 +292,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
     state.router = router;
     const base = state.path.replace(/\/$/, "");
     router.get(base, () => new Response(null, { status: 302, headers: { location: `${base}/` } }));
-    router.get(`${base}/`, () => assets.page());
+    router.get(`${base}/`, (ctx) => servePage(ctx));
     router.get(`${base}/app.js`, () => assets.js(null));
     router.get(`${base}/app.css`, () => assets.css(null));
     api.registerRoutes(router, base);
@@ -326,7 +312,7 @@ export const debugbar = (options: DebugbarOptions = {}): IgnexPlugin => {
       // never a guessed https. Falls back to env heuristics outside a server.
       state.bootUrl = `${bootOrigin()}${state.path}/`;
       console.log(
-        `[ignex] debugbar: ${state.bootUrl} — waterfall + replay, logs, metrics (Prometheus), leak diagnostics, SQLite history, NATS events, KT docs (debug mode)`,
+        `[ignex] debugbar: ${state.bootUrl} — overview + actionable insights, waterfall + replay, logs, metrics (Prometheus), leak diagnostics, SQLite history, NATS events, KT docs (debug mode)`,
       );
 
       if (options.logs?.console !== false && state.consoleRestore === null) {

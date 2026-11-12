@@ -2,7 +2,7 @@
  * @fileoverview TraceStore — bounded in-memory store of request traces.
  *
  * A ring buffer (default 500) keeps the most recent traces, plus an error
- * index (traces with `error != null`) so the dashboard's errors view never
+ * index (thrown errors or 5xx responses) so the dashboard's errors view never
  * scans the whole buffer. All accessors are synchronous — the dashboard APIs
  * are served inline.
  */
@@ -80,6 +80,9 @@ export interface TraceSummaryFilter {
 
 const statusFamily = (status: number): string => `${Math.floor(status / 100)}xx`;
 
+/** A thrown error or a 5xx response belongs in the failure window. */
+const hasFailure = (trace: RequestTrace): boolean => trace.error !== null || trace.status >= 500;
+
 /**
  * Text a list filter searches: the request identity AND the failure identity
  * (`IGN_DB_CREDENTIALS`, "MongoDB rejected the credentials"), because a fault
@@ -106,7 +109,7 @@ const matchesSummaryFilter = (options: TraceSummaryFilter) => {
   const route = options.route?.trim().toLowerCase();
   const methodUpper = options.method?.toUpperCase();
   return (t: RequestTrace): boolean => {
-    if (options.errorOnly && !t.error) return false;
+    if (options.errorOnly && !hasFailure(t)) return false;
     if (!inRange(options, t)) return false;
     if (methodUpper && t.method.toUpperCase() !== methodUpper) return false;
     if (options.status && statusFamily(t.status) !== options.status) return false;
@@ -165,11 +168,11 @@ export class TraceStore {
       this.bodyBytesById.set(trace.id, bytes);
       this.bodyBytesTotal += bytes;
     }
-    if (trace.error) this.errorIds.add(trace.id);
+    if (hasFailure(trace)) this.errorIds.add(trace.id);
     while (this.traces.length > this.maxTraces) {
       const dropped = this.traces.shift();
       if (!dropped) break;
-      if (dropped.error) this.errorIds.delete(dropped.id);
+      if (hasFailure(dropped)) this.errorIds.delete(dropped.id);
       this.stripBodies(dropped);
     }
     // Body budget: shed the OLDEST captures' bodies until under budget. The
@@ -220,14 +223,14 @@ export class TraceStore {
     return this.traces.find((t) => t.id === id);
   }
 
-  /** Traces that carried an error, newest first. */
+  /** Traces that threw or returned 5xx, newest first. */
   errors(options: { limit?: number } = {}): RequestTrace[] {
     const limit = options.limit ?? 100;
     const out: RequestTrace[] = [];
     for (let i = this.traces.length - 1; i >= 0 && out.length < limit; i--) {
       const t = this.traces[i];
       if (t === undefined) continue;
-      if (t.error) out.push(t);
+      if (hasFailure(t)) out.push(t);
     }
     return out;
   }

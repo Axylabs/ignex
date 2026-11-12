@@ -248,9 +248,21 @@ export function createLazyBody(req: Request, opts: LazyBodyOptions = {}): LazyBo
             return fd as unknown as FormData;
           }
 
-          // Multipart goes through Bun's parser (which owns its own limits);
-          // the content-length pre-check + post-parse guard still apply.
-          return (await req.formData()) as unknown as FormData;
+          // Known-length multipart keeps Bun's direct request parser. A
+          // chunked body is first bounded as raw bytes, then parsed from an
+          // equivalent in-memory request; req.formData() alone would either
+          // buffer without the route's cap or reject a valid streamed body.
+          const contentLength = req.headers.get("content-length");
+          if (contentLength !== null && contentLength.trim() !== "") {
+            return (await req.formData()) as unknown as FormData;
+          }
+          const bytes = await readBodyBounded(req, limits.maxFormBytes);
+          const boundedReq = new Request(req.url, {
+            method: req.method,
+            headers: { "content-type": req.headers.get("content-type") ?? "" },
+            body: new Blob([bytes as Uint8Array<ArrayBuffer>]),
+          });
+          return (await boundedReq.formData()) as unknown as FormData;
         } catch (err) {
           if (err instanceof BodyParseError) throw err;
           throw new BodyParseError("Invalid form/multipart body", 400);

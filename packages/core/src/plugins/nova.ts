@@ -78,10 +78,10 @@ export interface NovaPluginOptions {
   idleTimeout?: number;
   /**
    * Enable the events layer (typed `on`/`emit`/`emitToUser` + presence).
-   * Default: enabled (`{}`). Pass `false`-like/empty overrides only when you
-   * need to tune hub options (e.g. `{ cluster: {...} }`).
+   * Default: enabled (`{}`). Pass `false` for transport-only operation, or a
+   * hub options object when tuning clustering, delivery, or global binding.
    */
-  events?: Record<string, unknown>;
+  events?: false | Record<string, unknown>;
   /**
    * Optional generated bindings (from `generateBindings`) — lets the server
    * carry app-defined schemas instead of the built-in registry.
@@ -93,6 +93,26 @@ export interface NovaPluginOptions {
   maxConnections?: number;
   /** Maximum inbound frame size in bytes. */
   maxMessageSize?: number;
+  /** Maximum concurrent RPC responders per connection (default 64). */
+  maxRpcInFlight?: number;
+  /** Exact Origin values allowed to upgrade. */
+  allowedOrigins?: string[];
+  /** Literal or predicate bearer-token guard. */
+  token?: string | ((token: string) => boolean);
+  /** Per-connection inbound token bucket over app and control frames. */
+  rateLimit?: { messagesPerSecond?: number; burst?: number; policy?: "drop" | "close" };
+  /** Authorize every topic join, including programmatic joins. */
+  authorizeTopic?: (topic: string, ws: unknown) => boolean;
+  /** Authorize every server-side group join. */
+  authorizeGroup?: (group: string, ws: unknown) => boolean;
+  /** Gap-free delivery and bounded cross-connection resume history. */
+  resume?: { historySize?: number; ttlMs?: number };
+  /** Durable topic log used to hydrate replay older than the memory ring. */
+  topicLog?: unknown;
+  /** Reject or warn on lossy plain-number int64 values. */
+  int64Guard?: "off" | "warn" | "throw";
+  /** Additional HTTP handler for non-WebSocket routes on Nova's server. */
+  fetch?: (req: Request) => Response | Promise<Response>;
   /** Slow-consumer policy (default off). */
   backpressure?: Record<string, unknown>;
   /** Per-topic last-value replay on subscribe. */
@@ -152,7 +172,7 @@ export interface NovaServerHandle {
   readonly port: number;
   publish(name: string, payload: unknown): void;
   publishTo(ws: unknown, name: string, payload: unknown): void;
-  publishToClient(id: string, name: string, payload: unknown): void;
+  publishToClient(id: string, name: string, payload: unknown): boolean;
   publishToTopic(topic: string, name: string, payload: unknown): void;
   publishToGroup(group: string, name: string, payload: unknown): void;
   joinGroup(clientId: string, group: string): void;
@@ -311,6 +331,16 @@ export const novaPlugin = (
         ...(options.nats ? { nats: options.nats } : {}),
         ...(options.maxConnections !== undefined ? { maxConnections: options.maxConnections } : {}),
         ...(options.maxMessageSize !== undefined ? { maxMessageSize: options.maxMessageSize } : {}),
+        ...(options.maxRpcInFlight !== undefined ? { maxRpcInFlight: options.maxRpcInFlight } : {}),
+        ...(options.allowedOrigins ? { allowedOrigins: options.allowedOrigins } : {}),
+        ...(options.token !== undefined ? { token: options.token } : {}),
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
+        ...(options.authorizeTopic ? { authorizeTopic: options.authorizeTopic } : {}),
+        ...(options.authorizeGroup ? { authorizeGroup: options.authorizeGroup } : {}),
+        ...(options.resume ? { resume: options.resume } : {}),
+        ...(options.topicLog ? { topicLog: options.topicLog } : {}),
+        ...(options.int64Guard ? { int64Guard: options.int64Guard } : {}),
+        ...(options.fetch ? { fetch: options.fetch } : {}),
         ...(options.backpressure ? { backpressure: options.backpressure } : {}),
         ...(options.replay ? { replay: options.replay } : {}),
         ...(options.trace ? { trace: options.trace } : {}),

@@ -41,7 +41,7 @@ const isFile = (value: unknown): value is File =>
 
 /** FormData → flat `Record<string, string>` (files collapse to their name). */
 export function formDataToRecord(fd: FormData): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
 
   forEachFormDataEntry(fd, (value, key) => {
     if (typeof value === "string") {

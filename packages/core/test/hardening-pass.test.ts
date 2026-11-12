@@ -256,6 +256,35 @@ describe("lazy-body chunked enforcement", () => {
     expect(err).toBeInstanceOf(BodyParseError);
     expect((err as BodyParseError).status).toBe(413);
   });
+
+  it("parses an in-cap chunked multipart body", async () => {
+    const fd = new FormData();
+    fd.append("text", "héllo");
+    fd.append("upload", new File([Uint8Array.from([0, 255, 128])], "bytes.bin"));
+    const original = postReq(fd);
+    const bytes = new Uint8Array(await original.arrayBuffer());
+    const req = postReq(streamOf([bytes]), {
+      "content-type": original.headers.get("content-type") ?? "",
+    });
+    const parsed = await createLazyBody(req, { maxFormBytes: bytes.byteLength }).formData();
+    expect(parsed.get("text")).toBe("héllo");
+    expect(await (parsed.get("upload") as File).arrayBuffer()).toEqual(
+      Uint8Array.from([0, 255, 128]).buffer,
+    );
+  });
+
+  it("413s a chunked multipart body on raw wire bytes, not just field values", async () => {
+    const fd = new FormData();
+    fd.append("value", "x");
+    const original = postReq(fd);
+    const bytes = new Uint8Array(await original.arrayBuffer());
+    expect(bytes.byteLength).toBeGreaterThan(1);
+    const req = postReq(streamOf([bytes]), {
+      "content-type": original.headers.get("content-type") ?? "",
+    });
+    const body = createLazyBody(req, { maxFormBytes: 1 });
+    await expect(body.formData()).rejects.toMatchObject({ status: 413 });
+  });
 });
 
 // ── file responses: nosniff + symlink-hardened safeJoin ────────────────

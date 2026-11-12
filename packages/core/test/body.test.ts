@@ -216,6 +216,24 @@ describe("createLazyBody round-trips", () => {
     await expect(body.json()).rejects.toMatchObject({ status: 409 });
   });
 
+  it("normalizes malformed JSON cross-kind conversions to a 400 parse error", async () => {
+    for (const type of ["text/plain", "application/octet-stream"]) {
+      const body = createLazyBody(
+        new Request("http://x/", {
+          method: "POST",
+          headers: { "content-type": type },
+          body: "{oops",
+        }),
+      );
+      if (type === "text/plain") await body.text();
+      else await body.arrayBuffer();
+      await expect(body.json()).rejects.toMatchObject({
+        status: 400,
+        code: "BODY_PARSE_ERROR",
+      });
+    }
+  });
+
   it("enforces the per-file size limit", async () => {
     const fd = new FormData();
     fd.append("f", new File([new Uint8Array(100)], "f.bin"));

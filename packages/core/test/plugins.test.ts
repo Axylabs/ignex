@@ -483,20 +483,22 @@ describe("nativePreflight", () => {
     expect(await plugin.onRequest?.(ctx)).toBe(ctx);
   });
 
-  it("is safe to mount without the Rust addon (handler still runs)", async () => {
+  it("fails closed without the Rust addon when rate limiting is configured", async () => {
     const app = createApp({
       plugins: [nativePreflight({ options: { rateLimit: { limit: 5, windowMs: 60_000 } } })],
       handler: () => new Response("ok"),
     });
     const res = await app.handler(req("/"));
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("ok");
+    if (isNativeAvailable()) {
+      expect(res.status).toBe(200);
+    } else {
+      expect(res.status).toBe(503);
+    }
   });
 
-  // ── Native e2e (real addon). Without the addon these are no-ops; with it
-  // they prove the Rust ingress pipeline short-circuits with terminal
-  // responses (429 / 204 / 413) exactly as the docs promise. The bridge
-  // options must actually reach the addon (nested under `{ options }`).
+  // ── Native e2e (real addon). Fallback runs must fail closed rather than
+  // silently dropping configured enforcement. With the addon these prove the
+  // Rust ingress pipeline short-circuits with terminal responses (429/204/413).
 
   it("native pipeline enforces rate limit → terminal 429", async () => {
     const app = createApp({
@@ -507,7 +509,7 @@ describe("nativePreflight", () => {
 
     const first = await app.handler(req("/"));
     if (!isNativeAvailable()) {
-      expect(first.status).toBe(200);
+      expect(first.status).toBe(503);
       return;
     }
     const second = await app.handler(req("/"));
@@ -528,12 +530,7 @@ describe("nativePreflight", () => {
         headers: { origin: "https://app.example.com", "access-control-request-method": "GET" },
       }),
     );
-    if (isNativeAvailable()) {
-      expect(preflight.status).toBe(204);
-    } else {
-      // No-op without the addon: falls through to the handler.
-      expect([200, 204]).toContain(preflight.status);
-    }
+    expect(preflight.status).toBe(204);
   });
 
   it("native pipeline guards oversize bodies → terminal 413", async () => {
@@ -553,7 +550,7 @@ describe("nativePreflight", () => {
     if (isNativeAvailable()) {
       expect(res.status).toBe(413);
     } else {
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(503);
     }
   });
 
@@ -595,14 +592,10 @@ describe("nativePreflight", () => {
         },
       }),
     );
-    if (isNativeAvailable()) {
-      expect(preflight.status).toBe(204);
-    } else {
-      expect([200, 204]).toContain(preflight.status);
-    }
+    expect(preflight.status).toBe(204);
 
-    // A NON-allowlisted origin is never skipped: its preflight is denied by the
-    // pipeline (terminal 403), proving the pipeline still ran.
+    // A NON-allowlisted origin is denied by both the native pipeline and the
+    // TypeScript fallback.
     const denyApp = createApp({
       plugins: [nativePreflight({ options: { cors: { allowOrigin: ["https://good.example"] } } })],
       handler: () => new Response("ok"),
@@ -614,11 +607,7 @@ describe("nativePreflight", () => {
         headers: { origin: "https://bad.example", "access-control-request-method": "GET" },
       }),
     );
-    if (isNativeAvailable()) {
-      expect(denied.status).toBe(403);
-    } else {
-      expect([200, 204, 403]).toContain(denied.status);
-    }
+    expect(denied.status).toBe(403);
 
     // Explicit opt-out still runs the pipeline for everything (same outcome).
     const strict = createApp({

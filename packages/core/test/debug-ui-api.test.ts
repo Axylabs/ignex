@@ -80,6 +80,13 @@ describe("mount path and auth", () => {
     expect(headersOf(calls[0] as Call)["x-debugbar-token"]).toBe("");
     expect(headersOf(calls[0] as Call).accept).toBe("application/json");
   });
+
+  it("loads application health from the overview endpoint", async () => {
+    const { getOverview } = await api();
+    respond({ verdict: "ok" });
+    await expect(getOverview()).resolves.toEqual({ verdict: "ok" });
+    expect(calls[0]?.url).toBe("./api/overview");
+  });
 });
 
 describe("filter serialization", () => {

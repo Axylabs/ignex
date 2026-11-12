@@ -18,11 +18,11 @@ import { beforeAll, describe, expect, test } from "vitest";
  * `../../..`, `bun link`-ed in full local-dev setups). Skip this suite when
  * that repo is not present so a standalone monorepo checkout verifies cleanly.
  */
-const TRACE_DB_OP_MODULE = new URL(
-  "../../../../ignex-mongodb/src/service/trace-db-op.ts",
-  import.meta.url,
-);
-const hasTraceDbOp = existsSync(TRACE_DB_OP_MODULE);
+const TRACE_DB_OP_MODULE = [
+  new URL("../../../../ninox/src/service/trace-db-op.ts", import.meta.url),
+  new URL("../../../../ignex-mongodb/src/service/trace-db-op.ts", import.meta.url),
+].find((path) => existsSync(path));
+const hasTraceDbOp = TRACE_DB_OP_MODULE !== undefined;
 
 const noopLogger = {
   debug: () => {},
@@ -41,6 +41,7 @@ type TraceDbOp = <T>(
   logger: typeof noopLogger,
   meta: TraceDbOpMeta,
   operation: () => Promise<T>,
+  options?: { debugQuery?: typeof debugMod.debugQuery },
 ) => Promise<T>;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -62,6 +63,7 @@ describe.runIf(hasTraceDbOp)("traceDbOp (ignex-debugbar integration)", () => {
   let traceDbOp: TraceDbOp;
 
   beforeAll(async () => {
+    if (!TRACE_DB_OP_MODULE) throw new Error("ninox sibling checkout is unavailable");
     const mod = (await import(TRACE_DB_OP_MODULE.href)) as { traceDbOp?: unknown };
     traceDbOp = mod.traceDbOp as TraceDbOp;
   });

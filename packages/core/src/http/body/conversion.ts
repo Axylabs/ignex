@@ -2,8 +2,8 @@
  * @fileoverview Cross-kind body conversion (json ↔ text ↔ arrayBuffer ↔ blob
  * ↔ formData). A pure function over the parsed state — no request or closure
  * state — so it can be unit-tested and reasoned about in isolation. Throws
- * `BodyParseError` (409) when the current kind cannot be converted to the
- * requested target.
+ * `BodyParseError` (400) for malformed converted JSON and (409) when the
+ * current kind cannot be converted to the requested target.
  */
 
 import { encoder } from "../encoder";
@@ -23,9 +23,17 @@ const fromJson = (value: unknown, target: BodyKind): unknown => {
   return undefined;
 };
 
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new BodyParseError("Invalid JSON body", 400);
+  }
+};
+
 const fromText = (value: unknown, target: BodyKind): unknown => {
   const text = value as string;
-  if (target === "json") return JSON.parse(text);
+  if (target === "json") return parseJson(text);
   if (target === "arrayBuffer") {
     return encoder.encode(text).buffer;
   }
@@ -48,7 +56,7 @@ const fromArrayBuffer = (value: unknown, target: BodyKind): unknown => {
   if (target === "blob") return new Blob([buf]);
   const text = new TextDecoder().decode(buf);
   if (target === "text") return text;
-  if (target === "json") return JSON.parse(text);
+  if (target === "json") return parseJson(text);
   return undefined;
 };
 
@@ -79,7 +87,7 @@ function tryConvert(kind: BodyKind, value: unknown, target: BodyKind): unknown {
  * Cross-kind body conversion (json ↔ text ↔ arrayBuffer ↔ blob ↔ formData).
  * A pure function over the parsed state — no request or closure state — so it
  * can be unit-tested and reasoned about in isolation. Throws `BodyParseError`
- * (409) when the current kind cannot be converted to the requested target.
+ * (400) for malformed converted JSON and (409) for impossible conversions.
  */
 export function convertBody(state: BodyState, target: BodyKind): unknown {
   const { kind, value } = state;

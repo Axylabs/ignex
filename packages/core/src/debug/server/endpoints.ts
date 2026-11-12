@@ -15,6 +15,7 @@
 import type { IgnexContext } from "../../http/context";
 import type { IgnexRouter } from "../../http/router";
 import { json, notFound } from "../respond";
+import type { TokenGate } from "./auth";
 import { createAiSummaryHandler } from "./handlers/ai-summary";
 import {
   createClientsHandler,
@@ -48,6 +49,7 @@ import {
   createRequestsHandler,
   createSystemHandler,
 } from "./handlers/data-panels";
+import { createOverviewHandler } from "./handlers/overview";
 import type { RouteFileIndex } from "./route-index";
 import type { StreamHub } from "./stream";
 import type { HandlerDeps } from "./types";
@@ -56,7 +58,7 @@ import type { HandlerDeps } from "./types";
 export type EndpointAuth = "gate" | "ticket";
 
 export interface EndpointDef {
-  /** HTTP methods accepted (clears accept both for dev convenience). */
+  /** HTTP methods accepted; mutations are POST-only. */
   readonly methods: Array<"GET" | "POST">;
   /** Path under `/api`, `:` prefix marks a parameter segment. */
   readonly pattern: string;
@@ -72,11 +74,29 @@ export interface EndpointTable {
   registerRoutes: (router: IgnexRouter, basePath: string) => void;
 }
 
+/** Match static and `:param` segments independently of method selection. */
+const matchEndpointPath = (
+  pattern: string,
+  want: readonly string[],
+): { params: Record<string, string>; isStatic: boolean } | null => {
+  const parts = pattern.split("/");
+  if (parts.length !== want.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i] as string;
+    const segment = want[i] as string;
+    if (part.startsWith(":")) params[part.slice(1)] = segment;
+    else if (part !== segment) return null;
+  }
+  return { params, isStatic: parts.every((part) => !part.startsWith(":")) };
+};
+
 /** Build the full endpoint table for one debugbar instance. */
 export const createEndpointTable = (
   deps: HandlerDeps,
   routeIndex: RouteFileIndex,
   streamHub: StreamHub,
+  gate: TokenGate,
 ): EndpointTable => {
   const ktData = createKtData(deps);
 
@@ -99,6 +119,12 @@ export const createEndpointTable = (
   };
 
   const endpoints: EndpointDef[] = [
+    {
+      methods: ["GET"],
+      pattern: "overview",
+      auth: "gate",
+      handle: () => createOverviewHandler(deps)(),
+    },
     { methods: ["GET"], pattern: "meta", auth: "gate", handle: () => createMetaHandler(deps)() },
     {
       methods: ["GET"],
@@ -113,7 +139,7 @@ export const createEndpointTable = (
       handle: (ctx) => createRequestsHandler(deps)(ctx),
     },
     {
-      methods: ["GET", "POST"],
+      methods: ["POST"],
       pattern: "requests/clear",
       auth: "gate",
       handle: () => createRequestsClearHandler(deps)(),
@@ -149,7 +175,7 @@ export const createEndpointTable = (
       handle: (ctx) => createLogsHandler(deps)(ctx),
     },
     {
-      methods: ["GET", "POST"],
+      methods: ["POST"],
       pattern: "logs/clear",
       auth: "gate",
       handle: () => createLogsClearHandler(deps)(),
@@ -274,26 +300,17 @@ export const createEndpointTable = (
   ): { def: EndpointDef; params: Record<string, string>; methodMismatch: boolean } | null => {
     const want = apiPath.replace(/^\/+/, "").split("/").filter(Boolean);
     let methodMismatch = false;
+    let staticMethodMismatch = false;
     for (const def of endpoints) {
-      const parts = def.pattern.split("/");
-      if (parts.length !== want.length) continue;
-      const params: Record<string, string> = {};
-      let ok = true;
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i] as string;
-        const seg = want[i] as string;
-        if (part.startsWith(":")) params[part.slice(1)] = seg;
-        else if (part !== seg) {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) continue;
+      const path = matchEndpointPath(def.pattern, want);
+      if (path === null) continue;
       if (!def.methods.includes(method as "GET" | "POST")) {
         methodMismatch = true;
+        if (path.isStatic) staticMethodMismatch = true;
         continue;
       }
-      return { def, params, methodMismatch };
+      if (staticMethodMismatch) continue;
+      return { def, params: path.params, methodMismatch };
     }
     return methodMismatch ? { methodMismatch, def: null as never, params: {} } : null;
   };
@@ -304,13 +321,20 @@ export const createEndpointTable = (
       const found = match(apiPath, ctx.method);
       if (found === null) return notFound();
       if (found.def === null) return methodNotAllowed();
+      if (found.def.auth === "gate" && !gate.authorized(ctx)) {
+        return json({ error: "forbidden" }, 403);
+      }
       return found.def.handle(ctx, found.params);
     },
     registerRoutes: (router, basePath) => {
       for (const def of endpoints) {
         const routePath = `${basePath}/api/${def.pattern}`;
-        const runner = (ctx: IgnexContext): Response | Promise<Response> =>
-          def.handle(ctx, collectParams(routePath, ctx));
+        const runner = (ctx: IgnexContext): Response | Promise<Response> => {
+          if (def.auth === "gate" && !gate.authorized(ctx)) {
+            return json({ error: "forbidden" }, 403);
+          }
+          return def.handle(ctx, collectParams(routePath, ctx));
+        };
         for (const method of def.methods) {
           if (method === "GET") router.get(routePath, runner);
           else router.post(routePath, runner);

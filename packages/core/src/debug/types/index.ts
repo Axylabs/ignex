@@ -14,6 +14,11 @@ export type {
   DebugEventsPayload,
 } from "./api";
 export type {
+  DebugOverview,
+  Insight,
+  InsightSeverity,
+} from "./insights";
+export type {
   AiDebugSummary,
   AiRecentError,
   AppKnowledge,

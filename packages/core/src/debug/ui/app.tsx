@@ -22,7 +22,7 @@ const ViewOutlet = (): JSX.Element => {
     <Show when={routeKey()} keyed>
       {(key): JSX.Element => {
         // `key` is the composite route signature; the view id is its head.
-        const def = viewFor(key.split("\u0000")[0] ?? "requests");
+        const def = viewFor(key.split("\u0000")[0] ?? "overview");
         if (def === null) return null;
         const Comp = def.component;
         return <Comp />;

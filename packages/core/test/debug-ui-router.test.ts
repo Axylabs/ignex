@@ -19,11 +19,11 @@ describe("debugbar hash router", () => {
     resetHash("#/requests");
   });
 
-  it("parses plain views and falls back to requests on unknown hashes", () => {
+  it("parses plain views and falls back to the application overview", () => {
     navigate("metrics");
     expect(currentRoute()).toEqual({ view: "metrics", id: null, tab: null });
     resetHash("#/nope");
-    expect(currentRoute()).toEqual({ view: "requests", id: null, tab: null });
+    expect(currentRoute()).toEqual({ view: "overview", id: null, tab: null });
   });
 
   it("parses request detail routes with an optional tab", () => {

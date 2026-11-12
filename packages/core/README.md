@@ -16,7 +16,7 @@ Grouped **by use case** into domain folders (each with a pure re-export
 | -------------- | -------------------------------------------------------------------- |
 | `security/`    | `auth` (requireAuth/optionalAuth/JWT/basic/bearer), `session` (signed-cookie + store), `csrf` (double-submit), `crypto` (JWT / cookie signer / CSRF / password hash / AEAD) |
 | `http/`        | `context` (`IgnexContext` + `createContext`), `cookies`, `headers` (`set`/`applySet`), `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first helpers `get`/`post`/… — subpath `@ignex/core/http`), `conditional` |
-| `data/`        | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
+| `data/`        | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`, optional adaptive batch sizing + stats), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
 | `lifecycle/`   | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics + `mergeLifeCycle`), `plugin` (+ `hookToPlugin`) |
 | `platform/`    | `env` (typed accessors), `config` (`defineConfig` — subpath `@ignex/core/config`), `coerce` (shared string coercion), `jobs`, `errors` (`HTTPError` family) |
 | `content/`     | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |

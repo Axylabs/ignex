@@ -13,6 +13,7 @@ import type {
   AiDebugSummary,
   AppKnowledge,
   DebugEventsPayload,
+  DebugOverview,
   DiagnosticsReport,
   DocPayload,
   HistoryTraceSummary,
@@ -123,6 +124,9 @@ const filtersToQuery = (filters: ListFilters): string => {
   return `?${params.toString()}`;
 };
 
+/** `GET /api/overview` — application health and actionable findings. */
+export const getOverview = (): Promise<DebugOverview> => getJson<DebugOverview>("/overview");
+
 /** `GET /api/meta` — boot info. */
 export const getMeta = (): Promise<MetaInfo> => getJson<MetaInfo>("/meta");
 
@@ -145,7 +149,7 @@ export const replayRequest = (
   error?: string;
 }> => postJson(`/requests/${encodeURIComponent(id)}/replay`);
 
-/** `GET /api/requests/clear` — drop the live ring. */
+/** `POST /api/requests/clear` — drop the live ring. */
 export const clearRequests = (): Promise<{ ok: boolean }> => postJson("/requests/clear");
 
 /** `GET /api/system` — profiler stats + samples. */

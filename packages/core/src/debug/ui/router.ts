@@ -4,7 +4,7 @@
  * Routes look like `#/requests`, `#/requests/:id/:tab?`, `#/logs/:id?`. The
  * parsed route lives in a Solid signal, so views and nav highlight react to
  * it; the browser back button and refresh work for free. Unknown hashes fall
- * back to `requests`.
+ * back to `overview`.
  */
 
 import { createSignal } from "solid-js";
@@ -20,6 +20,7 @@ export interface Route {
 }
 
 const KNOWN_VIEWS = new Set([
+  "overview",
   "requests",
   "errors",
   "logs",
@@ -40,7 +41,7 @@ const KNOWN_VIEWS = new Set([
 function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const head = parts[0] ?? "";
-  if (!KNOWN_VIEWS.has(head)) return { view: "requests", id: null, tab: null };
+  if (!KNOWN_VIEWS.has(head)) return { view: "overview", id: null, tab: null };
   if (head === "requests" && parts[1] !== undefined) {
     // `#/requests/<id>/<tab?>` is the request-detail surface.
     return { view: "detail", id: decodeURIComponent(parts[1]), tab: parts[2] ?? null };

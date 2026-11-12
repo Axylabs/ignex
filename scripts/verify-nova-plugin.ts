@@ -3,31 +3,26 @@
  * under plain Bun — where `bun:ffi` and the nova addon are available
  * (vitest workers do not expose `bun:ffi`, so the unit tests in
  * `packages/core/test/nova-plugin.test.ts` inject a fake loader instead).
- * `@ignex/nova` resolves through the root `overrides` file: link to the
- * standalone ignex-nova repo (registry semver is the manifest default).
  *
- * Boots a `createApp` with `novaPlugin`, connects a real `@ignex/nova/client`
- * (binary FlatBuffer frames via the pure-JS encoder — no addon needed on the
- * client side), sends a typed `quote` event that the built-in registry allows
- * inbound, and asserts the server receives it and broadcasts a `trade` back.
- * Exits 0 on success, 1 on any failure.
- *
- * Usage:
- *   bun scripts/verify-nova-plugin.ts
+ * Covers the framework lifecycle, auth claims, immediate topic/group calls,
+ * hardened option forwarding, binary inbound dispatch, and broadcast output.
+ * Usage: bun scripts/verify-nova-plugin.ts
  */
 
 import { createApp, novaAuthFromHook, novaPlugin } from "@ignex/core";
 import { createClient } from "@ignex/nova/client";
 
-const PORT = 4012;
-
-// Keep a direct handle on the plugin so the running server can be reached
-// after init() (the app itself does not expose its plugin instances).
 const nova = novaPlugin({
-  port: PORT,
+  port: 0,
   path: "/ws",
   inbound: ["quote"],
-  // Simple test identity: any request carrying ?token=t1 passes as u-1.
+  maxConnections: 8,
+  maxMessageSize: 64 * 1024,
+  maxRpcInFlight: 8,
+  rateLimit: { messagesPerSecond: 1000, burst: 100 },
+  resume: { historySize: 64, ttlMs: 5000 },
+  authorizeTopic: (topic) => topic === "prices",
+  authorizeGroup: (group) => group === "testers" || group === "immediate-group",
   authenticate: novaAuthFromHook((async (ctx: {
     req?: Request;
     state?: Record<string, unknown>;
@@ -47,11 +42,6 @@ const app = createApp({
   handler: () => new Response("ok"),
 });
 
-const fail = (message: string): never => {
-  console.error("FAIL:", message);
-  process.exit(1);
-};
-
 const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     p,
@@ -60,20 +50,26 @@ const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
     ),
   ]);
 
+const waitUntil = async (predicate: () => boolean, label: string): Promise<void> => {
+  const deadline = Date.now() + 5000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
+    await Bun.sleep(10);
+  }
+};
+
 try {
   await app.init();
   const server = nova.server;
-  if (!server) fail("novaPlugin did not expose a server after init");
-  // The plugin's `server` is the real nova IgnServer; `on` registers an
-  // inbound handler for the client's allowed event.
+  if (server === null) throw new Error("novaPlugin did not expose a server after init");
   const real = server as unknown as {
     on(name: string, handler: (payload: unknown) => void): void;
     publish(name: string, payload: unknown): void;
+    topics(): string[];
+    groupMembers(group: string): string[];
   };
-  console.log(`[verify-nova] nova server up on ws://localhost:${PORT}/ws`);
+  console.log(`[verify-nova] nova server up on ws://localhost:${server.port}/ws`);
 
-  // Echo a broadcast `trade` back whenever a `quote` arrives — this proves the
-  // server decoded the binary inbound frame and routed it to the handler.
   real.on("quote", () => {
     real.publish("trade", {
       symbol: "AAPL",
@@ -84,7 +80,7 @@ try {
     });
   });
 
-  const client = createClient(`ws://localhost:${PORT}/ws?token=t1`);
+  const client = createClient(`ws://localhost:${server.port}/ws?token=t1`);
   const receivedTrade = new Promise<void>((resolve) => {
     client.on("trade", () => resolve());
   });
@@ -94,8 +90,18 @@ try {
       if (status === "disconnected" || status === "closed") reject(new Error(`client ${status}`));
     });
   });
+
+  // These calls intentionally happen before the socket opens. Nova must retain
+  // desired membership and apply it from its onopen handler.
   client.connect();
+  client.subscribe("prices");
+  client.joinGroup("immediate-group");
   await withTimeout(opened, 5000, "client connect");
+  await waitUntil(() => real.topics().includes("prices"), "immediate topic subscription");
+  await waitUntil(
+    () => real.groupMembers("immediate-group").includes(client.clientId),
+    "immediate group membership",
+  );
 
   client.send("quote", {
     symbol: "AAPL",
@@ -107,9 +113,8 @@ try {
   });
 
   await withTimeout(receivedTrade, 5000, "server echo trade");
-  console.log("[verify-nova] received the server's broadcast trade — OK");
+  console.log("[verify-nova] immediate membership + binary echo — OK");
   client.close();
-
   await app.stop({ stopDeadlineMs: 2000 });
   console.log("[verify-nova] OK — real @ignex/nova integration verified.");
   process.exit(0);

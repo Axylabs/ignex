@@ -81,11 +81,8 @@ export const AppShell = (props: AppShellProps): JSX.Element => {
       toggleTheme();
       return;
     }
-    const idx = "1234567890".indexOf(ev.key);
-    if (idx >= 0 && idx < VIEWS.length) {
-      const view = VIEWS[idx];
-      if (view !== undefined) navigate(view.id);
-    }
+    const view = VIEWS.find((candidate) => candidate.key === ev.key);
+    if (view !== undefined) navigate(view.id);
   };
   document.addEventListener("keydown", onKeydown);
 

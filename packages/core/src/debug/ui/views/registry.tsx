@@ -19,6 +19,7 @@ import { KtView } from "./kt";
 import { LogDetailView } from "./log-detail";
 import { LogsView } from "./logs";
 import { MetricsView } from "./metrics";
+import { OverviewView } from "./overview";
 import { RequestDetailView } from "./request-detail";
 import { ErrorsView, RequestsView } from "./requests";
 import { RoutesView } from "./routes";
@@ -41,16 +42,17 @@ export interface ViewDef {
 
 /** All dashboard panels in display order. */
 export const VIEWS: ViewDef[] = [
-  { id: "requests", label: "Requests", key: "1", domain: "traces", component: RequestsView },
-  { id: "errors", label: "Errors", key: "2", domain: "traces", component: ErrorsView },
-  { id: "logs", label: "Logs", key: "3", domain: "logs", component: LogsView },
-  { id: "history", label: "History", key: "4", domain: null, component: HistoryView },
-  { id: "metrics", label: "Metrics", key: "5", domain: "metrics", component: MetricsView },
-  { id: "diagnostics", label: "Diagnostics", key: "6", domain: null, component: DiagnosticsView },
-  { id: "system", label: "System", key: "7", domain: "system", component: SystemView },
-  { id: "state", label: "State", key: "8", domain: null, component: StateView },
-  { id: "jobs", label: "Jobs", key: "9", domain: null, component: JobsView },
-  { id: "events", label: "Events", key: "0", domain: "events", component: EventsView },
+  { id: "overview", label: "Overview", key: "1", domain: "traces", component: OverviewView },
+  { id: "requests", label: "Requests", key: "2", domain: "traces", component: RequestsView },
+  { id: "errors", label: "Errors", key: "3", domain: "traces", component: ErrorsView },
+  { id: "logs", label: "Logs", key: "4", domain: "logs", component: LogsView },
+  { id: "history", label: "History", key: "5", domain: null, component: HistoryView },
+  { id: "metrics", label: "Metrics", key: "6", domain: "metrics", component: MetricsView },
+  { id: "diagnostics", label: "Diagnostics", key: "7", domain: null, component: DiagnosticsView },
+  { id: "system", label: "System", key: "8", domain: "system", component: SystemView },
+  { id: "state", label: "State", key: "9", domain: null, component: StateView },
+  { id: "jobs", label: "Jobs", key: "0", domain: null, component: JobsView },
+  { id: "events", label: "Events", key: "", domain: "events", component: EventsView },
   { id: "routes", label: "Routes", key: "", domain: null, component: RoutesView },
   { id: "clients", label: "Clients", key: "", domain: null, component: ClientsView },
   { id: "ai", label: "AI", key: "", domain: null, component: AiView },

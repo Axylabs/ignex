@@ -18,7 +18,7 @@ Public surface = `src/index.ts` barrel + documented subpaths
 | `application/` | `defineUseCase` (typed higher-order dependency binding; no ambient/request state) |
 | `security/` | `auth` (requireAuth/optionalAuth/JWT/basic/bearer), `session` (signed-cookie + store), `csrf` (double-submit), `crypto` (JWT / cookie signer / CSRF / password hash / AEAD) |
 | `http/` | `context` (`IgnexContext` + `createContext`), `cookies`, `headers`, `request-id`, `body` (lazy parsing), `proxy`, `files` (`sendFile`/`safeJoin`), `sse`, `ws`, `route` (schema-first `get`/`post`/… — `@ignex/core/http`), `conditional`, `finalize` |
-| `data/` | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
+| `data/` | `cache` (HTTP cache + `ctx.cache`), `dataloader` (`ctx.loader`; `adaptive` enables sampled, bounded batch sizing and `stats` exposes runtime counters), `lru`, `query`, `schema` (Ajv + Standard Schema), `validation` |
 | `lifecycle/` | `lifecycle` (`createApp` + `runLifecycle`), `hooks` (engine + halt semantics + `mergeLifeCycle`), `plugin` (+ `hookToPlugin`) |
 | `platform/` | `env` (typed accessors), `config` (`defineConfig` — `@ignex/core/config`), `coerce`, `jobs` (durable + store), `errors` (`HTTPError` family), `sqlite`, `metrics`, `mailer`, `notifier`, `scheduler` |
 | `content/` | `i18n` (locale negotiation), `template` (Jinja-subset + layouts) |

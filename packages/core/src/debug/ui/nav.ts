@@ -1,5 +1,5 @@
 /**
- * @fileoverview Grouped-navigation model — the debugbar sidebar's four labelled
+ * @fileoverview Grouped-navigation model — the debugbar sidebar's five labelled
  * sections and the per-view icon mapping. Pure data plus one filter, so the
  * shell and the command palette render the same grouping the view registry
  * declares instead of duplicating it.
@@ -22,6 +22,7 @@ export interface NavGroup {
  * appears in exactly one group (`routes` belongs to Observe, after `history`).
  */
 const GROUP_ORDER: readonly { id: string; label: string | null; ids: readonly string[] }[] = [
+  { id: "application", label: "Application", ids: ["overview"] },
   { id: "observe", label: "Observe", ids: ["requests", "errors", "logs", "history", "routes"] },
   { id: "runtime", label: "Runtime", ids: ["metrics", "system", "diagnostics", "state", "jobs"] },
   { id: "integrations", label: "Integrations", ids: ["events", "clients"] },
@@ -49,8 +50,9 @@ export const navGroups = (views: ViewDef[]): NavGroup[] => {
 /** The sidebar grouping of the real view registry. */
 export const NAV_GROUPS: NavGroup[] = navGroups(VIEWS);
 
-/** Icon per view id (all 15 registry views). */
+/** Icon per view id (all 16 registry views). */
 const VIEW_ICONS: Record<string, IconName> = {
+  overview: "activity",
   requests: "list",
   errors: "alert",
   logs: "terminal",

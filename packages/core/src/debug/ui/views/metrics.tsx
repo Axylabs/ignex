@@ -32,8 +32,15 @@ export const MetricsView: Component = () => {
   };
 
   const baseline = baselineFrom(lastRevision());
+  let mounted = false;
   createEffect((): void => {
-    if (domainMoved(baseline, "metrics", currentPulse().rev)) load();
+    const pulse = currentPulse();
+    if (!mounted) {
+      mounted = true;
+      load();
+      return;
+    }
+    if (domainMoved(baseline, "metrics", pulse.rev)) load();
   });
 
   const promUrl = `${window.location.origin}${BASE.replace(/\/$/, "")}/api/metrics/prometheus`;

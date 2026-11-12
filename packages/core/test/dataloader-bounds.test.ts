@@ -69,4 +69,22 @@ describe("dataloader cache bounds", () => {
     await Promise.all(Array.from({ length: 50 }, (_, k) => dl.load(k)));
     expect(calls()).toBe(afterLoad);
   });
+
+  it("applies the same oldest-eviction bound to cached errors", async () => {
+    let batches = 0;
+    const dl = createDataLoader<number, number>(
+      async (keys) => {
+        batches++;
+        return keys.map((key) => new Error(`missing ${key}`));
+      },
+      { max: 2, cacheErrors: true },
+    );
+
+    await Promise.allSettled([dl.load(1), dl.load(2), dl.load(3)]);
+    expect(batches).toBe(1);
+    await Promise.allSettled([dl.load(2), dl.load(3)]);
+    expect(batches).toBe(1);
+    await expect(dl.load(1)).rejects.toThrow("missing 1");
+    expect(batches).toBe(2);
+  });
 });

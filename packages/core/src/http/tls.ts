@@ -72,6 +72,8 @@ export interface ServerConfig extends ServerProtocolConfig {
   maxRequestBodySize?: number;
   /** HTTP keep-alive idle timeout in seconds (default 10; `0` disables). */
   idleTimeout?: number;
+  /** Wall-clock cap per AOT route handler in milliseconds (`0`/unset disables). */
+  handlerTimeoutMs?: number;
   /** Static response headers applied to every response via Bun's default-header sink. */
   headers?: Readonly<Record<string, string>>;
   /** Server-level websocket handler config (when no route overrides it). */

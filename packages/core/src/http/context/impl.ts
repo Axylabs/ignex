@@ -198,12 +198,10 @@ export class IgnexContextImpl<P = Record<string, string>>
 
   get query(): URLSearchParams {
     if (this._query === undefined) {
-      // Parse the query substring ONCE. `createQueryParams` uses the native
-      // pairs parse + `NativeQueryParams` when the addon is loaded (~4× faster
-      // than URLSearchParams on a 20-parameter query, same read contract) and
-      // falls back to `new URLSearchParams(substring)` otherwise — itself an
-      // optimization over `new URL(url).searchParams` (~1.15×, no full URL
-      // object parse; HTTP request URLs carry no `#` fragment).
+      // Parse the query substring ONCE. `createQueryParams` wraps the shared
+      // pairs parser in `NativeQueryParams` in both native and fallback modes,
+      // preserving one read contract and avoiding a full URL object parse.
+      // HTTP request URLs carry no `#` fragment.
       const url = this.req.url;
       const q = url.indexOf("?");
       this._query = q === -1 ? new URLSearchParams() : createQueryParams(url.slice(q + 1));

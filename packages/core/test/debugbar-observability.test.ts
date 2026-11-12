@@ -218,3 +218,45 @@ describe("observatory endpoints", () => {
     }
   });
 });
+
+describe("application overview endpoint", () => {
+  it("combines health, query findings and AI-summary insights", async () => {
+    const app = appWith({ persist: false }, async (ctx) => {
+      if (ctx.url.pathname === "/bad") return ctx.json({ no: true }, { status: 500 });
+      for (let i = 0; i < 3; i++) {
+        await ctx.debug.query("SELECT * FROM users WHERE id = ?", [i], () => [{ id: i }]);
+      }
+      return ctx.json({ ok: true });
+    });
+    await run(app, "/users");
+    await run(app, "/bad");
+
+    const res = await run(app, "/__debugbar/api/overview");
+    expect(res.status).toBe(200);
+    const overview = (await res.json()) as {
+      verdict: string;
+      summary: { requests: number; failures: number; dbQueries: number };
+      findings: Array<{ id: string; link?: { view: string } }>;
+      slowRoutes: unknown[];
+      coverage: { requestsWithDb: number };
+    };
+    expect(overview.summary).toMatchObject({ requests: 2, failures: 1, dbQueries: 3 });
+    expect(overview.findings.map((finding) => finding.id)).toContain("request-failures");
+    expect(overview.findings.some((finding) => finding.id.startsWith("repeated-query:"))).toBe(
+      true,
+    );
+    expect(overview.coverage.requestsWithDb).toBe(1);
+
+    const summary = (await (await run(app, "/__debugbar/api/ai/summary")).json()) as {
+      insights: Array<{ id: string; recommendation: string }>;
+    };
+    expect(summary.insights.map((finding) => finding.id)).toContain("request-failures");
+    expect(summary.insights[0]?.recommendation).toBeTruthy();
+  });
+
+  it("uses POST-only semantics for destructive clear controls", async () => {
+    const app = appWith({ persist: false });
+    expect((await run(app, "/__debugbar/api/requests/clear")).status).toBe(405);
+    expect((await run(app, "/__debugbar/api/logs/clear")).status).toBe(405);
+  });
+});

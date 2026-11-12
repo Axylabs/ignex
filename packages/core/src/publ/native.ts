@@ -10,9 +10,14 @@
 // by the `SELECTION` table in @ignex/native. `SELECTION` is read-only data —
 // treat it as a snapshot, not something to mutate.
 export {
+  type AdaptiveExecutionChoice,
+  type AdaptiveExecutionOptions,
+  type AdaptiveExecutionSnapshot,
+  type AdaptiveExecutor,
   backend,
   backendName,
   clearNativeSchemaCache,
+  createAdaptiveExecutor,
   createExecutionBackend,
   createNativeRoute,
   createTaskRuntime,

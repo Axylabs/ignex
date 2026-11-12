@@ -18,20 +18,20 @@ scrollbars, `focus-visible` rings and a `prefers-reduced-motion` guard. The
 design system behind it — tokens, components, accessibility bar — is documented
 in [UI design system](#ui-design-system-contributors).
 
-- **Sidebar** — a brand block (`name@version · environment`) over four labelled
-  groups: **Observe** (Requests, Errors, Logs, History, Routes), **Runtime**
-  (Metrics, System, Diagnostics, State, Jobs), **Integrations** (Events,
-  Clients) and **Reference** (KT, Docs, AI). Each item is an inline-SVG icon +
-  label with `aria-current="page"` when active (and a live error count on
-  Errors). It collapses to a 56px icon rail at ≤1100px and an off-canvas drawer
-  at ≤760px; the preference persists in `localStorage`.
+- **Sidebar** — a brand block (`name@version · environment`) over five labelled
+  groups: **Application** (Overview), **Observe** (Requests, Errors, Logs,
+  History, Routes), **Runtime** (Metrics, System, Diagnostics, State, Jobs),
+  **Integrations** (Events, Clients) and **Reference** (KT, Docs, AI). Each item
+  is an inline-SVG icon + label with `aria-current="page"` when active (and a
+  live error count on Errors). It collapses to a 56px icon rail at ≤1100px and
+  an off-canvas drawer at ≤760px; the preference persists in `localStorage`.
 - **Context bar** — a `service / View` breadcrumb plus the global controls:
   live-tail pause/resume, refresh, theme and the command-palette trigger.
   Per-view actions live in the view's own header, never here.
 - **Per-view header** — every view opens with a header: a title (`h1`), a
   one-line description, and — where the view has them — its own actions
   (pause/refresh/clear, copy, filters).
-- **Command palette** — `Cmd`/`Ctrl-K` opens a fuzzy palette over the 15 views
+- **Command palette** — `Cmd`/`Ctrl-K` opens a fuzzy palette over the 16 views
   plus quick actions (refresh, pause/resume live, toggle theme, open a view);
   arrow keys / `Enter` / `Esc`, with focus trapped and restored on close.
 - **Status bar** — native-addon availability, the trace ring-buffer size, and
@@ -39,6 +39,11 @@ in [UI design system](#ui-design-system-contributors).
 - **Keyboard shortcuts** — `0`–`9` switch views, `/` focuses the search box,
   `r` refreshes the current view, `t` toggles the theme, `⌘K` opens the
   palette, `Esc` clears/blurs.
+- **Overview** — the standard landing page and application control panel:
+  retained-window health, active requests, p95 latency, DB volume and uptime;
+  prioritized findings with measured evidence, a concrete fix and a drill-down;
+  recent failures, slowest routes, instrumentation coverage and shortcuts to
+  routes, jobs, state, diagnostics/GC and event probes.
 - **Requests** — stat cards (window count, errors, 4xx, 5xx, avg ms), a filter
   toolbar (search, method, status family — applied **server-side** via the
   `/api/requests` `q`/`method`/`status` params), and rows with color-coded
@@ -109,6 +114,30 @@ in [UI design system](#ui-design-system-contributors).
 | **KT — knowledge transfer** | A generated "how this app works" page for new developers: the **project map** ("where things live" — routes/models/middleware/hooks/views/config/lib/database probed on disk, with the route-file conventions), the repo's **documentation inventory** (every markdown doc with its title), the real route map (from the compiled `manifest.json` or the router) with per-route usage, registered plugins, lifecycle stages, the **DB activity actually observed** across retained requests (normalized statements + call counts + total time + the routes that ran them), span kinds, published SDK metadata, environment and runtime info. |
 | **Docs panel** | The repo's markdown docs rendered in the dashboard — enter the framework docs without leaving the debugbar; cross-links from the KT page. |
 | **Function-call graph** | Each request detail shows the span tree (parent/child call graph) plus the waterfall, so you can see exactly what called what, when, and for how long. |
+| **Application overview + insights** | The landing page turns existing traces, metrics, logs and diagnostics into prioritized findings. Each carries measured evidence, a concrete recommendation and a direct link to the failing request, query list, logs, metrics or runtime controls. Coverage counters show when missing instrumentation—not healthy behavior—might explain an empty panel. |
+
+## Insight rules
+
+Overview analyzes the **current retained trace ring** plus the runtime analyzer's
+sample window; it is a development aid, not a durable alert history. Minimum
+sample gates prevent one warm-up request from becoming an alarm. Findings are
+sorted critical → warning → info and capped at 20.
+
+| Rule | Detection | Severity |
+| --- | --- | --- |
+| Request failures | Any thrown error or 5xx; latest failure links to its Error tab | Warning; critical at ≥3 failures and ≥10% of the window |
+| Client-error spike | ≥5 4xx responses, ≥20% of a window with ≥10 requests | Warning |
+| Slow request window | Retained-request p95 ≥1 s with ≥3 requests | Warning; critical ≥3 s |
+| Slow route tail | Route histogram p95 ≥500 ms with ≥3 observations | Warning; critical ≥2 s |
+| Repeated query / N+1 | Same normalized top-level DB span ≥3 times in one request | Warning; critical ≥10 repetitions |
+| Slow query | Top-level DB span ≥250 ms | Warning; critical ≥2 s |
+| Error logs | One or more error records in the live log ring | Warning; opens Logs for caught as well as uncaught failures |
+| Runtime trends | Existing heap/RSS, event-loop and in-flight request diagnostics | Preserves the diagnostic's info/warning/critical severity |
+| History persistence | SQLite reports an active persistence error | Warning; live tracing continues |
+
+Repeated-query detection ignores DB spans nested under another DB span, so an
+ORM operation and its driver wire round-trip are not double-counted. Query
+parameters are not needed for detection and are not copied into finding evidence.
 
 ## Enabling
 
@@ -160,14 +189,17 @@ accept the `x-debugbar-token` header or the path-scoped HttpOnly
 handshake: the token is validated in constant time, an HttpOnly cookie is set
 (scoped to the dashboard mount), and the request redirects to the token-less
 path — so the token does not persist in per-request URLs, access logs, or
-referrers.
+referrers. The cookie also carries `Secure` on HTTPS. The shared endpoint table
+enforces the same gate in AOT and interpreted-router modes, including SSE ticket
+minting; only static assets and the ticket-consuming stream use their documented
+public/ticket mechanisms.
 
 The dashboard is served at `http://localhost:<port>/__debugbar/` (the bare
 mount redirects there). When the debugbar is active, its URL is **logged to
 the console at boot**:
 
 ```
-[ignex] debugbar: https://localhost:3000/__debugbar/ — waterfall + replay, logs, metrics (Prometheus), leak diagnostics, SQLite history, NATS events, KT docs (debug mode)
+[ignex] debugbar: https://localhost:3000/__debugbar/ — overview + actionable insights, waterfall + replay, logs, metrics (Prometheus), leak diagnostics, SQLite history, NATS events, KT docs (debug mode)
 ```
 
 If the actual serving URL differs from the boot hint (custom hostname,
@@ -256,7 +288,7 @@ Verify it yourself: build with `NODE_ENV=production`, boot, and `GET
 debugbar({
   path: "/__debugbar",        // mount path
   maxTraces: 500,             // in-memory ring buffer size
-  captureBody: false,         // capture request bodies (needed to replay POSTs)
+  captureBody: true,          // request + textual response bodies, capped at 256 KiB each
   systemSampleMs: 1000,       // CPU/memory sampling interval (0 = off)
   token: "secret",            // require x-debugbar-token header / __debugbar_token cookie
   serviceName: "my-api",      // shown in the dashboard + KT page
@@ -703,7 +735,7 @@ Tools (the dashboard's **AI** view shows this config + the tool list):
 
 | Tool | What the agent gets |
 | --- | --- |
-| `debug-summary` | **one compact JSON** — recent errors **with their fault classification** (code, origin, kind, service, retryable, innermost cause, hints) and a fault-code histogram, slow traces, event stats, clients **plus the observatory block** (leak verdict, recent warnings, persistence state). The token-efficient entry point. |
+| `debug-summary` | **one compact JSON** — the five highest-priority actionable insights (category, severity and recommendation), recent errors **with their fault classification** (code, origin, kind, service, retryable, innermost cause, hints) and a fault-code histogram, slow traces, event stats, clients **plus the observatory block** (leak verdict, recent warnings, persistence state). The token-efficient entry point. |
 | `debug-requests` | recent traces, server-side filtered (`error`, `q`, `method`, `status`, `limit`); `q` also matches the fault code |
 | `debug-request` | full trace: span tree, waterfall timings, queries, redacted headers, stack |
 | `debug-replay` | re-issue a stored request through the live server |
@@ -777,14 +809,17 @@ modules under `packages/core/src/`:
   handshake.
 - `debug/server/assets.ts` — precomputed HTML shell (strict CSP:
   `default-src 'none'`, same-origin script/style/connect only) and the bundled
-  SPA with content-hash ETags (304 revalidation instead of re-sending ~95 KiB).
+  SPA with content-hash ETags (304 revalidation avoids re-sending unchanged assets).
 - `debug/server/endpoints.ts` — ONE declarative endpoint table that drives
-  both serving modes: O(segments) matching for AOT interception and automatic
-  router registration for interpreted apps (no hand-maintained duplicate).
+  both serving modes: O(segments) matching for AOT interception, automatic
+  router registration for interpreted apps and the same per-endpoint token gate
+  in both (no hand-maintained duplicate or auth drift).
 - `debug/server/handlers/data-panels.ts` — requests/history/logs/metrics/
   system/diagnostics handlers (limit clamping, method guards).
 - `debug/server/handlers/app-panels.ts` — KT/SDKs/clients/jobs/routes/events/
-  nova/AI-summary handlers.
+  nova handlers; `handlers/ai-summary.ts` composes the AI snapshot.
+- `debug/insights.ts` + `handlers/overview.ts` — the pure finding rules and the
+  application-health endpoint; the AI summary reuses the same findings.
 - `debug/docs.ts` — the Docs panel read path: `listDocs` (uncapped inventory)
   and `readDoc`, which reads ONLY paths present in the scanned inventory (no
   traversal, no absolute paths, no unlisted files) and renders them through the
@@ -795,17 +830,17 @@ modules under `packages/core/src/`:
 - `debug/ui/` — the SPA source (SolidJS + Tailwind, compiled ahead of time).
   The design system it implements is documented in
   [UI design system](#ui-design-system-contributors):
-  - `ui/views/*` + `registry.tsx` — one small component per panel (requests,
-    detail, logs, history, metrics, diagnostics, system, state, jobs, routes,
-    events, clients, AI, KT, Docs) plus the single view registry that drives
-    deep-link routing (#/requests/:id/:tab — links survive refresh, the back
-    button works), the sidebar, keyboard shortcuts and live-refresh domains.
+  - `ui/views/*` + `registry.tsx` — one small component per panel (overview,
+    requests, detail, logs, history, metrics, diagnostics, system, state, jobs,
+    routes, events, clients, AI, KT, Docs) plus the single view registry that
+    drives deep-link routing (#/requests/:id/:tab — links survive refresh, the
+    back button works), the sidebar, keyboard shortcuts and live-refresh domains.
     Solid's fine-grained reactivity means a new trace row appears by inserting
     one `<tr>`, not re-rendering the table's innerHTML; keyed lists preserve
     row DOM across stream bumps.
   - `ui/layout/*` — the shell composition root (`shell.tsx`: skip link, SSE
     stream, global shortcuts, status bar), the grouped collapsible sidebar,
-    the context bar and the command palette, with `nav.ts` deriving the four
+    the context bar and the command palette, with `nav.ts` deriving the five
     sidebar groups from the registry.
   - `ui/components/*` — the primitives every view composes from
     (`PageHeader`/`Toolbar`, `Card`/`CardGrid`/`Callout`/`Disclosure`,
@@ -833,9 +868,9 @@ modules under `packages/core/src/`:
   source-only; CI verifies freshness via `bun run check:debug-ui`. Edit `ui/`,
   then run `bun run gen:debug-ui`.
 - `debug/tracer.ts` / `store.ts` / `system.ts` / `logs.ts` / `metrics.ts` /
-  `persist.ts` / `leaks.ts` / `state.ts` / `kt.ts` — unchanged runtime core;
-  the store/log/NATS classes now accept an optional `onNotify` hook that feeds
-  the revision counters.
+  `persist.ts` / `leaks.ts` / `state.ts` / `kt.ts` — collectors and analysis;
+  the store/log/NATS classes accept an optional `onNotify` hook that feeds the
+  revision counters.
 
 ## UI design system (contributors)
 
@@ -850,7 +885,7 @@ committed `packages/core/src/debug/dashboard-client.gen.ts` by
 `scripts/gen-debug-ui.ts` — no runtime build step, and the artifact is checked
 for freshness by `bun run check:debug-ui`.
 
-The design system exists so that 15 views plus two detail surfaces read as one
+The design system exists so that 16 views plus two detail surfaces read as one
 product and cannot drift: every color, type size, radius and surface is a token;
 every repeated pattern is a component; the remaining unbounded values are only
 layout dimensions. Three rules keep it honest:
@@ -946,7 +981,7 @@ Layout (`ui/layout/`):
 | `Sidebar` | Grouped, collapsible nav (`full` / 56px `rail` / off-canvas `drawer`) rendered from `NAV_GROUPS`. |
 | `NavItem` | One sidebar link: icon + label + optional live badge, `aria-current="page"` when active. |
 | `ContextBar` | Sticky `service / View` breadcrumb plus nav toggle and the global live-tail / refresh / theme / palette controls; per-view actions live in the view's `PageHeader`. |
-| `CommandPalette` | `Cmd`/`Ctrl-K` `role="dialog"` fuzzy palette over the 15 views plus quick actions; combobox-driven `listbox`, background `inert`, focus trapped and restored. |
+| `CommandPalette` | `Cmd`/`Ctrl-K` `role="dialog"` fuzzy palette over the 16 views plus quick actions; combobox-driven `listbox`, background `inert`, focus trapped and restored. |
 
 Primitives (`ui/components/`):
 
@@ -1052,11 +1087,12 @@ All under `{path}` (default `/__debugbar`):
 | --- | --- |
 | `GET /` | dashboard shell (redirects from the bare mount) |
 | `GET /app.js` | dashboard app (static asset, no token required) |
+| `GET /api/overview` | application health, coverage, recent failures, slow routes and prioritized actionable findings |
 | `GET /api/meta` | service name/version/env/debug mode |
-| `GET /api/requests?limit=&error=&q=&method=&status=&code=` | trace summaries (newest first, server-side filters; `code` = exact fault code) |
+| `GET /api/requests?limit=&error=&q=&method=&status=&code=` | trace summaries (newest first, server-side filters; `code` = exact fault code; `error=1` includes thrown errors and 5xx) |
 | `GET /api/requests/:id` | full trace + its classified `fault` (waterfall data, headers redacted) |
 | `POST /api/requests/:id/replay` | replay the request, return the fresh result |
-| `GET /api/requests/clear` | clear the store |
+| `POST /api/requests/clear` | clear the store |
 | `GET /api/system` | system samples + request totals |
 | `GET /api/logs?level=&q=&traceId=&since=&until=&limit=&persisted=` | structured log records + per-level stats |
 | `GET /api/logs/:id` | one full log record (message, attrs, request correlation) |
@@ -1078,8 +1114,8 @@ All under `{path}` (default `/__debugbar`):
 | `GET /api/nova/events?limit=&direction=&name=` | raw nova transport trace (sent/received rows) |
 | `POST /api/nova/events/clear` | drop the nova trace ring rows |
 | `POST /api/nova/events/emit` | fire a realtime event manually `{ name, payload?, target? }` (`target` = `user:u-42` / `group:` / `topic:` / `client:`, blank = broadcast) |
-| `GET /api/ai/summary` | compact AI-facing snapshot (recent errors **classified** with code/origin/kind/cause/hints + a fault-code histogram, slow traces, events, clients, observatory verdict) |
-| `POST /api/stream/ticket` | mint a single-use, short-TTL ticket authorizing one stream connection |
+| `GET /api/ai/summary` | compact AI-facing snapshot (top actionable insights, classified recent errors + fault-code histogram, slow traces, events, clients, observatory verdict) |
+| `POST /api/stream/ticket` | mint a single-use, short-TTL ticket authorizing one stream connection (normal token gate applies) |
 | `GET /api/stream?ticket=` | Server-Sent-Events revision stream (per-domain mutation counters; falls back to polling when unavailable) |
 
 ### Live updates
@@ -1095,10 +1131,10 @@ tearing down the connection.
 
 ### Deep links
 
-Every panel has a URL: `#/requests`, `#/errors`, `#/requests/<id>/<tab>`
-(waterfall/queries/headers/body/error/replay), `#/logs/<id>`, `#/history`,
-`#/metrics`, `#/diagnostics`, `#/system`, `#/state`, `#/jobs`, `#/routes`,
-`#/events`, `#/clients`, `#/ai`, `#/kt`, `#/docs`,
+Every panel has a URL: `#/overview` (the default), `#/requests`, `#/errors`,
+`#/requests/<id>/<tab>` (waterfall/queries/headers/body/error/replay),
+`#/logs/<id>`, `#/history`, `#/metrics`, `#/diagnostics`, `#/system`, `#/state`,
+`#/jobs`, `#/routes`, `#/events`, `#/clients`, `#/ai`, `#/kt`, `#/docs`,
 `#/docs/<encodeURIComponent(path)>` (e.g. `#/docs/docs%2Frouter.md`). Detail
 links resolve live-ring traces first and persisted history second, so bookmarks
 keep working after restarts.

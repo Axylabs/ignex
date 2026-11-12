@@ -28,8 +28,9 @@ const v = (id: string) =>
   ({ id, label: id, key: "", domain: null, component: () => null }) as never;
 
 describe("navGroups", () => {
-  it("partitions known views into four ordered groups", () => {
+  it("partitions known views into five ordered groups", () => {
     const ids = [
+      "overview",
       "requests",
       "errors",
       "logs",
@@ -47,25 +48,31 @@ describe("navGroups", () => {
       "ai",
     ];
     const groups = navGroups(ids.map(v));
-    expect(groups.map((g) => g.label)).toEqual(["Observe", "Runtime", "Integrations", "Reference"]);
-    expect(groups[0]!.items.map((i) => i.id)).toEqual([
+    expect(groups.map((g) => g.label)).toEqual([
+      "Application",
+      "Observe",
+      "Runtime",
+      "Integrations",
+      "Reference",
+    ]);
+    expect(groups[0]!.items.map((i) => i.id)).toEqual(["overview"]);
+    expect(groups[1]!.items.map((i) => i.id)).toEqual([
       "requests",
       "errors",
       "logs",
       "history",
       "routes",
     ]);
-    expect(groups[1]!.items.map((i) => i.id)).toEqual([
+    expect(groups[2]!.items.map((i) => i.id)).toEqual([
       "metrics",
       "system",
       "diagnostics",
       "state",
       "jobs",
     ]);
-    expect(groups[2]!.items.map((i) => i.id)).toEqual(["events", "clients"]);
-    expect(groups[3]!.items.map((i) => i.id)).toEqual(["kt", "docs", "ai"]);
+    expect(groups[3]!.items.map((i) => i.id)).toEqual(["events", "clients"]);
+    expect(groups[4]!.items.map((i) => i.id)).toEqual(["kt", "docs", "ai"]);
 
-    // Every view present lands in exactly one group — the union is all 15.
     const grouped = groups.flatMap((g) => g.items.map((i) => i.id));
     expect(grouped).toHaveLength(ids.length);
     expect(new Set(grouped)).toEqual(new Set(ids));
@@ -91,14 +98,16 @@ describe("navGroups", () => {
 });
 
 describe("NAV_GROUPS", () => {
-  it("derives the four labelled groups from the registry, in order", () => {
+  it("derives the five labelled groups from the registry, in order", () => {
     expect(NAV_GROUPS.map((g) => g.id)).toEqual([
+      "application",
       "observe",
       "runtime",
       "integrations",
       "reference",
     ]);
     expect(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id))).toEqual([
+      "overview",
       "requests",
       "errors",
       "logs",
@@ -120,6 +129,7 @@ describe("NAV_GROUPS", () => {
 
 describe("iconForView", () => {
   it("maps each registry view id to its icon", () => {
+    expect(iconForView("overview")).toBe("activity");
     expect(iconForView("requests")).toBe("list");
     expect(iconForView("errors")).toBe("alert");
     expect(iconForView("logs")).toBe("terminal");

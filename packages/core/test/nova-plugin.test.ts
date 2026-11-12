@@ -247,3 +247,47 @@ describe("novaMissingError", () => {
 
 // Keep the unused import out of the unused-vars lint (documentation anchor).
 void (0 as unknown as IgnexPlugin);
+
+describe("novaPlugin complete option forwarding", () => {
+  it("forwards security, reliability, authorization, and RPC limits", async () => {
+    stubBun();
+    const createServer = vi.fn(() => fakeServer());
+    const authorizeTopic = () => true;
+    const authorizeGroup = () => false;
+    const topicLog = { append: vi.fn(), range: vi.fn(() => []) };
+    const fetch = vi.fn(() => new Response("custom"));
+    const plugin = novaPlugin({
+      port: 0,
+      events: false,
+      allowedOrigins: ["https://app.example"],
+      token: "secret",
+      rateLimit: { messagesPerSecond: 100, burst: 20, policy: "close" },
+      resume: { historySize: 128, ttlMs: 5000 },
+      topicLog,
+      authorizeTopic,
+      authorizeGroup,
+      int64Guard: "throw",
+      maxRpcInFlight: 16,
+      fetch,
+      loader: async () => ({ createServer }),
+    });
+    const app = createApp({ plugins: [plugin], handler: () => new Response("ok") });
+    await app.init();
+    await flush();
+    const opts = createServer.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts).toMatchObject({
+      events: false,
+      allowedOrigins: ["https://app.example"],
+      token: "secret",
+      rateLimit: { messagesPerSecond: 100, burst: 20, policy: "close" },
+      resume: { historySize: 128, ttlMs: 5000 },
+      topicLog,
+      authorizeTopic,
+      authorizeGroup,
+      int64Guard: "throw",
+      maxRpcInFlight: 16,
+      fetch,
+    });
+    await app.stop({ stopDeadlineMs: 100 });
+  });
+});

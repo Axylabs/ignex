@@ -17,6 +17,7 @@
  * export const plugins = [metricsPlugin({ path: "/metrics", token: process.env.METRICS_TOKEN })];
  * ```
  */
+import { timingSafeEqual } from "node:crypto";
 import type { IgnexContext } from "../http/context";
 import type { IgnexRouter } from "../http/router";
 import type { IgnexPlugin } from "../lifecycle/plugin";
@@ -41,6 +42,7 @@ export const metricsPlugin = (
   const metrics = options.metrics ?? createMetrics();
   const path = options.path ?? "/metrics";
   const token = options.token;
+  const expectedAuthorization = token === undefined ? null : Buffer.from(`Bearer ${token}`);
 
   // NOTE: one metric NAME must have ONE label shape (Prometheus data model).
   // The registry enforces this strictly, so the per-request counters carry
@@ -50,9 +52,12 @@ export const metricsPlugin = (
   // pre-declaration so /metrics stays free of zero-filled placeholder series.
 
   const authorized = (req: Request): boolean => {
-    if (token === undefined) return true;
-    const auth = req.headers.get("authorization") ?? "";
-    return auth === `Bearer ${token}`;
+    if (expectedAuthorization === null) return true;
+    const supplied = Buffer.from(req.headers.get("authorization") ?? "");
+    return (
+      supplied.length === expectedAuthorization.length &&
+      timingSafeEqual(supplied, expectedAuthorization)
+    );
   };
 
   return {

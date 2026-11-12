@@ -10,6 +10,12 @@
  * Exposed "by default" on every request context as `ctx.loader(...)`.
  */
 import { identity } from "@ignex/shared";
+import {
+  type AdaptiveDataLoaderOptions,
+  createAdaptiveBatchController,
+} from "./dataloader-adaptive";
+
+export type { AdaptiveDataLoaderOptions } from "./dataloader-adaptive";
 
 /** The batch function: maps a batch of keys to one value per key. */
 export type BatchLoadFn<Key, Value> = (keys: readonly Key[]) => Promise<readonly Value[]>;
@@ -21,9 +27,9 @@ export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
   /** Cache instance, or `false` to disable caching. Default: `new Map()`. */
   cache?: Map<CacheKey, Value> | false;
   /**
-   * Bound the value cache (oldest-eviction) — a module-scope loader with
-   * high-cardinality keys otherwise leaks. Default 10 000 entries; `false`
-   * restores the unbounded `Map` semantics (per-request `ctx.loader` usage).
+   * Bound the value and per-key error caches (oldest-eviction) — a module-scope
+   * loader with high-cardinality keys otherwise leaks. Default 10 000 entries;
+   * `false` restores unbounded `Map` semantics (per-request `ctx.loader` usage).
    */
   max?: number | false;
   /** Map a key to a cache key. Default: identity. */
@@ -40,6 +46,29 @@ export interface DataLoaderOptions<Key, Value, CacheKey = Key> {
    * entry.
    */
   cacheErrors?: boolean;
+  /**
+   * Learn a bounded batch limit from sampled batch latency. `true` uses the
+   * defaults; an object tunes the controller. Default false (fixed batching).
+   */
+  adaptive?: boolean | AdaptiveDataLoaderOptions;
+}
+
+/** Counters and learned batching state for a DataLoader. */
+export interface DataLoaderStats {
+  /** Total `load` calls, including cache hits and duplicate keys. */
+  readonly items: number;
+  /** Batch-function invocations started, including in-flight and failed calls. */
+  readonly batches: number;
+  /** Loads resolved from the value or error cache. */
+  readonly cacheHits: number;
+  /** Unique keys waiting in the current undispatched batch. */
+  readonly pending: number;
+  /** Current fixed or learned batch-size limit. */
+  readonly batchSize: number;
+  /** EWMA batch duration in milliseconds; zero until adaptive sampling. */
+  readonly averageBatchMs: number;
+  /** Number of adaptive latency samples recorded. */
+  readonly samples: number;
 }
 
 /**
@@ -57,6 +86,8 @@ export interface DataLoader<Key, Value> {
   clear(key: Key): DataLoader<Key, Value>;
   /** Invalidate the entire cache. */
   clearAll(): DataLoader<Key, Value>;
+  /** Current batching counters and adaptive measurements. */
+  readonly stats: DataLoaderStats;
 }
 
 /** Factory shape assigned to `ctx.loader`. */
@@ -87,7 +118,6 @@ const batchError = (expected: number, got: number): Error =>
     `DataLoader batchLoadFn must return one value per key (expected ${expected}, got ${got}).`,
   );
 
-/**
 /** Default value-cache bound (see {@link DataLoaderOptions.max}). */
 export const DEFAULT_DATALOADER_MAX = 10_000;
 
@@ -107,17 +137,24 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   options: DataLoaderOptions<Key, Value, CacheKey> = {},
 ): DataLoader<Key, Value> => {
   const maxBatchSize = options.maxBatchSize ?? Number.POSITIVE_INFINITY;
+  const adaptive =
+    options.adaptive === undefined || options.adaptive === false
+      ? null
+      : createAdaptiveBatchController(options.adaptive, maxBatchSize);
   const max = options.max === undefined ? DEFAULT_DATALOADER_MAX : options.max;
   const cache = options.cache === false ? null : (options.cache ?? new Map<CacheKey, Value>());
-  // Oldest-eviction bound over the cache: a module-scope loader with
-  // high-cardinality keys previously grew without limit. Insertion-ordered
-  // `Map` makes oldest = first key; delete-then-set refreshes recency.
-  const evictOver = (limit: number): void => {
-    if (cache === null || limit === Number.POSITIVE_INFINITY) return;
-    while (cache.size > limit) {
-      const oldest = cache.keys().next();
+  let items = 0;
+  let batches = 0;
+  let cacheHits = 0;
+  // Oldest-eviction bound over both caches: module-scope loaders with
+  // high-cardinality values or failures must not grow without limit.
+  // Insertion-ordered `Map` makes oldest = first key.
+  const evictOver = <T>(target: Map<CacheKey, T>, limit: number): void => {
+    if (limit === Number.POSITIVE_INFINITY) return;
+    while (target.size > limit) {
+      const oldest = target.keys().next();
       if (oldest.done) break;
-      cache.delete(oldest.value);
+      target.delete(oldest.value);
     }
   };
   const cacheKeyFn = options.cacheKeyFn ?? (identity as (key: Key) => CacheKey);
@@ -143,18 +180,25 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
       // NOT cached. With `cacheErrors` we cache it so a repeat load rejects
       // from the error cache instead of re-batching (avoids hammering the
       // batch function for a permanently-failing key).
-      if (errorCache) errorCache.set(cacheKey, value);
+      if (errorCache) {
+        errorCache.set(cacheKey, value);
+        if (typeof max === "number") evictOver(errorCache, max);
+      }
       for (const subscriber of cb?.subscribers ?? []) subscriber.reject(value);
       return;
     }
-    cache?.set(cacheKey, value);
-    if (typeof max === "number") evictOver(max);
+    if (cache) {
+      cache.set(cacheKey, value);
+      if (typeof max === "number") evictOver(cache, max);
+    }
     for (const subscriber of cb?.subscribers ?? []) subscriber.resolve(value as Value);
   };
 
   const dispatch = async (batch: Batch<Key, Value, CacheKey>): Promise<void> => {
     batch.hasDispatched = true;
     if (batch.keys.length === 0) return;
+    batches++;
+    const started = adaptive?.start();
 
     let values: readonly Value[];
     try {
@@ -162,6 +206,10 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
     } catch (error) {
       rejectAll(batch, error);
       return;
+    } finally {
+      if (started !== null && started !== undefined) {
+        adaptive?.finish(started, batch.keys.length);
+      }
     }
 
     if (values.length !== batch.keys.length) {
@@ -175,7 +223,8 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   };
 
   const getCurrentBatch = (): Batch<Key, Value, CacheKey> => {
-    if (currentBatch && !currentBatch.hasDispatched && currentBatch.keys.length < maxBatchSize) {
+    const batchSize = adaptive?.batchSize ?? maxBatchSize;
+    if (currentBatch && !currentBatch.hasDispatched && currentBatch.keys.length < batchSize) {
       return currentBatch;
     }
 
@@ -193,18 +242,25 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   };
 
   const load = (key: Key): Promise<Value> => {
+    items++;
     const cacheKey = cacheKeyFn(key);
 
     if (errorCache) {
       const cachedErr = errorCache.get(cacheKey);
-      if (cachedErr) return Promise.reject(cachedErr);
+      if (cachedErr) {
+        cacheHits++;
+        return Promise.reject(cachedErr);
+      }
     }
 
     if (cache) {
       // `has()` distinguishes a legitimately-`undefined` cached value from a
       // miss, so a batch result that resolves to `undefined` is cached and not
       // re-fetched on subsequent loads.
-      if (cache.has(cacheKey)) return Promise.resolve(cache.get(cacheKey) as Value);
+      if (cache.has(cacheKey)) {
+        cacheHits++;
+        return Promise.resolve(cache.get(cacheKey) as Value);
+      }
     }
 
     const batch = getCurrentBatch();
@@ -234,10 +290,22 @@ export const createDataLoader = <Key, Value, CacheKey = Key>(
   const api: DataLoader<Key, Value> = {
     load,
     loadMany,
+    get stats() {
+      return {
+        items,
+        batches,
+        cacheHits,
+        pending:
+          currentBatch !== null && !currentBatch.hasDispatched ? currentBatch.keys.length : 0,
+        batchSize: adaptive?.batchSize ?? maxBatchSize,
+        averageBatchMs: adaptive?.averageBatchMs ?? 0,
+        samples: adaptive?.samples ?? 0,
+      };
+    },
     prime(key, value) {
       if (cache) {
         cache.set(cacheKeyFn(key), value);
-        if (typeof max === "number") evictOver(max);
+        if (typeof max === "number") evictOver(cache, max);
       }
       return api;
     },

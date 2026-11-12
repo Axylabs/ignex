@@ -8,6 +8,7 @@
  * by `./index`.
  */
 
+import type { Insight } from "./insights";
 import type { SpanKind } from "./trace";
 
 /** Shape of the plugin's captured app knowledge for the KT page. */
@@ -240,6 +241,10 @@ export interface AiDebugSummary {
    * Observatory addendum — leak verdict, recent warnings and persistence
    * state, so an agent can decide where to dig next without extra calls.
    */
+  /** Highest-priority actionable findings from the same engine as Overview. */
+  readonly insights?: Array<
+    Pick<Insight, "id" | "severity" | "category" | "title" | "recommendation">
+  >;
   readonly observatory?: {
     readonly verdict: "ok" | "warning" | "critical";
     readonly findings: Array<{

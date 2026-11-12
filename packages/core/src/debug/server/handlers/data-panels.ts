@@ -73,7 +73,7 @@ export const createRequestsHandler =
     );
   };
 
-/** `GET /api/requests/clear` — drop the live ring (POST semantics enforced upstream). */
+/** `POST /api/requests/clear` — drop the live ring. */
 export const createRequestsClearHandler = (deps: HandlerDeps) => (): Response => {
   deps.state.store.clear();
   return json({ ok: true, cleared: true });

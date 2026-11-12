@@ -89,9 +89,10 @@ describe("buildCommands", () => {
     togglePause: vi.fn(),
   });
 
-  it("builds 15 view commands in sidebar order", () => {
+  it("builds 16 view commands in sidebar order", () => {
     const views = buildCommands(deps()).filter((cmd) => cmd.group === "Views");
     expect(views.map((cmd) => cmd.label)).toEqual([
+      "Overview",
       "Requests",
       "Errors",
       "Logs",
@@ -122,7 +123,7 @@ describe("buildCommands", () => {
       "Open log by id",
       "Open doc by path",
     ]);
-    expect(cmds).toHaveLength(21);
+    expect(cmds).toHaveLength(22);
   });
 
   it("wires view and action commands to deps", () => {

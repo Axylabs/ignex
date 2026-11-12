@@ -1,6 +1,6 @@
 /**
  * @fileoverview Grouped sidebar navigation — the shell's primary nav. Renders
- * `NAV_GROUPS` into four labelled sections of icon + label links, highlights the
+ * `NAV_GROUPS` into five labelled sections of icon + label links, highlights the
  * active route with `aria-current="page"`, and shows an optional live badge
  * (the error count) on Errors. Presentation is driven by {@link NavMode}:
  * a 220px panel on wide screens, a 56px icon rail at ≤1100px, and an off-canvas

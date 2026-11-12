@@ -84,6 +84,32 @@ describe("metricsPlugin", () => {
     expect(out).toContain("ignex_http_requests_total");
     expect(out).toContain("ignex_http_request_duration_ms");
   });
+
+  it("requires the exact configured bearer token", async () => {
+    const { createRouter } = await import("@ignex/core");
+    const app = createApp({
+      plugins: [metricsPlugin({ token: "metrics-secret" })],
+      router: createRouter(),
+    });
+
+    expect((await app.handler(new Request("http://x/metrics"))).status).toBe(401);
+    expect(
+      (
+        await app.handler(
+          new Request("http://x/metrics", {
+            headers: { authorization: "Bearer metrics-secret-extra" },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    const authorized = await app.handler(
+      new Request("http://x/metrics", {
+        headers: { authorization: "Bearer metrics-secret" },
+      }),
+    );
+    expect(authorized.status).toBe(200);
+    expect(await authorized.text()).toContain("ignex_http_requests_total");
+  });
 });
 
 describe("createOtlpExporter", () => {

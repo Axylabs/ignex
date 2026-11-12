@@ -23,10 +23,12 @@ export {
 } from "../data/cache";
 export { etagWithEncoding, isCompressible, negotiateEncoding } from "../data/content-encoding";
 export type {
+  AdaptiveDataLoaderOptions,
   BatchLoadFn,
   DataLoader,
   DataLoaderFactory,
   DataLoaderOptions,
+  DataLoaderStats,
 } from "../data/dataloader";
 export { createDataLoader } from "../data/dataloader";
 export {

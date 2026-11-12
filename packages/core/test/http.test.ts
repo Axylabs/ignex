@@ -6,7 +6,9 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { queryPairs } from "@ignex/native";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createQueryParams } from "../src/data/query.js";
 import { isNotModified } from "../src/http/conditional.js";
 import {
   appendVary,
@@ -160,12 +162,24 @@ describe("NativeQueryParams (URLSearchParams-compatible facade over pairs)", () 
     expect(seen).toEqual(pairs);
   });
 
-  it("toString percent-encodes like URLSearchParams", () => {
-    const params = new NativeQueryParams([
+  it("toString uses application/x-www-form-urlencoded serialization", () => {
+    const pairs: Array<[string, string]> = [
       ["q", "hello world"],
       ["x", "a&b"],
-    ]);
-    expect(params.toString()).toBe("q=hello%20world&x=a%26b");
+      ["reserved", "~!*'()"],
+      ["unicode", "héllo 日本語"],
+      ["unpaired", "\ud800"],
+    ];
+    const params = new NativeQueryParams(pairs);
+    expect(params.toString()).toBe(new URLSearchParams(pairs).toString());
+  });
+
+  it("preserves the shared malformed-escape parser contract", () => {
+    const input = "bad=a%20%zz&space=a+b";
+    const params = createQueryParams(input);
+    expect([...params]).toEqual(queryPairs(input));
+    expect(params.get("bad")).toBe("a%20%zz");
+    expect(params.get("space")).toBe("a b");
   });
 });
 

@@ -8,7 +8,9 @@
  * inputs. Duplicate keys are grouped into arrays.
  */
 
-import { isNativeAvailable, queryPairs } from "@ignex/native";
+import { queryPairs } from "@ignex/native";
+
+const FORM_SPECIAL = /[ !'()~]/;
 
 /**
  * Group raw `[name, value]` pairs into an object. Duplicate keys become
@@ -137,14 +139,23 @@ export class NativeQueryParams implements Iterable<[string, string]> {
     for (const [, v] of this.#pairs) yield v;
   }
 
-  /** `name=value&…` serialization (percent-encoded, URLSearchParams parity). */
+  /** `name=value&…` serialization (URLSearchParams parity). */
   toString(): string {
-    let out = "";
-    for (const [k, v] of this.#pairs) {
-      if (out !== "") out += "&";
-      out += `${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+    try {
+      let out = "";
+      for (const [k, v] of this.#pairs) {
+        if (FORM_SPECIAL.test(k) || FORM_SPECIAL.test(v)) {
+          return new URLSearchParams([...this.#pairs]).toString();
+        }
+        if (out !== "") out += "&";
+        out += `${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+      }
+      return out;
+    } catch {
+      // encodeURIComponent rejects lone surrogates; URLSearchParams replaces
+      // them with U+FFFD as required by the form-urlencoded serializer.
+      return new URLSearchParams([...this.#pairs]).toString();
     }
-    return out;
   }
 
   /** Call `cb(value, name, this)` for every pair (URLSearchParams parity). */
@@ -161,19 +172,13 @@ export class NativeQueryParams implements Iterable<[string, string]> {
 /**
  * Build a `ctx.query`-shaped object from a raw query string.
  *
- * Prefers {@link NativeQueryParams} over the native `queryPairs` parse (the
- * same pairs the compiled prelude uses — measured ~4× faster than
- * `new URLSearchParams(query)` on a 20-parameter query) and falls back to
- * `URLSearchParams` when the native surface is unavailable, so the parsed
- * shape degrades gracefully. Both expose the read-side contract handlers use
- * (`get`, `has`, `getAll`, `size`, iteration, `toString`, `forEach`);
- * mutation methods are not part of the request-path contract.
+ * {@link NativeQueryParams} wraps the shared `queryPairs` parser in both
+ * native and fallback modes, so malformed escapes and duplicate keys cannot
+ * change meaning with deployment configuration. It exposes the read-side
+ * contract handlers use (`get`, `has`, `getAll`, `size`, iteration, `toString`,
+ * `forEach`); mutation methods are not part of the request-path contract.
  *
  * @param queryString - The query string WITHOUT the leading `?`.
  */
-export const createQueryParams = (queryString: string): NativeQueryParams | URLSearchParams => {
-  if (isNativeAvailable()) {
-    return new NativeQueryParams(queryPairs(queryString));
-  }
-  return new URLSearchParams(queryString);
-};
+export const createQueryParams = (queryString: string): NativeQueryParams =>
+  new NativeQueryParams(queryPairs(queryString));

@@ -68,17 +68,14 @@ const logSample = {
   source: "app",
 };
 
+const isExpiredDetail = (url: string): boolean =>
+  url.includes("/api/requests/expired-1") ||
+  url.includes("/api/history/expired-1") ||
+  url.includes("/api/logs/999999");
+
 const apiPayload = (url: string): unknown => {
-  // A trace that rotated out of the live ring (and was never persisted):
-  // both the live and the history detail endpoints 404, and the detail view
-  // must fall through to its "not found" panel instead of crashing. Checked
-  // first — the generic `/api/requests/` pattern below would otherwise catch
-  // the live detail URL. Same for a rotated-out log record.
-  if (
-    url.includes("/api/requests/expired-1") ||
-    url.includes("/api/history/expired-1") ||
-    url.includes("/api/logs/999999")
-  ) {
+  // Rotated-out detail endpoints 404 so views exercise their graceful fallback.
+  if (isExpiredDetail(url)) {
     return {
       ok: false,
       status: 404,
@@ -96,6 +93,59 @@ const apiPayload = (url: string): unknown => {
       features: { history: true },
     };
   }
+  if (url.includes("/api/overview"))
+    return {
+      checkedAt: NOW,
+      verdict: "warning",
+      summary: {
+        requests: 1,
+        failures: 0,
+        clientErrors: 0,
+        serverErrors: 0,
+        failureRatePct: 0,
+        avgDurationMs: 5,
+        p95DurationMs: 5,
+        activeRequests: 0,
+        dbQueries: 3,
+        logErrors: 0,
+        uptimeSec: 1,
+      },
+      findings: [
+        {
+          id: "repeated-query:t1",
+          severity: "warning",
+          category: "database",
+          title: "Same query ran 3 times in one request",
+          detail: "N+1 query pattern",
+          recommendation: "Batch the lookups",
+          evidence: { repetitions: 3 },
+          link: { label: "Inspect queries", view: "detail", id: "t1", tab: "queries" },
+        },
+      ],
+      recentFailures: [],
+      slowRoutes: [
+        {
+          key: "GET /",
+          requests: 1,
+          errors: 0,
+          totalMs: 5,
+          p50Ms: 5,
+          p95Ms: 5,
+          p99Ms: 5,
+          dbQueries: 3,
+          dbMs: 2,
+          lastStatus: 200,
+          lastTs: NOW,
+        },
+      ],
+      coverage: {
+        retainedTraces: 1,
+        requestsWithAppSpans: 1,
+        requestsWithDb: 1,
+        systemSamples: 1,
+        persistence: "on",
+      },
+    };
   if (url.includes("/api/requests/")) return traceSample;
   if (url.includes("/api/requests")) return [traceSample];
   if (url.includes("/api/logs/")) return logSample;
@@ -322,8 +372,9 @@ class EventSourceStub {
 
 /* ── the test ────────────────────────────────────────────────────────────── */
 
-/** Every top-level view the shell can route to (all 15 registry entries). */
+/** Every top-level view the shell can route to (all 16 registry entries). */
 const VIEW_IDS = [
+  "overview",
   "requests",
   "errors",
   "logs",
@@ -408,18 +459,15 @@ describe("debugbar dashboard SPA bundle (executed)", () => {
     }
     await Promise.resolve();
 
-    // The digit shortcuts only reach the first ten registry entries; `routes`,
-    // `clients`, `ai`, `kt` and `docs` carry `key: ""` and are never mounted by
-    // that loop. Mount all 15 top-level views by hash so every migrated body
-    // executes, and assert each one owns a non-empty `PageHeader` `<h1>`
-    // (spec §9a) and that no view re-introduced the old emoji/glyph chrome
-    // (spec §5 #15).
+    // Views without a shortcut are mounted by hash below. Mount all 16 views so
+    // every body executes, and assert each owns a non-empty `PageHeader` `<h1>`.
     const { headingless, emojiViews, bodyByView } = await mountAllViews();
     expect(headingless).toEqual([]);
     expect(emojiViews).toEqual([]);
 
-    // The enabled sample payloads are consumed by the migrated bodies, not
-    // just the disabled/empty branches: the job, client and event rows render.
+    expect(bodyByView.overview ?? "").toContain("Same query ran 3 times in one request");
+    expect(bodyByView.overview ?? "").toContain("Batch the lookups");
+    expect(bodyByView.metrics ?? "").toContain("Per-route aggregates");
     expect(bodyByView.jobs ?? "").toContain("nightly-report");
     expect(bodyByView.clients ?? "").toContain("@acme/sdk");
     expect(bodyByView.events ?? "").toContain("orders.created");

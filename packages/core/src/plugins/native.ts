@@ -5,9 +5,10 @@
  * body-guard, JSON-schema) as a request stage via
  * `@ignex/native#createNativePipeline` — the "route manager" bridge.
  *
- * When the Rust addon is NOT installed this plugin is a complete no-op and
- * the normal ignex lifecycle runs untouched, so it is safe to enable
- * everywhere. When native IS available, the 8-stage pipeline runs BEFORE the
+ * Without configuration this plugin is a no-op when native is absent. CORS
+ * preflight has a TypeScript fallback; other configured enforcement fails closed
+ * with 503 when native is unavailable or cannot produce a verdict. When native
+ * is available, the 8-stage pipeline runs BEFORE the
  * app handler on `onRequest` and short-circuits with its terminal response
  * (e.g. 204 CORS preflight, 429, 413, 400/422) when it decides to.
  */
@@ -96,12 +97,9 @@ export interface NativePreflightOptions {
 const DEFAULT_CORS_METHODS = "GET, HEAD, PUT, PATCH, POST, DELETE";
 
 /**
- * JS CORS preflight fallback used when the Rust addon is absent — parity with
- * castrum's wildcard preflight so the app's CORS contract holds without
- * native. Non-preflight requests pass through (the OK-path
- * `Access-Control-Allow-Origin: *` is served by the compiled server's static
- * default headers). Returns `ctx` when CORS is unconfigured or not a wildcard
- * preflight.
+ * JS CORS preflight fallback used when the Rust addon is absent. Allowlisted
+ * and wildcard origins retain the 204 contract; denied origins are rejected
+ * instead of falling through to an application handler.
  */
 function corsPreflightFallback(
   ctx: IgnexContext,
@@ -112,18 +110,39 @@ function corsPreflightFallback(
   if (!origin) return ctx;
   if (ctx.method !== "OPTIONS") return ctx;
   if (!ctx.headers.get("access-control-request-method")) return ctx;
-  // Wildcard allowlist → any origin allowed (no credentials).
-  if (!(cors.allowOrigin?.some((o) => o === "*") ?? false)) return ctx;
+  const wildcard = cors.allowOrigin?.includes("*") ?? false;
+  if (!wildcard && !cors.allowOrigin?.includes(origin)) {
+    return Response.json(
+      { error: "CORS origin denied", status: 403, code: "CORS_ORIGIN_DENIED" },
+      { status: 403 },
+    );
+  }
   const headers: Record<string, string> = {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": cors.allowMethods?.join(", ") ?? DEFAULT_CORS_METHODS,
   };
+  if (cors.allowHeaders) headers["access-control-allow-headers"] = cors.allowHeaders.join(", ");
+  if (cors.allowCredentials) headers["access-control-allow-credentials"] = "true";
   if (cors.maxAge != null) headers["access-control-max-age"] = String(cors.maxAge);
   return new Response(null, { status: 204, headers });
 }
 
+const nativePreflightUnavailable = (): Response =>
+  Response.json(
+    {
+      error: "Security pipeline unavailable",
+      status: 503,
+      code: "NATIVE_PREFLIGHT_UNAVAILABLE",
+    },
+    {
+      status: 503,
+      headers: { "retry-after": "1", "x-ignex-reason": "native-preflight-unavailable" },
+    },
+  );
+
 /**
- * Opt-in native pre-flight stage. Defaults to a no-op without the Rust addon.
+ * Opt-in native pre-flight stage. Unconfigured use is a no-op without the addon;
+ * configured enforcement fails closed when no trustworthy verdict is available.
  */
 export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin => {
   const {
@@ -175,11 +194,18 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
   const originAllowed = (origin: string): boolean =>
     corsWildcard || (corsExact?.has(origin) ?? false);
 
+  const hasPipelineOptions = mergedOptions !== undefined;
+  const needsNativeEnforcement =
+    hasPipelineOptions && Object.keys(mergedOptions).some((key) => key !== "cors");
+  const effectiveRuntime = hasPipelineOptions
+    ? { ...(runtime as NativeIngressRuntime | undefined), failClosed: true }
+    : runtime;
+
   // exactOptionalPropertyTypes: only set `options`/`runtime` when defined,
   // so `undefined` is never passed for an optional field.
   const pipelineOptions = (): NativePipelineOptions => ({
     ...(mergedOptions !== undefined ? { options: mergedOptions } : {}),
-    ...(runtime !== undefined ? { runtime } : {}),
+    ...(effectiveRuntime !== undefined ? { runtime: effectiveRuntime } : {}),
     readBody,
   });
 
@@ -195,7 +221,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
     if (!readBody) {
       const direct = createNativeIngress(
         mergedOptions,
-        (runtime as NativeIngressRuntime | undefined) ?? {},
+        (effectiveRuntime as NativeIngressRuntime | undefined) ?? {},
       );
       if (direct) return direct;
     }
@@ -206,10 +232,8 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
     name: "native-preflight",
 
     /**
-     * Eagerly construct the Rust pipeline at boot (via `createApp.init()` /
-     * `serve()`) instead of lazily on the first request. The cost is paid at
-     * load time — the explicit trade the framework accepts. Without the addon
-     * this is a no-op; a native failure never throws here.
+     * Eagerly construct the Rust pipeline at boot. Request handling fails
+     * closed if configured enforcement is unavailable or cannot return a verdict.
      */
     async init() {
       if (!enabled || !isNativeAvailable()) return;
@@ -220,30 +244,46 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
 
     onRequest(ctx: IgnexContext) {
       if (!enabled) return ctx;
-      // Rust CORS preflight parity for fallback runs (no addon): answer
-      // wildcard preflight in JS so the app's CORS contract holds everywhere.
-      if (!isNativeAvailable()) return corsPreflightFallback(ctx, mergedOptions?.cors);
+      if (!isNativeAvailable()) {
+        if (needsNativeEnforcement) return nativePreflightUnavailable();
+        return corsPreflightFallback(ctx, mergedOptions?.cors);
+      }
+
+      const runPipeline = (
+        active: NativePipeline,
+      ): IgnexContext | Response | Promise<IgnexContext | Response> => {
+        const finish = (outcome: {
+          terminal: boolean;
+          response: Response | null;
+          result: unknown;
+        }): IgnexContext | Response => {
+          if (outcome.terminal && outcome.response) return outcome.response;
+          if (hasPipelineOptions && outcome.result === null) {
+            return nativePreflightUnavailable();
+          }
+          return ctx;
+        };
+        try {
+          const outcome = active.preprocess(ctx.req, active.needsIp ? ctx.ip : undefined);
+          if (outcome instanceof Promise) {
+            return outcome.then(finish, nativePreflightUnavailable);
+          }
+          return finish(outcome);
+        } catch {
+          return nativePreflightUnavailable();
+        }
+      };
 
       if (pipeline === undefined) {
-        // Eagerly resolved by `init()` at boot (createApp.serve and the
-        // compiled server both run plugin init). If this fires (first request
-        // before init, or direct `handler()` without init), resolve lazily
-        // and return a Promise — runHooks awaits actual Promises, so the
-        // steady-state sync fast path below stays microtask-free.
-        return resolvePipeline().then((p) => {
-          pipeline = p;
-          if (!p) return ctx;
-          const outcome = p.preprocess(ctx.req, p.needsIp ? ctx.ip : undefined);
-          if (outcome instanceof Promise) {
-            return outcome.then(({ terminal, response }) =>
-              terminal && response ? response : ctx,
-            );
+        return resolvePipeline().then((resolved) => {
+          pipeline = resolved;
+          if (!resolved) {
+            return hasPipelineOptions ? nativePreflightUnavailable() : ctx;
           }
-          const { terminal, response } = outcome;
-          return terminal && response ? response : ctx;
+          return runPipeline(resolved);
         });
       }
-      if (!pipeline) return ctx;
+      if (!pipeline) return hasPipelineOptions ? nativePreflightUnavailable() : ctx;
 
       // Fastest-path default: skip the Rust pipeline when it cannot change the
       // outcome — not a preflight, and either no `Origin` at all or an origin
@@ -257,18 +297,7 @@ export const nativePreflight = (opts: NativePreflightOptions = {}): IgnexPlugin 
         if (!pipelineDecidesMore && originAllowed(origin)) return ctx;
       }
 
-      // Only resolve `ctx.ip` (a native `requestIP` socket lookup) when the
-      // pipeline config needs it (rate-limit / trust-proxy); otherwise pass
-      // `undefined` — a free fast path. The direct C-ABI path returns the
-      // outcome synchronously (no Promise/microtask); the castrum-TS fallback
-      // (readBody: true) returns a Promise, which runHooks awaits.
-      const outcome = pipeline.preprocess(ctx.req, pipeline.needsIp ? ctx.ip : undefined);
-      if (outcome instanceof Promise) {
-        return outcome.then(({ terminal, response }) => (terminal && response ? response : ctx));
-      }
-      const { terminal, response } = outcome;
-      // Returning a Response from onRequest short-circuits the lifecycle.
-      return terminal && response ? response : ctx;
+      return runPipeline(pipeline);
     },
   };
 };
