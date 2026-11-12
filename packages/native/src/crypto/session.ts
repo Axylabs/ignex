@@ -1,129 +1,34 @@
 /**
  * @fileoverview Fused session envelope — `{"id":"…","data":<dataJson>,"exp":exp}`
- * signed into the `payload.<hex>` cookie token in ONE C-ABI crossing via a
- * lazy dlopen'd `castrum_session_seal`/`castrum_session_open` surface, with a
- * bind-time self-test and full bounds validation on the open wire; degrades to
- * the JS path (`signCookie`/`verifyCookie`) when ffi is unavailable.
- *
- * Extracted from the pre-split `crypto.ts` (move-only): this file keeps ALL
- * session module state (lazy `sessionFfi`, probe, self-test) private here.
+ * signed into the `payload.<hex>` cookie token in ONE C-ABI crossing through
+ * castrum's shared, self-tested native bridge. Full bounds validation remains
+ * on the open wire; the JS path owns sessions when FFI is unavailable.
  * Re-exported by `./index`.
  */
 
-import { createRequire } from "node:module";
-import { isFfiActive } from "../ffi";
-import { getAddonPath } from "../loader";
-import { reportDegradation } from "../telemetry";
+import { getNativeBridge } from "../loader";
 import { decoder } from "../util";
 
 // ── Session envelope (fused JSON + HMAC) ────────────────────────────
 
-/** Lazy dedicated C-ABI surface for the two session symbols (null when absent). */
-let sessionFfi:
-  | {
-      seal(id: string, dataJson: string, exp: number, secret: string): string | null;
-      open(token: string, secret: string, out: Uint8Array, outLen: number): number;
-    }
-  | null
-  | undefined;
-
-const getSessionFfi = (): {
+interface SessionFfi {
   seal(id: string, dataJson: string, exp: number, secret: string): string | null;
   open(token: string, secret: string, out: Uint8Array, outLen: number): number;
-} | null => {
+}
+
+let sessionFfi: SessionFfi | null | undefined;
+
+const getSessionFfi = (): SessionFfi | null => {
   if (sessionFfi !== undefined) return sessionFfi;
   sessionFfi = null;
-  if (!isFfiActive()) return null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const require_ = createRequire(import.meta.url);
-    const { dlopen } = require_("bun:ffi") as {
-      dlopen: (
-        p: string,
-        syms: Record<string, { args: readonly string[]; returns: string }>,
-      ) => { symbols: Record<string, (...a: unknown[]) => unknown> };
-    };
-    const addonPath = getAddonPath();
-    if (!addonPath) return null;
-    const { symbols } = dlopen(addonPath, {
-      castrum_session_seal: {
-        args: ["cstring", "cstring", "i64", "cstring"],
-        returns: "cstring",
-      },
-      castrum_session_open: {
-        args: ["cstring", "cstring", "ptr", "usize"],
-        returns: "usize",
-      },
-    });
-    if (
-      typeof symbols.castrum_session_seal !== "function" ||
-      typeof symbols.castrum_session_open !== "function"
-    ) {
-      return null;
-    }
-    const sealF = symbols.castrum_session_seal as (...a: unknown[]) => string | null;
-    const openF = symbols.castrum_session_open as (...a: unknown[]) => number;
-    // Bind-time round-trip self-test (the primary C-ABI surface has one; this
-    // lazy surface previously had NONE — a broken bind or ABI drift would
-    // surface as sessions that never validate at request time). Probe a fixed
-    // envelope seal→open and require exact field recovery; any mismatch
-    // degrades to the JS path (signCookie/verifyCookie) with a report.
-    if (!sessionBindSelfTest(sealF, openF)) {
-      reportDegradation(
-        "self-test-failed",
-        "sessionSeal",
-        "session seal→open bind self-test failed — fused session ops disabled (JS path owns them)",
-      );
-      return null;
-    }
-    sessionFfi = {
-      seal: (id, dataJson, exp, secret) => sealF(id, dataJson, BigInt(exp), secret),
-      open: (token, secret, out, outLen) => Number(openF(token, secret, out, outLen)),
-    };
-    return sessionFfi;
-  } catch {
-    return null;
-  }
+  const ffi = getNativeBridge()?.getFfi();
+  if (!ffi) return null;
+  sessionFfi = {
+    seal: (id, dataJson, exp, secret) => ffi.sessionSeal(id, dataJson, exp, secret),
+    open: (token, secret, out) => ffi.sessionOpen(token, secret, out),
+  };
+  return sessionFfi;
 };
-
-/** Fixed probe payload for the session bind self-test. */
-const SESSION_PROBE = {
-  id: "__ignex_bind_probe__",
-  dataJson: '{"v":1}',
-  exp: 4_102_444_800,
-} as const;
-const SESSION_PROBE_SECRET = "__ignex_session_selftest_secret__";
-
-/** Seal→open round-trip over the raw bound symbols; true iff fields recover exactly. */
-function sessionBindSelfTest(
-  sealF: (...a: unknown[]) => string | null,
-  openF: (...a: unknown[]) => number,
-): boolean {
-  try {
-    const token = sealF(
-      SESSION_PROBE.id,
-      SESSION_PROBE.dataJson,
-      BigInt(SESSION_PROBE.exp),
-      SESSION_PROBE_SECRET,
-    );
-    if (typeof token !== "string" || token.length === 0) return false;
-    let out = new Uint8Array(512);
-    let w = Number(openF(token, SESSION_PROBE_SECRET, out, out.length));
-    if (w > out.length) {
-      out = new Uint8Array(w);
-      w = Number(openF(token, SESSION_PROBE_SECRET, out, out.length));
-    }
-    const decoded = decodeSessionWire(out, w);
-    return (
-      decoded !== null &&
-      decoded.id === SESSION_PROBE.id &&
-      decoded.exp === SESSION_PROBE.exp &&
-      decoded.dataJson === SESSION_PROBE.dataJson
-    );
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Decode the session-open wire (`[u8 ok][i64 exp][u32 idLen][id][u32

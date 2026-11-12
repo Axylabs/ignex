@@ -2,6 +2,7 @@
  * @fileoverview Query-string parsing.
  */
 
+import { createAdaptiveExecutor } from "../adaptive";
 import { pairsToObject, readPairsPacked, readPairsStatsPacked } from "../packed";
 import { nativeFor } from "../runtime";
 import { sizeGateAllowsNative } from "../selection";
@@ -9,38 +10,33 @@ import { fromBytes, toBytes } from "../util";
 import { decodePairList } from "./pairs";
 import type { Pairs } from "./types";
 
+const queryExecution = createAdaptiveExecutor({
+  enabled: process.env.IGNEX_ADAPTIVE !== "off" && process.env.IGNEX_SIZE_GATES !== "off",
+  sizeBuckets: [511, 4096, 65_536],
+  initialImpl: (bytes) => (sizeGateAllowsNative("queryPairs", bytes) ? "castrum" : "js"),
+  nativeAvailable: () => nativeFor("queryPairs") !== null,
+});
+
 /**
  * Parse a query string into `[name, value]` pairs (duplicates preserved).
- *
- * Selection: native above 512B, js below (`SIZE_GATES.queryPairs`), and only
- * when the loaded addon's decoder passes the JS-compatibility probe
- * (`decode-compat.ts`). Measured 2026-09 (median of interleaved trials, with the
- * UTF-8 encode the wrapper must pay): 589B 1.17x, 843B 1.21x, 1.1KB 1.09x,
- * 2.2KB 1.19x, 3.3KB 1.20x; below ~440B JS wins by up to 0.80x, so those stay
- * JS. The gate is checked BEFORE `toBytes`: the JS path must not pay an encode
- * it never paid before.
- *
- * The probe exists because this op used to be pinned to JS for CORRECTNESS, not
- * speed: castrum before 0.9.5 threw `query: parse failed` on malformed escapes
- * (17,496 of 20,011 fuzzed inputs) and decoded invalid UTF-8 lossily, where JS's
- * `decodeURIComponent` throws and the fallback returns the segment raw. That is
- * fixed in the shared Rust decoder (`util::bytes::decode_form_component_into`,
- * one implementation for the packed parsers and the route stack), and the probe
- * keeps older addons on the JS path automatically.
- *
- * Note on input encoding: the native path receives `TextEncoder.encode(input)`,
- * so a STRING containing a lone surrogate (unrepresentable in UTF-8 — the engine
- * substitutes U+FFFD) is defined on those bytes. Such a string cannot come from
- * an HTTP request: URL bytes decode to well-formed UTF-16.
+ * Measured size gates provide the cold-start preference; sampled live timings
+ * then adapt each size bucket. Native runs only when the decoder passes the
+ * JS-compatibility probe. The small-input JS path still avoids UTF-8 encoding.
  */
 export const queryPairs = (input: string | Uint8Array): Pairs => {
-  // Gate first (a byte-count compare), then the addon binding: the common
-  // small-query path pays neither an encode nor a native crossing.
-  if (sizeGateAllowsNative("queryPairs", input.length)) {
+  const choice = queryExecution.choose(input.length);
+  if (choice === false) return queryPairsFallback(input);
+  if (choice === true) {
     const n = nativeFor("queryPairs");
-    if (n) return readPairsPacked(n.queryParsePacked(toBytes(input)));
+    return n ? readPairsPacked(n.queryParsePacked(toBytes(input))) : queryPairsFallback(input);
   }
-  return queryPairsFallback(input);
+  try {
+    if (choice.impl === "js") return queryPairsFallback(input);
+    const n = nativeFor("queryPairs");
+    return n ? readPairsPacked(n.queryParsePacked(toBytes(input))) : queryPairsFallback(input);
+  } finally {
+    queryExecution.record(choice);
+  }
 };
 
 /** Pure-TS fallback for {@link queryPairs} (identical behavior). */
@@ -54,29 +50,38 @@ export const queryPairsFallback = (input: string | Uint8Array): Pairs =>
 export const parseQuery = (input: string | Uint8Array): Record<string, string> =>
   pairsToObject(queryPairs(input));
 
+const queryStatsExecution = createAdaptiveExecutor({
+  enabled: process.env.IGNEX_ADAPTIVE !== "off" && process.env.IGNEX_SIZE_GATES !== "off",
+  sizeBuckets: [511, 4096, 65_536],
+  initialImpl: (bytes) => (sizeGateAllowsNative("queryPairs", bytes) ? "castrum" : "js"),
+  nativeAvailable: () => nativeFor("queryPairs") !== null,
+});
+
 /**
- * Bulk fused query-pairs STATS: walk the SAME packed buffer
- * `queryParsePacked` returns (batch count + total decoded byte length),
- * WITHOUT materializing the per-pair JS strings the full
- * {@link queryPairs} read must build.
- *
- * Selection + native op are IDENTICAL to {@link queryPairs} (same
- * `queryPairs` gate, same single fused `queryParsePacked` FFI call) — the
- * ONLY difference is the JS read: `readPairsStatsPacked` sums the packed
- * length prefixes castrum already wrote instead of slicing 60 strings. A
- * consumer that only needs `count`/`totalDecodedLen` (search-stat routes,
- * form length guards) skips the 60-tuple materialization entirely.
- *
- * Gate/parity contract mirrors {@link queryPairs} byte-for-byte.
+ * Bulk fused query-pairs STATS: walk the SAME packed buffer without
+ * materializing per-pair JS strings. Its adaptive model is separate from
+ * {@link queryPairs} because the JS read cost differs; parity is unchanged.
  */
 export const queryPairsStats = (
   input: string | Uint8Array,
 ): { readonly count: number; readonly totalDecodedLen: number } => {
-  if (sizeGateAllowsNative("queryPairs", input.length)) {
+  const choice = queryStatsExecution.choose(input.length);
+  if (choice === false) return queryPairsStatsFallback(input);
+  if (choice === true) {
     const n = nativeFor("queryPairs");
-    if (n) return readPairsStatsPacked(n.queryParsePacked(toBytes(input)));
+    return n
+      ? readPairsStatsPacked(n.queryParsePacked(toBytes(input)))
+      : queryPairsStatsFallback(input);
   }
-  return queryPairsStatsFallback(input);
+  try {
+    if (choice.impl === "js") return queryPairsStatsFallback(input);
+    const n = nativeFor("queryPairs");
+    return n
+      ? readPairsStatsPacked(n.queryParsePacked(toBytes(input)))
+      : queryPairsStatsFallback(input);
+  } finally {
+    queryStatsExecution.record(choice);
+  }
 };
 
 /** Pure-TS fallback for {@link queryPairsStats} (identical behavior). */

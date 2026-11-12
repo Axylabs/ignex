@@ -15,9 +15,9 @@
  * Re-run after major Bun/castrum upgrades and update SIZE_GATES accordingly.
  */
 import { fnv1a64Fallback } from "../packages/native/src/hash";
-import { jsonValid } from "../packages/native/src/json";
 import { nativeFor, useNative, warmRuntime } from "../packages/native/src/runtime";
 import type { OpName } from "../packages/native/src/selection";
+import { toBytes } from "../packages/native/src/util";
 
 const TRIALS = 5;
 const ITERS = 2_000;
@@ -76,7 +76,12 @@ const candidates: Candidate[] = [
         return false;
       }
     },
-    native: (n) => () => jsonValid(`{"a":${1},"pad":"${"x".repeat(Math.max(0, n - 12))}"}`),
+    native: (n) => () => {
+      const nv = nativeFor("jsonValid");
+      if (!nv) throw new Error("jsonValid: native unavailable");
+      const input = `{"a":${1},"pad":"${"x".repeat(Math.max(0, n - 12))}"}`;
+      return nv.jsonValid(toBytes(input));
+    },
   },
   {
     op: "fnv1a64",

@@ -19,6 +19,13 @@
 /// <reference lib="dom" />
 
 export {
+  type AdaptiveExecutionChoice,
+  type AdaptiveExecutionOptions,
+  type AdaptiveExecutionSnapshot,
+  type AdaptiveExecutor,
+  createAdaptiveExecutor,
+} from "./adaptive";
+export {
   csrfVerifyBatch,
   hmacSha256Batch,
   hmacSha256VerifyBatch,
@@ -229,9 +236,11 @@ export {
 export {
   createNativeRoute,
   type NativeRoute,
+  type NativeRouteChoice,
   type NativeRouteFrame,
   type NativeRoutePlan,
   type NativeRouteRunResult,
+  type RoutePolicySnapshot,
 } from "./route";
 export {
   type DecodedRouteDescriptor,

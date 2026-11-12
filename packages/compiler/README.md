@@ -94,6 +94,8 @@ interface CompileResult {
 | `generateTypes` / `generateOpenAPI` / `generateClient` | `true` | Emit `routes.d.ts`, `openapi.json`, `client.d.ts`. |
 | `strictRouteConflicts` | `false` | Throw on duplicate routes. |
 | `maxJsonBytes` / `maxTextBytes` / `maxFormBytes` / `maxFileBytes` | — | Body size limits. |
+| `maxHeaderBytes` | — | Framework-level framed request-header ceiling; rejects oversized requests with 431 before route handling. |
+| `handlerTimeoutMs` | `0` | Per-handler wall-clock cap; returns 503 on timeout without cancelling underlying work. |
 | `target` | `bun` | Runtime target for generated output. |
 | `maxRequestBodySize` | `64 MB` | `Bun.serve` max request body size (`DEFAULT_MAX_REQUEST_BODY_SIZE`). |
 | `validateCookies` | `true` | Validate cookies at runtime. |

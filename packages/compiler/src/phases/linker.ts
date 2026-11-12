@@ -105,7 +105,7 @@ const bundleWithExternalsRetry = async (
   base: Record<string, unknown>,
   ctx: CompilerContext,
 ): Promise<{ result: BunBuildResult | null; thrown: unknown }> => {
-  const externals = new Set<string>();
+  const externals = new Set<string>((base.external as string[] | undefined) ?? []);
   let result: BunBuildResult | null = null;
   let thrown: unknown = null;
 
@@ -165,6 +165,8 @@ const buildWithFallback = async (
     format: "esm",
     minify: opts.minify,
     sourcemap: opts.sourceMap ? "external" : "none",
+    // Native addon discovery is relative to castrum's package, not this bundle.
+    external: ["@ignex/castrum", "@ignex/castrum/native"],
     ...(plugins.length > 0 ? { plugins } : {}),
   };
 

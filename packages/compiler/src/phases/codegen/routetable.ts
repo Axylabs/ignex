@@ -168,7 +168,7 @@ export const stageRouteTable = (
       routeEntries.set(path, methods);
     }
     if (!methods.has(method)) {
-      methods.set(method, expr);
+      methods.set(method, opts.maxHeaderBytes === undefined ? expr : `__withHeaderCap(${expr})`);
     }
     addAllowed(method, path);
   };

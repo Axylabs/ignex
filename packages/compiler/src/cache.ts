@@ -92,9 +92,9 @@ import { projectPath } from "./utils/path";
  * `new URL`. Generated output shape changed.
  * 0.9.29–0.9.31 — canonical/embedded OpenAPI, typed method-aware clients,
  * plugin routes, app-scoped caches, default hooksDir, opt-in native routes,
- * and fail-closed unresolved dependencies.
- */
-export const COMPILER_CACHE_VERSION = "0.9.31";
+ * and fail-closed unresolved dependencies. 0.9.32 keeps castrum external;
+ * 0.9.33 adds AOT header caps and preserves handler timeouts. */
+export const COMPILER_CACHE_VERSION = "0.9.33";
 
 const CACHE_FILE = ".ignex-cache.json";
 

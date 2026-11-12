@@ -30,8 +30,9 @@ import type { SourceFile } from "./source-file";
  * lockstep with `COMPILER_CACHE_VERSION` 0.9.29.
  * 14 — typed, query-aware HTTP client artifacts; compiler version 0.9.30.
  * 15 — plugin routes, embedded OpenAPI, and fail-closed dependencies (0.9.31).
+ * 16 — direct/adaptive native routes and external castrum loading (0.9.32).
  */
-export const MODULES_CACHE_VERSION = "15";
+export const MODULES_CACHE_VERSION = "16";
 const MODULES_CACHE_FILE = ".ignex-modules.json";
 
 interface PersistedModule {

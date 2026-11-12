@@ -162,6 +162,9 @@ Payload unless stated: 60 query params (2055 B, 80 `%` escapes) + 30 cookies (60
 | body validate — valid / invalid, native vs `JSON.parse`+Ajv | natives 40.0 µs (2.23x SLOWER) / 12.9 µs (**1.45x faster**) |
 | ingress pipeline (query+cookie+CORS) vs JS equivalent | 10.8 µs vs 13.9 µs |
 | retained heap growth per `GET /health`, WS0 protocol (5 × 10k, post-full-GC; `bench:allocations`, 2026-09-18) | **median 4.8 B/req** (JIT first round ~85 B excluded; rounds 2–5: 1.1–19.6 B) |
+| direct route `runParts` (2026-11-09, Bun 1.4.4, 9 interleaved trials) | small query+cookie **1.25 → 1.01 µs (−19%)**; 60-query/30-cookie **9.04 → 8.71 µs (−3.7%)** after removing JS encode + frame packing |
+| fused query+cookie+body-schema route vs three native calls (11 trials) | **1.31 µs vs 1.98 µs (1.51×)**; one compiled instance, one normal-path crossing; CV 3.9% / 2.1% |
+| `jsonValid` raw C-ABI vs JS (2026-11-10, Bun 1.4.4, 5 trials × 2000) | native/JS **0.72× @256B**, 0.85× @512B, 0.94× @1KiB, **0.59× @4KiB**, 1.02× @16KiB; the old 256B prior is stale on this host, so sampled size-bucket learning should prefer JS until a real crossover is observed |
 
 Rule of thumb from the table: **native wins where no JS values are
 materialized** (verdicts, rejects, preflight) and **loses where they are**
@@ -226,7 +229,8 @@ Verified against Bun 1.4.2 (`bun:ffi` docs), measured where measurable:
 
 ## 6. Where things live
 
-* **ignex FFI layer**: `packages/native/src/ffi/` (bindings), `ffi-read.ts`
+* **ignex FFI layer**: `packages/native/src/ffi/` (return-shape adapters over
+  `@ignex/castrum/native`; castrum owns bindings/self-tests), `ffi-read.ts`
   (fast reads), `packed.ts` (wire decode), `scratch.ts` (buffer pool),
   `route-wire.ts` + `route.ts` (route v3 wire), `selection.ts` (**single source
   of truth** for which impl wins; `MEASURED_JS_WINS` holds the measured

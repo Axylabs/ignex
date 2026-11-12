@@ -206,6 +206,9 @@ jobs:
       - name: AOT abort short-circuit verify
         run: bun run verify:aot:abort
 
+      - name: AOT request-guard verify
+        run: bun run verify:aot:guards
+
       - name: AOT specialized-plugin tier verify
         run: bun run verify:aot:plugin-specialized
 

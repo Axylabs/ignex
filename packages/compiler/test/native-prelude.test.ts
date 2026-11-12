@@ -19,6 +19,13 @@ describe("per-route native prelude (nativeRoutes)", () => {
 
     expect(result.code).toContain("createNativeRoute");
     expect(result.code).toContain("__nativeRoute_");
+    const initializers =
+      result.code.match(/^const __nativeRoute_\w+ = createNativeRoute\(/gm) ?? [];
+    expect(initializers).toHaveLength(1);
+    const initAt = result.code.indexOf(initializers[0]);
+    const runAt = result.code.indexOf("__native.runParts(");
+    expect(initAt).toBeGreaterThanOrEqual(0);
+    expect(runAt).toBeGreaterThan(initAt);
     expect(result.code).toContain('"parseQuery"'); // exact pipeline stage
     // native-first parse seeds ctx.query via the pair→record helper, with a
     // JS `parseQueryFromURL` fallback (parity when the addon lacks the surface).
@@ -92,5 +99,59 @@ describe("per-route native prelude (nativeRoutes)", () => {
     expect(result.code).not.toContain("groupQueryPairs(__nr.query)");
     expect(result.code).not.toContain("parseQueryFromURL");
     expect(result.code).not.toContain("__validatePart(__schema?.query");
+  });
+});
+
+describe("adaptive native execution (nativeRoutesAdaptive)", () => {
+  it("emits the choose/record learned gate on a validated route", async () => {
+    const layout = materializeFixture("named-export");
+    const result = await buildAsync(baseOptions(layout, { nativeRoutesAdaptive: true }));
+
+    expect(result.code).toContain("createNativeRoute");
+    // The learned gate: sample-token decision before the native run...
+    expect(result.code).toContain("__choice = __native.chooseExecution(__q, __c, null);");
+    expect(result.code).toContain(
+      'if (typeof __choice === "boolean" ? __choice : __choice.native) {',
+    );
+    // ...runParts on the extracted component locals...
+    expect(result.code).toContain("__native.runParts(__q, __c, null);");
+    // ...and the record closing the sampled span at the END of the prelude
+    // (after the JS fallback had its turn) on the monotonic Bun clock.
+    expect(result.code).toMatch(
+      /if \(typeof __choice === "object"\) \{ __native\.recordExecution\(__choice, Bun\.nanoseconds\(\)\); \}/,
+    );
+    // The JS fallback still guards parity when the policy picks JS.
+    expect(result.code).toContain("parseQueryFromURL");
+  });
+
+  it("implies native emission without nativeRoutes", async () => {
+    const layout = materializeFixture("named-export");
+    const result = await buildAsync(baseOptions(layout, { nativeRoutesAdaptive: true }));
+    expect(result.code).toContain("__nativeRoute_");
+    expect(result.code).toContain("chooseExecution");
+  });
+
+  it("keeps static output byte-shaped when adaptive is off", async () => {
+    const layout = materializeFixture("named-export");
+    const result = await buildAsync(baseOptions(layout, { nativeRoutes: true }));
+    expect(result.code).not.toContain("chooseExecution");
+    expect(result.code).not.toContain("recordExecution");
+    expect(result.code).toContain("__native.runParts(__qIdx < 0");
+  });
+
+  it("keeps the usage-only prelude static (nothing measurable on the JS side)", async () => {
+    const layout = materializeFixture("usage-native");
+    const result = await buildAsync(
+      baseOptions(layout, {
+        nativeRoutesAdaptive: true,
+        appConfig: fixturePath("usage-native", "app.config.ts"),
+      }),
+    );
+    // Still native — but the static always-native shape, no learned gate:
+    // the usage-only fallback is the context's lazy getters, which would
+    // record a zero-cost "JS" span and poison the model.
+    expect(result.code).toContain("createNativeRoute");
+    expect(result.code).not.toContain("chooseExecution");
+    expect(result.code).toContain("new NativeQueryParams(__nr.query)");
   });
 });

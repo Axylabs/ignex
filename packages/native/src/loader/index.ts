@@ -9,5 +9,5 @@
  */
 
 export { initNative, loadCastrumModule } from "./init";
-export { getAddonPath, getNative, isNativeAvailable } from "./native";
+export { getNative, getNativeBridge, isNativeAvailable } from "./native";
 export type { NativeAddon, NativeInitOptions, NativeInitResult } from "./types";

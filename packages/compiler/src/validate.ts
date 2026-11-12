@@ -25,6 +25,8 @@ const CompilerOptionsSchema = Type.Object(
 
     appConfig: Type.Optional(Type.String({ minLength: 1 })),
     maxRequestBodySize: Type.Optional(Type.Integer({ minimum: 0 })),
+    maxHeaderBytes: Type.Optional(Type.Integer({ minimum: 0 })),
+    handlerTimeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
     strictRouteConflicts: Type.Optional(Type.Boolean()),
     validateCookies: Type.Optional(Type.Boolean()),
 
@@ -76,6 +78,7 @@ const CompilerOptionsSchema = Type.Object(
     specializeContext: Type.Optional(Type.Boolean()),
     routeCache: Type.Optional(Type.Boolean()),
     nativeRoutes: Type.Optional(Type.Boolean()),
+    nativeRoutesAdaptive: Type.Optional(Type.Boolean()),
 
     incremental: Type.Optional(Type.Boolean()),
 

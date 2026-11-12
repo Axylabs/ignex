@@ -201,6 +201,13 @@ const __withBody = (payload, type, init) => {
   if (__isServerLike(b)) return b;
   return undefined;
 }`,
+  __withHeaderCap: `const __withHeaderCap = (handler) => function (req, a, b) {
+  if (totalHeaderBytes(req.headers) > __MAX_HEADER_BYTES) {
+    const response = __HEADER_TOO_LARGE_RESPONSE.clone();
+    return __DEFAULT_HEADERS ? __decorateWithDefaults(response) : response;
+  }
+  return handler(req, a, b);
+}`,
   __wrap: `function __wrap(handler, wildcards = [], prefix) {
   return function (req, a, b) {
     let params = __extractParams(req, a, b);
@@ -258,17 +265,10 @@ const __withBody = (payload, type, init) => {
   /**
    * Handler-execution timeout race (emitted runtime): off unless
    * `__HANDLER_TIMEOUT_MS > 0`. The race covers the handler's returned
-   * Response promise only — streaming responses return immediately and are
-   * exempt. The underlying work is not cancelled; handlers should honor
-   * `req.signal` for cooperative cancellation.
+   * Response promise only — streaming responses are exempt. The underlying
+   * work is not cancelled; handlers should honor `req.signal` for cancellation.
    */
-  // The 503 timeout response is REQUEST-INDEPENDENT (static body + headers,
-  // no per-request data), so it is built ONCE at module load and shared by
-  // every timed-out request. It is returned straight to Bun by the wrappers —
-  // never routed through __applySet/__decorateWithDefaults — so nothing ever
-  // mutates the shared instance's headers. If a future change routes wrapper
-  // output through the response pipeline, this sharing must be revisited (a
-  // per-request header write would leak one request's set onto another).
+  // Build one 503 template; clone its single-use body for each timeout.
   __raceHandler: `const __TIMEOUT_BODY = JSON.stringify({ error: "Handler timeout", code: HANDLER_TIMEOUT_CODE });
 const __TIMEOUT_RESPONSE = new Response(__TIMEOUT_BODY, {
   status: 503,
@@ -278,7 +278,7 @@ function __raceHandler(promise, onError) {
   if (!__HANDLER_TIMEOUT_MS) return promise.catch(onError);
   let timer;
   const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(__TIMEOUT_RESPONSE), __HANDLER_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(__TIMEOUT_RESPONSE.clone()), __HANDLER_TIMEOUT_MS);
   });
   return Promise.race([promise.catch(onError).finally(() => clearTimeout(timer)), timeout]);
 }`,

@@ -148,17 +148,12 @@ export type { HttpMethod };
  * `validateOptions`; `Partial<CompilerOptions>` is the accepted input shape.
  */
 export interface CompilerOptions {
-  /**
-   * Application runtime config file.
-   * May export `plugins`, `lifecycle`, and `server`.
-   */
+  /** Application runtime config file. May export `plugins`, `lifecycle`, and `server`. */
   readonly appConfig?: string;
-
-  /**
-   * Bun.serve maxRequestBodySize.
-   */
+  /** Bun.serve maxRequestBodySize. */
   readonly maxRequestBodySize?: number;
-
+  /** Maximum framed request-header bytes; unset delegates to Bun's socket limits. */
+  readonly maxHeaderBytes?: number;
   /**
    * Per-handler wall-clock cap (ms) baked into the artifact; 0/unset
    * disables it. Timed-out handlers resolve 503 `handler-timeout` (see
@@ -166,14 +161,10 @@ export interface CompilerOptions {
    */
   readonly handlerTimeoutMs?: number;
 
-  /**
-   * Throw on duplicate or ambiguous routes.
-   */
+  /** Throw on duplicate or ambiguous routes. */
   readonly strictRouteConflicts?: boolean;
 
-  /**
-   * Enable cookie validation.
-   */
+  /** Enable cookie validation. */
   readonly validateCookies?: boolean;
   readonly routesDir: string;
   readonly outDir: string;
@@ -283,6 +274,15 @@ export interface CompilerOptions {
    * prelude at runtime.
    */
   readonly nativeRoutes?: boolean;
+
+  /**
+   * Adaptive native execution: the AOT plan stays fixed, but each validated route
+   * chooses native-vs-JS per request via the runtime cost model (`@ignex/native`
+   * `createRouteExecutionPolicy`) — sampled EWMA timings in two request-size
+   * buckets with bounded exploration and 10% hysteresis. Implies native emission;
+   * usage-only preludes stay static. Default `false`.
+   */
+  readonly nativeRoutesAdaptive?: boolean;
 
   /**
    * Skip the full build when inputs are unchanged (content-hash cache).

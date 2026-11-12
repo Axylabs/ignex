@@ -4,11 +4,10 @@
  * `scripts/select-native.ts --write` into `src/selection.json` and embedded
  * in the `.node` as `opImpl(op)`).
  *
- * This module no longer maintains a decision table. It reads `opImpl(op)`
- * from the loaded castrum addon ONCE at module load and binds each operation
- * to a FIXED implementation for the process — the API never swaps native↔js
- * at runtime. When the addon is absent (or an op is unknown) the decision
- * falls back to `"js"` (pure-TS behavior is always the safe default).
+ * This module reads `opImpl(op)` once at module load to establish immutable
+ * benchmark-backed priors. Size gates and `createAdaptiveExecutor` may learn a
+ * different live choice without mutating this table. When the addon is absent
+ * (or an op is unknown) the safe prior is `"js"`.
  *
  * `impl: "castrum"` → the Rust addon is used when available.
  * `impl: "js"`      → the pure-TS implementation is always preferred.
@@ -283,9 +282,9 @@ const deepFreeze = <T>(value: T): T => {
 };
 
 /**
- * Decisions bound once at module load from castrum's `opImpl` (fixed for the
- * process — no runtime switching). `nativeRatio`/`note` live in castrum's
- * `src/selection.json`; here we keep only the bound implementation.
+ * Immutable benchmark priors bound once at module load from castrum's `opImpl`.
+ * Adaptive wrappers keep their learned state elsewhere. `nativeRatio`/`note`
+ * live in castrum's `src/selection.json`; here we keep only the prior.
  *
  * Deep-frozen at module end: the table is read-only DATA (see RULES.md —
  * `SELECTION` is never mutated at runtime), so any accidental write in a

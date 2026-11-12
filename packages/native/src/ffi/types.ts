@@ -1,10 +1,7 @@
 /**
- * @fileoverview C-ABI surface types — the `bun:ffi` transport's contract.
- *
- * Extracted from the pre-split `ffi.ts`: every interface here describes an
- * additive C-ABI surface that `bind.ts` / `routes.ts` / `instances.ts` /
- * `metrics.ts` / `ingress.ts` dlopen lazily. The `@ignex/native` import
- * surface is unchanged (`ffi/index.ts` barrel re-exports each type).
+ * @fileoverview Framework-facing C-ABI adapter contracts. Every surface is
+ * resolved lazily from castrum's shared native bridge; no interface implies a
+ * separate runtime binding. The `@ignex/native` import surface is unchanged.
  */
 
 /** Transport selection for the C-ABI fast path. */
@@ -12,15 +9,6 @@ export type FfiMode = "auto" | "ffi" | "napi";
 
 /** The C-ABI-bound surface (a focused subset of the castrum scalar cores). */
 export interface FfiSurface {
-  /** Fused session seal (undefined when the addon predates the symbols). */
-  sessionSeal?(
-    id: string,
-    dataJson: string,
-    expSecs: bigint | number,
-    secret: string,
-  ): string | null;
-  /** Fused session open (undefined when the addon predates the symbols). */
-  sessionOpen?(token: string, secret: string, out: Uint8Array, outLen: number): number;
   readonly ffiMode: "ffi";
   // hash
   fnv1a64(input: Uint8Array): bigint;
@@ -81,28 +69,30 @@ export interface FfiSurface {
 }
 
 /**
- * The C-ABI per-route surface (`castrum_route_*`). Bound LAZILY in a separate
- * `dlopen` so a castrum build without the route stack (e.g. the registry
- * `^0.9.0`) cannot break the primary `FfiSurface` — `getFfiRoute()` returns
- * `null` and the JS prelude remains the fallback (parity preserved).
+ * The C-ABI per-route surface (`castrum_route_*`), resolved from the shared
+ * bridge. `null` keeps the JS prelude fallback when the stack is unavailable.
  */
 export interface FfiRouteSurface {
   /** Compile a route descriptor → opaque handle (`0n` = failure). */
   routeCompile(descriptor: Uint8Array): bigint;
   /** Run a pre-baked route stack; returns bytes written (`0` = error/too small). */
   routeRun(handle: bigint, frame: Uint8Array, out: Uint8Array): number;
+  /** Run without a packed frame when the addon supports direct components. */
+  routeRunParts?(
+    handle: bigint,
+    query: string,
+    cookie: string,
+    body: Uint8Array | null,
+    out: Uint8Array,
+  ): number;
   /** Release a route handle. */
   routeDestroy(handle: bigint): void;
 }
 
 /**
- * The C-ABI opaque-handle instance surface — castrum's Phase-6 stateful
- * instances evaluate each per-call op through a C-ABI symbol via the opaque
- * inner pointer (`innerPtr()`), collapsing the ~100-350ns NAPI crossing to the
- * ~10-20ns C-ABI crossing. The JS wrapper holds the napi instance alive for
- * the handle's lifetime (same contract as `castrum_route_*`); a null (0)
- * handle never dereferences freed state. Bound LAZILY in a separate `dlopen`
- * so a castrum build lacking these symbols cannot break the primary surface.
+ * The C-ABI opaque-handle instance surface. The JS wrapper holds each NAPI
+ * instance alive for the handle's lifetime; a null (0) handle never
+ * dereferences freed state.
  */
 export interface FfiInstancesSurface {
   /**
@@ -121,18 +111,11 @@ export interface FfiInstancesSurface {
    * context → bytes written (needed-size convention; 0 = real error).
    */
   templateRender(inner: number, context: Uint8Array, out: Uint8Array): number;
-  /**
-   * AcceptNegotiator: best supported encoding → cstring (`null` = identity).
-   * `header` is a `cstring` ARG — the engine transcodes the JS string
-   * in-engine (zero JS encode).
-   */
+  /** AcceptNegotiator: best supported encoding → cstring (`null` = identity). */
   acceptNegotiatorNegotiate(inner: number, header: string): string | null;
   /**
-   * AcceptNegotiator: best supported encoding with SERVER-preference
-   * tie-breaking (ignex `negotiateEncoding` semantics) → cstring (`null` =
-   * identity). Returns `undefined` when the addon lacks the symbol (built
-   * before it existed) so callers fall back to the napi method / JS engine.
-   * `header` is a `cstring` ARG (zero JS encode).
+   * AcceptNegotiator with SERVER-preference tie-breaking. `header` crosses as
+   * a `cstring` ARG (zero JS encode); `null` = identity.
    */
   acceptNegotiatorNegotiateServer(inner: number, header: string): string | null | undefined;
   /**
@@ -162,9 +145,8 @@ export interface FfiInstancesSurface {
 //   - the 48-byte output header is decoded with cached DataView reads (no
 //     TextDecoder, no intermediate objects).
 // The opaque `inner` is the napi `Ingress.ingressInnerPtr()` handle; the JS
-// wrapper holds the napi instance alive for the handle's lifetime (same
-// contract as the route/instance surfaces). Bound LAZILY in a separate dlopen
-// so a build lacking the symbols cannot break the primary surface.
+// wrapper holds the napi instance alive for the handle's lifetime. The writers
+// come from the same castrum bridge as the scalar and route surfaces.
 
 /** The C-ABI ingress pipeline surface. */
 export interface FfiIngressSurface {

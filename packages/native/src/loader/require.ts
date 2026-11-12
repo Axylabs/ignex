@@ -1,14 +1,8 @@
 /**
- * @fileoverview Addon surface guards + Node-API loading — `isNativeSurface`
- * validates a module exposes the expected function surface, `requireAddon`
- * loads a `.node` binary via require (Node-API modules must not be ESM
- * `import`ed), and `reportLoadFailure` routes the one-time failure to the
- * telemetry sink.
- *
- * Extracted from the pre-split `loader.ts` (move-only).
+ * @fileoverview Native module surface guards and load-failure telemetry.
+ * Binary loading itself belongs to castrum's runtime bridge.
  */
 
-import { createRequire } from "node:module";
 import { reportDegradation } from "../telemetry";
 import type { NativeAddon } from "./types";
 
@@ -24,23 +18,11 @@ export const isNativeSurface = (mod: unknown): mod is NativeAddon => {
   );
 };
 
-/** Load a Node-API `.node` binary via require (required for napi modules). */
-export const requireAddon = (nodePath: string): unknown => {
-  const require = createRequire(import.meta.url);
-  const mod = require(nodePath) as { default?: unknown };
-  return mod.default ?? mod;
-};
-
 /** Normalize an entry module into the flat native surface. */
 export const normalize = (mod: unknown): unknown =>
   (mod as { default?: unknown }).default ?? (mod as { rust?: unknown }).rust ?? mod;
 
-/**
- * One-time load-failure report. ALWAYS routed through the telemetry sink
- * (previously debug-gated — a broken addon install degraded every op to JS
- * with zero signal in production); `IGNEX_NATIVE=debug` additionally logs the
- * raw error detail.
- */
+/** One-time load-failure report through the native telemetry sink. */
 let reportedLoadFailure = false;
 export const reportLoadFailure = (err: unknown): void => {
   if (reportedLoadFailure) return;

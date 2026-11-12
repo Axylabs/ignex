@@ -131,6 +131,7 @@ export const createDefaultOptions = (): CompilerOptions => ({
   precompileValidators: true,
   precompileSerializers: true,
   nativeRoutes: false,
+  nativeRoutesAdaptive: false,
 
   hoistConstants: true,
   specializeContext: true,

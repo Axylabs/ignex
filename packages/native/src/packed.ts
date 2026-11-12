@@ -280,9 +280,9 @@ export const unpackByteItems = (packed: Uint8Array): Array<Uint8Array> => {
   return out;
 };
 
-/** Reduce a pair list into a plain object (last value wins per key). */
+/** Reduce a pair list into an inert record (last value wins per key). */
 export const pairsToObject = (pairs: ReadonlyArray<[string, string]>): Record<string, string> => {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (const [k, v] of pairs) out[k] = v;
   return out;
 };

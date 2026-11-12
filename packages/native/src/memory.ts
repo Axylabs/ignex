@@ -20,11 +20,10 @@
  * still import castrum's TS entry and reach the real hooks (mirrors
  * `ingress-binding.ts` / `ffi.ts`).
  *
- * @remarks The loader is consulted per call rather than memoized. Unlike
- * `loadCastrumModule`'s dynamic `import()` (which the runtime caches), its
- * package DIRECTORY resolution re-walks the filesystem on every call. That is
- * accepted here because maintenance is a rare, explicit operation; memoize like
- * `tasks.ts` if a hot caller ever needs it.
+ * @remarks The loader is consulted per call rather than memoized. Module
+ * evaluation is runtime-cached; the core → native dependency-chain fallback is
+ * only resolved when the normal import fails. Maintenance is a rare, explicit
+ * operation; memoize like `tasks.ts` if a hot caller ever needs it.
  */
 import { loadCastrumModule } from "./loader";
 import { reportDegradation } from "./telemetry";

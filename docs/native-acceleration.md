@@ -1,14 +1,14 @@
 # Native acceleration (`@ignex/native` × castrum)
 
 ignex is Rust-accelerated through the **castrum** addon, published on npm as
-`castrum` (pinned via `optionalDependencies: { "castrum": "^0.9.10" }` in
-`packages/native/package.json`; the local dev checkout lives at
-`/home/adeel/poc/castrum` and is wired with `IGNEX_NATIVE_PATH`).
-The `@ignex/native` package is the single, typed bridge over the SAME cdylib's
-two transports: **bun:ffi C-ABI (primary under Bun)** and **Node-API
-(fallback)**. Every native primitive ships with a **byte-compatible pure-TS
-fallback**, so ignex behaves identically with or without Rust. Native is purely
-an acceleration layer — importing it **never throws**.
+`@ignex/castrum` (declared in `packages/native/package.json`
+`optionalDependencies`; the local dev checkout lives at
+`/home/adeel/poc/castrum` and can be selected with `IGNEX_NATIVE_PATH`).
+Castrum owns both runtime transports over the SAME cdylib: **bun:ffi C-ABI
+(primary under Bun)** and **Node-API (fallback)**. `@ignex/native` adapts that
+bridge to framework APIs and selects between native and a **byte-compatible
+pure-TS fallback**, so ignex behaves identically with or without Rust. Native
+is purely an acceleration layer — importing it **never throws**.
 
 ---
 
@@ -16,37 +16,36 @@ an acceleration layer — importing it **never throws**.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  @ignex/core  /  @ignex/compiler  /  apps  (generated servers)   │
-│      │  imports                                                   │
-│      ▼                                                           │
-│  @ignex/native  (wrapper + *Fallback per function)              │
-│      │  getFfi() (bun:ffi C-ABI) → getNative() (NAPI) → JS       │
-│      ▼                                                           │
-│  castrum .node — SAME binary, TWO transports:                   │
-│    • bun:ffi C-ABI (`castrum_*` extern "C"): PRIMARY on Bun      │
-│    • NAPI (napi-rs `require`): fallback (Node / stateful classes)│
+│  @ignex/core  /  @ignex/compiler  /  apps  (generated servers)│
+│      │  imports                                               │
+│      ▼                                                        │
+│  @ignex/native  (API adapters + selection + *Fallback)        │
+│      │  @ignex/castrum/native                                 │
+│      ▼                                                        │
+│  castrum native bridge — SAME binary, TWO transports:         │
+│    • bun:ffi C-ABI (`castrum_*` extern "C"): PRIMARY on Bun   │
+│    • NAPI (napi-rs `require`): fallback (Node / instances)    │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- `packages/native/src/ffi/` binds the **C-ABI fast path**: `bun:ffi`
-  `dlopen`s the resolved `.node` (via `loader.getAddonPath()`) and binds the hot
-  `castrum_*` symbols (`~10-20ns` crossing vs `~100-350ns` NAPI). A bind-time
-  self-test asserts every C-ABI op matches the NAPI output byte-for-byte and
-  disables ffi on any mismatch (`IGNEX_FFI_MODE=ffi` makes failures loud).
-  `runtime.ts` `nativeFor()` returns a Proxy that prefers C-ABI for covered ops
-  and falls through to NAPI for stateful classes (`SchemaValidator`,
-  `TemplateRenderer`, `ConditionalRequest`, …) and Node.
-- `packages/native/src/loader.ts` loads the castrum **`.node` NAPI surface**
-  with `require()`/`process.dlopen` (Node-API modules cannot be ESM-`import`ed
-  in Bun). The binary is located from the installed `@ignex/castrum` package
-  directory (registry `node_modules/@ignex/castrum`, or the local workspace
-  `file:` checkout via
-  `IGNEX_NATIVE_PATH`), **bypassing the tsconfig `paths` mapping**
-  that would otherwise hijack a bare `import("castrum")` at runtime (Bun honors
-  `paths` — a bare import resolved to the `vendor/castrum.d.ts` stub and loaded
-  an empty module). `IGNEX_NATIVE_PATH` overrides resolution (a `.node` path is
-  required, a module specifier is imported). `isNativeAvailable()` reports
-  whether the addon loaded.
+- **`@ignex/castrum/native` owns the runtime boundary.** Its
+  `createNativeBridge()` resolves and loads the addon, detects CPU artifacts,
+  lazily binds and self-tests the C-ABI surface, and guarantees that NAPI
+  instances and opaque C-ABI handles come from the exact same binary. Runtime
+  upgrades therefore change one transport implementation, not framework
+  wrappers. The JS linker keeps `@ignex/castrum` and `@ignex/castrum/native`
+  external so bundling cannot relocate binary discovery into the app's `dist/`.
+  If an isolated install hides the transitive package from the generated entry,
+  a boot-only fallback resolves it through the app's core → native dependency
+  chain; the full integration module uses the same fallback.
+- `packages/native/src/ffi/` contains only framework return-shape adapters for
+  scalar ops, routes, metrics, ingress, and compiled instances. There is no
+  second `dlopen` map or duplicate self-test in Ignex. `IGNEX_FFI_MODE=ffi`
+  keeps forced-transport failures loud; auto mode falls back to NAPI.
+- `packages/native/src/loader/` applies Ignex's environment and never-throws
+  policy. `IGNEX_NATIVE=off` disables native; `IGNEX_NATIVE_PATH` selects a
+  `.node` binary (or a module specifier for compatibility);
+  `isNativeAvailable()` reports whether the addon loaded.
 - Each module captures `const native = getNative()` at import; wrappers call
   `native.fn(...)` / `new native.Class(...)` when present, else the
   `*Fallback`. Buffer→`Uint8Array` is normalized via `toPlain()` so deep-equality
@@ -592,10 +591,11 @@ core default paths):**
 `plugins/native.ts` exports `nativePreflight(options)` — an opt-in
 `IgnexPlugin` that embeds castrum's Rust **8-stage ingress pipeline** (trust /
 IP, CORS, rate-limit, body-guard, JSON-schema, cookies/query) as an `onRequest`
-stage. When native is unavailable the plugin is a **complete no-op** (safe to
-mount everywhere); when available it short-circuits with the pipeline's
-terminal response (204 CORS preflight, 429, 413, 400/422) before the app
-handler runs.
+stage. When native is unavailable, CORS preflight uses a TypeScript fallback;
+other configured enforcement fails closed with 503 rather than silently dropping
+security checks. An unconfigured plugin remains a no-op. When native is available
+it short-circuits with the pipeline's terminal response (204 CORS preflight, 429,
+413, 400/422) before the app handler runs.
 
 ```ts
 import { nativePreflight } from "@ignex/core";
@@ -798,11 +798,13 @@ Synced the latest castrum working-tree changes into `@ignex/native`:
   read as two `getUint32` halves instead of `getBigUint64` — no per-read BigInt
   boxing (~10ns/read off the hot path; bit-identical result).
 - **`NativeRoute.runParts(query, cookie, body)`**: the compiled handlers' hot
-  path packs the route frame from pre-encoded bytes (new
-  `packRouteFramePartsLength`/`packRouteFramePartsInto` wire helpers) — no
-  per-request frame object; `run(frame)` now delegates to the same core. The
-  compiler emits `runParts(...)` for eligible routes, and
-  `parseQuery`/`parseCookies` are exposed on the compiled route.
+  path uses `castrum_route_run_parts` when available, passing query/cookie as
+  engine-transcoded strings and body bytes without allocating or copying a
+  packed frame. Embedded-NUL inputs, NAPI, and older addons retain the original
+  pre-encoded frame path. The compiler emits `runParts(...)` for eligible
+  routes, and `parseQuery`/`parseCookies` are exposed on the compiled route.
+  Measured on Bun 1.4.4: 1.25 → 1.01 µs for a small query+cookie and 9.04 →
+  8.71 µs for 60 query pairs + 30 cookies.
 - **Lean native-stack responder** (`nativeRouteHandler` + the router `native`
   route kind, synced from castrum's `routes/native.ts` + router `native` spec):
   a route whose plan is only parse+verdict (parseQuery/parseCookies/
@@ -829,12 +831,77 @@ cookies — not just validated routes. A schema-less route like
 and seeds `ctx.query` with `NativeQueryParams` (`packages/core/src/data/query.ts`)
 — a read-only URLSearchParams-compatible facade over the native pairs
 (iteration, `.get`/`.has`/`.getAll`/`.size`/`.toString`/`.forEach`, `null` on
-miss for `?? default` parity) with ZERO URLSearchParams construction
-(~1.4µs total, ~4× cheaper). `ctx.cookie` seeds from the native pairs via the
+miss for `?? default` parity) with no URLSearchParams construction on the
+request-parse path (~1.4µs total, ~4× cheaper). `ctx.cookie` seeds from the native pairs via the
 standard lazy cookie jar. When the addon is absent the lazy getters stay —
 byte-parity preserved. This is the same move castrum's router makes (its
 `/api/users` bench route parses query+cookies natively at ~90k RPS vs ~48k for
 the JS `URLSearchParams` path on this host).
+
+### Adaptive primitive execution
+
+`createAdaptiveExecutor` is the reusable synchronous native/JS dispatcher for
+workloads whose crossover depends on payload size. `jsonValid`, `queryPairs`,
+and `queryPairsStats` use it automatically. `SIZE_GATES` supplies the cold-start
+preference; four buckets (the gate boundary, 4 KiB, 64 KiB, and unlimited) then
+learn independently from 1-in-64 sampled calls. Each bucket bootstraps both
+implementations, re-probes the non-preferred one every fourth sample, and only
+switches beyond a 10% hysteresis band. Unsampled calls use a boolean choice with
+no clock read or choice allocation.
+
+Native availability and compatibility probes still win over learning: an
+unavailable addon or an incompatible query decoder always takes the JS path.
+Both paths retain their existing parity contracts, and sampled exceptions still
+propagate after being recorded. Set `IGNEX_ADAPTIVE=off` to
+keep the measured size-gate priors without learning. `IGNEX_SIZE_GATES=off`
+continues to disable both the gates and their adaptive layer, restoring the
+static `SELECTION` decision for emergency rollback.
+
+Use `choose(bytes)` + `record(choice)` in built-in hot paths to avoid callback
+closures, or `execute(bytes, native, js)` for convenience in application code.
+`snapshot()` exposes each bucket's EWMA durations, sample counts, and current
+choice. Learning is process-local and deliberately does not mutate `SELECTION`.
+
+### Adaptive native execution (`nativeRoutesAdaptive`)
+
+`nativeRoutes: true` pins the native-vs-JS choice at AOT time.
+`nativeRoutesAdaptive: true` (implies native emission) keeps the AOT plan
+fixed but lets each **validated** route choose its implementation per request,
+learning from sampled timings under the current system load — the same
+sampled-EWMA + load-aware model castrum's loader uses for its batcher,
+re-expressed in `packages/native/src/route-policy.ts`
+(`createRouteExecutionPolicy`) so the hot path never crosses packages and
+never awaits. How the decision works:
+
+- **Request-size buckets.** Each route models two buckets — small (<512B of
+  query+cookie+body bytes) and large — because the native/JS cost ratio
+  depends on payload size (the FFI crossing amortizes differently).
+- **Sampled measurement, no hot-path cost.** Steady-state requests cost one
+  counter increment + one comparison (no clock read, no allocation). 1-in-64
+  requests per bucket allocate a small choice token that starts the monotonic
+  clock AFTER all request I/O (the bounded body read stays before
+  `chooseExecution`) and closes the span at the END of the prelude — so the
+  native path and the full JS fallback (parse + validate + body prelude) are
+  measured over the same work.
+- **Bootstrap + bounded exploration.** The unmeasured mode is probed first
+  until both have ≥16 samples per bucket; after that the non-preferred mode
+  is probed every 4th sampled request, so the learned comparison never goes
+  stale as load changes.
+- **Hysteresis.** A mode must lead by >10% to take over; inside the band the
+  current preference holds. Load changes (CPU contention, co-tenancy, a
+  castrum build that shifts the native/JS ratio) move the choice with damping
+  instead of oscillating.
+- **Cold-start priors** come from the measured selection ratios (queryPairs
+  x0.28, cookiePairs x0.105, validators x0.007): body-verdict routes start
+  native at every size, query routes start native only in the large bucket,
+  cookie-only routes start JS everywhere — and learning corrects them.
+
+Usage-only preludes (schema-less query/cookie reads) stay static
+always-native: their JS fallback is the context's lazy getters, which would
+record a near-zero "JS" span and poison the model. The learning itself is
+pinned by deterministic injected-clock tests
+(`bunx vitest run packages/native/test/route-policy.test.ts`); benchmark with
+`bench:server` before and after enabling on a real workload.
 
 ## Performance notes
 

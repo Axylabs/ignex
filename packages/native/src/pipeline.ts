@@ -78,9 +78,8 @@ const loadPipelineModule = async (): Promise<CastrumPipelineModule | null> => {
   if (modulePromise) return modulePromise;
   modulePromise = (async () => {
     try {
-      // `loadCastrumModule` resolves the real castrum entry by absolute path,
-      // bypassing the tsconfig `paths` stub that a bare `import("castrum")`
-      // would hit at runtime.
+      // The loader uses the package export, with a core → native dependency-
+      // chain fallback when a bundled app uses isolated dependencies.
       const mod = (await loadCastrumModule()) as CastrumPipelineModule;
       return typeof mod.createPipeline === "function" ? mod : null;
     } catch {

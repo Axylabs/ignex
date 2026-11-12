@@ -99,6 +99,8 @@ describe("per-route native stack (createNativeRoute)", () => {
     const cases: Array<[string, string]> = [
       ["a=1&b=hello%20world", "sid=abc; theme=dark"],
       ["m=%ZZ&n=abc%", ""],
+      ["nul=before\0after", "sid=abc"],
+      ["a=1", "sid=before\0after"],
       ["", 'a=1; "quoted"=val'],
     ];
     for (const [qs, cs] of cases) {
@@ -110,6 +112,61 @@ describe("per-route native stack (createNativeRoute)", () => {
     }
     route.destroy();
   });
+
+  it.skipIf(!available)(
+    "chains query, cookies, and body validation through one reused instance",
+    () => {
+      const route = createNativeRoute(
+        plan({
+          pipeline: ["parseQuery", "parseCookies", "requireJsonBody", "validateBody"],
+          schemas: {
+            body: new TextEncoder().encode(
+              JSON.stringify({
+                type: "object",
+                required: ["x"],
+                properties: { x: { type: "number" } },
+              }),
+            ),
+          },
+        }),
+      );
+      expect(route).not.toBeNull();
+      if (!route) return;
+
+      const body = new TextEncoder().encode('{"x":1}');
+      const first = route.runParts("page=2&q=hello%20world", "sid=abc; theme=dark", body);
+      expect(first).toMatchObject({
+        ok: true,
+        errorCode: 0,
+        bodyValidJson: true,
+        bodyValid: true,
+        queryValid: true,
+        cookieValid: true,
+        query: [
+          ["page", "2"],
+          ["q", "hello world"],
+        ],
+        cookie: [
+          ["sid", "abc"],
+          ["theme", "dark"],
+        ],
+      });
+
+      const second = route.runParts("page=3", "sid=next", body);
+      expect(second.query).toEqual([["page", "3"]]);
+      expect(second.cookie).toEqual([["sid", "next"]]);
+      expect(second.bodyValid).toBe(true);
+
+      const invalid = route.runParts("page=4", "sid=bad", new TextEncoder().encode('{"x":"no"}'));
+      expect(invalid.ok).toBe(false);
+      expect(invalid.errorCode).toBe(422);
+      expect(invalid.bodyValidJson).toBe(true);
+      expect(invalid.bodyValid).toBe(false);
+      expect(invalid.query).toEqual([["page", "4"]]);
+      expect(invalid.cookie).toEqual([["sid", "bad"]]);
+      route.destroy();
+    },
+  );
 
   it.skipIf(!available)("exposes parseQuery/parseCookies from the compiled plan", () => {
     const qOnly = createNativeRoute(plan({ pipeline: ["parseQuery"] }));

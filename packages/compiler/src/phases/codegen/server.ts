@@ -31,6 +31,7 @@ const STRUCTURAL_CORE = [
   "mergeWSLimits",
   "reportFault",
   "resolveServeTls",
+  "totalHeaderBytes",
 ] as const;
 
 /** Symbols needed only when the app config contributes plugins/lifecycle. */
@@ -123,7 +124,7 @@ for (const [__path, __handlers] of Object.entries(__pluginRouteTable)) {
     opts.maxRequestBodySize ?? "DEFAULT_MAX_REQUEST_BODY_SIZE"
   },
   routes: __routes,
-  fetch: __fallback,
+  fetch: ${opts.maxHeaderBytes === undefined ? "__fallback" : "__withHeaderCap(__fallback)"},
 };`);
 
   // HTTPS by default: `resolveServeTls` ran in the header (BEFORE plugin boot,

@@ -33,6 +33,7 @@ import {
   initNative,
   isNativeAvailable,
   jsonPatch,
+  jsonPatchFallback,
   jsonValid,
   jwtSign,
   jwtVerify,
@@ -401,6 +402,29 @@ describe("json", () => {
         ),
       ),
     ).toEqual({ a: 9, c: 3 });
+  });
+
+  it("supports all RFC 6902 operations through the maintained fallback", () => {
+    const result = jsonPatchFallback(
+      '{"foo":{"bar":1},"arr":["a","b"]}',
+      JSON.stringify([
+        { op: "replace", path: "/foo/bar", value: 2 },
+        { op: "add", path: "/arr/-", value: "c" },
+        { op: "copy", from: "/foo/bar", path: "/copied" },
+        { op: "move", from: "/copied", path: "/moved" },
+        { op: "test", path: "/moved", value: 2 },
+        { op: "remove", path: "/foo/bar" },
+      ]),
+    );
+    expect(JSON.parse(result)).toEqual({ foo: {}, arr: ["a", "b", "c"], moved: 2 });
+  });
+
+  it("rejects prototype-pollution paths without modifying global prototypes", () => {
+    for (const path of ["/__proto__/ignexPolluted", "/constructor/prototype/ignexPolluted"]) {
+      const patch = JSON.stringify([{ op: "add", path, value: true }]);
+      expect(() => jsonPatchFallback("{}", patch)).toThrow();
+      expect(({} as Record<string, unknown>).ignexPolluted).toBeUndefined();
+    }
   });
 });
 

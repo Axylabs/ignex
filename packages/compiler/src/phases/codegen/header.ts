@@ -87,8 +87,13 @@ export const stageHeader = (state: CodegenState, opts: CompilerOptions): void =>
   // per request. Declared AFTER `BODY_LIMITS` and `__TRUST_PROXY` (const TDZ —
   // this used to reference `BODY_LIMITS` before initialization and every built
   // server failed to load).
+  header.push(`const __MAX_HEADER_BYTES = ${opts.maxHeaderBytes ?? "undefined"};`);
+  header.push(`const __HEADER_TOO_LARGE_RESPONSE = Response.json(
+  { error: "Request header fields too large", status: 431, code: "HEADER_TOO_LARGE" },
+  { status: 431, headers: { "x-ignex-reason": "header-too-large" } },
+);`);
   header.push(
-    `const __ctxOpts = Object.freeze({ body: BODY_LIMITS, trustProxy: __TRUST_PROXY, cache: new HttpResponseCache() });`,
+    `const __ctxOpts = Object.freeze({ body: BODY_LIMITS, trustProxy: __TRUST_PROXY, maxHeaderBytes: __MAX_HEADER_BYTES, cache: new HttpResponseCache() });`,
   );
 
   // Shared TextEncoder — reused by jsonReply/textReply/htmlReply. The previous

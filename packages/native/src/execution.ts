@@ -16,9 +16,9 @@
  * speed; slower load is acceptable). `createExecutionBackend()` exists for
  * isolated instances (tests, apps that want a frozen snapshot).
  *
- * Note on "pre-bound": each facade method IS the selection-aware wrapper, so
- * the only per-call overhead is a boolean selection check — it keeps the
- * selection table hot-editable without rebuilding the facade.
+ * Each facade method is the selection-aware wrapper. Most use a fixed boolean;
+ * size-gated operations use the allocation-free adaptive fast path instead.
+ * `SELECTION` itself remains immutable.
  */
 
 import {

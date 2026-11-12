@@ -96,9 +96,8 @@ describe("shared castrum ingress binding", () => {
         "-e",
         `
       const { getFfiIngress } = await import('./packages/native/src/ffi/index.ts');
-      const { loadCastrumModule } = await import('./packages/native/src/loader/index.ts');
-      const mod = await loadCastrumModule();
-      const shared = mod.getIngressBinding();
+      const { getNativeBridge } = await import('./packages/native/src/loader/index.ts');
+      const shared = getNativeBridge().getFfi();
       const actual = getFfiIngress();
       console.log(JSON.stringify({ available: !!actual,
         same: !!actual && actual.ingressHandleComponents === shared.ingressHandleComponents

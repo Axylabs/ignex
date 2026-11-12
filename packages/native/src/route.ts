@@ -21,6 +21,11 @@
 import { getFfiRoute } from "./ffi";
 import { getNative } from "./loader";
 import {
+  createRouteExecutionPolicy,
+  type NativeRouteChoice,
+  type RoutePolicySnapshot,
+} from "./route-policy";
+import {
   encodeRouteDescriptor,
   type NativeRouteFrame,
   type NativeRoutePlan,
@@ -36,6 +41,7 @@ import { withScratch } from "./scratch";
 import { reportDegradation } from "./telemetry";
 import { encoder } from "./util";
 
+export type { NativeRouteChoice, RoutePolicySnapshot } from "./route-policy";
 // Re-export the wire types so `./route` is the single import for the per-route
 // stack (the index barrel re-exports from here).
 export type { NativeRouteFrame, NativeRoutePlan, NativeRouteRunResult } from "./route-wire";
@@ -85,13 +91,28 @@ export interface NativeRoute {
    */
   run(frame: NativeRouteFrame): NativeRouteRunResult;
   /**
-   * Convenience (synced from castrum's `native-route.ts` `run(query, cookie,
-   * body)` shape): run the stack from raw request inputs, packing the frame
-   * from pre-encoded bytes — no per-request frame object on the compiled
-   * handlers' hot path.
+   * Run from raw request inputs. The C-ABI path passes components directly;
+   * other transports and embedded-NUL inputs use the packed-frame fallback.
    */
   runParts(query: string, cookie: string, body: Uint8Array | null): NativeRouteRunResult;
-  /** Release the native instance's resources (route dropped / app shutdown). */
+  /**
+   * Adaptive execution gate (`@internal` — consumed by compiler-generated
+   * preludes when `nativeRoutesAdaptive` is on): returns this request's
+   * decision as a bare boolean (steady state — no allocation, no clock read)
+   * or, on sampled requests, a {@link NativeRouteChoice} token that the
+   * generated prelude MUST pass to {@link recordExecution} once its whole
+   * prelude (native or JS path) completed.
+   */
+  chooseExecution(
+    query: string,
+    cookie: string,
+    body: Uint8Array | null,
+  ): boolean | NativeRouteChoice;
+  /** Fold a sampled request's measurement back into the route's cost model. */
+  recordExecution(choice: NativeRouteChoice, endNs: number): void;
+  /** Learned per-bucket state (tests / observatory). */
+  policySnapshot(): readonly RoutePolicySnapshot[];
+  /** Release native resources. Idempotent; subsequent runs throw. */
   destroy(): void;
 }
 
@@ -103,6 +124,7 @@ export interface NativeRoute {
  */
 interface NativeRouteBinding {
   run(frame: Uint8Array, out: Uint8Array): number;
+  runParts?(query: string, cookie: string, body: Uint8Array | null, out: Uint8Array): number;
   destroy(): void;
 }
 
@@ -129,6 +151,7 @@ const bindFfiRoute = (
   // still own the Route class).
   if (!ffi) return null;
   const handle = ffi.routeCompile(descriptor);
+  const runParts = ffi.routeRunParts;
   if (!handle) {
     // Symbols EXIST but the descriptor was refused — a wire-format skew, not a
     // missing surface. Diagnose precisely instead of blaming the build.
@@ -139,6 +162,13 @@ const bindFfiRoute = (
     run(frame, out) {
       return ffi.routeRun(handle, frame, out);
     },
+    ...(runParts
+      ? {
+          runParts(query: string, cookie: string, body: Uint8Array | null, out: Uint8Array) {
+            return runParts(handle, query, cookie, body, out);
+          },
+        }
+      : {}),
     destroy() {
       ffi.routeDestroy(handle);
     },
@@ -183,7 +213,7 @@ const bindNapiRoute = (
  * Compile a route plan into a pre-baked native stack, or `null` when the
  * loaded castrum addon does not ship the route surface. Construction cost is
  * paid at boot (the explicit trade the framework accepts); the per-request
- * hot path is one pooled frame pack + one native call + one decode.
+ * hot path is one native call + one decode, with pooled output on both inputs.
  */
 export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => {
   const descriptor = encodeRouteDescriptor(plan);
@@ -201,15 +231,50 @@ export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => 
     return null;
   }
 
+  return createNativeRouteRuntime(binding, plan);
+};
+
+/** Build request runners over an already-compiled binding. @internal test seam. */
+export const createNativeRouteRuntime = (
+  binding: NativeRouteBinding,
+  plan: NativeRoutePlan,
+): NativeRoute => {
   // The result wire carries a pair section ONLY for the parse stages in the
   // plan (body-only routes are a bare 8-byte header). Decode exactly the
   // sections present so readRouteResult never walks past the wire.
   const hasQuerySection = planHasStage(plan, "parseQuery");
   const hasCookieSection = planHasStage(plan, "parseCookies");
+  // The adaptive cost model (nativeRoutesAdaptive codegen is the only caller
+  // of chooseExecution/recordExecution) — constructed once per route at boot;
+  // static preludes never touch it.
+  const policy = createRouteExecutionPolicy(plan);
+  let active = true;
 
-  // Single pack→run→decode core over PRE-ENCODED query/cookie bytes: the
-  // compiled handlers' hot path encodes once and reuses the bytes for both
-  // the frame-size computation and the pack (no double walk, no frame object).
+  const runAndDecode = (
+    initial: number,
+    run: (out: Uint8Array) => number,
+  ): NativeRouteRunResult => {
+    if (!active) throw new Error("native route: already destroyed");
+    return withScratch(initial, (out) => {
+      const w = run(out);
+      if (w === 0) throw new Error("native route run failed");
+      if (w <= out.length) {
+        return readRouteResult(out.subarray(0, w), {
+          query: hasQuerySection,
+          cookie: hasCookieSection,
+        });
+      }
+      const exact = new Uint8Array(w);
+      const w2 = run(exact);
+      if (w2 === 0) throw new Error("native route run failed");
+      if (w2 > exact.length) throw new Error("native route run: unstable needed size");
+      return readRouteResult(exact.subarray(0, w2), {
+        query: hasQuerySection,
+        cookie: hasCookieSection,
+      });
+    });
+  };
+
   const runPacked = (
     query: Uint8Array,
     cookie: Uint8Array,
@@ -217,36 +282,8 @@ export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => 
   ): NativeRouteRunResult =>
     withScratch(packRouteFramePartsLength(query, cookie, body), (packed) => {
       packRouteFramePartsInto(packed, query, cookie, body);
-      // Both the frame pack and the first result attempt are pooled — neither
-      // the packed frame nor the raw result escapes this call
-      // (`readRouteResult` decodes into fresh JS values: strings + pair
-      // arrays). The TIGHT initial result bound is computed from the packed
-      // wire (no re-encoding): the addon's route writer uses the needed-size
-      // convention (`w > out.length` = EXACT required size), so the common
-      // case is ONE pooled call at ~4 bytes/input byte instead of the old
-      // `len*9` worst-case scratch, and only the rare miss allocates EXACTLY
-      // once and retries (no re-run loop, no 9× over-allocation).
       const { qLen, cLen } = readRouteFrameLengths(packed);
-      const initial = 8 + qLen * 4 + cLen * 4 + 16;
-      return withScratch(initial, (out) => {
-        const w = binding.run(packed, out);
-        if (w === 0) throw new Error("native route run failed");
-        if (w <= out.length) {
-          return readRouteResult(out.subarray(0, w), {
-            query: hasQuerySection,
-            cookie: hasCookieSection,
-          });
-        }
-        // Rare miss: grow EXACTLY to the reported size and retry once.
-        const exact = new Uint8Array(w);
-        const w2 = binding.run(packed, exact);
-        if (w2 === 0) throw new Error("native route run failed");
-        if (w2 > exact.length) throw new Error("native route run: unstable needed size");
-        return readRouteResult(exact.subarray(0, w2), {
-          query: hasQuerySection,
-          cookie: hasCookieSection,
-        });
-      });
+      return runAndDecode(8 + qLen * 4 + cLen * 4 + 16, (out) => binding.run(packed, out));
     });
 
   return {
@@ -258,10 +295,23 @@ export const createNativeRoute = (plan: NativeRoutePlan): NativeRoute | null => 
       return runPacked(q, c, frame.body);
     },
     runParts(query, cookie, body) {
+      const direct = binding.runParts;
+      if (direct && !query.includes("\0") && !cookie.includes("\0")) {
+        return runAndDecode(8 + (query.length + cookie.length) * 4 + 16, (out) =>
+          direct(query, cookie, body, out),
+        );
+      }
       const q = encoder.encode(query);
       const c = encoder.encode(cookie);
       return runPacked(q, c, body);
     },
-    destroy: () => binding.destroy(),
+    chooseExecution: (query, cookie, body) => policy.chooseExecution(query, cookie, body),
+    recordExecution: (choice, endNs) => policy.recordExecution(choice, endNs),
+    policySnapshot: () => policy.snapshot(),
+    destroy() {
+      if (!active) return;
+      active = false;
+      binding.destroy();
+    },
   };
 };

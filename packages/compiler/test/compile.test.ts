@@ -181,6 +181,19 @@ describe("compile (end-to-end)", () => {
   const hasBundler = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
   it.runIf(hasBundler)(
+    "keeps castrum's binary loader outside the generated JS bundle",
+    async () => {
+      const layout = materializeFixture("basic");
+      const result = await buildAsync(baseOptions(layout));
+
+      expect(result.errors).toHaveLength(0);
+      const linked = await Bun.file(join(layout.outDir, "server.js")).text();
+      expect(linked).toContain('import("@ignex/castrum/native")');
+      expect(linked).not.toContain("function addonCandidatesFrom");
+    },
+  );
+
+  it.runIf(hasBundler)(
     "prunes unused runtime helpers via the linker's bundler for constant-only apps",
     async () => {
       const layout = materializeFixture("constant-only");

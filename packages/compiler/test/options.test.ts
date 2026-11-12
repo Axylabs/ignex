@@ -45,6 +45,18 @@ describe("validateOptions", () => {
     expect(value?.production).toBe(true);
   });
 
+  it("preserves request-guard limits without unknown-option warnings", () => {
+    const d = new DiagnosticCollector();
+    const result = validateOptions({ ...valid, handlerTimeoutMs: 250, maxHeaderBytes: 8192 }, d);
+
+    expect(result.ok).toBe(true);
+    expect(d.warnings).toHaveLength(0);
+    if (result.ok) {
+      expect(result.value.handlerTimeoutMs).toBe(250);
+      expect(result.value.maxHeaderBytes).toBe(8192);
+    }
+  });
+
   it("treats removed options (router/cluster/inlineHooks) as unknown and strips them", () => {
     // These options were removed — the compiler no longer accepts them as
     // "deprecated" (they are not part of the surface at all). They fall into

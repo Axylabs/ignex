@@ -1,5 +1,6 @@
 /**
- * @fileoverview Codegen: per-route native prelude (opt-in `nativeRoutes`).
+ * @fileoverview Codegen: per-route native prelude (opt-in `nativeRoutes`,
+ * adaptive via `nativeRoutesAdaptive`).
  *
  * For full-context routes that parse/validate query or cookies, the compiler
  * emits a pre-baked native stack — `createNativeRoute({ pipeline: [...] })` —
@@ -80,8 +81,9 @@ const routeNativeNeeds = (
 /** The emitted numeric body cap — kept identical to the plan's `maxBodyBytes`. */
 
 /**
- * True when this route should get a native prelude: `nativeRoutes` is on and
- * the route parses query/cookies (validated OR merely read by the handler) or
+ * True when this route should get a native prelude: `nativeRoutes` (or the
+ * adaptive `nativeRoutesAdaptive`, which implies emission) is on and the
+ * route parses query/cookies (validated OR merely read by the handler) or
  * validates an unread body. The native stack pre-bakes the exact
  * parse/validate stages the route needs, so a route that only READS query or
  * cookies (no validation — e.g. `ctx.query.get(...)` / `for (const [k, v] of
@@ -91,7 +93,7 @@ const routeNativeNeeds = (
  * for a JS `URLSearchParams` parse on this host).
  */
 export const nativeRouteEligible = (route: RouteIR, opts: CompilerOptions): boolean => {
-  if (!opts.nativeRoutes) return false;
+  if (!opts.nativeRoutes && !opts.nativeRoutesAdaptive) return false;
   const flags = validationFlags(route);
   const { needsQuery, needsCookie, needsBody } = routeNativeNeeds(
     route,
@@ -235,6 +237,7 @@ export const emitNativeValidationPrelude = (
   }
 
   usedCore.add("createNativeRoute");
+  const adaptive = opts.nativeRoutesAdaptive === true;
   const queryValidated = flags.hasQueryValidator || hasPart("query");
   if (needsQuery) {
     // Validated queries become the typed grouped Record; usage-only queries
@@ -263,7 +266,16 @@ export const emitNativeValidationPrelude = (
   if (needsCookie) pre.push(`let __cookies;`);
   if (needsBody) pre.push(`let __bodyValidated = false;`);
   pre.push(
-    ...emitNativeRunBlock(route, opts, flags, needsQuery, needsCookie, needsBody, queryValidated),
+    ...emitNativeRunBlock(
+      route,
+      opts,
+      flags,
+      needsQuery,
+      needsCookie,
+      needsBody,
+      queryValidated,
+      adaptive,
+    ),
   );
   if (queryValidated) {
     pre.push(`if (__query === undefined) {`);
@@ -288,6 +300,17 @@ export const emitNativeValidationPrelude = (
     pre.push(`}`);
   } else {
     pre.push(...emitBodyPrelude(route, flags.hasBodyValidator, hasPart("body")));
+  }
+  if (adaptive) {
+    // Close the sampled span opened at `chooseExecution`: by this point the
+    // request ran EITHER the native path or the full JS fallback (parse +
+    // validate + body prelude), so the cost model compares like for like.
+    // `__choice` stays `false` (boolean) when the addon is absent → the guard
+    // skips without touching `__native`. A thrown verdict (400/422/413) skips
+    // the record — bounded bias, and the error path ends the request anyway.
+    pre.push(
+      `if (typeof __choice === "object") { __native.recordExecution(__choice, Bun.nanoseconds()); }`,
+    );
   }
 
   return pre;

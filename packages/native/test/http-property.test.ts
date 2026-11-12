@@ -53,6 +53,16 @@ describe("queryPairs / parseQuery (property)", () => {
     expect(queryPairs("flag")).toEqual([["flag", ""]]);
     expect(queryPairs("a=%zz")).toEqual([["a", "%zz"]]); // malformed stays raw
   });
+
+  it("keeps hostile keys as own data properties on a null-prototype record", () => {
+    const record = parseQuery("__proto__=hostile&constructor=shadow&safe=value");
+    expect(Object.getPrototypeOf(record)).toBeNull();
+    expect(Object.keys(record)).toEqual(["__proto__", "constructor", "safe"]);
+    expect(record.__proto__).toBe("hostile");
+    expect(record.constructor).toBe("shadow");
+    expect(record.safe).toBe("value");
+    expect(({} as Record<string, unknown>).hostile).toBeUndefined();
+  });
 });
 
 describe("cookiePairs (property)", () => {

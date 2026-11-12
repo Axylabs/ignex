@@ -111,8 +111,9 @@ export const generateRouteCode = (
 
   // Constant responses are hoisted to zero-cost frozen bodies — unless the
   // app has a lifecycle/plugins (hooks would be bypassed), trace headers or
-  // access logging are enabled (need a per-request context), or constant
-  // hoisting is disabled by the optimization level. In those cases the route
+  // access logging are enabled (need a per-request context), a header cap needs
+  // a request wrapper, or constant hoisting is disabled by the optimization
+  // level. In those cases the route
   // falls through to the normal (full or specialized) path.
   //
   // Response-literal hoists are additionally skipped under dev heat capture:
@@ -124,7 +125,8 @@ export const generateRouteCode = (
     constantHoist !== null &&
     !(cfg.heatCapture && constantHoist.kind === "response") &&
     !cfg.enableTraceHeaders &&
-    !cfg.enableAccessLog
+    !cfg.enableAccessLog &&
+    opts.maxHeaderBytes === undefined
   ) {
     emitConstantRoute(state, route, constantHoist);
     return;
@@ -243,8 +245,9 @@ export const generateRouteCode = (
     );
     // Full context: create the context, run the pre-parse lifecycle, then the
     // per-part validation block (native-first prelude when the route is
-    // eligible and `nativeRoutes` is on — the addon pre-bakes the exact
-    // query/cookie pipeline; otherwise the plain JS prelude).
+    // eligible and `nativeRoutes`/`nativeRoutesAdaptive` is on — the addon
+    // pre-bakes the exact query/cookie pipeline; otherwise the plain JS
+    // prelude).
     pre.push(...buildFullContextPrelude(route, routeIsSync, resumeName));
     if (nativeRouteEligible(route, opts)) {
       emitNativeRouteVar(state, route, opts);
