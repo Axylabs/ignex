@@ -33,7 +33,7 @@
     },
     "packages/app": {
       "name": "@ignex/app",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@ignex/core": "workspace:*",
         "@ignex/ninox": "^0.2.0",
@@ -49,7 +49,7 @@
     },
     "packages/cli": {
       "name": "@ignex/cli",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "bin": {
         "ignex": "./bin/ignex.js",
       },
@@ -76,7 +76,7 @@
     },
     "packages/compiler": {
       "name": "@ignex/compiler",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@ignex/native": "workspace:*",
         "@ignex/shared": "workspace:*",
@@ -104,7 +104,7 @@
     },
     "packages/core": {
       "name": "@ignex/core",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@ignex/native": "workspace:*",
         "@ignex/shared": "workspace:*",
@@ -129,7 +129,7 @@
     },
     "packages/create": {
       "name": "create-ignex",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "bin": {
         "create-ignex": "./bin/create-ignex.js",
       },
@@ -139,7 +139,7 @@
     },
     "packages/mcp": {
       "name": "@ignex/mcp",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "bin": {
         "ignex-mcp": "./bin/ignex-mcp.js",
       },
@@ -157,7 +157,7 @@
     },
     "packages/native": {
       "name": "@ignex/native",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "fast-json-patch": "^3.1.1",
       },
@@ -172,7 +172,7 @@
     },
     "packages/shared": {
       "name": "@ignex/shared",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "devDependencies": {
         "typescript": "^7.0.2",
         "vitest": "^5.1.0",
@@ -180,7 +180,7 @@
     },
     "packages/test-utils": {
       "name": "@ignex/test-utils",
-      "version": "0.2.1",
+      "version": "0.2.7",
       "dependencies": {
         "fast-check": "^4.10.2",
       },

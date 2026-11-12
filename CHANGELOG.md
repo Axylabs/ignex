@@ -6,6 +6,8 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-11-12
+
 ### Added
 
 - **Transport-neutral Nova messaging.** The generated FlatBuffer contract now
