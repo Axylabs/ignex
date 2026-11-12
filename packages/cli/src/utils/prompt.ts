@@ -17,6 +17,7 @@
  */
 
 import {
+  type CANCEL_SYMBOL,
   confirm as clackConfirm,
   multiselect as clackMultiselect,
   password as clackPassword,
@@ -74,7 +75,7 @@ const toClackOptions = (options: readonly SelectOption[]) =>
   }));
 
 /** clack resolves Ctrl+C to a cancel symbol — surface it as our own error. */
-const rejectOnCancel = <T>(result: T | symbol): T => {
+const rejectOnCancel = <T>(result: T | typeof CANCEL_SYMBOL): T => {
   if (isCancel(result)) throw new PromptCancelError();
   return result;
 };
@@ -94,7 +95,7 @@ export async function promptText(options: TextPromptOptions): Promise<string> {
     defaultValue: options.initial,
     validate: toClackValidate(options.validate),
   });
-  return rejectOnCancel(value);
+  return rejectOnCancel<string>(value);
 }
 
 export async function promptConfirm(options: ConfirmPromptOptions): Promise<boolean> {
@@ -104,7 +105,7 @@ export async function promptConfirm(options: ConfirmPromptOptions): Promise<bool
     // Keep the original default (No) when the caller doesn't specify one.
     initialValue: options.initial ?? false,
   });
-  return rejectOnCancel(value);
+  return rejectOnCancel<boolean>(value);
 }
 
 export async function promptPassword(options: TextPromptOptions): Promise<string> {
@@ -113,7 +114,7 @@ export async function promptPassword(options: TextPromptOptions): Promise<string
     message: options.message,
     validate: toClackValidate(options.validate),
   });
-  return rejectOnCancel(value);
+  return rejectOnCancel<string>(value);
 }
 
 export async function promptSelect(options: SelectPromptOptions): Promise<string> {
@@ -126,7 +127,7 @@ export async function promptSelect(options: SelectPromptOptions): Promise<string
     options: toClackOptions(options.options),
     initialValue: options.initial,
   });
-  return rejectOnCancel(value);
+  return rejectOnCancel<string>(value);
 }
 
 export async function promptMultiSelect(options: MultiSelectPromptOptions): Promise<string[]> {
@@ -138,5 +139,5 @@ export async function promptMultiSelect(options: MultiSelectPromptOptions): Prom
     initialValues: options.initial ? [...options.initial] : undefined,
     required: false,
   });
-  return rejectOnCancel(values);
+  return rejectOnCancel<string[]>(values);
 }

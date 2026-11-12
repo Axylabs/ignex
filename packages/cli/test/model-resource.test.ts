@@ -86,10 +86,15 @@ test("dbTemplate emits a live db handle + dbPlugin (connects lazily at boot)", (
   expect(code).not.toContain("await service.makeConnections();\n\nexport const db");
   expect(code).toContain("export const db: typeof service.db.primaryClient = new Proxy(");
   expect(code).toContain("value.bind(manager)");
-  expect(code).toContain("export const dbPlugin = (): IgnexPlugin => ({");
+  expect(code).toContain("export const dbPlugin = (): IgnexPlugin => {");
   expect(code).toContain('name: "db"');
   // dbPlugin.init() owns the connection lifecycle (idempotent).
   expect(code).toContain("await service.makeConnections();");
+  // DEBUG builds add wire-level spans through Mongo command monitoring, and
+  // the toolkit carries the host debugQuery hook for logical db spans.
+  expect(code).toContain("monitorCommands: env.DEBUG");
+  expect(code).toContain("instrumentMongoClient(db.mongoClient)");
+  expect(code).toContain("disposeWireMonitoring?.();");
   expect(code).toContain('await db.createSchema("gigs");');
   expect(code).toContain("await service.closeConnections();");
   expect(code).not.toContain("export const db = service.db.primaryClient;");

@@ -1,6 +1,6 @@
 import { createConnection } from "node:net";
 import type { IgnexPlugin } from "@ignex/core";
-import { debugQuery } from "@ignex/core/debug";
+import { debugQuery, instrumentMongoClient } from "@ignex/core/debug";
 import { createMongoToolkit, defineCollections } from "@ignex/ninox";
 import { env } from "./config/env.js";
 import { gigs } from "./models/gigs.js";
@@ -11,9 +11,16 @@ import { gigs } from "./models/gigs.js";
 // The connection URL is read from MONGO_URL (ninox's default — see
 // .env.example), or set dbUrl on the primary definition to override.
 export const { service, migrations } = createMongoToolkit(
-  { primary: { name: "app", collections: defineCollections(gigs) } },
+  {
+    primary: {
+      name: "app",
+      collections: defineCollections(gigs),
+      monitorCommands: env.DEBUG,
+    },
+  },
   {
     cacheWatch: false,
+    debugQuery,
     // Versioned schema migrations live in src/migrations (ignex migrate up).
     migrationDir: "src/migrations",
   },
@@ -33,21 +40,9 @@ export const { service, migrations } = createMongoToolkit(
 // undefined until then, so db is a proxy that resolves the live manager on
 // each access — routes can safely call db.insertOne(...) after boot.
 //
-// DEBUG builds also wrap every manager call in a timed debug span: the span
-// name is `<collection>.<method>`, WHAT WAS SENT is the call args (filter,
-// options, documents) and the result summary (row count / preview) plus
-// duration are recorded automatically. Zero wrapping cost when DEBUG=false.
-
-/** Cap for captured call-arg JSON — huge payloads store a preview instead. */
-const capSent = (args: unknown[]): unknown => {
-  let json: string;
-  try {
-    json = JSON.stringify(args) ?? "[]";
-  } catch {
-    return { note: "unserializable args" };
-  }
-  return json.length > 32_768 ? { preview: `${json.slice(0, 32_768)}…` } : args;
-};
+// Ninox owns logical DB spans through the injected debugQuery hook. The db
+// plugin adds nested wire-level spans through Mongo command monitoring, so no
+// second proxy-level query wrapper is needed here.
 
 export const db: typeof service.db.primaryClient = new Proxy(
   {} as typeof service.db.primaryClient,
@@ -58,17 +53,7 @@ export const db: typeof service.db.primaryClient = new Proxy(
         throw new Error("[ignex] MongoDB is not connected — failed to connect at boot");
       }
       const value = Reflect.get(manager, prop, manager);
-      if (typeof value !== "function") return value;
-      const bound = value.bind(manager);
-      if (!env.DEBUG) return bound;
-      // Debug wrapper: one `db` span per ORM call inside a traced request.
-      return (...args: unknown[]) => {
-        const label =
-          typeof args[0] === "string" && args[0].length > 0
-            ? `${args[0]}.${String(prop)}`
-            : String(prop);
-        return debugQuery(label, capSent(args), () => bound(...args));
-      };
+      return typeof value === "function" ? value.bind(manager) : value;
     },
   },
 );
@@ -117,6 +102,7 @@ const probeMongo = (host: string, port: number, timeoutMs = 800): Promise<boolea
 export const dbPlugin = (): IgnexPlugin => {
   const configuredUrl = process.env.DB_PRIMARY ?? process.env.MONGO_URL;
   const target = mongoHostPort(configuredUrl ?? "mongodb://localhost:27017/");
+  let disposeWireMonitoring: (() => void) | undefined;
   return {
     name: "db",
     async init() {
@@ -132,7 +118,11 @@ export const dbPlugin = (): IgnexPlugin => {
         return;
       }
       try {
-        await service.makeConnections(); // idempotent — reuses the client opened above
+        await service.makeConnections();
+        if (env.DEBUG && disposeWireMonitoring === undefined) {
+          const monitored = instrumentMongoClient(db.mongoClient);
+          disposeWireMonitoring = () => monitored.dispose();
+        }
         await db.createSchema("gigs");
       } catch (err) {
         if (configuredUrl) throw err;
@@ -142,6 +132,8 @@ export const dbPlugin = (): IgnexPlugin => {
       }
     },
     async close() {
+      disposeWireMonitoring?.();
+      disposeWireMonitoring = undefined;
       await service.closeConnections();
     },
   };

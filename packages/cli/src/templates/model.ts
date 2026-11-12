@@ -224,6 +224,7 @@ export const dbTemplate = (name: string): string => {
   const plural = pluralize(name);
   return `import { createMongoToolkit, defineCollections } from "@ignex/ninox";
 import type { IgnexPlugin } from "@ignex/core";
+import { debugQuery, instrumentMongoClient } from "@ignex/core/debug";
 import { env } from "./config/env.js";
 import { ${plural} } from "./models/${plural}.js";
 
@@ -234,9 +235,17 @@ import { ${plural} } from "./models/${plural}.js";
 // automatically when this file is first generated — see .env.example). Point
 // it at your cluster in .env, or override per-client via dbUrl.
 export const { service, migrations } = createMongoToolkit(
-  { primary: { name: "app", dbUrl: env.MONGO_URL, collections: defineCollections(${plural}) } },
+  {
+    primary: {
+      name: "app",
+      dbUrl: env.MONGO_URL,
+      collections: defineCollections(${plural}),
+      monitorCommands: env.DEBUG,
+    },
+  },
   {
     cacheWatch: true,
+    debugQuery,
     // Versioned schema migrations live in src/migrations (ignex migrate up).
     migrationDir: "src/migrations",
   },
@@ -273,16 +282,25 @@ export const db: typeof service.db.primaryClient = new Proxy(
  * Ignex plugin: provision validators/indexes at boot, close at shutdown.
  * Register it in src/app.config.ts (plugins: [..., dbPlugin()]).
  */
-export const dbPlugin = (): IgnexPlugin => ({
-  name: "db",
-  async init() {
-    await service.makeConnections(); // idempotent — reuses the client opened above
-    await db.createSchema("${plural}");
-  },
-  async close() {
-    await service.closeConnections();
-  },
-});
+export const dbPlugin = (): IgnexPlugin => {
+  let disposeWireMonitoring: (() => void) | undefined;
+  return {
+    name: "db",
+    async init() {
+      await service.makeConnections();
+      if (env.DEBUG && disposeWireMonitoring === undefined) {
+        const monitored = instrumentMongoClient(db.mongoClient);
+        disposeWireMonitoring = () => monitored.dispose();
+      }
+      await db.createSchema("${plural}");
+    },
+    async close() {
+      disposeWireMonitoring?.();
+      disposeWireMonitoring = undefined;
+      await service.closeConnections();
+    },
+  };
+};
 
 // Boot convenience: connect + provision validators/indexes (scripts/tests).
 export const initDb = async (): Promise<void> => {
