@@ -10,7 +10,11 @@
 # release yet (fix tracked upstream in micromatch/picomatch#194); when a
 # version > 4.0.7 publishes, remove this entry and bump the lockfile instead
 # of extending the date.
+#
+# NOTE: the expiry key is SCHEMA-PINNED to the scanner image version in
+# ci.yml — v2.7.0 spells it `ignoreUntil`; v2.7.1+ renamed it to
+# `effectiveUntil` (osv-scanner PR #3184). Bump both together.
 [[IgnoredVulns]]
 id = "GHSA-fc5q-39xc-vjpf"
-effectiveUntil = 2026-12-31
+ignoreUntil = 2026-12-31
 reason = "picomatch <= 4.0.7 ReDoS: no fixed release exists yet; picomatch is dev-only in this tree (knip/vitest/vite/@parcel/watcher) and never parses untrusted globs. Revisit when > 4.0.7 publishes."
