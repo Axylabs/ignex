@@ -6,6 +6,24 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI: generated servers boot again where castrum is not resolvable.**
+  `@ignex/native`'s packed-decode read helpers (`ffiBuf`/`ffiString`/`ffiU32`/
+  `ffiU64`) are owned by castrum's `/native` module, but the re-export was a
+  STATIC import — after the AOT linker externalizes `@ignex/castrum*`, every
+  generated server bundle carried a fatal top-level edge to a package the
+  app's dist directory cannot resolve (castrum installs under
+  `packages/native/node_modules`; a workspace-root `bun link` masked this
+  locally). The helpers now resolve castrum lazily — direct require first,
+  then the core → native package ladder — and fall back to byte-identical
+  local implementations (bun:ffi fast reads under Bun, DataView/TextDecoder
+  elsewhere) when it is unreachable. The quality lane's app suites, the
+  fallback lane and the nightly server bench all boot again. The native
+  vitest lane additionally runs under the Bun runtime (`bunx --bun vitest
+  run`) so `IGNEX_FFI_MODE=ffi` means something there: under Node workers
+  castrum rightly refuses the bun:ffi transport, which failed 57 tests.
+
 ## [0.2.7] — 2026-11-12
 
 ### Added
