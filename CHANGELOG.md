@@ -24,6 +24,18 @@ versions adhere to [SemVer](https://semver.org/spec/v2.0.0.html).
   run`) so `IGNEX_FFI_MODE=ffi` means something there: under Node workers
   castrum rightly refuses the bun:ffi transport, which failed 57 tests.
 
+### Changed
+
+- **Supply-chain: clear the six advisories published since the 0.2.7 refresh.**
+  hono moves 4.13.12 → 4.13.19 in-range (five medium advisories fixed in
+  4.13.16; hono is transitive via the MCP SDK). The picomatch ReDoS
+  (GHSA-fc5q-39xc-vjpf, high, no patched release yet) becomes a DATED,
+  reasoned exception on both audit gates — `bun audit --ignore` and a new
+  root `osv-scanner.toml` `IgnoredVulns` (expiry 2026-12-31), so the gate
+  re-fails and forces a revisit when upstream ships the fix. picomatch is
+  dev-only in this tree (knip / vitest / vite / @parcel/watcher) and never
+  parses untrusted globs.
+
 ## [0.2.7] — 2026-11-12
 
 ### Added

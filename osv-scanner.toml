@@ -1,0 +1,16 @@
+# osv-scanner config — audited, dated exceptions to the supply-chain gate
+# (`.github/workflows/ci.yml` `supply-chain` job, passed via `--config`).
+#
+# Every entry needs a reason and an expiry: the ignore self-invalidates on the
+# effectiveUntil date, so the gate re-fails and forces a revisit instead of
+# drifting open forever. Re-add only with a fresh rationale.
+#
+# picomatch is dev-only here (knip / vitest / vite / @parcel/watcher — no
+# shipped surface parses untrusted globs). The ReDoS advisory has NO patched
+# release yet (fix tracked upstream in micromatch/picomatch#194); when a
+# version > 4.0.7 publishes, remove this entry and bump the lockfile instead
+# of extending the date.
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+effectiveUntil = 2026-12-31
+reason = "picomatch <= 4.0.7 ReDoS: no fixed release exists yet; picomatch is dev-only in this tree (knip/vitest/vite/@parcel/watcher) and never parses untrusted globs. Revisit when > 4.0.7 publishes."

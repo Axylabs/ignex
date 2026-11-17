@@ -108,10 +108,13 @@ jobs:
 
       # The repo-root action.yml is Marketplace metadata only — the runnable
       # (docker) action lives in the osv-scanner-action/ subdirectory.
+      # `--config` loads the root `osv-scanner.toml` (dated, reasoned
+      # IgnoredVulns exceptions — currently the unpatched picomatch ReDoS).
       - name: OSV scan
         uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
         with:
           scan-args: |-
+            --config=./osv-scanner.toml
             --recursive
             ./bun.lock
 
@@ -141,9 +144,13 @@ jobs:
       # JS dependency audit: blocks on known high/critical advisories in the
       # resolved tree. Mirrors castrum's audit gate so both repos of the
       # framework meet the same supply-chain bar. Once per push (Linux lane).
+      # --ignore entries are DATED exceptions for advisories with no published
+      # fix; each must mirror an `osv-scanner.toml` IgnoredVulns entry (same
+      # id, same expiry) so both gates revisit together — currently:
+      # GHSA-fc5q-39xc-vjpf (picomatch ReDoS, dev-only paths, no fix yet).
       - name: JS dependency audit
         if: runner.os == 'Linux'
-        run: bun audit --audit-level=high
+        run: bun audit --audit-level=high --ignore=GHSA-fc5q-39xc-vjpf
 
       - name: Typecheck (root)
         run: bun run typecheck
